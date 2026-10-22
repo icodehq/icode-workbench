@@ -1,0 +1,166 @@
+{
+  "work": 12,
+  "startedAt": "2026-10-21T13:41:06.193Z",
+  "runDir": "/tmp/ade-work12-accept-r5n1TW",
+  "steps": [
+    {
+      "name": "register the repository and create two shell sessions",
+      "criterion": "AC1",
+      "status": "passed",
+      "durationMs": 2572,
+      "details": {
+        "first": {
+          "id": "ses_4cb0951c-ee3d-43d7-a06d-8a9aac0da9c0",
+          "state": "live",
+          "incarnation": "b899240c307e6920",
+          "text": "Worktree A\nShell · Live · ade/ses_4cb0951c-ee3d-43d7-a06d-8a9aac0da9c0"
+        },
+        "second": {
+          "id": "ses_8341a9a4-cc79-4ef6-9904-2a9096d7a1cc",
+          "state": "live",
+          "incarnation": "41c87c5081d5c908",
+          "text": "Worktree B\nShell · Live · ade/ses_8341a9a4-cc79-4ef6-9904-2a9096d7a1cc"
+        },
+        "currentWorktree": {
+          "branch": "ade/ses_8341a9a4-cc79-4ef6-9904-2a9096d7a1cc",
+          "status": "active"
+        }
+      }
+    },
+    {
+      "name": "assign distinct branches and worktree paths",
+      "criterion": "AC1",
+      "status": "passed",
+      "durationMs": 21,
+      "details": {
+        "entries": [
+          {
+            "path": "/tmp/ade-work12-accept-r5n1TW/repo",
+            "branch": "main"
+          },
+          {
+            "path": "/tmp/ade-work12-accept-r5n1TW/xdg-config/ade/worktrees/repo_c2ea8556-cab4-4664-8696-da76f448c1c6/ses_4cb0951c-ee3d-43d7-a06d-8a9aac0da9c0",
+            "branch": "ade/ses_4cb0951c-ee3d-43d7-a06d-8a9aac0da9c0"
+          },
+          {
+            "path": "/tmp/ade-work12-accept-r5n1TW/xdg-config/ade/worktrees/repo_c2ea8556-cab4-4664-8696-da76f448c1c6/ses_8341a9a4-cc79-4ef6-9904-2a9096d7a1cc",
+            "branch": "ade/ses_8341a9a4-cc79-4ef6-9904-2a9096d7a1cc"
+          }
+        ]
+      }
+    },
+    {
+      "name": "isolate file writes while both PTYs stay alive",
+      "criterion": "AC2",
+      "status": "passed",
+      "durationMs": 2599,
+      "details": {
+        "aPath": "/tmp/ade-work12-accept-r5n1TW/xdg-config/ade/worktrees/repo_c2ea8556-cab4-4664-8696-da76f448c1c6/ses_4cb0951c-ee3d-43d7-a06d-8a9aac0da9c0",
+        "bPath": "/tmp/ade-work12-accept-r5n1TW/xdg-config/ade/worktrees/repo_c2ea8556-cab4-4664-8696-da76f448c1c6/ses_8341a9a4-cc79-4ef6-9904-2a9096d7a1cc"
+      }
+    },
+    {
+      "name": "keep the same worktree across quit and relaunch",
+      "criterion": "AC4",
+      "status": "passed",
+      "durationMs": 3621,
+      "details": {
+        "incarnation": "b899240c307e6920",
+        "entries": [
+          "main",
+          "ade/ses_4cb0951c-ee3d-43d7-a06d-8a9aac0da9c0",
+          "ade/ses_8341a9a4-cc79-4ef6-9904-2a9096d7a1cc"
+        ]
+      }
+    },
+    {
+      "name": "restart in the same worktree with a new incarnation",
+      "criterion": "AC5",
+      "status": "passed",
+      "durationMs": 307,
+      "details": {
+        "before": "b899240c307e6920",
+        "after": "278d14264c5d0dcf",
+        "branch": "ade/ses_4cb0951c-ee3d-43d7-a06d-8a9aac0da9c0"
+      }
+    },
+    {
+      "name": "block removal while the PTY is live",
+      "criterion": "AC6",
+      "status": "passed",
+      "durationMs": 284,
+      "details": {
+        "tone": "error",
+        "text": "A live terminal blocks removal. Stop the session first."
+      }
+    },
+    {
+      "name": "protect uncommitted work and require an exact discard confirmation",
+      "criterion": "AC7",
+      "status": "passed",
+      "durationMs": 822,
+      "details": {
+        "branch": "ade/ses_4cb0951c-ee3d-43d7-a06d-8a9aac0da9c0"
+      }
+    },
+    {
+      "name": "remove a clean session and retain its branch",
+      "criterion": "AC8",
+      "status": "passed",
+      "durationMs": 775,
+      "details": {
+        "branch": "ade/ses_8341a9a4-cc79-4ef6-9904-2a9096d7a1cc"
+      }
+    },
+    {
+      "name": "delete the retained branch explicitly",
+      "criterion": "AC8",
+      "status": "passed",
+      "durationMs": 236,
+      "details": {
+        "branch": "ade/ses_8341a9a4-cc79-4ef6-9904-2a9096d7a1cc"
+      }
+    },
+    {
+      "name": "clean up without touching unrelated processes or the primary checkout",
+      "criterion": "AC7",
+      "status": "passed",
+      "durationMs": 2555,
+      "details": {
+        "hostPid": 2412447,
+        "worktrees": [
+          "main"
+        ]
+      }
+    }
+  ],
+  "failures": [],
+  "artifacts": [
+    "/home/oliverxu/ade-work12/artifacts/work12/app-initial.log",
+    "/home/oliverxu/ade-work12/artifacts/work12/01-two-sessions.png",
+    "/home/oliverxu/ade-work12/artifacts/work12/02-isolated-writes.png",
+    "/home/oliverxu/ade-work12/artifacts/work12/app-relaunch.log",
+    "/home/oliverxu/ade-work12/artifacts/work12/03-relaunched.png",
+    "/home/oliverxu/ade-work12/artifacts/work12/04-live-removal-blocked.png",
+    "/home/oliverxu/ade-work12/artifacts/work12/05-dirty-blocked.png",
+    "/home/oliverxu/ade-work12/artifacts/work12/06-discarded.png",
+    "/home/oliverxu/ade-work12/artifacts/work12/07-retained-branches.png"
+  ],
+  "criteria": {
+    "AC1": "PASS",
+    "AC2": "PASS",
+    "AC4": "PASS",
+    "AC5": "PASS",
+    "AC6": "PASS",
+    "AC7": "PASS",
+    "AC8": "PASS"
+  },
+  "build": {
+    "executable": "/home/oliverxu/ade-work12/dist/linux-unpacked/ade",
+    "userData": "/tmp/ade-work12-accept-r5n1TW/xdg-config/ade",
+    "worktreeRoot": "/tmp/ade-work12-accept-r5n1TW/xdg-config/ade/worktrees",
+    "gateOverrides": []
+  },
+  "finishedAt": "2026-10-21T13:41:20.026Z",
+  "status": "passed"
+}

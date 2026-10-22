@@ -1,0 +1,63 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-background: #0a0a0a;
+  --color-foreground: #fafafa;
+  --color-card: #171717;
+  --color-card-foreground: #fafafa;
+  --color-muted: #262626;
+  --color-muted-foreground: #a3a3a3;
+  --color-border: rgb(255 255 255 / 0.08);
+  --color-accent: #1447e6;
+  --color-destructive: #f87171;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font-family:
+    Geist, Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 12px;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: rgb(20 71 230 / 0.35);
+}
+
+/* Terminal surface: xterm must fill its pane without inheriting page spacing. */
+.terminal-host .xterm {
+  height: 100%;
+}
+
+.terminal-host .xterm-viewport {
+  scrollbar-width: thin;
+  scrollbar-color: #3f3f46 transparent;
+}
+
+.terminal-host .xterm-screen {
+  outline: none;
+}
+
+select option {
+  background: #171717;
+  color: #fafafa;
+}
+
+*:focus-visible {
+  outline: 1px solid rgb(20 71 230 / 0.8);
+  outline-offset: 1px;
+}

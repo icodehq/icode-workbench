@@ -1,0 +1,743 @@
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
+import type { RuntimeInfo } from '../../../shared/ade-api'
+import type { AppError } from '../../../shared/domain/errors'
+import type { HarnessId } from '../../../shared/domain/harness'
+import { isActiveSessionState, isTerminalSessionState } from '../../../shared/domain/session'
+import { callApi, errorNotice, isAbsolutePathLike } from '../lib/api'
+import {
+  createInitialState,
+  workspaceReducer,
+  type Notice,
+  type WorkspaceState
+} from './workspace'
+
+const REPO_STORAGE_KEY = 'ade.activeRepoId'
+const SESSION_STORAGE_KEY = 'ade.activeSessionId'
+const STOP_RECONCILE_MS = 5000
+
+function readStored(key: string): string | null {
+  try {
+    return window.localStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+function store(key: string, value: string | null): void {
+  try {
+    if (value === null) window.localStorage.removeItem(key)
+    else window.localStorage.setItem(key, value)
+  } catch {
+    // A disabled storage backend must not block the workspace.
+  }
+}
+
+export type CreateSessionRequest = {
+  repoId: string
+  harness: HarnessId
+  title?: string
+}
+
+export function useWorkspace(): {
+  state: WorkspaceState
+  runtime: RuntimeInfo | null
+  creating: boolean
+  addRepository: (path: string) => Promise<boolean>
+  removeRepository: (repoId: string) => Promise<void>
+  confirmRemoval: () => Promise<void>
+  dismissRemoval: () => void
+  createSession: (input: CreateSessionRequest) => Promise<boolean>
+  stopSession: (sessionId: string) => Promise<void>
+  restartSession: (sessionId: string) => Promise<void>
+  recheckSession: (sessionId: string) => Promise<void>
+  requestRemoveSession: (sessionId: string) => Promise<void>
+  discardSession: (sessionId: string, confirmBranch: string) => Promise<boolean>
+  recoverWorktree: (sessionId: string) => Promise<void>
+  dismissSessionCleanup: () => void
+  requestRemoveBranch: (branch: string, confirmBranch?: string) => Promise<void>
+  dismissBranchCleanup: () => void
+  selectRepo: (repoId: string) => void
+  selectSession: (sessionId: string) => void
+  refreshHarnesses: (force: boolean) => Promise<void>
+  refreshAll: () => Promise<void>
+  dismissNotice: () => void
+  reportError: (error: AppError) => void
+} {
+  const [state, dispatch] = useReducer(
+    workspaceReducer,
+    undefined,
+    () =>
+      createInitialState({
+        repoId: readStored(REPO_STORAGE_KEY),
+        sessionId: readStored(SESSION_STORAGE_KEY)
+      })
+  )
+  const [runtime, setRuntime] = useState<RuntimeInfo | null>(null)
+  const [creating, setCreating] = useState(false)
+  const booted = useRef(false)
+  const stopTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>())
+  // Event callbacks are registered once; they read the latest selection here.
+  const stateRef = useRef(state)
+  stateRef.current = state
+
+  /**
+   * Unread is cleared only when a focused window is actually showing the
+   * session. It is idempotent in the main process, so a redundant call is
+   * harmless and a missed one is repaired by the next focus or selection.
+   */
+  const clearUnreadIfFocused = useCallback((sessionId: string | null): void => {
+    if (sessionId === null) return
+    if (typeof document !== 'undefined' && !document.hasFocus()) return
+    void window.ade.activity.clearUnread({ sessionId }).catch(() => undefined)
+  }, [])
+
+  const notify = useCallback((notice: Notice | null) => {
+    dispatch({ type: 'notice', notice })
+  }, [])
+
+  const reportError = useCallback(
+    (error: AppError) => {
+      notify(errorNotice(error))
+    },
+    [notify]
+  )
+
+  const refreshRepos = useCallback(async (): Promise<boolean> => {
+    const result = await callApi(window.ade.repos.list())
+    if (!result.ok) {
+      notify(errorNotice(result.error))
+      return false
+    }
+    dispatch({ type: 'reposLoaded', repos: result.value })
+    return true
+  }, [notify])
+
+  const refreshSessions = useCallback(async (): Promise<boolean> => {
+    const result = await callApi(window.ade.sessions.list({}))
+    if (!result.ok) {
+      notify(errorNotice(result.error))
+      return false
+    }
+    dispatch({
+      type: 'sessionsLoaded',
+      sessions: result.value.sessions,
+      orphans: result.value.orphans
+    })
+    return true
+  }, [notify])
+
+  const refreshBranches = useCallback(async (): Promise<void> => {
+    const repoId = state.activeRepoId
+    if (repoId === null) {
+      dispatch({ type: 'branchesLoaded', branches: [] })
+      return
+    }
+    const result = await callApi(window.ade.branches.list({ repoId }))
+    if (!result.ok) {
+      dispatch({ type: 'branchesLoaded', branches: [] })
+      return
+    }
+    dispatch({ type: 'branchesLoaded', branches: result.value })
+  }, [state.activeRepoId])
+
+  const refreshHarnesses = useCallback(
+    async (force: boolean): Promise<void> => {
+      dispatch({ type: 'harnessesLoading' })
+      const result = await callApi(window.ade.harness.list(force ? { force: true } : {}))
+      if (!result.ok) {
+        dispatch({ type: 'harnessFailed', error: result.error })
+        return
+      }
+      dispatch({ type: 'harnessesLoaded', harnesses: result.value })
+    },
+    []
+  )
+
+  const refreshAll = useCallback(async (): Promise<void> => {
+    dispatch({ type: 'refreshing', value: true })
+    await Promise.all([
+      refreshRepos(),
+      refreshSessions(),
+      refreshHarnesses(false),
+      refreshBranches()
+    ])
+    dispatch({ type: 'refreshing', value: false })
+  }, [refreshBranches, refreshHarnesses, refreshRepos, refreshSessions])
+
+  useEffect(() => {
+    void refreshBranches()
+  }, [state.activeRepoId, refreshBranches])
+
+  // Startup: metadata first, then real Harness probes. Each failure is shown
+  // without blocking the rest of the workspace.
+  useEffect(() => {
+    if (booted.current) return
+    booted.current = true
+    void (async () => {
+      void window.ade
+        .getRuntimeInfo()
+        .then(setRuntime)
+        .catch(() => setRuntime(null))
+
+      const reposOk = await refreshRepos()
+      await refreshSessions()
+      if (!reposOk) {
+        dispatch({ type: 'bootFailed', message: 'Could not load registered repositories.' })
+      } else {
+        dispatch({ type: 'booted' })
+      }
+      await refreshHarnesses(false)
+    })()
+  }, [refreshHarnesses, refreshRepos, refreshSessions])
+
+  useEffect(
+    () =>
+      window.ade.onSessionEvent((event) => {
+        if (event.type === 'state') {
+          dispatch({ type: 'sessionUpserted', session: event.session })
+          if (isTerminalSessionState(event.session.state)) {
+            const timer = stopTimers.current.get(event.session.id)
+            if (timer !== undefined) {
+              clearTimeout(timer)
+              stopTimers.current.delete(event.session.id)
+            }
+          }
+          return
+        }
+        if (event.type === 'activity') {
+          dispatch({
+            type: 'activityUpdated',
+            sessionId: event.sessionId,
+            activity: event.activity
+          })
+          return
+        }
+        if (event.type === 'activity-focus') {
+          dispatch({ type: 'selectSession', sessionId: event.sessionId })
+          clearUnreadIfFocused(event.sessionId)
+        }
+      }),
+    [clearUnreadIfFocused]
+  )
+
+  // The selected session is on screen, so its unread marker is consumed as soon
+  // as the window has focus: on selection, on new activity, and on window focus.
+  const activeActivityUnread =
+    state.sessions.find((entry) => entry.id === state.activeSessionId)?.activity?.unread ??
+    false
+  useEffect(() => {
+    const clear = (): void => {
+      const session = stateRef.current.sessions.find(
+        (entry) => entry.id === stateRef.current.activeSessionId
+      )
+      if (session?.activity?.unread) clearUnreadIfFocused(session.id)
+    }
+    window.addEventListener('focus', clear)
+    clear()
+    return () => window.removeEventListener('focus', clear)
+  }, [activeActivityUnread, clearUnreadIfFocused, state.activeSessionId])
+
+  useEffect(() => {
+    store(REPO_STORAGE_KEY, state.activeRepoId)
+  }, [state.activeRepoId])
+
+  useEffect(() => {
+    store(SESSION_STORAGE_KEY, state.activeSessionId)
+  }, [state.activeSessionId])
+
+  useEffect(() => {
+    const timers = stopTimers.current
+    return () => {
+      for (const timer of timers.values()) clearTimeout(timer)
+      timers.clear()
+    }
+  }, [])
+
+  const selectRepo = useCallback((repoId: string) => {
+    dispatch({ type: 'selectRepo', repoId })
+  }, [])
+
+  const selectSession = useCallback((sessionId: string) => {
+    dispatch({ type: 'selectSession', sessionId })
+  }, [])
+
+  const addRepository = useCallback(
+    async (path: string): Promise<boolean> => {
+      const candidate = path.trim()
+      if (candidate.length === 0) {
+        notify({ tone: 'error', message: 'Enter the absolute path of a Git repository.' })
+        return false
+      }
+      if (!isAbsolutePathLike(candidate)) {
+        notify({
+          tone: 'error',
+          message: 'Repository paths must be absolute.',
+          detail: candidate
+        })
+        return false
+      }
+
+      const existing = state.repos.find((repo) => repo.path === candidate)
+      const result = await callApi(window.ade.repos.add({ path: candidate }))
+      if (!result.ok) {
+        notify(errorNotice(result.error))
+        return false
+      }
+      const reposOk = await refreshRepos()
+      if (!reposOk) return false
+      dispatch({ type: 'selectRepo', repoId: result.value.id })
+      await refreshSessions()
+      notify({
+        tone: 'success',
+        message: existing
+          ? `${result.value.displayName} was already registered.`
+          : `Registered ${result.value.displayName}.`
+      })
+      return true
+    },
+    [notify, refreshRepos, refreshSessions, state.repos]
+  )
+
+  const removeRepository = useCallback(
+    async (repoId: string): Promise<void> => {
+      const result = await callApi(window.ade.repos.remove({ repoId }))
+      if (!result.ok) {
+        notify(errorNotice(result.error))
+        return
+      }
+      const outcome = result.value
+      if (outcome.status === 'removed') {
+        dispatch({ type: 'removalPrompt', prompt: null })
+        notify({ tone: 'success', message: 'Repository removed.' })
+        await Promise.all([refreshRepos(), refreshSessions()])
+        return
+      }
+      if (outcome.status === 'confirmation_required') {
+        const repo = state.repos.find((entry) => entry.id === repoId)
+        dispatch({
+          type: 'removalPrompt',
+          prompt: {
+            repoId,
+            repoName: repo?.displayName ?? repoId,
+            sessions: outcome.sessions
+          }
+        })
+        return
+      }
+      if (outcome.status === 'blocked_live_sessions') {
+        notify({
+          tone: 'error',
+          message: 'This repository still has live sessions. Stop them before removing it.',
+          detail: outcome.sessions.map((session) => session.title).join(', ')
+        })
+        return
+      }
+      if (outcome.status === 'blocked_worktree_changes') {
+        notify({
+          tone: 'error',
+          message: 'Session worktrees still hold unprotected work, so removal was not attempted.',
+          detail: outcome.blockers
+            .map((entry) => `${entry.session.title}: ${entry.blocker.kind}`)
+            .join(', ')
+        })
+        return
+      }
+      notify({
+        tone: 'error',
+        message: 'Could not verify live sessions, so removal was not attempted.',
+        detail: outcome.error.message
+      })
+    },
+    [notify, refreshRepos, refreshSessions, state.repos]
+  )
+
+  const confirmRemoval = useCallback(async (): Promise<void> => {
+    const prompt = state.removal
+    if (!prompt) return
+    const result = await callApi(
+      window.ade.repos.remove({
+        repoId: prompt.repoId,
+        acknowledgeDependentSessions: true
+      })
+    )
+    if (!result.ok) {
+      notify(errorNotice(result.error))
+      return
+    }
+    const outcome = result.value
+    if (outcome.status === 'removed') {
+      dispatch({ type: 'removalPrompt', prompt: null })
+      notify({ tone: 'success', message: `${prompt.repoName} was removed.` })
+      await Promise.all([refreshRepos(), refreshSessions()])
+      return
+    }
+    if (outcome.status === 'blocked_live_sessions') {
+      dispatch({ type: 'removalPrompt', prompt: null })
+      notify({
+        tone: 'error',
+        message: 'Removal was blocked because sessions are still live.',
+        detail: outcome.sessions.map((session) => session.title).join(', ')
+      })
+      return
+    }
+    if (outcome.status === 'blocked_worktree_changes') {
+      dispatch({ type: 'removalPrompt', prompt: null })
+      notify({
+        tone: 'error',
+        message: 'Removal was blocked by session worktrees that still hold work.',
+        detail: outcome.blockers
+          .map((entry) => `${entry.session.title}: ${entry.blocker.kind}`)
+          .join(', ')
+      })
+      return
+    }
+    dispatch({ type: 'removalPrompt', prompt: null })
+    notify({
+      tone: 'error',
+      message: 'Repository removal did not complete.',
+      ...(outcome.status === 'host_unavailable' ? { detail: outcome.error.message } : {})
+    })
+  }, [notify, refreshRepos, refreshSessions, state.removal])
+
+  const dismissRemoval = useCallback(() => {
+    dispatch({ type: 'removalPrompt', prompt: null })
+  }, [])
+
+  /** Ordinary removal: blocks on live, dirty, unmerged, missing or inconsistent worktrees. */
+  const requestRemoveSession = useCallback(
+    async (sessionId: string): Promise<void> => {
+      const session = state.sessions.find((entry) => entry.id === sessionId)
+      const result = await callApi(window.ade.sessions.remove({ sessionId }))
+      if (!result.ok) {
+        notify(errorNotice(result.error))
+        return
+      }
+      const outcome = result.value
+      if (outcome.status === 'removed') {
+        dispatch({ type: 'sessionCleanup', prompt: null })
+        notify({
+          tone: 'success',
+          message: outcome.branch
+            ? `Session removed. Branch ${outcome.branch} was retained.`
+            : 'Session removed.'
+        })
+        await Promise.all([refreshSessions(), refreshBranches()])
+        return
+      }
+      if (outcome.status === 'blocked_live_sessions') {
+        notify({
+          tone: 'error',
+          message: 'A live terminal blocks removal. Stop the session first.'
+        })
+        return
+      }
+      if (outcome.status === 'host_unavailable') {
+        notify({
+          tone: 'error',
+          message: 'The terminal host is unreachable, so the worktree was preserved.',
+          detail: outcome.error.message
+        })
+        return
+      }
+      // Dirty/unmerged/missing/inconsistent: surface exactly what blocks it and
+      // offer only the applicable recovery.
+      dispatch({
+        type: 'sessionCleanup',
+        prompt: {
+          sessionId,
+          title: session?.title ?? outcome.session.title,
+          branch: outcome.session.worktree?.branch ?? '',
+          blocker: outcome.blocker
+        }
+      })
+      await refreshSessions()
+    },
+    [notify, refreshBranches, refreshSessions, state.sessions]
+  )
+
+  const discardSession = useCallback(
+    async (sessionId: string, confirmBranch: string): Promise<boolean> => {
+      const result = await callApi(
+        window.ade.sessions.discard({ sessionId, confirmBranch })
+      )
+      if (!result.ok) {
+        notify(errorNotice(result.error))
+        return false
+      }
+      const outcome = result.value
+      if (outcome.status === 'discarded') {
+        dispatch({ type: 'sessionCleanup', prompt: null })
+        notify({
+          tone: 'success',
+          message: `Worktree discarded. Branch ${outcome.branch} was retained.`,
+          detail: `${String(outcome.files.length)} modified file(s) and ${String(outcome.commits)} unmerged commit(s) were removed with the checkout.`
+        })
+        await Promise.all([refreshSessions(), refreshBranches()])
+        return true
+      }
+      if (outcome.status === 'blocked_worktree') {
+        dispatch({
+          type: 'sessionCleanup',
+          prompt: {
+            sessionId,
+            title: state.sessions.find((entry) => entry.id === sessionId)?.title ?? 'Session',
+            branch: state.sessions.find((entry) => entry.id === sessionId)?.worktree?.branch ?? '',
+            blocker: outcome.blocker
+          }
+        })
+        notify({
+          tone: 'error',
+          message: 'Discard is blocked: the worktree cannot be verified.',
+          detail: outcome.blocker.detail ?? outcome.blocker.kind
+        })
+        return false
+      }
+      notify({
+        tone: 'error',
+        message:
+          outcome.status === 'host_unavailable'
+            ? 'The terminal host is unreachable, so nothing was discarded.'
+            : 'A live terminal blocks discard. Stop the session first.'
+      })
+      return false
+    },
+    [notify, refreshBranches, refreshSessions, state.sessions]
+  )
+
+  const recoverWorktree = useCallback(
+    async (sessionId: string): Promise<void> => {
+      const result = await callApi(window.ade.sessions.recoverWorktree({ sessionId }))
+      if (!result.ok) {
+        notify(errorNotice(result.error))
+        return
+      }
+      dispatch({ type: 'sessionUpserted', session: result.value })
+      dispatch({ type: 'sessionCleanup', prompt: null })
+      notify({
+        tone: 'success',
+        message: 'Worktree re-created from its retained branch. Start the session to continue.'
+      })
+      await refreshSessions()
+    },
+    [notify, refreshSessions]
+  )
+
+  const dismissSessionCleanup = useCallback(() => {
+    dispatch({ type: 'sessionCleanup', prompt: null })
+  }, [])
+
+  const requestRemoveBranch = useCallback(
+    async (branch: string, confirmBranch?: string): Promise<void> => {
+      const repoId = state.activeRepoId
+      if (repoId === null) return
+      const result = await callApi(
+        window.ade.branches.remove({
+          repoId,
+          branch,
+          ...(confirmBranch === undefined ? {} : { confirmBranch })
+        })
+      )
+      if (!result.ok) {
+        notify(errorNotice(result.error))
+        return
+      }
+      const outcome = result.value
+      if (outcome.status === 'removed') {
+        dispatch({ type: 'branchCleanup', prompt: null })
+        notify({ tone: 'success', message: `Branch ${outcome.branch} deleted.` })
+        await refreshBranches()
+        return
+      }
+      if (outcome.status === 'confirmation_required') {
+        dispatch({
+          type: 'branchCleanup',
+          prompt: { repoId, branch: outcome.branch, commits: outcome.commits }
+        })
+        return
+      }
+      if (outcome.status === 'blocked_worktree') {
+        notify({
+          tone: 'error',
+          message: 'A worktree still uses this branch, so it was not deleted.',
+          detail: outcome.path
+        })
+        return
+      }
+      notify({
+        tone: 'error',
+        message: 'ADE does not own this branch, so it will not delete it.'
+      })
+    },
+    [notify, refreshBranches, state.activeRepoId]
+  )
+
+  const dismissBranchCleanup = useCallback(() => {
+    dispatch({ type: 'branchCleanup', prompt: null })
+  }, [])
+
+  const createSession = useCallback(
+    async (input: CreateSessionRequest): Promise<boolean> => {
+      const detection = state.harnesses.find((entry) => entry.harness === input.harness)
+      if (!detection || detection.state !== 'available') {
+        notify({
+          tone: 'error',
+          message: 'That Harness is not available, so no session was started.'
+        })
+        return false
+      }
+      setCreating(true)
+      const result = await callApi(
+        window.ade.sessions.create({
+          repoId: input.repoId,
+          harness: input.harness,
+          ...(input.title && input.title.trim().length > 0 ? { title: input.title.trim() } : {}),
+          cols: 100,
+          rows: 30
+        })
+      )
+      setCreating(false)
+      if (!result.ok) {
+        notify(errorNotice(result.error))
+        // A failed create may still leave a durable failed row; load the truth
+        // rather than adding a phantom session locally.
+        await refreshSessions()
+        if (
+          result.error.code === 'HARNESS_UNAVAILABLE' ||
+          result.error.code === 'HARNESS_DETECTION_FAILED'
+        ) {
+          await refreshHarnesses(true)
+        }
+        return false
+      }
+      dispatch({ type: 'sessionUpserted', session: result.value })
+      dispatch({ type: 'selectSession', sessionId: result.value.id })
+      notify({ tone: 'success', message: `Started ${result.value.title}.` })
+      return true
+    },
+    [notify, refreshHarnesses, refreshSessions, state.harnesses]
+  )
+
+  const stopSession = useCallback(
+    async (sessionId: string): Promise<void> => {
+      const session = state.sessions.find((entry) => entry.id === sessionId)
+      dispatch({ type: 'pendingSet', sessionId, action: 'stopping' })
+      const result = await callApi(window.ade.sessions.close({ sessionId }))
+      if (!result.ok) {
+        dispatch({ type: 'pendingClear', sessionId })
+        notify(errorNotice(result.error))
+        await refreshSessions()
+        return
+      }
+      notify({
+        tone: 'info',
+        message: `Stop requested for ${session?.title ?? 'the session'}. Waiting for the process to exit.`
+      })
+      const existing = stopTimers.current.get(sessionId)
+      if (existing !== undefined) clearTimeout(existing)
+      stopTimers.current.set(
+        sessionId,
+        setTimeout(() => {
+          stopTimers.current.delete(sessionId)
+          void (async () => {
+            const fresh = await callApi(window.ade.sessions.get({ sessionId }))
+            if (!fresh.ok) {
+              dispatch({ type: 'pendingClear', sessionId })
+              notify(errorNotice(fresh.error))
+              await refreshSessions()
+              return
+            }
+            dispatch({ type: 'sessionUpserted', session: fresh.value })
+            if (isActiveSessionState(fresh.value.state)) {
+              dispatch({ type: 'pendingClear', sessionId })
+              notify({
+                tone: 'error',
+                message: 'A stop was requested, but the process is still running.',
+                ...(fresh.value.error ? { detail: fresh.value.error.message } : {})
+              })
+            } else {
+              dispatch({ type: 'pendingClear', sessionId })
+            }
+          })()
+        }, STOP_RECONCILE_MS)
+      )
+    },
+    [notify, refreshSessions, state.sessions]
+  )
+
+  const restartSession = useCallback(
+    async (sessionId: string): Promise<void> => {
+      const session = state.sessions.find((entry) => entry.id === sessionId)
+      const pendingStop = stopTimers.current.get(sessionId)
+      if (pendingStop !== undefined) {
+        clearTimeout(pendingStop)
+        stopTimers.current.delete(sessionId)
+      }
+      dispatch({ type: 'pendingSet', sessionId, action: 'restarting' })
+      const result = await callApi(window.ade.sessions.restart({ sessionId }))
+      dispatch({ type: 'pendingClear', sessionId })
+      if (!result.ok) {
+        notify(errorNotice(result.error))
+        await refreshSessions()
+        return
+      }
+      dispatch({ type: 'sessionUpserted', session: result.value })
+      notify({
+        tone: 'success',
+        message: `Restarted ${session?.title ?? 'the session'}.`
+      })
+    },
+    [notify, refreshSessions, state.sessions]
+  )
+
+  const recheckSession = useCallback(
+    async (sessionId: string): Promise<void> => {
+      const result = await callApi(window.ade.sessions.get({ sessionId }))
+      if (!result.ok) {
+        notify(errorNotice(result.error))
+        await refreshSessions()
+        return
+      }
+      dispatch({ type: 'sessionUpserted', session: result.value })
+      if (isTerminalSessionState(result.value.state)) {
+        notify({
+          tone: 'info',
+          message: `Session is ${result.value.state}.`,
+          ...(result.value.exitCode !== null
+            ? { detail: `Exit code ${String(result.value.exitCode)}.` }
+            : {})
+        })
+      }
+    },
+    [notify, refreshSessions]
+  )
+
+  const dismissNotice = useCallback(() => {
+    dispatch({ type: 'notice', notice: null })
+  }, [])
+
+  return {
+    state,
+    runtime,
+    creating,
+    addRepository,
+    removeRepository,
+    confirmRemoval,
+    dismissRemoval,
+    createSession,
+    stopSession,
+    restartSession,
+    recheckSession,
+    requestRemoveSession,
+    discardSession,
+    recoverWorktree,
+    dismissSessionCleanup,
+    requestRemoveBranch,
+    dismissBranchCleanup,
+    selectRepo,
+    selectSession,
+    refreshHarnesses,
+    refreshAll,
+    dismissNotice,
+    reportError
+  }
+}

@@ -1,0 +1,307 @@
+{
+  "work": 14,
+  "startedAt": "2026-10-21T20:15:05.624Z",
+  "runDir": "/tmp/ade-work14-accept-Vl2nvQ",
+  "steps": [
+    {
+      "name": "launch the packaged app and verify the additive Hook overlay",
+      "criterion": "AC1",
+      "status": "passed",
+      "durationMs": 1318,
+      "details": {
+        "scriptPath": "/tmp/ade-work14-accept-Vl2nvQ/xdg-config/ade/agent-hooks/ade-activity-hook.cjs",
+        "settingsPath": "/tmp/ade-work14-accept-Vl2nvQ/xdg-config/ade/agent-hooks/settings.json"
+      }
+    },
+    {
+      "name": "register the repository and open two shell sessions",
+      "criterion": "AC2",
+      "status": "passed",
+      "durationMs": 3247,
+      "details": {
+        "first": {
+          "id": "ses_bcba75fa-c272-4b14-9847-c55034a51265",
+          "state": "live",
+          "activity": "unknown",
+          "unread": "false",
+          "text": "Activity A\nShell · Live · ade/ses_bcba75fa-c272-4b14-9847-c55034a51265"
+        },
+        "second": {
+          "id": "ses_32cb6fae-f750-4f31-960a-3b4fe8a8e9f9",
+          "state": "live",
+          "activity": "unknown",
+          "unread": "false",
+          "text": "Activity B\nShell · Live · ade/ses_32cb6fae-f750-4f31-960a-3b4fe8a8e9f9"
+        },
+        "initial": {
+          "sessionId": "ses_32cb6fae-f750-4f31-960a-3b4fe8a8e9f9",
+          "focused": true,
+          "header": {
+            "state": "unknown",
+            "tool": "",
+            "unread": "false",
+            "text": "Activity unknown"
+          },
+          "sidebar": {
+            "state": "unknown",
+            "unread": "false",
+            "text": "Activity B\nShell · Live · ade/ses_32cb6fae-f750-4f31-960a-3b4fe8a8e9f9"
+          },
+          "marker": null
+        }
+      }
+    },
+    {
+      "name": "show working with the tool name from PreToolUse",
+      "criterion": "AC3",
+      "status": "passed",
+      "durationMs": 826,
+      "details": {
+        "sessionId": "ses_bcba75fa-c272-4b14-9847-c55034a51265",
+        "focused": true,
+        "header": {
+          "state": "working",
+          "tool": "Edit",
+          "unread": "false",
+          "text": "Working · Edit"
+        },
+        "sidebar": {
+          "state": "working",
+          "unread": "false",
+          "text": "Activity A\nShell · Live · ade/ses_bcba75fa-c272-4b14-9847-c55034a51265\nWorking · Edit"
+        },
+        "marker": {
+          "text": "Working · Edit",
+          "state": "working"
+        }
+      }
+    },
+    {
+      "name": "show waiting and clear unread while the window is focused",
+      "criterion": "AC4",
+      "status": "passed",
+      "durationMs": 428,
+      "details": {
+        "ui": {
+          "sessionId": "ses_bcba75fa-c272-4b14-9847-c55034a51265",
+          "focused": true,
+          "header": {
+            "state": "waiting",
+            "tool": "Bash",
+            "unread": "false",
+            "text": "Needs you"
+          },
+          "sidebar": {
+            "state": "waiting",
+            "unread": "false",
+            "text": "Activity A\nShell · Live · ade/ses_bcba75fa-c272-4b14-9847-c55034a51265\nNeeds you"
+          },
+          "marker": {
+            "text": "Needs you",
+            "state": "waiting"
+          }
+        },
+        "unreadClearedWhileFocused": true
+      }
+    },
+    {
+      "name": "name AskUserQuestion as the reason the agent waits",
+      "criterion": "AC4",
+      "status": "passed",
+      "durationMs": 513,
+      "details": {
+        "sessionId": "ses_bcba75fa-c272-4b14-9847-c55034a51265",
+        "focused": true,
+        "header": {
+          "state": "waiting",
+          "tool": "AskUserQuestion",
+          "unread": "false",
+          "text": "Needs you · AskUserQuestion"
+        },
+        "sidebar": {
+          "state": "waiting",
+          "unread": "false",
+          "text": "Activity A\nShell · Live · ade/ses_bcba75fa-c272-4b14-9847-c55034a51265\nNeeds you"
+        },
+        "marker": {
+          "text": "Needs you",
+          "state": "waiting"
+        }
+      }
+    },
+    {
+      "name": "reject a delayed Stop from an older turn",
+      "criterion": "AC5",
+      "status": "passed",
+      "durationMs": 1714,
+      "details": {
+        "ui": {
+          "sessionId": "ses_bcba75fa-c272-4b14-9847-c55034a51265",
+          "focused": true,
+          "header": {
+            "state": "working",
+            "tool": "Edit",
+            "unread": "false",
+            "text": "Working · Edit"
+          },
+          "sidebar": {
+            "state": "working",
+            "unread": "false",
+            "text": "Activity A\nShell · Live · ade/ses_bcba75fa-c272-4b14-9847-c55034a51265\nWorking · Edit"
+          },
+          "marker": {
+            "text": "Working · Edit",
+            "state": "working"
+          }
+        },
+        "rejectedInLog": true
+      }
+    },
+    {
+      "name": "end the turn as completed and then failed",
+      "criterion": "AC5",
+      "status": "passed",
+      "durationMs": 924,
+      "details": {
+        "sessionId": "ses_bcba75fa-c272-4b14-9847-c55034a51265",
+        "focused": true,
+        "header": {
+          "state": "idle",
+          "tool": "",
+          "unread": "false",
+          "text": "Done · failed"
+        },
+        "sidebar": {
+          "state": "idle",
+          "unread": "false",
+          "text": "Activity A\nShell · Live · ade/ses_bcba75fa-c272-4b14-9847-c55034a51265\nDone · failed"
+        },
+        "marker": {
+          "text": "Done · failed",
+          "state": "idle"
+        }
+      }
+    },
+    {
+      "name": "receive activity from the real claude CLI through the overlay",
+      "criterion": "AC6",
+      "status": "passed",
+      "durationMs": 3833,
+      "details": {
+        "claudeVersion": "2.1.306 (Claude Code)",
+        "ui": {
+          "sessionId": "ses_32cb6fae-f750-4f31-960a-3b4fe8a8e9f9",
+          "focused": true,
+          "header": {
+            "state": "idle",
+            "tool": "",
+            "unread": "false",
+            "text": "Done · failed"
+          },
+          "sidebar": {
+            "state": "idle",
+            "unread": "false",
+            "text": "Activity B\nShell · Live · ade/ses_32cb6fae-f750-4f31-960a-3b4fe8a8e9f9\nDone · failed"
+          },
+          "marker": {
+            "text": "Done · failed",
+            "state": "idle"
+          }
+        },
+        "canary": [
+          "CANARY_USER",
+          "CANARY_STOPFAILURE"
+        ]
+      }
+    },
+    {
+      "name": "keep activity out of lifecycle and reset it when the process ends",
+      "criterion": "AC7",
+      "status": "passed",
+      "durationMs": 572,
+      "details": {
+        "sessionId": "ses_bcba75fa-c272-4b14-9847-c55034a51265",
+        "focused": true,
+        "header": {
+          "state": "unknown",
+          "tool": "",
+          "unread": "false",
+          "text": "Activity unknown"
+        },
+        "sidebar": {
+          "state": "unknown",
+          "unread": "false",
+          "text": "Activity A\nShell · Exited · ade/ses_bcba75fa-c272-4b14-9847-c55034a51265"
+        },
+        "marker": null
+      }
+    },
+    {
+      "name": "clean up without touching the primary checkout or user config",
+      "criterion": "AC8",
+      "status": "passed",
+      "durationMs": 2520,
+      "details": {
+        "hostPid": 3203418,
+        "primaryCheckoutClean": true,
+        "realClaudeSettingsHash": "8ee01b660609a7b5be2f18f68233da402ff7499f076dfb9024ffe8d956a67fb3"
+      }
+    }
+  ],
+  "failures": [],
+  "artifacts": [
+    "/home/oliverxu/ade-work14/artifacts/work14/app.log",
+    "/home/oliverxu/ade-work14/artifacts/work14/01-launched.png",
+    "/home/oliverxu/ade-work14/artifacts/work14/02-unknown.png",
+    "/home/oliverxu/ade-work14/artifacts/work14/03-working.png",
+    "/home/oliverxu/ade-work14/artifacts/work14/04-waiting.png",
+    "/home/oliverxu/ade-work14/artifacts/work14/05-stale-rejected.png",
+    "/home/oliverxu/ade-work14/artifacts/work14/06-done-failed.png",
+    "/home/oliverxu/ade-work14/artifacts/work14/07-real-claude.png",
+    "/home/oliverxu/ade-work14/artifacts/work14/08-lifecycle-independent.png"
+  ],
+  "criteria": {
+    "AC1": "PASS",
+    "AC2": "PASS",
+    "AC3": "PASS",
+    "AC4": "PASS",
+    "AC5": "PASS",
+    "AC6": "PASS",
+    "AC7": "PASS",
+    "AC8": "PASS"
+  },
+  "notRun": {
+    "notifications": "OS notifications are not observable under WSLg/CDP; unit tests cover suppression and dedupe.",
+    "unreadWhileUnfocused": "CDP drives a focused window here; unfocused unread and notification suppression are covered by unit tests.",
+    "realClaudeSuccessfulStop": "The isolated CLI is unauthenticated, so the real turn ends with StopFailure; a completed turn is covered by the shipped Hook probe and unit tests.",
+    "exitPlanMode": "ExitPlanMode needs an authenticated model and an interactive plan approval; only domain mapping is unit-tested.",
+    "relaunchReset": "Activity is in-memory by construction; no packaged relaunch was performed in this smoke."
+  },
+  "build": {
+    "executable": "/home/oliverxu/ade-work14/dist/linux-unpacked/ade",
+    "userData": "/tmp/ade-work14-accept-Vl2nvQ/xdg-config/ade",
+    "hookDirectory": "/tmp/ade-work14-accept-Vl2nvQ/xdg-config/ade/agent-hooks",
+    "xdgConfigHome": "/tmp/ade-work14-accept-Vl2nvQ/xdg-config",
+    "claudeConfigDir": "/tmp/ade-work14-accept-Vl2nvQ/claude-config",
+    "realClaudeSettings": "/home/oliverxu/.claude/settings.json",
+    "realClaudeSettingsHashBefore": "8ee01b660609a7b5be2f18f68233da402ff7499f076dfb9024ffe8d956a67fb3",
+    "isolatedSettingsHashBefore": "a9e3337fa4779df418b768f244ac07e4dd92f2ee10f9033ede4e006cadcf402c",
+    "gateOverrides": []
+  },
+  "overlay": {
+    "scriptPath": "/tmp/ade-work14-accept-Vl2nvQ/xdg-config/ade/agent-hooks/ade-activity-hook.cjs",
+    "settingsPath": "/tmp/ade-work14-accept-Vl2nvQ/xdg-config/ade/agent-hooks/settings.json",
+    "events": [
+      "SessionStart",
+      "UserPromptSubmit",
+      "PreToolUse",
+      "PostToolUse",
+      "PostToolUseFailure",
+      "PermissionRequest",
+      "Stop",
+      "StopFailure"
+    ]
+  },
+  "finishedAt": "2026-10-21T20:15:21.568Z",
+  "status": "passed"
+}
