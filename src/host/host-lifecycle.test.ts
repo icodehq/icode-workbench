@@ -7,6 +7,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   HostStartupError,
   acquireSocketPath,
+  hostPathsFromEnv,
+  hostSocketPath,
   prepareHostDirectory,
   writeToken
 } from './paths'
@@ -90,6 +92,32 @@ describe('startup safety', () => {
     } finally {
       await new Promise<void>((resolve) => listener.close(() => resolve()))
     }
+  })
+
+  it('scopes the socket to the profile when the runtime dir is shared', () => {
+    const runtime = root()
+    const alpha = join(root(), 'alpha', 'run')
+    const beta = join(root(), 'beta', 'run')
+
+    const first = hostPathsFromEnv({ ADE_HOST_DIR: alpha, XDG_RUNTIME_DIR: runtime })
+    const second = hostPathsFromEnv({ ADE_HOST_DIR: beta, XDG_RUNTIME_DIR: runtime })
+
+    expect(first.socket).not.toBe(second.socket)
+    expect(first.socket.startsWith(join(runtime, 'ade'))).toBe(true)
+    // The supervisor derives the same path from the same profile directory.
+    expect(first.socket).toBe(
+      hostSocketPath({ profileDir: alpha, env: { XDG_RUNTIME_DIR: runtime } })
+    )
+  })
+
+  it('lets ADE_HOST_SOCKET override the profile scope on both sides', () => {
+    const explicit = join(root(), 'explicit', 'terminal-host.sock')
+    const paths = hostPathsFromEnv({
+      ADE_HOST_DIR: join(root(), 'alpha', 'run'),
+      ADE_HOST_SOCKET: explicit,
+      XDG_RUNTIME_DIR: root()
+    })
+    expect(paths.socket).toBe(explicit)
   })
 
   it('removes a socket whose recorded owner is dead', async () => {

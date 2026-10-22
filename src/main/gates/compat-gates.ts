@@ -363,6 +363,7 @@ export async function runPackagedSmoke(): Promise<void> {
           },
           host: {
             hostPid: session.hostPid,
+            socket: supervisor.socketPath,
             sessionId: session.sessionId,
             incarnationId: session.incarnationId,
             ptyPid: session.ptyPid,

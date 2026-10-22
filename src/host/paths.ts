@@ -1,7 +1,7 @@
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { connect } from 'node:net'
-import { dirname, join } from 'node:path'
-import { randomBytes } from 'node:crypto'
+import { dirname, join, resolve } from 'node:path'
+import { createHash, randomBytes } from 'node:crypto'
 
 export type HostPaths = {
   dir: string
@@ -33,21 +33,52 @@ export class HostStartupError extends Error {
   }
 }
 
+export const HOST_SOCKET_NAME = 'terminal-host.sock'
+
 /**
- * Socket location: explicit override, then XDG runtime (a Linux filesystem that
- * supports Unix sockets and POSIX modes), then the host's own directory.
+ * Linux `sockaddr_un.sun_path` is 108 bytes including the terminator. Staying
+ * well below that leaves room for a caller's longer XDG_RUNTIME_DIR.
  */
+const MAX_SOCKET_PATH_BYTES = 100
+
+/**
+ * Stable, filesystem-safe identity for one ADE profile directory.
+ *
+ * The runtime directory (`XDG_RUNTIME_DIR`) is shared by every ADE instance the
+ * user runs, so the socket must be namespaced by profile. A truncated digest
+ * keeps the name short, collision-resistant, and valid on any filesystem.
+ */
+export function profileSocketScope(profileDir: string): string {
+  return createHash('sha256').update(resolve(profileDir)).digest('hex').slice(0, 12)
+}
+
+/**
+ * Socket location: explicit override, then a profile-scoped directory on the
+ * XDG runtime filesystem (supports Unix sockets and POSIX modes), then the
+ * profile's own directory.
+ *
+ * The last fallback is still per-profile, so no branch can collide with another
+ * ADE profile that shares the same runtime directory.
+ */
+export function hostSocketPath(options: {
+  profileDir: string
+  env: NodeJS.ProcessEnv
+}): string {
+  const { profileDir, env } = options
+  const explicit = env.ADE_HOST_SOCKET
+  if (explicit && explicit.length > 0) return explicit
+  const xdg = env.XDG_RUNTIME_DIR
+  if (xdg && xdg.length > 0) {
+    const scoped = join(xdg, 'ade', profileSocketScope(profileDir), HOST_SOCKET_NAME)
+    if (Buffer.byteLength(scoped) <= MAX_SOCKET_PATH_BYTES) return scoped
+  }
+  return join(profileDir, HOST_SOCKET_NAME)
+}
+
 export function hostPathsFromEnv(env: NodeJS.ProcessEnv): HostPaths {
   const dir = env.ADE_HOST_DIR
   if (!dir) throw new Error('ADE_HOST_DIR is required')
-  const explicit = env.ADE_HOST_SOCKET
-  const xdg = env.XDG_RUNTIME_DIR
-  const socket =
-    explicit && explicit.length > 0
-      ? explicit
-      : xdg && xdg.length > 0
-        ? join(xdg, 'ade', 'terminal-host.sock')
-        : join(dir, 'terminal-host.sock')
+  const socket = hostSocketPath({ profileDir: dir, env })
   return {
     dir,
     socket,
@@ -159,7 +190,7 @@ function isAlive(pid: number): boolean {
   }
 }
 
-function canConnect(socketPath: string): Promise<'connected' | 'refused' | 'unknown'> {
+export function canConnect(socketPath: string): Promise<'connected' | 'refused' | 'unknown'> {
   return new Promise((resolve) => {
     const socket = connect(socketPath)
     const timer = setTimeout(() => {

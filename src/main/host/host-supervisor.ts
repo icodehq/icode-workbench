@@ -1,7 +1,8 @@
 import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
+import { canConnect, hostSocketPath } from '../../host/paths'
 import { HostClient, HostRequestError } from './host-client'
 
 export type HostMeta = {
@@ -31,14 +32,13 @@ export class HostSupervisor {
     return this.hostDir ?? process.env.ADE_HOST_DIR ?? join(app.getPath('userData'), 'run')
   }
 
+  /**
+   * Scoped to this profile, so two ADE profiles sharing one XDG_RUNTIME_DIR
+   * cannot collide and one can never clean up the other's endpoint.
+   */
   get socketPath(): string {
-    if (process.env.ADE_HOST_SOCKET && process.env.ADE_HOST_SOCKET.length > 0) {
-      return process.env.ADE_HOST_SOCKET
-    }
     // Why: some WSL mounts cannot bind Unix sockets; the runtime dir is a Linux filesystem.
-    const runtimeDir = process.env.XDG_RUNTIME_DIR
-    if (runtimeDir && runtimeDir.length > 0) return join(runtimeDir, 'ade', 'terminal-host.sock')
-    return join(this.directory, 'terminal-host.sock')
+    return hostSocketPath({ profileDir: this.directory, env: process.env })
   }
 
   get tokenPath(): string {
@@ -100,15 +100,38 @@ export class HostSupervisor {
     if (meta && isProcessAlive(meta.pid)) {
       throw new HostRequestError(
         'HOST_UNREACHABLE',
-        `Terminal host ${meta.pid} is running but is not accepting connections`,
+        unreachableMessage(meta, this.socketPath),
         this.logPath
       )
     }
 
-    // Stale handshake files are safe to remove only after the recorded host is confirmed dead.
-    rmSync(this.socketPath, { force: true })
-    rmSync(this.tokenPath, { force: true })
-    rmSync(this.metaPath, { force: true })
+    // Ownership-safe: nothing is unlinked here. The endpoint is probed first, so
+    // a socket this profile cannot prove it owns is never removed. A genuinely
+    // stale socket is removed by the Host itself, which re-checks the same rules
+    // (refused connection plus a dead or absent recorded owner).
+    const present = existsSync(this.socketPath)
+    if (present && !lstatSync(this.socketPath).isSocket()) {
+      throw new HostRequestError(
+        'HOST_UNREACHABLE',
+        `${this.socketPath} exists but is not a Unix socket. Refusing to remove it.`,
+        this.logPath
+      )
+    }
+    const probe = present ? await canConnect(this.socketPath) : 'absent'
+    if (probe === 'connected') {
+      throw new HostRequestError(
+        'HOST_UNREACHABLE',
+        `Another terminal host is listening on ${this.socketPath}, but this profile has no matching credentials. Refusing to replace it.`,
+        this.logPath
+      )
+    }
+    if (probe === 'unknown') {
+      throw new HostRequestError(
+        'HOST_UNREACHABLE',
+        `Cannot prove ${this.socketPath} is stale (the connection attempt was inconclusive). Refusing to remove it.`,
+        this.logPath
+      )
+    }
 
     await this.spawnHost()
     const client = await this.waitForHost()
@@ -195,6 +218,23 @@ export class HostSupervisor {
     this.client?.close()
     this.client = null
   }
+}
+
+/**
+ * Keeps the original diagnostic while making it actionable. A host recorded in
+ * this profile is left untouched: ADE never signals it, and its endpoint stays
+ * in place for whoever still owns it.
+ */
+function unreachableMessage(meta: HostMeta, socketPath: string): string {
+  const endpoint = meta.socket ?? socketPath
+  const moved =
+    meta.socket && meta.socket !== socketPath
+      ? ` (it recorded ${meta.socket}; this profile now uses ${socketPath})`
+      : ` at ${endpoint}`
+  return (
+    `Terminal host ${meta.pid} is running but is not accepting connections${moved}. ` +
+    'ADE will not stop it or remove its endpoint. Save any work in its sessions, stop that process, then retry.'
+  )
 }
 
 function isProcessAlive(pid: number): boolean {

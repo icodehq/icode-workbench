@@ -38,11 +38,14 @@ Ownership:
 
 ### Local endpoint
 
-The host socket prefers `$XDG_RUNTIME_DIR/ade/terminal-host.sock`, with
-`ADE_HOST_SOCKET` as an explicit override and `ADE_HOST_DIR` for token/meta/log
-files. This matters on WSL: `/mnt/d` (DrvFs) cannot bind Unix sockets and does
-not honor `0600`. The default `userData` path is on a Linux filesystem; the gates
-use `/tmp/ade-work1/host` for runtime state while keeping evidence in the repo.
+The host socket prefers `$XDG_RUNTIME_DIR/ade/<profile-scope>/terminal-host.sock`
+(a digest of the profile directory), with `ADE_HOST_SOCKET` as an explicit
+override and `ADE_HOST_DIR` for token/meta/log files. Scoping keeps two ADE
+profiles that share one runtime directory from colliding, so one instance can
+never unlink another's endpoint. This matters on WSL: `/mnt/d` (DrvFs) cannot
+bind Unix sockets and does not honor `0600`. The default `userData` path is on a
+Linux filesystem; the gates use `/tmp/ade-work1/host` for runtime state while
+keeping evidence in the repo.
 
 Authentication uses a 32-byte token in a `0600` file, a versioned hello, and
 timing-safe comparison. Frames are NDJSON with a 4 MiB limit.
@@ -118,8 +121,8 @@ re-attaches to obtain a fresh snapshot.
 
 ### Endpoint and permissions
 
-Socket: `ADE_HOST_SOCKET`, else `$XDG_RUNTIME_DIR/ade/terminal-host.sock`, else
-the host directory. Token: 32 random bytes in a `0600` file; hello uses a
+Socket: `ADE_HOST_SOCKET`, else `$XDG_RUNTIME_DIR/ade/<profile-scope>/terminal-host.sock`,
+else the host directory. Token: 32 random bytes in a `0600` file; hello uses a
 versioned handshake and constant-time comparison. The host verifies effective
 directory and token modes and refuses to start if the filesystem cannot enforce
 `0700/0600` (this is why DrvFs paths are unsupported). A non-socket at the
@@ -417,8 +420,9 @@ Packaged runs use the normal Electron user-data path, not test overrides:
 - Profile: `$XDG_CONFIG_HOME/ade` (defaults to `~/.config/ade`)
 - Database: `<profile>/ade.sqlite`
 - Host runtime directory: `<profile>/run` (mode `0700`)
-- Host socket: `$XDG_RUNTIME_DIR/ade/terminal-host.sock` when set, otherwise
-  `<profile>/run/terminal-host.sock`
+- Host socket: `$XDG_RUNTIME_DIR/ade/<profile-scope>/terminal-host.sock` when
+  set, otherwise `<profile>/run/terminal-host.sock`. The scope is a 12-hex-digit
+  SHA-256 digest of the profile directory.
 
 Quitting the window leaves the detached Host and its PTYs alive; relaunching
 reattaches to the same session incarnation.
