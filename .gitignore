@@ -1,7 +1,28 @@
+# Dependencies and build output
 node_modules/
 out/
 dist/
 .cache/
-artifacts/
+
+# Generated release packages
+*.deb
+*.AppImage
+*.blockmap
+
+# Local acceptance evidence and one-off runs. The curated Work 12-14 summaries
+# and screenshots are tracked and stay reviewable.
+artifacts/*
+!artifacts/work12/
+!artifacts/work13/
+!artifacts/work14/
+# Duplicate/one-off sub-runs inside the curated directories (Work 15 excluded
+# these as not evidence for the Work they sit under).
+artifacts/work12/claude/
+artifacts/work13/worktree/
+
+# Logs and OS noise. The curated Work 12-14 app logs are tracked evidence.
 *.log
+!artifacts/work12/*.log
+!artifacts/work13/*.log
+!artifacts/work14/*.log
 .DS_Store
