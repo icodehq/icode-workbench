@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain, nativeTheme } from 'electron'
 import { join } from 'node:path'
 import { gateHostStart, gateReattach, gateSqlite, runPackagedSmoke } from './gates/compat-gates'
 import { getAppPersistence } from './persistence'
@@ -25,6 +25,32 @@ function installRuntimeInfoHandler(): void {
   }))
 }
 
+/**
+ * The window is painted by the compositor before the renderer has resolved an
+ * appearance, so its background must match the palette the renderer will use.
+ * These two values mirror `--ade-canvas` in `src/renderer/src/assets/main.css`
+ * (A2 Graphite and A2 Paper); keep them in step if the canvas changes.
+ */
+const WINDOW_BACKGROUND = { dark: '#0C0D0F', light: '#F6F5F2' } as const
+
+function windowBackground(useDark: boolean): string {
+  return useDark ? WINDOW_BACKGROUND.dark : WINDOW_BACKGROUND.light
+}
+
+/**
+ * Keeps the native window background in step when the desktop appearance
+ * changes mid-session. Registered once, after `ready`, so a second window on
+ * macOS cannot install a duplicate listener.
+ */
+function watchSystemAppearance(): void {
+  nativeTheme.on('updated', () => {
+    const color = windowBackground(nativeTheme.shouldUseDarkColors)
+    for (const window of BrowserWindow.getAllWindows()) {
+      window.setBackgroundColor(color)
+    }
+  })
+}
+
 function createWindow(): void {
   const window = new BrowserWindow({
     width: 1180,
@@ -32,7 +58,7 @@ function createWindow(): void {
     minWidth: 760,
     minHeight: 480,
     show: process.env.ADE_BACKGROUND_LAUNCH !== '1',
-    backgroundColor: '#0a0a0a',
+    backgroundColor: windowBackground(nativeTheme.shouldUseDarkColors),
     title: 'ADE',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -95,6 +121,9 @@ if (gateFlag || packagedSmoke) {
       }
     })
     app.whenReady().then(async () => {
+      // Registered before the window exists so a live appearance change also
+      // reaches the first window.
+      watchSystemAppearance()
       // Diagnostics stay available even if persistence cannot open, so the
       // renderer can show an actionable error instead of a blank window.
       installRuntimeInfoHandler()

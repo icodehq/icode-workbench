@@ -1,23 +1,169 @@
 @import 'tailwindcss';
 
-@theme {
-  --color-background: #0a0a0a;
-  --color-foreground: #fafafa;
-  --color-card: #171717;
-  --color-card-foreground: #fafafa;
-  --color-muted: #262626;
-  --color-muted-foreground: #a3a3a3;
-  --color-border: rgb(255 255 255 / 0.08);
+/*
+ * Instrument A2 appearance (Work 26, approved in Work 27).
+ *
+ * The palette below is copied from the approved A2 prototype. Do not
+ * approximate these values: the prototype is the specification, so any change
+ * here is a design change and needs a documented decision.
+ *
+ * Dark is the default because the window is created dark before the renderer
+ * has resolved an appearance; light is opt-in through `[data-theme='light']`,
+ * which `src/renderer/src/theme/apply-theme.ts` sets from the OS preference.
+ */
+
+@theme inline {
+  --color-background: var(--ade-canvas);
+  --color-foreground: var(--ade-ink-1);
+  --color-card: var(--ade-panel);
+  --color-card-foreground: var(--ade-ink-1);
+  --color-muted: var(--ade-raised);
+  --color-muted-foreground: var(--ade-ink-2);
+  --color-border: var(--ade-line);
+  --color-destructive: var(--ade-danger);
+
+  /*
+   * NOTE: A2 defines no accent hue, but eight call sites still paint filled
+   * primary buttons and input focus rings with `bg-accent` / `focus:border-accent`
+   * (App.tsx, AddRepositoryDialog, NewSessionDialog, TopBar). Those components
+   * are outside this Work, so the existing value is retained unchanged rather
+   * than replaced with an invented one. W-3 resolves it when it restyles those
+   * buttons onto A2's outlined control treatment.
+   */
   --color-accent: #1447e6;
-  --color-destructive: #f87171;
+}
+
+@theme {
   --radius-md: 6px;
   --radius-lg: 10px;
 }
 
+/* ---------------------------------------------------------------- dark ---- */
 :root {
   color-scheme: dark;
+
+  /* Surfaces, lowest to highest. */
+  --ade-canvas: #0C0D0F;
+  --ade-panel: #131519;
+  --ade-raised: #1A1D22;
+  --ade-overlay: #22262C;
+
+  /* Hairline that separates two surfaces, and the border of a control. */
+  --ade-line: #2B313A;
+  --ade-line-strong: #3C444F;
+
+  /*
+   * Terminal scrollbar thumb. Kept separate from `--ade-line-strong`: a control
+   * border is a decorative separator, while a scrollbar is a UI control that
+   * needs 3:1 against the surface it sits on. Defined here per appearance so it
+   * still resolves while the terminal colours come from xterm itself.
+   */
+  --ade-terminal-scrollbar: #556170;
+
+  /* Text, most to least prominent. */
+  --ade-ink-1: #EDEEF0;
+  --ade-ink-2: #9AA0A6;
+  --ade-ink-3: #8B9198;
+
+  /* Interaction. */
+  --ade-sel: #1E222A;
+  --ade-hover: #191D23;
+  --ade-focus: #FFA23A;
+
+  /* A human is needed: agent waiting, or an unread completion. */
+  --ade-signal: #FFA23A;
+  --ade-signal-weak: rgba(255, 162, 58, 0.13);
+  --ade-signal-line: rgba(255, 162, 58, 0.42);
+
+  /* Failure. */
+  --ade-danger: #F2726F;
+
+  /* Diff. */
+  --ade-add: #4CC38A;
+  --ade-add-weak: rgba(76, 195, 138, 0.085);
+  --ade-remove: #F2726F;
+  --ade-remove-weak: rgba(242, 114, 111, 0.085);
+
+  /*
+   * Neutral lifecycle tones. A2 carries liveness with ink weight and the state
+   * rail rather than a dedicated hue, so "working" is not a colour of its own.
+   */
+  --ade-state-live: var(--ade-ink-2);
+  --ade-state-working: var(--ade-ink-2);
+  --ade-state-idle: var(--ade-ink-3);
+  --ade-rail-off: #3A4048;
+
+  /*
+   * Text selection is not specified by A2. Derived from ink-2 so the highlight
+   * stays neutral and does not overload `signal`, which means "a human is
+   * needed".
+   */
+  --ade-selection: rgba(154, 160, 166, 0.3);
+
+  --ade-shadow-overlay: 0 16px 40px rgba(0, 0, 0, 0.55);
 }
 
+/* --------------------------------------------------------------- light ---- */
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  --ade-canvas: #F6F5F2;
+  --ade-panel: #FCFBF9;
+  --ade-raised: #FFFFFF;
+  --ade-overlay: #FFFFFF;
+
+  --ade-line: #D2CCC1;
+  --ade-line-strong: #C0B9AC;
+  --ade-terminal-scrollbar: #948B7B;
+
+  --ade-ink-1: #17181A;
+  --ade-ink-2: #5C6167;
+  --ade-ink-3: #575D64;
+
+  --ade-sel: #ECE9E3;
+  --ade-hover: #F1EEE8;
+  --ade-focus: #9A4508;
+
+  --ade-signal: #9A4508;
+  --ade-signal-weak: rgba(154, 69, 8, 0.1);
+  --ade-signal-line: rgba(154, 69, 8, 0.36);
+
+  --ade-danger: #B42318;
+
+  --ade-add: #14702F;
+  --ade-add-weak: rgba(20, 112, 47, 0.075);
+  --ade-remove: #B42318;
+  --ade-remove-weak: rgba(180, 35, 24, 0.075);
+
+  --ade-state-live: var(--ade-ink-2);
+  --ade-state-working: var(--ade-ink-2);
+  --ade-state-idle: var(--ade-ink-3);
+  --ade-rail-off: #B9B3A8;
+
+  --ade-selection: rgba(92, 97, 103, 0.2);
+
+  --ade-shadow-overlay: 0 18px 44px rgba(40, 32, 20, 0.16);
+}
+
+/*
+ * Pre-initialisation frame.
+ *
+ * The page is served with the policy `script-src 'self'` and no
+ * 'unsafe-inline', so there is no inline bootstrap that could set the theme
+ * before the first paint. The module in main.tsx runs before React renders any
+ * content, but the empty page can still paint once, and on a light desktop a
+ * dark canvas is a visible flash. Only the canvas is corrected here: no text
+ * exists before the module runs, and duplicating the whole light palette would
+ * create a second place for the values to drift.
+ */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    color-scheme: light;
+    --ade-canvas: #F6F5F2;
+  }
+}
+
+/* ------------------------------------------------------------- base ------- */
 html,
 body,
 #root {
@@ -26,16 +172,18 @@ body,
 
 body {
   margin: 0;
-  background: var(--color-background);
-  color: var(--color-foreground);
+  background: var(--ade-canvas);
+  color: var(--ade-ink-1);
   font-family:
     Geist, Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size: 12px;
+  /* A2 sets tabular figures on the artboard root so counts never shift width. */
+  font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
 }
 
 ::selection {
-  background: rgb(20 71 230 / 0.35);
+  background: var(--ade-selection);
 }
 
 /* Terminal surface: xterm must fill its pane without inheriting page spacing. */
@@ -45,7 +193,7 @@ body {
 
 .terminal-host .xterm-viewport {
   scrollbar-width: thin;
-  scrollbar-color: #3f3f46 transparent;
+  scrollbar-color: var(--ade-terminal-scrollbar) transparent;
 }
 
 .terminal-host .xterm-screen {
@@ -53,11 +201,12 @@ body {
 }
 
 select option {
-  background: #171717;
-  color: #fafafa;
+  background: var(--ade-panel);
+  color: var(--ade-ink-1);
 }
 
+/* A2 focus treatment: a 2px signal ring with a 1px offset. */
 *:focus-visible {
-  outline: 1px solid rgb(20 71 230 / 0.8);
+  outline: 2px solid var(--ade-focus);
   outline-offset: 1px;
 }

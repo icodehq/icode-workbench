@@ -1,33 +1,89 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { FitAddon } from '@xterm/addon-fit'
-import { Terminal } from '@xterm/xterm'
+import { Terminal, type ITheme } from '@xterm/xterm'
 import { AlertTriangle, Loader2, RefreshCw } from 'lucide-react'
 import type { AppError } from '../../../shared/domain/errors'
 import type { SessionSummary } from '../../../shared/schemas/ipc'
 import { SessionTerminal, type TerminalStatus } from '../terminal/session-terminal'
 
-const TERMINAL_THEME = {
-  background: '#0a0a0a',
-  foreground: '#e5e5e5',
-  cursor: '#fafafa',
-  cursorAccent: '#0a0a0a',
-  selectionBackground: 'rgba(20, 71, 230, 0.35)',
-  black: '#171717',
-  red: '#f87171',
-  green: '#4ade80',
-  yellow: '#facc15',
-  blue: '#60a5fa',
-  magenta: '#c084fc',
-  cyan: '#22d3ee',
-  white: '#e5e5e5',
-  brightBlack: '#737373',
-  brightRed: '#fca5a5',
-  brightGreen: '#86efac',
-  brightYellow: '#fde047',
-  brightBlue: '#93c5fd',
-  brightMagenta: '#d8b4fe',
-  brightCyan: '#67e8f9',
-  brightWhite: '#fafafa'
+/**
+ * Terminal palettes, one per application appearance.
+ *
+ * These are a terminal-specific extension of Instrument A2 rather than A2
+ * itself: the prototype defines the application surface but never renders a
+ * terminal, so its tokens do not cover ANSI, cursor or selection colours. Each
+ * background equals the A2 canvas for that appearance, which is what keeps the
+ * pane wrapper, the status chips and the error overlay coherent without any
+ * component-level colour work.
+ *
+ * Every ANSI colour in the light palette was measured against `#F6F5F2` and
+ * clears 4.5:1; the dark palette keeps the previously shipped colours except
+ * `brightBlack`, raised from `#737373` (4.10:1) to `#8A8A8A` (5.63:1) because it
+ * is the colour of comments and dimmed metadata. The two documented exceptions
+ * are deliberate and are not text colours: dark `black` is the terminal's own
+ * background, and light `white`/`brightWhite` are dark inks so that default text
+ * remains readable on paper.
+ */
+export const TERMINAL_THEMES: Record<'light' | 'dark', ITheme> = {
+  light: {
+    background: '#F6F5F2',
+    foreground: '#17181A',
+    cursor: '#17181A',
+    cursorAccent: '#F6F5F2',
+    selectionBackground: 'rgba(92, 97, 103, 0.32)',
+    selectionInactiveBackground: 'rgba(92, 97, 103, 0.16)',
+    black: '#24292F',
+    red: '#B42318',
+    green: '#14702F',
+    yellow: '#8F6200',
+    blue: '#0550AE',
+    magenta: '#7340CD',
+    cyan: '#0E6E7A',
+    white: '#3D4348',
+    brightBlack: '#666C73',
+    brightRed: '#8C1D18',
+    brightGreen: '#0B5A26',
+    brightYellow: '#6B4600',
+    brightBlue: '#033D82',
+    brightMagenta: '#6633B3',
+    brightCyan: '#0A5560',
+    brightWhite: '#17181A'
+  },
+  dark: {
+    background: '#0C0D0F',
+    foreground: '#E5E5E5',
+    cursor: '#FAFAFA',
+    cursorAccent: '#0C0D0F',
+    selectionBackground: 'rgba(154, 160, 166, 0.38)',
+    selectionInactiveBackground: 'rgba(154, 160, 166, 0.22)',
+    black: '#171717',
+    red: '#F87171',
+    green: '#4ADE80',
+    yellow: '#FACC15',
+    blue: '#60A5FA',
+    magenta: '#C084FC',
+    cyan: '#22D3EE',
+    white: '#E5E5E5',
+    brightBlack: '#8A8A8A',
+    brightRed: '#FCA5A5',
+    brightGreen: '#86EFAC',
+    brightYellow: '#FDE047',
+    brightBlue: '#93C5FD',
+    brightMagenta: '#D8B4FE',
+    brightCyan: '#67E8F9',
+    brightWhite: '#FAFAFA'
+  }
+}
+
+/**
+ * The appearance the document is currently in.
+ *
+ * `main.tsx` resolves the theme before React renders, so the attribute is
+ * always present here; the fallback only guards against the pane being rendered
+ * outside that entry point (tests, storybook-style harnesses).
+ */
+function currentThemeName(): 'light' | 'dark' {
+  return document.documentElement.dataset.theme === 'light' ? 'light' : 'dark'
 }
 
 type Props = {
@@ -82,7 +138,7 @@ export default function TerminalPane({ session, active, onError }: Props): React
       fontSize: 12,
       lineHeight: 1.25,
       scrollback: 5000,
-      theme: TERMINAL_THEME
+      theme: { ...TERMINAL_THEMES[currentThemeName()] }
     })
     const fitAddon = new FitAddon()
     term.loadAddon(fitAddon)
@@ -126,7 +182,21 @@ export default function TerminalPane({ session, active, onError }: Props): React
     })
     observer.observe(container)
 
+    // xterm compares the `theme` option by reference, so a fresh object is
+    // required for the update to be applied. Assigning the option only rewrites
+    // xterm's colour cache and repaints: the buffer, scrollback, cursor position
+    // and the PTY are untouched, which is why the theme is updated in place
+    // rather than by re-creating the terminal.
+    const themeObserver = new MutationObserver(() => {
+      term.options.theme = { ...TERMINAL_THEMES[currentThemeName()] }
+    })
+    themeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme']
+    })
+
     return () => {
+      themeObserver.disconnect()
       observer.disconnect()
       resizeDisposable.dispose()
       inputDisposable.dispose()
