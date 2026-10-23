@@ -27,7 +27,13 @@ export function findExecutable(
   if (name.includes('/') || name.includes('\\')) return null
   const pathValue = env.PATH ?? env.Path ?? ''
   const dirs = pathValue.split(delimiter).filter((dir) => dir.length > 0)
-  const candidates = platform === 'win32' ? (env.PATHEXT ?? '.EXE;.CMD;.BAT').split(';') : ['']
+  // A name that already carries an extension must not have every PATHEXT
+  // extension appended to it: `powershell.exe` was searched as
+  // `powershell.exe.EXE`, so the default shell could never be found and ADE
+  // silently fell back to cmd.exe.
+  const hasExtension = /\.[A-Za-z0-9]+$/u.test(name)
+  const candidates =
+    platform === 'win32' && !hasExtension ? (env.PATHEXT ?? '.EXE;.CMD;.BAT').split(';') : ['']
 
   for (const dir of dirs) {
     for (const extension of candidates) {
