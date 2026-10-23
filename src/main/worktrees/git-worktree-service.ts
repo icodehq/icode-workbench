@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { mkdirSync, readdirSync, realpathSync, rmdirSync, statSync } from 'node:fs'
+import { mkdirSync, readdirSync, rmdirSync, statSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { promisify } from 'node:util'
 import { makeAppError, type AppError } from '../../shared/domain/errors'
@@ -8,6 +8,7 @@ import type {
   WorktreeInspection
 } from '../../shared/domain/worktree'
 import { SessionServiceError } from '../sessions/session-errors'
+import { samePathResolved } from './worktree-status'
 
 const execFileAsync = promisify(execFile)
 const READ_TIMEOUT_MS = 10_000
@@ -143,7 +144,7 @@ export class GitWorktreeService {
     await this.runExclusive(input.primaryRoot, async () => {
       if (this.isDirectory(input.path)) {
         const registered = await this.listWorktrees(input.primaryRoot).catch(() => [])
-        if (registered.some((entry) => samePath(entry.path, input.path))) {
+        if (registered.some((entry) => samePathResolved(entry.path, input.path))) {
           throw new SessionServiceError(
             makeAppError('WORKTREE_INCONSISTENT', 'The worktree already exists; nothing to recover.', {
               detail: input.path
@@ -209,7 +210,7 @@ export class GitWorktreeService {
   }): Promise<WorktreeInspection> {
     const pathExists = this.isDirectory(input.path)
     const registeredWorktrees = await this.listWorktrees(input.primaryRoot).catch(() => [])
-    const registered = registeredWorktrees.some((entry) => samePath(entry.path, input.path))
+    const registered = registeredWorktrees.some((entry) => samePathResolved(entry.path, input.path))
     if (!pathExists) {
       return { pathExists, registered, headOid: null, dirtyFiles: [], unmergedCommits: null }
     }
@@ -291,7 +292,7 @@ export class GitWorktreeService {
     registerRoot: string
   }): Promise<void> {
     const topLevel = await this.git(input.path, ['rev-parse', '--show-toplevel'], READ_TIMEOUT_MS)
-    if (!samePath(topLevel, input.path)) {
+    if (!samePathResolved(topLevel, input.path)) {
       throw new SessionServiceError(
         makeAppError('WORKTREE_INCONSISTENT', 'The created worktree does not resolve to its recorded path.', {
           detail: topLevel
@@ -307,7 +308,7 @@ export class GitWorktreeService {
       )
     }
     const registered = await this.listWorktrees(input.registerRoot).catch(() => [])
-    if (!registered.some((entry) => samePath(entry.path, input.path))) {
+    if (!registered.some((entry) => samePathResolved(entry.path, input.path))) {
       throw new SessionServiceError(
         makeAppError('WORKTREE_INCONSISTENT', 'Git did not register the created worktree.', {
           detail: input.path
@@ -393,17 +394,6 @@ export function parseStatusLines(output: string): string[] {
       const renameTarget = payload.includes(' -> ') ? payload.split(' -> ').pop() : undefined
       return renameTarget ?? payload
     })
-}
-
-function samePath(left: string, right: string): boolean {
-  const normalize = (value: string): string => {
-    try {
-      return realpathSync(value)
-    } catch {
-      return value.replace(/\/+$/u, '')
-    }
-  }
-  return normalize(left) === normalize(right)
 }
 
 function errorDetail(error: unknown): string {
