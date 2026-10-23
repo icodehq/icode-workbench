@@ -13,6 +13,7 @@ import {
   type ShutdownIfIdlePayload
 } from '../shared/host-protocol'
 import type { HostRequest } from '../shared/host-protocol'
+import { isNamedPipe } from '../shared/domain/endpoint'
 import { ClientConnection } from './client-connection'
 import { RegistryError, type PtyRegistry } from './pty-registry'
 
@@ -284,10 +285,13 @@ export function createProtocolServer(options: ProtocolServerOptions): ProtocolSe
     })
     server.once('error', reject)
     server.listen(options.socketPath, () => {
-      try {
-        chmodSync(options.socketPath, 0o600)
-      } catch {
-        // verified by the caller through stat
+      // A named pipe has no mode to tighten; its DACL is set by the OS.
+      if (!isNamedPipe(options.socketPath)) {
+        try {
+          chmodSync(options.socketPath, 0o600)
+        } catch {
+          // verified by the caller through stat
+        }
       }
       options.log({ event: 'host-started', socket: options.socketPath, pid: hostPid })
       resolve()

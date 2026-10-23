@@ -9,6 +9,7 @@ import { SessionRemovalService } from '../sessions/session-removal-service'
 import { ReviewService } from '../review/review-service'
 import { ActivityService } from '../activity/activity-service'
 import { ActivityHookServer } from '../activity/hook-server'
+import { activitySocketPath as activityEndpoint } from '../activity/endpoint'
 import { installClaudeHooks } from '../activity/claude-hooks'
 import { ActivityBroadcaster } from '../activity/activity-broadcaster'
 import { WorktreeStore } from '../persistence/worktree-store'
@@ -57,7 +58,7 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     execPath: process.execPath,
     electronRunAsNode: !process.execPath.endsWith('node')
   })
-  const activitySocketPath = join(app.getPath('userData'), 'run', 'activity.sock')
+  const activitySocketPath = activityEndpoint({ userDataDir: app.getPath('userData') })
 
   const activityBroadcaster = new ActivityBroadcaster()
   const activity = new ActivityService({

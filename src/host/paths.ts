@@ -2,6 +2,7 @@ import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, rmSync, stat
 import { connect } from 'node:net'
 import { dirname, join, resolve } from 'node:path'
 import { createHash, randomBytes } from 'node:crypto'
+import { isNamedPipe, namedPipe } from '../shared/domain/endpoint'
 
 export type HostPaths = {
   dir: string
@@ -57,16 +58,27 @@ export function profileSocketScope(profileDir: string): string {
  * XDG runtime filesystem (supports Unix sockets and POSIX modes), then the
  * profile's own directory.
  *
- * The last fallback is still per-profile, so no branch can collide with another
- * ADE profile that shares the same runtime directory.
+ * Windows has no Unix-domain socket in the filesystem, and `listen()` there
+ * only accepts a named pipe, so the endpoint becomes a deterministic pipe name
+ * scoped to the profile. `ADE_HOST_SOCKET` still wins on every platform, which
+ * is how the packaging gates pin an endpoint.
+ *
+ * The last POSIX fallback is still per-profile, so no branch can collide with
+ * another ADE profile that shares the same runtime directory.
  */
 export function hostSocketPath(options: {
   profileDir: string
   env: NodeJS.ProcessEnv
+  /** Test seam: lets a test select the Windows branch without a Windows host. */
+  platform?: NodeJS.Platform
 }): string {
   const { profileDir, env } = options
+  const platform = options.platform ?? process.platform
   const explicit = env.ADE_HOST_SOCKET
   if (explicit && explicit.length > 0) return explicit
+  if (platform === 'win32') {
+    return namedPipe('ade-host', profileSocketScope(profileDir))
+  }
   const xdg = env.XDG_RUNTIME_DIR
   if (xdg && xdg.length > 0) {
     const scoped = join(xdg, 'ade', profileSocketScope(profileDir), HOST_SOCKET_NAME)
@@ -108,10 +120,13 @@ export type PrepareOptions = {
 export function prepareHostDirectory(paths: HostPaths, options: PrepareOptions = {}): void {
   const chmod = options.chmod ?? chmodSync
   mkdirSync(paths.dir, { recursive: true, mode: 0o700 })
-  mkdirSync(dirname(paths.socket), { recursive: true, mode: 0o700 })
+  // A named pipe has no parent directory to create: `\\.\pipe` is a kernel
+  // namespace, not a folder. Only the host's own directory exists on disk.
+  const pipe = isNamedPipe(paths.socket)
+  if (!pipe) mkdirSync(dirname(paths.socket), { recursive: true, mode: 0o700 })
   try {
     chmod(paths.dir, 0o700)
-    chmod(dirname(paths.socket), 0o700)
+    if (!pipe) chmod(dirname(paths.socket), 0o700)
   } catch {
     // chmod support varies; verification below decides whether it is safe
   }
@@ -215,6 +230,10 @@ export function canConnect(socketPath: string): Promise<'connected' | 'refused' 
  * which actively refuses connections is removed.
  */
 export async function acquireSocketPath(paths: HostPaths): Promise<void> {
+  // A named pipe is not a filesystem object: there is nothing to stat, no mode
+  // to verify, and nothing to unlink. Ownership is resolved by the kernel, and a
+  // live peer surfaces as EADDRINUSE when the server binds.
+  if (isNamedPipe(paths.socket)) return
   if (!existsSync(paths.socket)) return
   let stats
   try {
@@ -254,7 +273,10 @@ export async function acquireSocketPath(paths: HostPaths): Promise<void> {
 }
 
 export function cleanupHostFiles(paths: HostPaths): void {
-  for (const file of [paths.socket, paths.token, paths.meta]) {
+  const files = isNamedPipe(paths.socket)
+    ? [paths.token, paths.meta]
+    : [paths.socket, paths.token, paths.meta]
+  for (const file of files) {
     try {
       rmSync(file, { force: true })
     } catch {

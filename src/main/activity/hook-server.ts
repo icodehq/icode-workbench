@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, rmSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { activityHookPayloadSchema, type ActivityHookPayload } from '../../shared/schemas/activity'
 import { ACTIVITY_MAX_PAYLOAD_BYTES, type ActivityHookEvent } from '../../shared/domain/activity'
+import { isNamedPipe } from '../../shared/domain/endpoint'
 
 export type ActivityIngestResult = 'accepted' | 'duplicate' | 'stale' | 'unknown-session' | 'stale-incarnation'
 
@@ -34,9 +35,13 @@ export class ActivityHookServer {
 
   async start(): Promise<void> {
     if (this.server) return
-    const directory = dirname(this.options.socketPath)
-    mkdirSync(directory, { recursive: true, mode: 0o700 })
-    if (existsSync(this.options.socketPath)) rmSync(this.options.socketPath, { force: true })
+    // A named pipe lives in the kernel namespace: there is no directory to
+    // create and no stale file to unlink. Only POSIX sockets need that.
+    if (!isNamedPipe(this.options.socketPath)) {
+      const directory = dirname(this.options.socketPath)
+      mkdirSync(directory, { recursive: true, mode: 0o700 })
+      if (existsSync(this.options.socketPath)) rmSync(this.options.socketPath, { force: true })
+    }
 
     const server = createServer((socket) => this.handleConnection(socket))
     this.server = server
@@ -55,7 +60,9 @@ export class ActivityHookServer {
     if (server) {
       await new Promise<void>((resolve) => server.close(() => resolve()))
     }
-    if (existsSync(this.options.socketPath)) rmSync(this.options.socketPath, { force: true })
+    if (!isNamedPipe(this.options.socketPath) && existsSync(this.options.socketPath)) {
+      rmSync(this.options.socketPath, { force: true })
+    }
   }
 
   private handleConnection(socket: Socket): void {

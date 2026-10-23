@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { createServer } from 'node:net'
 import { spawn } from 'node:child_process'
 import { afterEach, describe, expect, it } from 'vitest'
+import { WINDOWS_PIPE_PREFIX, isNamedPipe } from '../shared/domain/endpoint'
 import {
   HostStartupError,
   acquireSocketPath,
@@ -245,5 +246,68 @@ describe('running host', () => {
     host.stop()
     await host.stopped
     hosts.splice(hosts.indexOf(host), 1)
+  })
+})
+
+describe('Windows endpoint selection', () => {
+  it('uses a named pipe instead of a filesystem path', () => {
+    const profile = join(root(), 'windows-profile')
+    const socket = hostSocketPath({
+      profileDir: profile,
+      env: {},
+      platform: 'win32'
+    })
+
+    expect(isNamedPipe(socket)).toBe(true)
+    expect(socket.startsWith(WINDOWS_PIPE_PREFIX)).toBe(true)
+    expect(socket.endsWith('.sock')).toBe(false)
+  })
+
+  it('isolates two profiles and stays deterministic', () => {
+    const alpha = join(root(), 'alpha')
+    const beta = join(root(), 'beta')
+    const first = hostSocketPath({ profileDir: alpha, env: {}, platform: 'win32' })
+    const again = hostSocketPath({ profileDir: alpha, env: {}, platform: 'win32' })
+    const other = hostSocketPath({ profileDir: beta, env: {}, platform: 'win32' })
+
+    expect(first).toBe(again)
+    expect(first).not.toBe(other)
+  })
+
+  it('honours ADE_HOST_SOCKET on Windows', () => {
+    const explicit = '\\\\.\\pipe\\ade-test-pinned'
+    const socket = hostSocketPath({
+      profileDir: join(root(), 'p'),
+      env: { ADE_HOST_SOCKET: explicit },
+      platform: 'win32'
+    })
+    expect(socket).toBe(explicit)
+  })
+
+  it('server and client derive the same endpoint from the same profile', () => {
+    const dir = join(root(), 'shared-profile')
+    // The host process reads ADE_HOST_DIR; the supervisor uses its directory.
+    const hostSide = hostPathsFromEnv({
+      ADE_HOST_DIR: dir,
+      ADE_HOST_SOCKET: hostSocketPath({ profileDir: dir, env: {}, platform: 'win32' })
+    })
+    const clientSide = hostSocketPath({ profileDir: dir, env: {}, platform: 'win32' })
+    expect(hostSide.socket).toBe(clientSide)
+  })
+
+  it('does not create or remove a directory for a pipe endpoint', () => {
+    const dir = join(root(), 'pipe-dir')
+    const paths = {
+      dir,
+      socket: '\\\\.\\pipe\\ade-host-test',
+      token: join(dir, 'token'),
+      meta: join(dir, 'meta.json'),
+      log: join(dir, 'host.log')
+    }
+    // Must not attempt mkdir of `\\.\pipe`.
+    expect(() => prepareHostDirectory(paths)).not.toThrow()
+    expect(existsSync(dir)).toBe(true)
+    // Nothing to acquire or unlink for a pipe.
+    return expect(acquireSocketPath(paths)).resolves.toBeUndefined()
   })
 })
