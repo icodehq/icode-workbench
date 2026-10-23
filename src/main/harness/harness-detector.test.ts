@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { HarnessDetector, type ProbeResult } from './harness-detector'
+import { HarnessDetector, spawnSpec, type ProbeResult } from './harness-detector'
 import { findExecutable } from './find-executable'
 import { mkdtempSync, writeFileSync, chmodSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -22,7 +22,10 @@ function detector(
   options: {
     resolve?: (name: string) => string | null
     probe?: ProbeResult | (() => Promise<ProbeResult>)
-    shell?: string
+    /** `null` models a platform with no resolvable shell at all. */
+    shell?: string | null
+    platform?: NodeJS.Platform
+    shellUnavailableMessage?: string
   } = {}
 ): { detector: HarnessDetector; probes: string[] } {
   const probes: string[] = []
@@ -35,7 +38,11 @@ function detector(
         if (typeof options.probe === 'function') return options.probe()
         return options.probe ?? probe()
       },
-      shellPath: () => options.shell ?? '/bin/bash',
+      shellPath: () => ('shell' in options ? options.shell ?? null : '/bin/bash'),
+      ...(options.platform ? { platform: options.platform } : {}),
+      ...(options.shellUnavailableMessage
+        ? { shellUnavailableMessage: () => options.shellUnavailableMessage! }
+        : {}),
       now: () => 1_700_000_000_000
     })
   }
@@ -155,5 +162,118 @@ describe('findExecutable', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
+  })
+})
+
+describe('Windows shell harness', () => {
+  const CMD = 'C:\\Windows\\System32\\cmd.exe'
+
+  it('treats a resolved shell as available without a version probe', async () => {
+    const { detector: instance, probes } = detector({
+      platform: 'win32',
+      shell: CMD,
+      resolve: (name) => (name === CMD ? CMD : null)
+    })
+
+    const result = await instance.detect('shell')
+
+    expect(result.state).toBe('available')
+    expect(result.command).toEqual({ command: CMD, args: [] })
+    // Probing an interactive shell would hang until the timeout.
+    expect(probes).toEqual([])
+  })
+
+  it('never launches /bin/bash on Windows', async () => {
+    const { detector: instance, probes } = detector({
+      platform: 'win32',
+      shell: CMD,
+      resolve: (name) => (name === CMD ? CMD : null)
+    })
+
+    await instance.detect('shell')
+
+    expect(probes).not.toContain('/bin/bash')
+  })
+
+  it('reports an actionable failure when no shell can be found', async () => {
+    const message =
+      'No Windows shell was found. Tried pwsh.exe, powershell.exe, cmd.exe. Install PowerShell 7.'
+    const { detector: instance } = detector({
+      platform: 'win32',
+      shell: null,
+      shellUnavailableMessage: message
+    })
+
+    const result = await instance.detect('shell')
+
+    expect(result.state).toBe('detection_failed')
+    if (result.state !== 'detection_failed') throw new Error('expected detection_failed')
+    expect(result.message).toBe(message)
+    expect(result.diagnostics.outcome).toBe('spawn_error')
+    expect(result.diagnostics.resolvedPath).toBeNull()
+  })
+
+  it('reports an unresolvable configured shell by name', async () => {
+    const { detector: instance } = detector({
+      platform: 'win32',
+      shell: 'C:\\stale\\bash.exe',
+      resolve: () => null
+    })
+
+    const result = await instance.detect('shell')
+
+    expect(result.state).toBe('detection_failed')
+    if (result.state !== 'detection_failed') throw new Error('expected detection_failed')
+    expect(result.message).toContain('C:\\stale\\bash.exe')
+    expect(result.command).toBeNull()
+  })
+
+  it('keeps the POSIX probe for the shell harness on Linux', async () => {
+    const { detector: instance, probes } = detector({ shell: '/bin/bash' })
+
+    const result = await instance.detect('shell')
+
+    expect(result.state).toBe('available')
+    expect(probes).toEqual(['/bin/bash'])
+  })
+})
+
+describe('starting Windows command shims', () => {
+  it('spawns a .cmd shim through the command interpreter', () => {
+    const spec = spawnSpec(
+      'C:\\nvm4w\\nodejs\\claude.cmd',
+      ['--version'],
+      'win32',
+      'C:\\Windows\\System32\\cmd.exe'
+    )
+    expect(spec.file).toBe('C:\\Windows\\System32\\cmd.exe')
+    expect(spec.args.slice(0, 3)).toEqual(['/d', '/s', '/c'])
+    expect(spec.args[3]).toContain('claude.cmd')
+    expect(spec.args[3]).toContain('--version')
+    expect(spec.windowsVerbatimArguments).toBe(true)
+  })
+
+  it('quotes a shim path that contains spaces', () => {
+    const spec = spawnSpec(
+      'C:\\Program Files\\nodejs\\claude.cmd',
+      ['--version'],
+      'win32',
+      'C:\\Windows\\System32\\cmd.exe'
+    )
+    expect(spec.args[3]).toContain('"C:\\Program Files\\nodejs\\claude.cmd"')
+  })
+
+  it('spawns a real executable directly', () => {
+    expect(spawnSpec('C:\\tools\\claude.exe', ['--version'], 'win32')).toEqual({
+      file: 'C:\\tools\\claude.exe',
+      args: ['--version']
+    })
+  })
+
+  it('never wraps POSIX commands in a shell', () => {
+    expect(spawnSpec('/usr/bin/claude', ['--version'], 'linux')).toEqual({
+      file: '/usr/bin/claude',
+      args: ['--version']
+    })
   })
 })

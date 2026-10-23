@@ -8,10 +8,41 @@ import {
   type HarnessId,
   type HarnessProbeEvidence
 } from '../../shared/domain/harness'
+import { chooseShellCommand } from './default-shell'
 import { findExecutable } from './find-executable'
 
 export const PROBE_TIMEOUT_MS = 5000
 const MAX_CAPTURE_BYTES = 8192
+
+/** npm installs Windows CLIs as `.cmd` shims, alongside a `.ps1` twin. */
+const WINDOWS_CMD_SHIM = /\.(cmd|bat)$/iu
+
+function quoteWindowsArg(value: string): string {
+  return /[\s"]/u.test(value) ? `"${value.replace(/"/gu, '""')}"` : value
+}
+
+/**
+ * How to start `file` with `args`.
+ *
+ * Node refuses to spawn a `.cmd`/`.bat` directly (EINVAL, since the fix for
+ * CVE-2024-27980) and cannot execute a `.ps1` at all (EFTYPE). Both are how npm
+ * installs Windows CLIs, so such a shim is started through the command
+ * interpreter instead of being reported as unusable.
+ */
+export function spawnSpec(
+  file: string,
+  args: string[],
+  platform: NodeJS.Platform = process.platform,
+  comspec = process.env.ComSpec
+): { file: string; args: string[]; windowsVerbatimArguments?: boolean } {
+  if (platform !== 'win32' || !WINDOWS_CMD_SHIM.test(file)) return { file, args }
+  const command = [file, ...args].map(quoteWindowsArg).join(' ')
+  return {
+    file: comspec && comspec.length > 0 ? comspec : 'cmd.exe',
+    args: ['/d', '/s', '/c', `"${command}"`],
+    windowsVerbatimArguments: true
+  }
+}
 
 export type ProbeResult = {
   outcome: 'exited' | 'timed_out' | 'signaled' | 'spawn_error'
@@ -26,7 +57,12 @@ export type ProbeResult = {
 export type HarnessDetectorDeps = {
   resolve: (name: string) => string | null
   probe: (file: string, args: string[]) => Promise<ProbeResult>
-  shellPath: () => string
+  /** For `user-shell`: the executable to launch, or null when none exists. */
+  shellPath: () => string | null
+  /** Explains why `shellPath()` returned null. */
+  shellUnavailableMessage?: () => string
+  /** Test seam: selects the Windows branch without a Windows host. */
+  platform?: NodeJS.Platform
   now?: () => number
 }
 
@@ -40,9 +76,78 @@ export class HarnessDetector {
 
   async detect(harness: HarnessId, attempts = 1): Promise<HarnessDetectionResult> {
     const now = this.deps.now ?? Date.now
+    const platform = this.deps.platform ?? process.platform
     const definition = HARNESS_DEFINITIONS[harness]
-    const executableName =
-      definition.command.kind === 'user-shell' ? this.deps.shellPath() : definition.command.name
+    const isUserShell = definition.command.kind === 'user-shell'
+    const configuredShell = isUserShell ? this.deps.shellPath() : null
+
+    // No shell on this platform: report why, rather than probing a path that
+    // cannot exist. The message is the actionable part.
+    if (isUserShell && configuredShell === null) {
+      return {
+        state: 'detection_failed',
+        harness,
+        reason: 'spawn_error',
+        message:
+          this.deps.shellUnavailableMessage?.() ??
+          'No shell executable is available on this platform.',
+        diagnostics: {
+          resolvedPath: null,
+          outcome: 'spawn_error',
+          exitCode: null,
+          signal: null,
+          stdoutTail: '',
+          stderrTail: '',
+          durationMs: 0,
+          observedAt: now(),
+          attempts
+        },
+        command: null
+      }
+    }
+
+    const executableName = isUserShell
+      ? (configuredShell as string)
+      : definition.command.kind === 'executable'
+        ? definition.command.name
+        : (configuredShell as string)
+
+    // Windows shells have no non-interactive version flag worth calling:
+    // `cmd.exe --version` fails, and PowerShell would open an interactive
+    // session until the probe timeout. Resolution is the evidence.
+    if (isUserShell && platform === 'win32') {
+      const winShell = this.deps.resolve(executableName)
+      const observedAt = now()
+      const diagnostics = {
+        resolvedPath: winShell,
+        outcome: (winShell ? 'exited' : 'spawn_error') as ProbeResult['outcome'],
+        exitCode: null,
+        signal: null,
+        stdoutTail: '',
+        stderrTail: '',
+        durationMs: 0,
+        observedAt,
+        attempts
+      }
+      if (!winShell) {
+        return {
+          state: 'detection_failed',
+          harness,
+          reason: 'spawn_error',
+          message: `The configured shell "${executableName}" could not be resolved to an executable.`,
+          diagnostics,
+          command: null
+        }
+      }
+      return {
+        state: 'available',
+        harness,
+        version: null,
+        resolvedPath: winShell,
+        diagnostics,
+        command: { command: winShell, args: [] }
+      }
+    }
 
     const resolvedPath = this.deps.resolve(executableName)
     const startedAt = Date.now()
@@ -99,10 +204,23 @@ export type HarnessStateSummary = {
 }
 
 export function createHarnessDetector(overrides: Partial<HarnessDetectorDeps> = {}): HarnessDetector {
+  const resolve = (name: string): string | null => findExecutable(name)
+  const shellChoice = (): ReturnType<typeof chooseShellCommand> =>
+    chooseShellCommand({ platform: process.platform, env: process.env, resolve })
   return new HarnessDetector({
-    resolve: (name) => findExecutable(name),
+    resolve,
     probe: probeVersion,
-    shellPath: () => (process.env.SHELL && process.env.SHELL.length > 0 ? process.env.SHELL : '/bin/bash'),
+    shellPath: () => {
+      const choice = shellChoice()
+      return choice.kind === 'command' ? choice.command : null
+    },
+    shellUnavailableMessage: () => {
+      const choice = shellChoice()
+      return choice.kind === 'unavailable'
+        ? choice.message
+        : 'No shell executable is available on this platform.'
+    },
+    platform: process.platform,
     ...overrides
   })
 }
@@ -128,9 +246,11 @@ export function probeVersion(file: string, args: string[]): Promise<ProbeResult>
 
     let child
     try {
-      child = spawn(file, args, {
+      const spec = spawnSpec(file, args)
+      child = spawn(spec.file, spec.args, {
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true,
+        ...(spec.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
         env: { ...process.env, NO_COLOR: '1', CI: '1' }
       })
     } catch (error) {

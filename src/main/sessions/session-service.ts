@@ -12,6 +12,7 @@ import type { HarnessDetectionResult } from '../harness/harness-detector'
 import { statSync } from 'node:fs'
 import { makeAppError } from '../../shared/domain/errors'
 import type { AppError } from '../../shared/domain/errors'
+import { resolvedShellCommand } from '../harness/default-shell'
 import { SessionServiceError, errorFromHost } from './session-errors'
 import { harnessLabel, type HarnessId } from '../../shared/domain/harness'
 import {
@@ -437,7 +438,7 @@ export class SessionService {
         cwd: checkout.path,
         // attachOnly never spawns, so the command is required by the protocol
         // but not executed. Restart resolves the harness command again.
-        command: process.env.SHELL && process.env.SHELL.length > 0 ? process.env.SHELL : '/bin/bash',
+        command: resolvedShellCommand(),
         cols: attachedDimensions(row).cols,
         rows: attachedDimensions(row).rows,
         attachOnly: true

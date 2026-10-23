@@ -11,7 +11,10 @@ try {
     throw new Error('ADE_HOST_DIR is required')
   }
   const paths = hostPathsFromEnv(process.env)
-  const shell = process.env.SHELL && process.env.SHELL.length > 0 ? process.env.SHELL : '/bin/bash'
+  // Platform-appropriate default; SHELL is honoured first when a user sets it.
+  const shell =
+    process.env.SHELL ||
+    (process.platform === 'win32' ? (process.env.COMSPEC ?? 'cmd.exe') : '/bin/bash')
   createTerminalHost({ paths, shell })
 } catch (error) {
   // A failed host must be diagnosable from its own log directory.
