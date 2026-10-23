@@ -94,14 +94,19 @@ describe('activity hook server startup and delivery', () => {
     expect(existsSync(socketPath)).toBe(false)
   })
 
-  it('does not touch the filesystem for a pipe endpoint', async () => {
-    // A pipe name is not creatable here, so `listen` must fail; the point is that
-    // startup takes the pipe branch and never tries to mkdir: or unlink a path.
+  /**
+   * Windows-only by nature: a pipe is a kernel-namespace name there, and
+   * `listen()` binds it directly. On POSIX the same string is just a filename,
+   * so `listen()` may legitimately succeed and create a socket file — the
+   * "no directory, no mode, no unlink" contract has no POSIX meaning.
+   */
+  it.skipIf(process.platform !== 'win32')('listens on a pipe without a directory', async () => {
     const server = new ActivityHookServer({
-      socketPath: '\\\\.\\pipe\\ade-activity-test',
+      socketPath: `${WINDOWS_PIPE_PREFIX}ade-activity-test-${process.pid}`,
       ingest: () => 'accepted',
       readTimeoutMs: 50
     })
-    await expect(server.start()).rejects.toBeTruthy()
+    await server.start()
+    await server.stop()
   })
 })
