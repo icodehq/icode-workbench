@@ -47,7 +47,9 @@ describe('preload API surface', () => {
         'repos',
         'review',
         'sessions',
-        'terminal'
+        'terminal',
+        // Distro discovery for the repository dialog: named, no channel strings.
+        'wsl'
       ].sort()
     )
     expect((api as unknown as { ipcRenderer?: unknown }).ipcRenderer).toBeUndefined()
@@ -151,5 +153,22 @@ describe('session event subscription', () => {
     disposeFirst()
     api.onSessionEvent(vi.fn())
     expect(subscribe).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('wsl distro discovery', () => {
+  it('routes to its own channel and passes no input', async () => {
+    const { api, invoke } = setup()
+    invoke.mockResolvedValue({ ok: true, value: { status: 'ok', distros: [], defaultRegistrationId: null } })
+    await api.wsl.listDistros()
+    expect(invoke.mock.calls.at(-1)?.[0]).toBe(IPC_CHANNELS.wslListDistros)
+    expect(invoke.mock.calls.at(-1)?.[1]).toBeUndefined()
+  })
+
+  it('leaves "unavailable" as a resolved value, not a rejection', async () => {
+    const { api, invoke } = setup()
+    const payload = { ok: true as const, value: { status: 'unavailable' as const, reason: 'registry_unreadable' as const, detail: 'denied' } }
+    invoke.mockResolvedValue(payload)
+    await expect(api.wsl.listDistros()).resolves.toEqual(payload)
   })
 })

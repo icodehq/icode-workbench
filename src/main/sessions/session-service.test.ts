@@ -5,6 +5,9 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { SessionService, SessionServiceError } from './session-service'
 import { FakeHostGateway } from './fake-host-gateway'
 import { makeRepositoryService, makeTempRoot, openTempDatabase } from '../persistence/persistence-test-fixtures'
+import { resolveRepositoryRoot } from '../repositories/repository-path'
+import { buildWslTerminalArgs } from '../wsl/terminal/path-a'
+import { makeAppError } from '../../shared/domain/errors'
 import { WorktreeStore } from '../persistence/worktree-store'
 import { GitWorktreeService } from '../worktrees/git-worktree-service'
 import { rmSync as rmTree, writeFileSync } from 'node:fs'
@@ -27,7 +30,8 @@ type Fixture = {
   repoId: string
   repoPath: string
   events: RendererSessionEvent[]
-  detection: { current: HarnessDetectionResult }
+  detection: { current: HarnessDetectionResult; targets: unknown[] }
+  pathA: { requested: string[]; fail: null | { code: 'NOT_A_DIRECTORY'; message: string } }
 }
 
 const fixtures: Array<() => void> = []
@@ -91,11 +95,25 @@ function unusable(
 function setup(options: { harness?: HarnessDetectionResult } = {}): Fixture {
   const root = makeTempRoot('ade-session-')
   const db = openTempDatabase(root)
-  const stores = makeRepositoryService(db)
+  const stores = makeRepositoryService(db, {
+    // A WSL target needs a guest resolver. These tests assert routing, so the
+    // stub answers with the local canonical path; guest path semantics are
+    // covered by the W6 suites and the real-guest runs.
+    resolveRoot: async (path) => resolveRepositoryRoot(path)
+  })
   const host = new FakeHostGateway()
-  const detection = { current: options.harness ?? available('/usr/bin/claude') }
+  const detection = {
+    current: options.harness ?? available('/usr/bin/claude'),
+    /** Every target discovery was asked for, in order. */
+    targets: [] as unknown[]
+  }
   const worktrees = new WorktreeStore(db)
   const gitWorktrees = new GitWorktreeService({ worktreeRoot: join(root.dir, 'worktrees') })
+  const pathA = {
+    /** Every guest cwd Path A was asked to enter. */
+    requested: [] as string[],
+    fail: null as null | { code: 'NOT_A_DIRECTORY'; message: string }
+  }
   const service = new SessionService({
     database: db,
     repositories: stores.repositories,
@@ -103,7 +121,35 @@ function setup(options: { harness?: HarnessDetectionResult } = {}): Fixture {
     worktrees,
     gitWorktrees,
     host,
-    detectHarness: async () => detection.current,
+    detectHarness: async (_harness, target) => {
+      detection.targets.push(target)
+      return detection.current
+    },
+    launchArgs: (harness, target) => {
+      if (harness !== 'claude') return []
+      return target.kind === 'wsl'
+        ? ['--settings', '/mnt/d/profile/agent-hooks/settings.json']
+        : ['--settings', 'D:\\profile\\agent-hooks\\settings.json']
+    },
+    resolveWslTerminal: async (_target, guestCwd) => {
+      pathA.requested.push(guestCwd)
+      if (pathA.fail) {
+        return {
+          status: 'failed' as const,
+          failure: { code: pathA.fail.code, error: makeAppError(pathA.fail.code, pathA.fail.message) }
+        }
+      }
+      return {
+        status: 'ready' as const,
+        launch: {
+          command: '/mnt/c/Windows/System32/wsl.exe',
+          args: buildWslTerminalArgs('Ubuntu-26.04', guestCwd),
+          ptyCwd: join(root.dir, 'pty'),
+          guestCwd,
+          distro: 'Ubuntu-26.04'
+        }
+      }
+    },
     now: () => 1_700_000_000_000
   })
   service.start()
@@ -139,7 +185,8 @@ function setup(options: { harness?: HarnessDetectionResult } = {}): Fixture {
     repoId: '',
     repoPath,
     events,
-    detection
+    detection,
+    pathA
   }
 }
 
@@ -344,7 +391,7 @@ describe('input, resize, stop', () => {
     const a = await f.service.create(createInput(f))
     const b = await f.service.create(createInput(f))
     await f.service.stop(a.id)
-    expect(f.host.calls.kill).toEqual([a.id])
+    expect(f.host.calls.kill).toEqual([{ sessionId: a.id, host: 'local' }])
     expect(f.host.sessions.get(b.id)?.info.status).toBe('live')
     const stored = f.stores.sessions.findById(a.id as never)
     expect(stored?.observation.lastObservedState).toBe('exited')
@@ -391,7 +438,7 @@ describe('restart and incarnation safety', () => {
     const f = await withRepo()
     const created = await f.service.create(createInput(f))
     const restarted = await f.service.restart(created.id)
-    expect(f.host.calls.kill).toEqual([created.id])
+    expect(f.host.calls.kill).toEqual([{ sessionId: created.id, host: 'local' }])
     expect(restarted.incarnationId).not.toBe(created.incarnationId)
   })
 
@@ -650,5 +697,350 @@ describe('worktree isolation', () => {
         error instanceof SessionServiceError && error.appError.code === 'WORKTREE_MISSING'
     )
     expect(f.host.sessions.get(created.id)!.info.status).toBe('live')
+  })
+})
+
+/**
+ * W7: the persisted repository target decides where a session is discovered and
+ * launched. A WSL session must never be served by the local host, and a WSL
+ * failure must not fall back to it.
+ */
+describe('execution-target routing', () => {
+  it('asks discovery for the local target on a local repository', async () => {
+    const f = await withRepo()
+    await f.service.create({ repoId: f.repoId, harness: 'claude', cols: 80, rows: 24 })
+    expect(f.detection.targets).toEqual([{ kind: 'local' }])
+  })
+
+  it('passes the WSL target to discovery and to the host, never local', async () => {
+    const f = await withRepo()
+    const target = {
+      kind: 'wsl' as const,
+      distro: 'Ubuntu-26.04',
+      distroId: 'a5489bf0-2b9e-49bf-940e-0c19a6caef73'
+    }
+    // Register a second repository row for the same path on the WSL target.
+    const added = await f.stores.service.addRepository(f.repoPath, target)
+    await f.service.create({ repoId: added.repository.id, harness: 'claude', cols: 100, rows: 30 })
+
+    expect(f.detection.targets).toContainEqual(target)
+    // The host call carried the same target: one PTY, on the distro's Host.
+    expect(f.host.calls.createOrAttach).toHaveLength(1)
+  })
+
+  it('reports a WSL host failure instead of retrying locally', async () => {
+    const f = await withRepo()
+    const target = {
+      kind: 'wsl' as const,
+      distro: 'Ubuntu-26.04',
+      distroId: 'a5489bf0-2b9e-49bf-940e-0c19a6caef73'
+    }
+    const added = await f.stores.service.addRepository(f.repoPath, target)
+    f.host.reachable = false
+    const error = await f.service
+      .create({ repoId: added.repository.id, harness: 'claude', cols: 80, rows: 24 })
+      .catch((value: unknown) => value)
+    // The failure is classified, and it is the host's: no local retry happened.
+    expect((error as { appError?: { code: string } }).appError?.code).toBe('HOST_UNREACHABLE')
+    expect(f.host.calls.createOrAttach).toHaveLength(0)
+    expect(f.host.reachable).toBe(false)
+  })
+
+  it('surfaces a missing guest harness as unavailable, without a command', async () => {
+    const f = await withRepo()
+    f.detection.current = unusable('unavailable')
+    const error = await f.service
+      .create({ repoId: f.repoId, harness: 'claude', cols: 80, rows: 24 })
+      .catch((value: unknown) => value)
+    expect((error as { appError?: { code: string } }).appError?.code).toBe('HARNESS_UNAVAILABLE')
+    expect(f.host.calls.createOrAttach).toHaveLength(0)
+  })
+})
+
+/**
+ * A host that is down must only blank the sessions it owns. Before W7 there was
+ * one host, so all-or-nothing was right; with a distro in the mix it is not.
+ */
+describe('per-host reconciliation', () => {
+  it('keeps a WSL session live when only the local host is down', async () => {
+    const f = await withRepo()
+    const target = {
+      kind: 'wsl' as const,
+      distro: 'Ubuntu-26.04',
+      distroId: 'a5489bf0-2b9e-49bf-940e-0c19a6caef73'
+    }
+    const added = await f.stores.service.addRepository(f.repoPath, target)
+    const created = await f.service.create({
+      repoId: added.repository.id,
+      harness: 'claude',
+      cols: 80,
+      rows: 24
+    })
+    // Only the local host goes down: the WSL row must keep its own verdict.
+    f.host.failForTarget = 'local'
+    const view = await f.service.reconcile()
+    const summary = view.sessions.find((session) => session.id === created.id)
+    expect(summary?.state).toBe('live')
+  })
+
+  it('marks a session unknown when its own host is the one that failed', async () => {
+    const f = await withRepo()
+    const target = {
+      kind: 'wsl' as const,
+      distro: 'Ubuntu-26.04',
+      distroId: 'a5489bf0-2b9e-49bf-940e-0c19a6caef73'
+    }
+    const added = await f.stores.service.addRepository(f.repoPath, target)
+    const created = await f.service.create({
+      repoId: added.repository.id,
+      harness: 'claude',
+      cols: 80,
+      rows: 24
+    })
+    f.host.failForTarget = 'wsl'
+    const view = await f.service.reconcile()
+    const summary = view.sessions.find((session) => session.id === created.id)
+    expect(summary?.state).toBe('unavailable')
+  })
+})
+
+/**
+ * W8: three routes must stay distinct.
+ *
+ *   local repo + shell      → the local terminal, unchanged
+ *   WSL repo + shell        → **Path A**: desktop Host spawns `wsl.exe`
+ *   WSL repo + agent        → **Path B**: managed Guest Host via the W7 route
+ */
+describe('Path A terminal routing', () => {
+  const WSL_TARGET = {
+    kind: 'wsl' as const,
+    distro: 'Ubuntu-26.04',
+    distroId: 'a5489bf0-2b9e-49bf-940e-0c19a6caef73'
+  }
+
+  async function wslRepo(f: Fixture) {
+    const added = await f.stores.service.addRepository(f.repoPath, WSL_TARGET)
+    return added.repository.id
+  }
+
+  it('launches a WSL shell on the desktop host with wsl.exe', async () => {
+    const f = await withRepo()
+    const repoId = await wslRepo(f)
+    const created = await f.service.create({ repoId, harness: 'shell', cols: 100, rows: 30 })
+
+    const call = f.host.calls.createOrAttach.at(-1)!
+    // The desktop Host, not the distro's managed Host.
+    expect(call.host).toBe('local')
+    expect(call.command).toContain('wsl.exe')
+    expect(call.args.slice(0, 4)).toEqual(['-d', 'Ubuntu-26.04', '--exec', 'sh'])
+    // The guest worktree is the directory the shell enters.
+    expect(call.args.at(-1)).toBe(created.worktree?.path)
+    // A ConPTY cannot start in a Linux path.
+    expect(call.cwd).toBe(join(f.root.dir, 'pty'))
+  })
+
+  it('never probes a harness for a Path A terminal', async () => {
+    const f = await withRepo()
+    const repoId = await wslRepo(f)
+    await f.service.create({ repoId, harness: 'shell', cols: 80, rows: 24 })
+    // The distro's login shell is the terminal's shell, so discovery is skipped.
+    expect(f.detection.targets).toEqual([])
+  })
+
+  it('keeps a WSL coding Agent on the managed host (Path B)', async () => {
+    const f = await withRepo()
+    const repoId = await wslRepo(f)
+    await f.service.create({ repoId, harness: 'claude', cols: 80, rows: 24 })
+    const call = f.host.calls.createOrAttach.at(-1)!
+    expect(call.host).toContain('wsl:Ubuntu-26.04')
+    expect(call.command).not.toContain('wsl.exe')
+    // Path B detected inside the distro, as W7 wired it.
+    expect(f.detection.targets).toEqual([WSL_TARGET])
+  })
+
+  it('keeps a local shell session exactly as before', async () => {
+    const f = await withRepo()
+    const created = await f.service.create({ repoId: f.repoId, harness: 'shell', cols: 80, rows: 24 })
+    const call = f.host.calls.createOrAttach.at(-1)!
+    expect(call.host).toBe('local')
+    expect(call.command).not.toContain('wsl.exe')
+    // The local terminal still starts in the checkout itself.
+    expect(call.cwd).toBe(created.worktree?.path)
+  })
+
+  it('presents the machine-local cwd when attaching to a Path A terminal', async () => {
+    const f = await withRepo()
+    const repoId = await wslRepo(f)
+    const created = await f.service.create({ repoId, harness: 'shell', cols: 80, rows: 24 })
+    const attached = await f.service.attach(created.id)
+    expect(attached.incarnationId).toBeTruthy()
+    const call = f.host.calls.createOrAttach.at(-1)!
+    expect(call.attachOnly).toBe(true)
+    expect(call.cwd).toBe(join(f.root.dir, 'pty'))
+    expect(call.host).toBe('local')
+  })
+
+  it('refuses a Path A terminal when the guest directory is invalid', async () => {
+    const f = await withRepo()
+    const repoId = await wslRepo(f)
+    f.pathA.fail = { code: 'NOT_A_DIRECTORY', message: 'That folder is not available.' }
+    const error = await f.service
+      .create({ repoId, harness: 'shell', cols: 80, rows: 24 })
+      .catch((value: unknown) => value)
+    expect((error as { appError?: { code: string } }).appError?.code).toBe('NOT_A_DIRECTORY')
+    // No PTY was started, and nothing fell back to a local shell.
+    expect(f.host.calls.createOrAttach).toHaveLength(0)
+  })
+
+  it('does not leave a worktree behind when Path A validation fails first', async () => {
+    const f = await withRepo()
+    const repoId = await wslRepo(f)
+    f.pathA.fail = { code: 'NOT_A_DIRECTORY', message: 'That folder is not available.' }
+    await f.service.create({ repoId, harness: 'shell', cols: 80, rows: 24 }).catch(() => {})
+    // The pre-flight happens before any Git work, so no checkout exists.
+    expect(f.worktrees.listAll()).toHaveLength(0)
+  })
+})
+
+describe('Path A lifecycle is judged by the desktop host', () => {
+  const WSL_TARGET = {
+    kind: 'wsl' as const,
+    distro: 'Ubuntu-26.04',
+    distroId: 'a5489bf0-2b9e-49bf-940e-0c19a6caef73'
+  }
+
+  it('keeps a Path A terminal live after reconcile, not "unavailable"', async () => {
+    const f = await withRepo()
+    const added = await f.stores.service.addRepository(f.repoPath, WSL_TARGET)
+    const created = await f.service.create({
+      repoId: added.repository.id,
+      harness: 'shell',
+      cols: 80,
+      rows: 24
+    })
+    // The terminal lives on the desktop host; the distro's host never saw it.
+    const view = await f.service.list()
+    const summary = view.sessions.find((session) => session.id === created.id)
+    expect(summary?.state).toBe('live')
+  })
+
+  it('stops and resizes a Path A terminal on the desktop host', async () => {
+    const f = await withRepo()
+    const added = await f.stores.service.addRepository(f.repoPath, WSL_TARGET)
+    const created = await f.service.create({
+      repoId: added.repository.id,
+      harness: 'shell',
+      cols: 80,
+      rows: 24
+    })
+    await f.service.resize(created.id, created.incarnationId!, 120, 40)
+    await f.service.stop(created.id)
+    // Both calls reached the desktop host, proven by the fake recording them.
+    expect(f.host.calls.resize.at(-1)?.host).toBe('local')
+    expect(f.host.calls.kill.at(-1)?.host).toBe('local')
+  })
+})
+
+describe('Path A restart', () => {
+  it('restarts the shell on the desktop host with the WSL argv', async () => {
+    const f = await withRepo()
+    const added = await f.stores.service.addRepository(f.repoPath, {
+      kind: 'wsl',
+      distro: 'Ubuntu-26.04',
+      distroId: 'a5489bf0-2b9e-49bf-940e-0c19a6caef73'
+    })
+    const created = await f.service.create({
+      repoId: added.repository.id,
+      harness: 'shell',
+      cols: 80,
+      rows: 24
+    })
+    await f.service.restart(created.id)
+    const call = f.host.calls.createOrAttach.at(-1)!
+    expect(call.host).toBe('local')
+    expect(call.command).toContain('wsl.exe')
+    expect(call.cwd).toBe(join(f.root.dir, 'pty'))
+    // The guest worktree, not a Windows path.
+    expect(call.args.at(-1)).toBe(created.worktree?.path)
+  })
+})
+
+/**
+ * Work 71: a guest Agent is launched through a login shell, so extra arguments
+ * must go inside its exec script. Measured before the fix: the shell consumed
+ * `--settings <path>` as `$0`/`$1` and Claude Code received neither.
+ */
+describe('launch argument delivery', () => {
+  const WSL_TARGET = {
+    kind: 'wsl' as const,
+    distro: 'Ubuntu-26.04',
+    distroId: 'a5489bf0-2b9e-49bf-940e-0c19a6caef73'
+  }
+  const SHELL_COMMAND = {
+    harness: 'claude' as const,
+    state: 'available' as const,
+    version: '2.1.310',
+    resolvedPath: '/home/u/.nvm/versions/node/v24.15.0/bin/claude',
+    command: {
+      command: '/bin/bash',
+      args: ['-ilc', "exec '/home/u/.nvm/versions/node/v24.15.0/bin/claude'"],
+      shellWrapper: { scriptIndex: 1 }
+    },
+    diagnostics: {
+      resolvedPath: '/home/u/.nvm/versions/node/v24.15.0/bin/claude',
+      outcome: 'exited' as const,
+      exitCode: 0,
+      signal: null,
+      stdoutTail: '',
+      stderrTail: '',
+      durationMs: 1,
+      observedAt: 1,
+      attempts: 1
+    }
+  }
+
+  it('gives the guest Claude its settings as real arguments inside the script', async () => {
+    const f = await withRepo()
+    f.detection.current = SHELL_COMMAND
+    const added = await f.stores.service.addRepository(f.repoPath, WSL_TARGET)
+    await f.service.create({ repoId: added.repository.id, harness: 'claude', cols: 80, rows: 24 })
+
+    const call = f.host.calls.createOrAttach.at(-1)!
+    expect(call.command).toBe('/bin/bash')
+    // Still a shell invocation: options plus one script, nothing after it.
+    expect(call.args).toHaveLength(2)
+    expect(call.args[0]).toBe('-ilc')
+    // `exec` carries the harness and its settings, so the shell cannot eat them.
+    expect(call.args[1]).toBe(
+      "exec '/home/u/.nvm/versions/node/v24.15.0/bin/claude' '--settings' '/mnt/d/profile/agent-hooks/settings.json'"
+    )
+    expect(call.args).not.toContain('--settings')
+  })
+
+  it('keeps a local Claude launch appending to argv', async () => {
+    const f = await withRepo()
+    f.detection.current = {
+      ...SHELL_COMMAND,
+      command: { command: '/usr/local/bin/claude', args: [] }
+    }
+    await f.service.create({ repoId: f.repoId, harness: 'claude', cols: 80, rows: 24 })
+    const call = f.host.calls.createOrAttach.at(-1)!
+    expect(call.command).toBe('/usr/local/bin/claude')
+    expect(call.args).toEqual(['--settings', 'D:\\profile\\agent-hooks\\settings.json'])
+  })
+
+  it('leaves a WSL shell terminal (Path A) with no Claude arguments at all', async () => {
+    const f = await withRepo()
+    const added = await f.stores.service.addRepository(f.repoPath, WSL_TARGET)
+    const created = await f.service.create({
+      repoId: added.repository.id,
+      harness: 'shell',
+      cols: 80,
+      rows: 24
+    })
+    const call = f.host.calls.createOrAttach.at(-1)!
+    expect(call.host).toBe('local')
+    expect(call.args).not.toContain('--settings')
+    expect(call.args.at(-1)).toBe(created.worktree?.path)
   })
 })

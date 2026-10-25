@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { AlertTriangle, FileDiff, GitBranch, RefreshCw } from 'lucide-react'
 import type { ReviewFilePayload } from '../../../shared/schemas/review'
 import type { SessionReview } from '../review/use-session-review'
@@ -20,6 +21,13 @@ type Props = {
   /** Present for isolated sessions; null for legacy/primary-checkout sessions. */
   worktreeBranch: string | null
   baselineOid: string | null
+  /**
+   * Hands review notes to the Agent's own terminal, so a review becomes a
+   * message in the conversation rather than a note the user has to retype.
+   */
+  onSendToAgent: (text: string) => void
+  /** True when the session has a live terminal to send into. */
+  canSendToAgent: boolean
 }
 
 function countLabel(file: ReviewFilePayload): string {
@@ -129,10 +137,23 @@ export default function ChangesPanel({
   sessionId,
   sessionState,
   worktreeBranch,
-  baselineOid
+  baselineOid,
+  onSendToAgent,
+  canSendToAgent
 }: Props): React.JSX.Element {
   const { state } = review
   const banner = state.phase === 'ready' || state.phase === 'empty'
+  const [feedback, setFeedback] = useState('')
+  const [sent, setSent] = useState(false)
+
+  const send = (): void => {
+    const text = feedback.trim()
+    if (text.length === 0) return
+    onSendToAgent(text)
+    setFeedback('')
+    setSent(true)
+    window.setTimeout(() => setSent(false), 2500)
+  }
 
   return (
     <div
@@ -183,6 +204,44 @@ export default function ChangesPanel({
         <div className="flex items-center gap-1.5 border-b border-destructive/40 bg-destructive/10 px-3 py-1 text-[10px] text-red-200">
           <AlertTriangle size={11} />
           {state.error.message}
+        </div>
+      ) : null}
+      {banner ? (
+        <div className="shrink-0 border-b border-border px-3 py-2" data-testid="review-feedback">
+          <div className="flex items-start gap-2">
+            <textarea
+              value={feedback}
+              placeholder={
+                canSendToAgent
+                  ? 'Ask the Agent to change something in this diff… (Ctrl/Cmd+Enter to send)'
+                  : 'Start the session to send review notes to the Agent.'
+              }
+              className="h-14 min-w-0 flex-1 resize-none rounded border border-border bg-transparent p-2 text-[11px] text-foreground outline-none placeholder:text-muted-foreground disabled:opacity-50"
+              data-testid="review-feedback-input"
+              disabled={!canSendToAgent}
+              onChange={(event) => setFeedback(event.target.value)}
+              onKeyDown={(event) => {
+                if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                  event.preventDefault()
+                  send()
+                }
+              }}
+            />
+            <button
+              type="button"
+              className="shrink-0 rounded border border-border px-2 py-1 text-[10px] text-foreground hover:bg-muted disabled:opacity-40"
+              onClick={send}
+              disabled={!canSendToAgent || feedback.trim().length === 0}
+              data-testid="review-feedback-send"
+            >
+              Send
+            </button>
+          </div>
+          {sent ? (
+            <p className="mt-1 text-[9px] text-emerald-400" data-testid="review-feedback-sent">
+              Sent to the Agent terminal.
+            </p>
+          ) : null}
         </div>
       ) : null}
       <div className="min-h-0 flex-1">

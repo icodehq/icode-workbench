@@ -8,10 +8,18 @@ import { branchNameForSession } from '../../shared/domain/worktree'
 import type { SessionWorktreeRecord, WorktreeSummary } from '../../shared/domain/worktree'
 import type { StoredSession } from '../persistence/rows'
 import type { HostGateway } from './host-gateway'
+import type { ListSessionsPayload } from '../../shared/host-protocol'
 import type { HarnessDetectionResult } from '../harness/harness-detector'
-import { statSync } from 'node:fs'
 import { makeAppError } from '../../shared/domain/errors'
 import type { AppError } from '../../shared/domain/errors'
+import type { ExecutionTarget } from '../../shared/domain/repository'
+import {
+  buildWslTerminalArgs,
+  hostTargetFor as pathAHostTargetFor,
+  isPathATerminal,
+  LOCAL_TARGET,
+  type PathATerminalOutcome
+} from '../wsl/terminal/path-a'
 import { resolvedShellCommand } from '../harness/default-shell'
 import { SessionServiceError, errorFromHost } from './session-errors'
 import { harnessLabel, type HarnessId } from '../../shared/domain/harness'
@@ -46,6 +54,7 @@ import type {
   TerminalAttachPayload
 } from '../../shared/schemas/ipc'
 import { HostRequestError } from '../host/host-client'
+import { withLaunchArgs } from '../harness/launch-command'
 
 
 export type SessionServiceDeps = {
@@ -55,9 +64,37 @@ export type SessionServiceDeps = {
   worktrees: WorktreeStore
   gitWorktrees: GitWorktreeService
   host: HostGateway
-  detectHarness: (harness: HarnessId) => Promise<HarnessDetectionResult>
+  /**
+   * Discovery for one harness **on the host that owns the repository**.
+   *
+   * The target is required rather than optional: a guest repository discovered
+   * with Windows PATH evidence would report a Windows shim as an available
+   * harness, which is the exact failure W7 exists to prevent.
+   */
+  detectHarness: (
+    harness: HarnessId,
+    target: ExecutionTarget
+  ) => Promise<HarnessDetectionResult>
+  /**
+   * Path A: the local WSL terminal.
+   *
+   * Supplied by the composition root so the service stays free of `wsl.exe`
+   * details. Absent means "no Path A", and a WSL terminal is refused rather than
+   * served by a local shell.
+   */
+  resolveWslTerminal?: (
+    target: ExecutionTarget,
+    guestCwd: string
+  ) => Promise<PathATerminalOutcome>
   /** Extra CLI arguments for a harness (Claude receives ADE's hook overlay). */
-  launchArgs?: (harness: HarnessId) => string[]
+  /**
+   * Extra arguments for a harness launch — the Claude hook overlay.
+   *
+   * Target-aware because `--settings` must name a path the *process that reads it*
+   * can open: the same file is a Windows path for a local session and a
+   * `/mnt/…` path for a guest one.
+   */
+  launchArgs?: (harness: HarnessId, target: ExecutionTarget) => string[]
   /**
    * Reports the incarnation a session is now bound to, or null when the process
    * is gone. Activity uses this to reject events from a previous process.
@@ -70,6 +107,13 @@ export type SessionServiceDeps = {
 }
 
 type Listener = (event: RendererSessionEvent) => void
+
+/** One host identity: local, or a distro registration. Mirrors the pool's key. */
+function targetKey(target: ExecutionTarget): string {
+  return target.kind === 'wsl'
+    ? `wsl:${target.distro.trim().toLowerCase()}\u0000${target.distroId ?? ''}`
+    : 'local'
+}
 
 const TERMINAL_STATES = new Set<HostSessionStatus>(['exited', 'failed'])
 
@@ -120,18 +164,139 @@ export class SessionService {
     return () => this.listeners.delete(listener)
   }
 
+  /**
+   * Whether this session is a **Path A** local WSL terminal.
+   *
+   * Path A is the *shell* harness on a WSL repository: a terminal whose PTY is the
+   * desktop Host's, whose child is `wsl.exe`, and whose guest shell starts in the
+   * repository's guest directory. A coding Agent on the same repository is Path B
+   * and keeps the managed Host.
+   *
+   * Derived from persisted rows only — the session's harness and its repository's
+   * target — so a reopened session lands on the same path it was created with.
+   */
+  private isPathATerminal(harness: HarnessId, target: ExecutionTarget): boolean {
+    return isPathATerminal(harness, target)
+  }
+
+  /**
+   * The host that owns a session's PTY.
+   *
+   * Every terminal operation must use this rather than the repository target: a
+   * Path A terminal lives on the **desktop** Host even though its repository is a
+   * WSL repository. Using the WSL target for `write`, `resize` or `kill` would
+   * send the call to the managed Guest Host, which does not own that PTY.
+   */
+  private hostTargetFor(harness: HarnessId, target: ExecutionTarget): ExecutionTarget {
+    return pathAHostTargetFor(harness, target)
+  }
+
+  /**
+   * Resolves the Path A launch, or throws a typed error.
+   *
+   * Every failure here means **no terminal**: there is no fallback to a local
+   * shell, because a local shell would be the wrong machine's filesystem.
+   */
+  private async requirePathATerminal(
+    target: ExecutionTarget,
+    guestCwd: string
+  ): Promise<{ command: string; args: string[]; ptyCwd: string; distro: string }> {
+    if (!this.deps.resolveWslTerminal) {
+      throw new SessionServiceError(
+        makeAppError('WSL_UNAVAILABLE', 'This build cannot open a local WSL terminal.')
+      )
+    }
+    const outcome = await this.deps.resolveWslTerminal(target, guestCwd)
+    if (outcome.status === 'ready') {
+      return {
+        command: outcome.launch.command,
+        args: outcome.launch.args,
+        ptyCwd: outcome.launch.ptyCwd,
+        distro: outcome.launch.distro
+      }
+    }
+    if (outcome.status === 'failed') {
+      throw new SessionServiceError(outcome.failure.error)
+    }
+    throw new SessionServiceError(
+      makeAppError('WSL_UNAVAILABLE', 'That repository is not a WSL repository.')
+    )
+  }
+
   // ─── Reconciliation ───────────────────────────────────────────────
+
+  /** The owning target for a row, without throwing on a damaged record. */
+  /**
+   * The host that owns a stored session's PTY.
+   *
+   * A Path A terminal belongs to the **desktop** host even though its repository
+   * targets a distro. Judging it by the distro's host reported a live terminal as
+   * `unavailable` as soon as it exited, because the managed Guest Host had never
+   * heard of it.
+   */
+  private targetForKey(row: StoredSession): ExecutionTarget {
+    try {
+      return this.hostTargetFor(row.harness, this.targetForSession(row))
+    } catch {
+      return LOCAL_TARGET
+    }
+  }
+
+  /**
+   * One target per host that can own a session: local first, then each distinct
+   * WSL registration among registered repositories.
+   */
+  private distinctTargets(): ExecutionTarget[] {
+    const targets: ExecutionTarget[] = [LOCAL_TARGET]
+    const seen = new Set<string>()
+    for (const repository of this.deps.repositories.list()) {
+      const target = repository.executionTarget
+      if (target.kind !== 'wsl') continue
+      const key = `${target.distro.trim().toLowerCase()}\u0000${target.distroId ?? ''}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      targets.push(target)
+    }
+    return targets
+  }
 
   async reconcile(): Promise<SessionListView> {
     const rows = this.deps.sessions.listAll()
     let hostSessions: SessionInfo[] | null = null
     let hostError: AppError | null = null
+    /** One result per host, so each session is judged by its own host. */
+    const byHostKey = new Map<string, { ok: true; list: ListSessionsPayload } | { ok: false }>()
+    let allHostsAnswered = true
     try {
-      const list = await this.deps.host.listSessions()
-      hostSessions = list.sessions
+      // Every host that can own a session is asked: the local one, plus each
+      // distinct distro a registered repository points at. Asking only the local
+      // host would report every WSL session as `unavailable`.
+      const targets = this.distinctTargets()
+      const results = await Promise.all(
+        targets.map((target) =>
+          this.deps.host
+            .listSessions(target)
+            .then((list) => ({ ok: true as const, list }))
+            .catch((error: unknown) => ({ ok: false as const, error }))
+        )
+      )
+      // Per host, not all-or-nothing: a session is only "unknown" when *its own*
+      // host could not answer. With one host this is exactly the previous
+      // behaviour; with several it stops an unreachable local Host from blanking
+      // every WSL session's state.
+      results.forEach((result, index) => {
+        const target = targets[index]!
+        byHostKey.set(targetKey(target), result)
+        if (!result.ok && hostError === null) {
+          hostError = errorFromHost(result.error, 'Could not query the terminal host.')
+        }
+      })
+      hostSessions = results.flatMap((result) => (result.ok ? result.list.sessions : []))
+      allHostsAnswered = results.every((result) => result.ok)
     } catch (error) {
       hostError = errorFromHost(error, 'Could not query the terminal host.')
       hostSessions = null
+      allHostsAnswered = false
     }
 
     const bySessionId = new Map<string, SessionInfo>()
@@ -144,13 +309,31 @@ export class SessionService {
     const summaries: SessionSummary[] = []
     const changed: Array<{ id: SessionId; observation: PersistedSessionObservation }> = []
 
+    /**
+     * Worktree existence, asked of the host that owns the checkout.
+     *
+     * `describeWorktree` answers "is it there?" with the local filesystem when it
+     * is not told otherwise. For a distro checkout that question is about the
+     * wrong machine, and a healthy guest worktree came back as `missing` — which
+     * the UI renders as a warning and which disables Restart. Non-local targets
+     * are therefore resolved here, once per reconcile, through the same router
+     * the worktree service uses everywhere else.
+     */
+    const worktreeExists = await this.resolveWorktreeExistence(rows)
+
     for (const row of rows) {
       const entry = bySessionId.get(row.id)
-      const observation: HostObservation = hostSessions === null
-        ? { reachable: false }
-        : hostObservation(entry)
+      // A row whose own host failed is unknown; a row whose host answered keeps
+      // its state even if another host is down.
+      const ownHost = byHostKey.get(targetKey(this.targetForKey(row)))
+      // Only this row's own host decides. `allHostsAnswered` is the fallback for a
+      // row whose host was not queried at all (e.g. an unregistered repository).
+      const reachable = ownHost === undefined ? allHostsAnswered : ownHost.ok
+      const observation: HostObservation = reachable
+        ? hostObservation(entry)
+        : { reachable: false }
       const reconciled = reconcileSessionState(row.observation, observation)
-      const summary = this.toSummary(row, reconciled, entry?.cwd ?? null)
+      const summary = this.toSummary(row, reconciled, entry?.cwd ?? null, worktreeExists.get(row.id))
       summaries.push(summary)
       if (entry && (entry.status === 'live' || entry.status === 'starting')) {
         this.currentIncarnations.set(row.id, entry.incarnationId)
@@ -272,12 +455,26 @@ export class SessionService {
       )
     }
 
-    const detection = await this.requireHarness(input.harness)
-    this.requireDirectory(workspace.path)
+    // The routing authority is the persisted repository record — never the path
+    // string. A guest path and a Windows path are both "just strings".
+    const target = repository.executionTarget
+    // Path A owns its own shell resolution: the distro's login shell is what a
+    // terminal must run, and Orca probes nothing for it (`wsl.exe` is the shell).
+    const pathA = this.isPathATerminal(input.harness, target)
+    const detection = pathA ? null : await this.requireHarness(input.harness, target)
+    await this.requireDirectory(workspace.path, target)
+
+    // Path A is validated **before** any worktree work, so an unavailable distro
+    // or a missing guest directory cannot leave a half-created checkout behind.
+    // The pre-flight uses the repository root, which must already exist in the
+    // guest; the terminal itself will enter the worktree once it is created.
+    const pathAPreflight = pathA
+      ? await this.requirePathATerminal(target, repository.path)
+      : null
 
     // Every new session in a Git repository gets its own checkout. Refuse
     // repositories where a worktree cannot be based on a known commit.
-    const gitState = await this.deps.gitWorktrees.inspectRepository(repository.path)
+    const gitState = await this.deps.gitWorktrees.inspectRepository(repository.path, target)
     if (gitState.unborn) {
       throw new SessionServiceError(
         makeAppError('UNBORN_REPOSITORY', 'This repository has no commit yet.', {
@@ -309,7 +506,10 @@ export class SessionService {
       'Untitled session'
     )
     const branch = branchNameForSession(sessionId)
-    const worktreePath = this.deps.gitWorktrees.worktreePathFor(repository.id, sessionId)
+    // The managed root belongs to the repository's host: a WSL repository's
+    // sessions live on the guest filesystem, under the guest worktree root.
+    const worktreeRoot = await this.deps.gitWorktrees.worktreeRootFor(target)
+    const worktreePath = this.deps.gitWorktrees.worktreePathFor(repository.id, sessionId, worktreeRoot)
     const initial: PersistedSessionObservation = {
       lastObservedState: 'starting',
       lastObservedExitCode: null,
@@ -353,23 +553,62 @@ export class SessionService {
     })
 
     const cwd = worktreePath
+    // The worktree is now registered in the guest, so the terminal's guest
+    // directory is known; only the argv changes, not the validated distro.
+    const pathALaunch = pathAPreflight
+      ? {
+          ...pathAPreflight,
+          args: buildWslTerminalArgs(pathAPreflight.distro, worktreePath)
+        }
+      : null
     try {
       await this.deps.gitWorktrees.create({
         primaryRoot: repository.path,
         path: worktreePath,
         branch,
-        baseOid: worktree.baseOid
+        baseOid: worktree.baseOid,
+        target
       })
       this.deps.worktrees.updateState(sessionId, 'created', null, this.now())
 
-      const created = await this.deps.host.createOrAttach({
-        sessionId,
-        cwd,
-        command: detection.command!.command,
-        args: [...detection.command!.args, ...this.launchArgsFor(input.harness)],
-        cols: input.cols,
-        rows: input.rows
-      })
+      /**
+       * Two routes, chosen by persisted intent:
+       *
+       *   Path A — a local WSL terminal: the **desktop** Host spawns `wsl.exe`,
+       *            the PTY cwd is machine-local, and the guest shell starts in the
+       *            worktree. No relay, no managed Guest Host.
+       *   Path B — a coding Agent: the managed Guest Host reached by the W5 relay,
+       *            exactly as W7 wired it.
+       */
+      const created = pathA
+        ? await this.deps.host.createOrAttach(
+            {
+              sessionId,
+              // A ConPTY cannot start in a Linux path; the guest directory is
+              // entered by the child script instead.
+              cwd: pathALaunch!.ptyCwd,
+              command: pathALaunch!.command,
+              args: pathALaunch!.args,
+              cols: input.cols,
+              rows: input.rows
+            },
+            // The desktop Host: Path A is deliberately not routed through W5.
+            LOCAL_TARGET
+          )
+        : await this.deps.host.createOrAttach(
+            {
+              sessionId,
+              cwd,
+              command: detection!.command!.command,
+              args: withLaunchArgs(
+                detection!.command!,
+                this.launchArgsFor(input.harness, target)
+              ).args,
+              cols: input.cols,
+              rows: input.rows
+            },
+            target
+          )
       this.currentIncarnations.set(sessionId, created.incarnationId)
       this.deps.onIncarnation?.(sessionId, created.incarnationId)
       const observation: PersistedSessionObservation = {
@@ -430,19 +669,28 @@ export class SessionService {
   async attach(sessionId: string): Promise<TerminalAttachPayload> {
     const row = this.requireRow(sessionId)
     const checkout = await this.resolveCheckout(row)
+    const target = this.targetForSession(row)
+    // A Path A terminal lives on the desktop Host with a machine-local cwd; a
+    // Linux path here would make the attach fail its own cwd check.
+    const pathA = this.isPathATerminal(row.harness, target)
+      ? await this.requirePathATerminal(target, checkout.path)
+      : null
 
     let attached: CreateOrAttachPayload
     try {
-      attached = await this.deps.host.createOrAttach({
-        sessionId,
-        cwd: checkout.path,
-        // attachOnly never spawns, so the command is required by the protocol
-        // but not executed. Restart resolves the harness command again.
-        command: resolvedShellCommand(),
-        cols: attachedDimensions(row).cols,
-        rows: attachedDimensions(row).rows,
-        attachOnly: true
-      })
+      attached = await this.deps.host.createOrAttach(
+        {
+          sessionId,
+          cwd: pathA?.ptyCwd ?? checkout.path,
+          // attachOnly never spawns, so the command is required by the protocol
+          // but not executed. Restart resolves the harness command again.
+          command: resolvedShellCommand(),
+          cols: attachedDimensions(row).cols,
+          rows: attachedDimensions(row).rows,
+          attachOnly: true
+        },
+        pathA ? LOCAL_TARGET : target
+      )
     } catch (error) {
       const appError = errorFromHost(error, 'Could not attach to the session.')
       if (appError.code === 'SESSION_NOT_FOUND') {
@@ -460,12 +708,30 @@ export class SessionService {
       throw new SessionServiceError(appError)
     }
 
-    if (checkout.record !== null && !samePath(attached.cwd, checkout.path)) {
-      // The Host is authoritative for the process; if it reports a different
-      // working directory, ADE must not present this terminal as consistent.
+    /**
+     * The Host is authoritative for the process, so a disagreement about the
+     * working directory must not be presented as consistent.
+     *
+     * Which directory to expect depends on the route: a Path A terminal's PTY
+     * starts in a machine-local directory (a ConPTY cannot chdir to a Linux path)
+     * and enters the guest worktree from inside; a Path B PTY *is* the guest
+     * process, so its cwd is the worktree itself.
+     */
+    const expectedCwd = pathA?.ptyCwd ?? checkout.path
+    if (pathA === null && checkout.record !== null && !samePath(attached.cwd, expectedCwd)) {
       throw new SessionServiceError(
         makeAppError('WORKTREE_INCONSISTENT', 'The Host process is not running in the recorded worktree.', {
-          detail: `${attached.cwd} != ${checkout.path}`,
+          detail: `${attached.cwd} != ${expectedCwd}`,
+          context: { sessionId }
+        })
+      )
+    }
+    if (pathA !== null && !samePath(attached.cwd, expectedCwd)) {
+      // Path A: the PTY must be the one this route starts, or the terminal is not
+      // the WSL terminal ADE claims it is.
+      throw new SessionServiceError(
+        makeAppError('WORKTREE_INCONSISTENT', 'The WSL terminal is not running in its expected directory.', {
+          detail: `${attached.cwd} != ${expectedCwd}`,
           context: { sessionId }
         })
       )
@@ -500,7 +766,12 @@ export class SessionService {
     const row = this.requireRow(sessionId)
     this.assertIncarnation(row, incarnationId)
     try {
-      await this.deps.host.write(sessionId, incarnationId, data)
+      await this.deps.host.write(
+        sessionId,
+        incarnationId,
+        data,
+        this.hostTargetFor(row.harness, this.targetForSession(row))
+      )
     } catch (error) {
       const appError = errorFromHost(error, 'The terminal did not accept input.')
       if (appError.code === 'SESSION_NOT_FOUND') {
@@ -529,7 +800,13 @@ export class SessionService {
     const row = this.requireRow(sessionId)
     this.assertIncarnation(row, incarnationId)
     try {
-      await this.deps.host.resize(sessionId, incarnationId, cols, rows)
+      await this.deps.host.resize(
+        sessionId,
+        incarnationId,
+        cols,
+        rows,
+        this.hostTargetFor(row.harness, this.targetForSession(row))
+      )
     } catch (error) {
       const appError = errorFromHost(error, 'The terminal could not be resized.')
       if (appError.code === 'SESSION_NOT_FOUND') this.markUnavailable(row, appError)
@@ -540,7 +817,10 @@ export class SessionService {
   async stop(sessionId: string): Promise<void> {
     const row = this.requireRow(sessionId)
     try {
-      await this.deps.host.kill(sessionId)
+      await this.deps.host.kill(
+        sessionId,
+        this.hostTargetFor(row.harness, this.targetForSession(row))
+      )
     } catch (error) {
       const appError = errorFromHost(error, 'The session could not be stopped.')
       if (appError.code === 'SESSION_NOT_FOUND') {
@@ -558,7 +838,14 @@ export class SessionService {
     // Validate the recorded checkout before killing anything: restart must
     // never stop a healthy PTY and then discover there is nowhere to start.
     const checkout = await this.resolveCheckout(row)
-    const detection = await this.requireHarness(row.harness)
+    const target = this.targetForSession(row)
+    const pathA = this.isPathATerminal(row.harness, target)
+      ? await this.requirePathATerminal(target, checkout.path)
+      : null
+    // Path A re-runs the distro shell, so it resolves no harness: the terminal's
+    // shell is decided inside the guest.
+    const detection = pathA === null ? await this.requireHarness(row.harness, target) : null
+    const hostTarget = pathA === null ? target : LOCAL_TARGET
     const repository = checkout.record === null
       ? null
       : this.deps.repositories.findById(checkout.record.repoId)
@@ -570,7 +857,7 @@ export class SessionService {
 
     let previous: SessionInfo | undefined
     try {
-      const list = await this.deps.host.listSessions()
+      const list = await this.deps.host.listSessions(hostTarget)
       previous = list.sessions.find((entry) => entry.sessionId === sessionId)
     } catch (error) {
       throw new SessionServiceError(errorFromHost(error, 'Could not query the terminal host.'))
@@ -578,23 +865,28 @@ export class SessionService {
 
     if (previous && (previous.status === 'live' || previous.status === 'starting')) {
       try {
-        await this.deps.host.kill(sessionId)
+        await this.deps.host.kill(sessionId, hostTarget)
       } catch (error) {
         throw new SessionServiceError(errorFromHost(error, 'The running session could not be stopped.'))
       }
-      await this.waitForStop(sessionId)
+      await this.waitForStop(sessionId, hostTarget)
     }
 
     let created: CreateOrAttachPayload
     try {
-      created = await this.deps.host.createOrAttach({
-        sessionId,
-        cwd: checkout.path,
-        command: detection.command!.command,
-        args: [...detection.command!.args, ...this.launchArgsFor(row.harness)],
-        cols: previous?.cols ?? 100,
-        rows: previous?.rows ?? 30
-      })
+      created = await this.deps.host.createOrAttach(
+        {
+          sessionId,
+          cwd: pathA?.ptyCwd ?? checkout.path,
+          command: pathA?.command ?? detection!.command!.command,
+          args:
+            pathA?.args ??
+            withLaunchArgs(detection!.command!, this.launchArgsFor(row.harness, target)).args,
+          cols: previous?.cols ?? 100,
+          rows: previous?.rows ?? 30
+        },
+        hostTarget
+      )
     } catch (error) {
       throw new SessionServiceError(
         error instanceof HostRequestError
@@ -672,7 +964,8 @@ export class SessionService {
     await this.deps.gitWorktrees.recover({
       primaryRoot: repository.path,
       path: record.path,
-      branch: record.branch
+      branch: record.branch,
+      target: repository.executionTarget
     })
     this.deps.worktrees.updateState(sessionId, 'created', null, this.now())
     const summary = await this.get(sessionId)
@@ -682,11 +975,11 @@ export class SessionService {
 
   // ─── Internals ────────────────────────────────────────────────────
 
-  private async waitForStop(sessionId: string): Promise<void> {
+  private async waitForStop(sessionId: string, target: ExecutionTarget): Promise<void> {
     const deadline = Date.now() + 3000
     while (Date.now() < deadline) {
       try {
-        const list = await this.deps.host.listSessions()
+        const list = await this.deps.host.listSessions(target)
         const entry = list.sessions.find((item) => item.sessionId === sessionId)
         if (!entry || TERMINAL_STATES.has(entry.status)) return
       } catch (error) {
@@ -702,12 +995,15 @@ export class SessionService {
     )
   }
 
-  private launchArgsFor(harness: HarnessId): string[] {
-    return this.deps.launchArgs?.(harness) ?? []
+  private launchArgsFor(harness: HarnessId, target: ExecutionTarget): string[] {
+    return this.deps.launchArgs?.(harness, target) ?? []
   }
 
-  private async requireHarness(harness: HarnessId): Promise<HarnessDetectionResult> {
-    const detection = await this.deps.detectHarness(harness)
+  private async requireHarness(
+    harness: HarnessId,
+    target: ExecutionTarget
+  ): Promise<HarnessDetectionResult> {
+    const detection = await this.deps.detectHarness(harness, target)
     if (detection.state === 'unavailable') {
       throw new SessionServiceError(
         makeAppError('HARNESS_UNAVAILABLE', `${harnessLabel(harness)} cannot run here.`, {
@@ -746,17 +1042,21 @@ export class SessionService {
     return detection
   }
 
-  private requireDirectory(path: string): void {
-    try {
-      if (!statSync(path).isDirectory()) throw new Error('not a directory')
-    } catch {
-      throw new SessionServiceError(
-        makeAppError('CWD_MISSING', 'The session working directory is missing.', {
-          detail: path,
-          context: { path }
-        })
-      )
-    }
+  /**
+   * Confirms the workspace directory exists **on the host that owns it**.
+   *
+   * A guest path checked with `statSync` would answer about the controller's
+   * filesystem and report a healthy WSL repository as missing.
+   */
+  private async requireDirectory(path: string, target: ExecutionTarget): Promise<void> {
+    const fs = await this.deps.gitWorktrees.hostFsFor(target)
+    if (await fs.isDirectory(path)) return
+    throw new SessionServiceError(
+      makeAppError('CWD_MISSING', 'The session working directory is missing.', {
+        detail: path,
+        context: { path }
+      })
+    )
   }
 
   private requireRow(sessionId: string): StoredSession {
@@ -840,7 +1140,8 @@ export class SessionService {
   private toSummary(
     row: StoredSession,
     reconciled: ReconciledSessionState,
-    hostCwd: string | null = null
+    hostCwd: string | null = null,
+    worktreeExists?: boolean | null
   ): SessionSummary {
     const workspace = this.deps.repositories.findWorkspaceById(row.workspaceId)
     if (!workspace) {
@@ -862,7 +1163,7 @@ export class SessionService {
       exitCode: reconciled.exitCode,
       error: reconciled.error ?? this.impliedError(reconciled.reason),
       updatedAt: this.now(),
-      worktree: this.worktreeSummaryFor(row, reconciled.state, hostCwd),
+      worktree: this.worktreeSummaryFor(row, reconciled.state, hostCwd, worktreeExists),
       activity: this.activityFor(row, reconciled.state)
     }
   }
@@ -882,11 +1183,62 @@ export class SessionService {
   private worktreeSummaryFor(
     row: StoredSession,
     sessionState: ReconciledSessionState['state'],
-    hostCwd: string | null
+    hostCwd: string | null,
+    worktreeExists?: boolean | null
   ): WorktreeSummary | null {
     const record = this.deps.worktrees.findBySession(row.id)
     if (!record) return null
-    return describeWorktree(record, sessionState, hostCwd)
+    // `undefined` = local, let describeWorktree stat it. `null` = a remote host
+    // could not answer, which must not become a `missing` claim.
+    const directoryExists = worktreeExists === null ? true : (worktreeExists ?? undefined)
+    return describeWorktree(record, sessionState, hostCwd, directoryExists)
+  }
+
+  /**
+   * Existence of each worktree that lives on another host.
+   *
+   * Values: `true`/`false` is the distro's own answer; `null` means the host
+   * could not answer (unreachable, or the router refused). Local sessions are
+   * absent from the map, so their check stays a plain `statSync` exactly as
+   * before.
+   *
+   * `null` is not "missing": an unreachable distro says nothing about the
+   * checkout, and claiming the worktree is gone would disable Restart on a
+   * session that is merely offline.
+   */
+  private async resolveWorktreeExistence(
+    rows: StoredSession[]
+  ): Promise<Map<string, boolean | null>> {
+    const resolved = new Map<string, boolean | null>()
+    const pending: Array<Promise<void>> = []
+    const fileSystems = new Map<string, Awaited<ReturnType<SessionServiceDeps['gitWorktrees']['hostFsFor']>>>()
+
+    for (const row of rows) {
+      const record = this.deps.worktrees.findBySession(row.id)
+      if (!record) continue
+      const repository = this.deps.repositories.findById(record.repoId)
+      if (!repository || repository.executionTarget.kind === 'local') continue
+
+      const key = `${repository.executionTarget.distro}\u0000${repository.executionTarget.distroId ?? ''}`
+      resolved.set(row.id, null)
+      pending.push(
+        (async () => {
+          try {
+            let fs = fileSystems.get(key)
+            if (!fs) {
+              fs = await this.deps.gitWorktrees.hostFsFor(repository.executionTarget)
+              fileSystems.set(key, fs)
+            }
+            resolved.set(row.id, await fs.isDirectory(record.path))
+          } catch {
+            // No answer is not "missing": the null set above stands.
+          }
+        })()
+      )
+    }
+
+    await Promise.all(pending)
+    return resolved
   }
 
   /**
@@ -903,6 +1255,33 @@ export class SessionService {
     sessionId: string
   ): Promise<{ path: string; record: SessionWorktreeRecord | null }> {
     return this.resolveCheckout(this.requireRow(sessionId))
+  }
+
+  /**
+   * The execution target a session belongs to, from its repository.
+   *
+   * Legacy sessions with no worktree row still have a workspace, and the workspace
+   * names its repository — so the answer is always persisted data, never a guess
+   * about the path.
+   */
+  private targetForSession(row: StoredSession): ExecutionTarget {
+    const workspace = this.deps.repositories.findWorkspaceById(row.workspaceId)
+    if (!workspace) {
+      throw new SessionServiceError(
+        makeAppError('DB_CORRUPT', 'Session workspace is missing.', {
+          context: { sessionId: row.id }
+        })
+      )
+    }
+    const repository = this.deps.repositories.findById(workspace.repoId)
+    if (!repository) {
+      throw new SessionServiceError(
+        makeAppError('DB_CORRUPT', 'Session repository is missing.', {
+          context: { sessionId: row.id }
+        })
+      )
+    }
+    return repository.executionTarget
   }
 
   private async resolveCheckout(
@@ -929,7 +1308,8 @@ export class SessionService {
     const inspection = await this.deps.gitWorktrees.inspect({
       primaryRoot: repository.path,
       path: record.path,
-      branch: record.branch
+      branch: record.branch,
+      target: repository.executionTarget
     })
     if (!inspection.pathExists) {
       throw new SessionServiceError(

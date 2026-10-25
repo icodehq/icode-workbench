@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, Check, Loader2, RefreshCw, X } from 'lucide-react'
 import type { AppError } from '../../../shared/domain/errors'
 import {
@@ -20,7 +20,8 @@ type Props = {
   creating: boolean
   onClose: () => void
   onCreate: (input: CreateSessionRequest) => Promise<boolean>
-  onRefreshHarnesses: (force: boolean) => Promise<void>
+  /** Re-detect for one repository's execution target (`repoId` omitted = this machine). */
+  onRefreshHarnesses: (force: boolean, repoId?: string | null) => Promise<void>
 }
 
 function detectionTone(state: HarnessDetection['state']): string {
@@ -33,6 +34,105 @@ function detectionLabel(state: HarnessDetection['state']): string {
   if (state === 'available') return 'Available'
   if (state === 'detection_failed') return 'Detection failed'
   return 'Unavailable'
+}
+
+/** A group heading that says what the actions below it will do. */
+function SectionHeading({
+  title,
+  hint,
+  testId
+}: {
+  title: string
+  hint: string
+  testId: string
+}): React.JSX.Element {
+  return (
+    <div className="px-1 pt-1" data-testid={testId}>
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-foreground/80">
+        {title}
+      </p>
+      <p className="mt-0.5 text-[10px] text-muted-foreground">{hint}</p>
+    </div>
+  )
+}
+
+/**
+ * One selectable Harness.
+ *
+ * `labelOverride` exists for the only case where the Harness name is misleading:
+ * on a WSL repository the `shell` Harness is the WSL terminal (Path A), not the
+ * desktop's own shell.
+ */
+function HarnessRow({
+  entry,
+  selected,
+  onSelect,
+  labelOverride
+}: {
+  entry: HarnessDetection
+  selected: boolean
+  onSelect: () => void
+  labelOverride?: string | undefined
+}): React.JSX.Element {
+  const selectable = entry.state === 'available'
+  const isSelected = selected && selectable
+  return (
+    <div
+      className={`rounded-md border px-3 py-2 ${
+        isSelected ? 'border-accent/70 bg-accent/10' : 'border-border bg-background'
+      } ${selectable ? '' : 'opacity-70'}`}
+    >
+      <button
+        type="button"
+        className={`flex w-full items-center justify-between gap-2 text-left ${
+          selectable ? 'cursor-pointer' : 'cursor-not-allowed'
+        }`}
+        onClick={() => {
+          if (selectable) onSelect()
+        }}
+        disabled={!selectable}
+        data-testid={`harness-option-${entry.harness}`}
+        data-harness-state={entry.state}
+        data-selected={isSelected ? 'true' : 'false'}
+      >
+        <span className="flex items-center gap-2">
+          <span
+            className={`flex h-4 w-4 items-center justify-center rounded-full border ${
+              isSelected ? 'border-accent bg-accent text-white' : 'border-border'
+            }`}
+          >
+            {isSelected ? <Check size={10} /> : null}
+          </span>
+          <span className="text-[12px] font-medium">
+            {labelOverride ?? HARNESS_DEFINITIONS[entry.harness].label}
+          </span>
+        </span>
+        <span className={`text-[10px] ${detectionTone(entry.state)}`}>
+          {detectionLabel(entry.state)}
+          {entry.state === 'available' && entry.version ? ` · ${entry.version}` : ''}
+        </span>
+      </button>
+      {entry.state !== 'available' ? (
+        <p className="mt-1 pl-6 text-[10px] text-muted-foreground">{entry.message}</p>
+      ) : null}
+      <details className="mt-1 pl-6">
+        <summary className="cursor-pointer text-[10px] text-muted-foreground hover:text-foreground">
+          Diagnostics
+        </summary>
+        <dl className="mt-1 space-y-0.5 font-mono text-[9px] leading-relaxed text-muted-foreground">
+          <div>path: {entry.diagnostics.resolvedPath ?? 'not resolved'}</div>
+          <div>
+            probe: {entry.diagnostics.outcome}
+            {entry.diagnostics.exitCode === null ? '' : ` · exit ${String(entry.diagnostics.exitCode)}`}
+            {` · ${String(entry.diagnostics.durationMs)} ms`}
+          </div>
+          {entry.diagnostics.stderrTail ? (
+            <div className="whitespace-pre-wrap break-all">stderr: {entry.diagnostics.stderrTail}</div>
+          ) : null}
+        </dl>
+      </details>
+    </div>
+  )
 }
 
 export default function NewSessionDialog({
@@ -54,9 +154,36 @@ export default function NewSessionDialog({
   const [harness, setHarness] = useState<HarnessId | null>(available[0]?.harness ?? null)
   const [title, setTitle] = useState('')
 
+  const repoTarget = repos.find((repo) => repo.id === repoId)?.target ?? null
+  const targetLabel =
+    repoTarget === null
+      ? 'this machine'
+      : repoTarget.kind === 'wsl'
+        ? `WSL ${repoTarget.distro}`
+        : 'this machine'
+  const agents = useMemo(() => harnesses.filter((entry) => entry.harness !== 'shell'), [harnesses])
+  const shellEntry = harnesses.find((entry) => entry.harness === 'shell') ?? null
+
+  /**
+   * Ask for the *selected repository's* Harnesses.
+   *
+   * On open and whenever the repository changes: a WSL repository and a local one
+   * do not share an answer, and the list is what the user chooses from.
+   */
+  const requested = useRef<string | null>(null)
+  useEffect(() => {
+    if (repoId.length === 0) return
+    if (requested.current === repoId) return
+    requested.current = repoId
+    void onRefreshHarnesses(false, repoId)
+  }, [repoId, onRefreshHarnesses])
+
   useEffect(() => {
     if (harness !== null && available.some((entry) => entry.harness === harness)) return
-    setHarness(available[0]?.harness ?? null)
+    // Prefer a Coding Agent when one exists; the terminal is the fallback, not the
+    // default, because "New session" has historically meant "start an Agent".
+    const preferred = available.find((entry) => entry.harness !== 'shell')
+    setHarness(preferred?.harness ?? available[0]?.harness ?? null)
   }, [available, harness])
 
   const submit = async (event: React.FormEvent): Promise<void> => {
@@ -110,14 +237,20 @@ export default function NewSessionDialog({
           >
             {repos.map((repo) => (
               <option key={repo.id} value={repo.id}>
-                {repo.displayName} — {repo.path}
+                {repo.displayName}
+                {repo.target.kind === 'wsl' ? ` [WSL ${repo.target.distro}]` : ''} — {repo.path}
               </option>
             ))}
           </select>
+          <p className="mt-1.5 text-[10px] text-muted-foreground" data-testid="new-session-target">
+            {repoTarget?.kind === 'wsl'
+              ? `Agents run inside ${repoTarget.distro}; a terminal opens on this desktop in that distro.`
+              : 'Everything runs on this machine.'}
+          </p>
 
           <div className="mt-4 flex items-center justify-between">
             <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-              Harness
+              Action
             </span>
             <button
               type="button"
@@ -152,93 +285,76 @@ export default function NewSessionDialog({
                     className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-[11px] text-muted-foreground"
                   >
                     <Loader2 size={12} className="animate-spin" />
-                    Checking {harnessLabel(id)}…
+                    Checking {harnessLabel(id)} in {targetLabel}…
                   </div>
                 ))
-              : harnesses.map((entry) => {
-                  const selectable = entry.state === 'available'
-                  const selected = harness === entry.harness
-                  return (
-                    <div
-                      key={entry.harness}
-                      className={`rounded-md border px-3 py-2 ${
-                        selected && selectable
-                          ? 'border-accent/70 bg-accent/10'
-                          : 'border-border bg-background'
-                      } ${selectable ? '' : 'opacity-70'}`}
-                    >
-                      <button
-                        type="button"
-                        className={`flex w-full items-center justify-between gap-2 text-left ${
-                          selectable ? 'cursor-pointer' : 'cursor-not-allowed'
-                        }`}
-                        onClick={() => {
-                          if (selectable) setHarness(entry.harness)
-                        }}
-                        disabled={!selectable}
-                        data-testid={`harness-option-${entry.harness}`}
-                        data-harness-state={entry.state}
-                        data-selected={selected && selectable ? 'true' : 'false'}
-                      >
-                        <span className="flex items-center gap-2">
-                          <span
-                            className={`flex h-4 w-4 items-center justify-center rounded-full border ${
-                              selected && selectable
-                                ? 'border-accent bg-accent text-white'
-                                : 'border-border'
-                            }`}
-                          >
-                            {selected && selectable ? <Check size={10} /> : null}
-                          </span>
-                          <span className="text-[12px] font-medium">
-                            {HARNESS_DEFINITIONS[entry.harness].label}
-                          </span>
-                        </span>
-                        <span className={`text-[10px] ${detectionTone(entry.state)}`}>
-                          {detectionLabel(entry.state)}
-                          {entry.state === 'available' && entry.version
-                            ? ` · ${entry.version}`
-                            : ''}
-                        </span>
-                      </button>
-                      {entry.state !== 'available' ? (
-                        <p className="mt-1 pl-6 text-[10px] text-muted-foreground">
-                          {entry.message}
-                        </p>
-                      ) : null}
-                      <details className="mt-1 pl-6">
-                        <summary className="cursor-pointer text-[10px] text-muted-foreground hover:text-foreground">
-                          Diagnostics
-                        </summary>
-                        <dl className="mt-1 space-y-0.5 font-mono text-[9px] leading-relaxed text-muted-foreground">
-                          <div>
-                            path: {entry.diagnostics.resolvedPath ?? 'not resolved'}
-                          </div>
-                          <div>
-                            probe: {entry.diagnostics.outcome}
-                            {entry.diagnostics.exitCode === null
-                              ? ''
-                              : ` · exit ${String(entry.diagnostics.exitCode)}`}
-                            {` · ${String(entry.diagnostics.durationMs)} ms`}
-                          </div>
-                          {entry.diagnostics.stderrTail ? (
-                            <div className="whitespace-pre-wrap break-all">
-                              stderr: {entry.diagnostics.stderrTail}
-                            </div>
-                          ) : null}
-                        </dl>
-                      </details>
-                    </div>
-                  )
-                })}
+              : (
+                  <>
+                    {/**
+                     * Two actions, not one list.
+                     *
+                     * An Agent session runs *inside* the execution target: on this
+                     * machine, or on the managed WSL host for a WSL repository. A
+                     * Terminal session is always a local desktop terminal — for WSL
+                     * it is `wsl.exe` on this desktop, in the chosen distro (Path A).
+                     * Presenting them as one undifferentiated list is what made the
+                     * two indistinguishable.
+                     */}
+                    <SectionHeading
+                      title="Coding Agent"
+                      hint={
+                        repoTarget?.kind === 'wsl'
+                          ? `Runs inside ${repoTarget.distro}, through the managed WSL host.`
+                          : 'Runs on this machine.'
+                      }
+                      testId="agent-section"
+                    />
+                    {agents.map((entry) => (
+                      <HarnessRow
+                        key={entry.harness}
+                        entry={entry}
+                        selected={harness === entry.harness}
+                        onSelect={() => setHarness(entry.harness)}
+                      />
+                    ))}
+                    {agents.length === 0 && !harnessLoading ? (
+                      <p className="px-1 text-[10px] text-muted-foreground">
+                        No Coding Agent was detected for {targetLabel}.
+                      </p>
+                    ) : null}
+
+                    <SectionHeading
+                      title="Terminal"
+                      hint={
+                        repoTarget?.kind === 'wsl'
+                          ? `A WSL terminal on this desktop, inside ${repoTarget.distro}.`
+                          : 'A local terminal on this machine.'
+                      }
+                      testId="terminal-section"
+                    />
+                    {shellEntry ? (
+                      <HarnessRow
+                        entry={shellEntry}
+                        selected={harness === 'shell'}
+                        onSelect={() => setHarness('shell')}
+                        labelOverride={repoTarget?.kind === 'wsl' ? 'WSL terminal' : undefined}
+                      />
+                    ) : (
+                      <p className="px-1 text-[10px] text-muted-foreground">
+                        {harnessLoading ? 'Checking the terminal…' : 'No terminal is available.'}
+                      </p>
+                    )}
+                  </>
+                )}
           </div>
 
-          {!harnessLoading && available.length === 0 ? (
+          {!harnessLoading && !agents.some((entry) => entry.state === 'available') ? (
             <div className="mt-2 flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-300">
               <AlertTriangle size={13} className="mt-0.5 shrink-0" />
               <span>
-                No supported Coding Agent is available. Install one, then use “Detect again”.
-                Shell sessions are still available if their probe succeeds.
+                No Coding Agent is available {repoTarget?.kind === 'wsl' ? `in ${repoTarget.distro}` : 'on this machine'}.
+                Install one there, then use “Detect again”. A terminal session is still
+                available.
               </span>
             </div>
           ) : null}

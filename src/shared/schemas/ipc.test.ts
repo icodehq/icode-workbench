@@ -138,9 +138,42 @@ describe('output contracts', () => {
         displayName: 'atlas',
         path: '/home/dev/atlas',
         currentBranch: 'main',
-        availability: 'present'
+        availability: 'present',
+        target: { kind: 'local' }
       }).success
     ).toBe(true)
+    // A WSL target round-trips its registration identity untouched.
+    expect(
+      repositorySummarySchema.safeParse({
+        id: repoId,
+        displayName: 'atlas',
+        path: '/home/dev/atlas',
+        currentBranch: 'main',
+        availability: 'present',
+        target: { kind: 'wsl', distro: 'Ubuntu-26.04', distroId: 'guid-a' }
+      }).success
+    ).toBe(true)
+    // A target is required: an omitted one is not silently read as local.
+    expect(
+      repositorySummarySchema.safeParse({
+        id: repoId,
+        displayName: 'atlas',
+        path: '/home/dev/atlas',
+        currentBranch: 'main',
+        availability: 'present'
+      }).success
+    ).toBe(false)
+    // A wsl target without a distro is invalid.
+    expect(
+      repositorySummarySchema.safeParse({
+        id: repoId,
+        displayName: 'atlas',
+        path: '/home/dev/atlas',
+        currentBranch: 'main',
+        availability: 'present',
+        target: { kind: 'wsl', distro: '', distroId: null }
+      }).success
+    ).toBe(false)
     expect(sessionSummarySchema.safeParse(summary).success).toBe(true)
     expect(sessionSummarySchema.safeParse({ ...summary, incarnationId: null }).success).toBe(true)
     expect(sessionSummarySchema.safeParse({ ...summary, state: 'running' }).success).toBe(false)
@@ -157,7 +190,8 @@ describe('output contracts', () => {
           displayName: 'atlas',
           path: '/home/dev/atlas',
           currentBranch: null,
-          availability: 'missing'
+          availability: 'missing',
+          target: { kind: 'local' }
         }
       }).success
     ).toBe(true)

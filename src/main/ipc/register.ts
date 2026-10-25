@@ -3,6 +3,7 @@ import { IPC_CHANNELS, type IpcResult } from '../../shared/schemas/ipc'
 import { makeAppError } from '../../shared/domain/errors'
 import type { AppRuntime } from '../app/runtime'
 import { createDispatcher, type Dispatcher } from './dispatcher'
+import { toRepositorySummary } from './repository-summary'
 
 const HANDLED_CHANNELS: readonly string[] = [
   IPC_CHANNELS.reposList,
@@ -20,9 +21,19 @@ const HANDLED_CHANNELS: readonly string[] = [
   IPC_CHANNELS.branchesRemove,
   IPC_CHANNELS.reviewList,
   IPC_CHANNELS.reviewDiff,
+  IPC_CHANNELS.filesList,
+  IPC_CHANNELS.filesRead,
+  IPC_CHANNELS.filesWrite,
+  IPC_CHANNELS.filesSearch,
+  IPC_CHANNELS.gitStatus,
+  IPC_CHANNELS.gitStageAll,
+  IPC_CHANNELS.gitUnstageAll,
+  IPC_CHANNELS.gitCommit,
+  IPC_CHANNELS.gitDiscardPath,
   IPC_CHANNELS.activityList,
   IPC_CHANNELS.activityClearUnread,
   IPC_CHANNELS.harnessList,
+  IPC_CHANNELS.wslListDistros,
   IPC_CHANNELS.terminalAttach,
   IPC_CHANNELS.terminalWrite,
   IPC_CHANNELS.terminalResize
@@ -47,24 +58,22 @@ export function createAppDispatcher(
   return createDispatcher({
     reposList: async () => {
       const persistence = getPersistence()
-      return persistence.repositoryService.listRepositories().map((entry) => ({
-        id: entry.repository.id,
-        displayName: entry.repository.displayName,
-        path: entry.repository.path,
-        currentBranch: entry.repository.currentBranch,
-        availability: entry.repository.availability
-      }))
+      // Remote projects are asked about by their own host before the list is
+      // built; a distro that cannot answer becomes `unknown`, not `missing`.
+      await persistence.repositoryService.refreshTargetAvailability()
+      // One mapper for both call sites: these hand-built payloads drifting apart
+      // is how `target` vanished from the list while still present on add.
+      return persistence.repositoryService
+        .listRepositories()
+        .map((entry) => toRepositorySummary(entry.repository))
     },
     reposAdd: async (input) => {
       const persistence = getPersistence()
-      const result = await persistence.repositoryService.addRepository(input.path)
-      return {
-        id: result.repository.id,
-        displayName: result.repository.displayName,
-        path: result.repository.path,
-        currentBranch: result.repository.currentBranch,
-        availability: result.repository.availability
-      }
+      const result = await persistence.repositoryService.addRepository(
+        input.path,
+        input.target
+      )
+      return toRepositorySummary(result.repository)
     },
     reposRemove: async (input) =>
       runtime.removals.remove(input.repoId, {
@@ -92,7 +101,23 @@ export function createAppDispatcher(
     activityClearUnread: async (input) => runtime.activity.clearUnread(input.sessionId),
     reviewList: (input) => runtime.review.list(input.sessionId),
     reviewDiff: (input) => runtime.review.diff(input.sessionId, input.path, input.oldPath ?? null),
-    harnessList: () => runtime.harness.detectAll(),
+    filesList: (input) => runtime.files.list(input.sessionId, input.path),
+    filesRead: (input) => runtime.files.read(input.sessionId, input.path),
+    filesWrite: (input) => runtime.files.write(input.sessionId, input.path, input.text),
+    filesSearch: (input) =>
+      runtime.files.search(input.sessionId, input.query, {
+        caseSensitive: input.caseSensitive,
+        limit: input.limit
+      }),
+    gitStatus: (input) => runtime.gitWorkspace.status(input.sessionId),
+    gitStageAll: (input) => runtime.gitWorkspace.stageAll(input.sessionId),
+    gitUnstageAll: (input) => runtime.gitWorkspace.unstageAll(input.sessionId),
+    gitCommit: (input) => runtime.gitWorkspace.commit(input.sessionId, input.message),
+    gitDiscardPath: (input) => runtime.gitWorkspace.discardPath(input.sessionId, input.path),
+    // Detection is per execution target: a WSL repository's Harnesses live in its
+    // distro, so the repository is part of the question, not just a UI detail.
+    harnessList: (input) => runtime.listHarnesses(input?.repoId === undefined ? {} : { repoId: input.repoId }),
+    wslListDistros: () => runtime.listWslDistros(),
     terminalAttach: (input) => runtime.sessions.attach(input.sessionId),
     terminalWrite: async (input) => {
       await runtime.sessions.write(input.sessionId, input.incarnationId, input.data)

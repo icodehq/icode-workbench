@@ -13,10 +13,12 @@ import {
 } from '../../shared/domain/ids'
 import type { CanonicalRepositoryPath } from '../../shared/domain/paths'
 import type {
+  ExecutionTarget,
   RepositoryAvailability,
   RepositoryRecord,
   WorkspaceRecord
 } from '../../shared/domain/repository'
+import { LOCAL_EXECUTION_TARGET } from '../../shared/domain/repository'
 import type {
   PersistedSessionObservation,
   SessionLifecycleState
@@ -71,6 +73,10 @@ export type RepoRow = {
   current_branch: unknown
   availability: unknown
   git_common_dir?: unknown
+  /** Absent only for rows read through a pre-v3 column list. */
+  host_kind?: unknown
+  wsl_distro?: unknown
+  wsl_distro_id?: unknown
 }
 
 export type WorkspaceRow = {
@@ -101,8 +107,37 @@ export function repoFromRow(row: RepoRow): RepositoryRecord {
     gitCommonDir:
       typeof row.git_common_dir === 'string' && row.git_common_dir.length > 0
         ? row.git_common_dir
-        : null
+        : null,
+    executionTarget: executionTargetFromRow(row)
   }
+}
+
+/**
+ * Rebuilds the execution target from its three columns.
+ *
+ * A row without a `host_kind` predates v3, and every such row is local. The
+ * name/id pair is validated rather than coerced: a WSL row always names a distro,
+ * and a local row never does, so an inconsistent triple is a corrupt row rather
+ * than something to guess about.
+ */
+function executionTargetFromRow(row: RepoRow): ExecutionTarget {
+  const kind = row.host_kind ?? 'local'
+  if (kind === 'local') {
+    if (row.wsl_distro !== undefined && row.wsl_distro !== '') {
+      throw rowError('repos.wsl_distro', row.wsl_distro)
+    }
+    if (row.wsl_distro_id !== undefined && row.wsl_distro_id !== null) {
+      throw rowError('repos.wsl_distro_id', row.wsl_distro_id)
+    }
+    return LOCAL_EXECUTION_TARGET
+  }
+  if (kind !== 'wsl') throw rowError('repos.host_kind', kind)
+  const distro = requireString(row.wsl_distro, 'repos.wsl_distro')
+  const distroId = row.wsl_distro_id
+  if (distroId !== null && typeof distroId !== 'string') {
+    throw rowError('repos.wsl_distro_id', distroId)
+  }
+  return { kind: 'wsl', distro, distroId: distroId === '' ? null : distroId }
 }
 
 export function workspaceFromRow(row: WorkspaceRow): WorkspaceRecord {

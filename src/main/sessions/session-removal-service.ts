@@ -1,4 +1,3 @@
-import { existsSync } from 'node:fs'
 import type { Database } from '../persistence/database'
 import type { SessionStore } from '../persistence/session-store'
 import type { RepositoryStore } from '../persistence/repository-store'
@@ -13,10 +12,12 @@ import type {
   SessionSummary,
   WorktreeBlocker
 } from '../../shared/schemas/ipc'
-import { parseRepoId, parseSessionId } from '../../shared/domain/ids'
+import { parseRepoId, parseSessionId, type RepoId } from '../../shared/domain/ids'
+import type { ExecutionTarget } from '../../shared/domain/repository'
 import type { StoredSession } from '../persistence/rows'
 import { makeAppError } from '../../shared/domain/errors'
 import { SessionServiceError, errorFromHost } from './session-errors'
+import { hostTargetFor } from '../wsl/terminal/path-a'
 
 export type SessionRemovalDeps = {
   database: Database
@@ -40,10 +41,49 @@ type Liveness = { ok: true; live: boolean } | { ok: false; error: ReturnType<typ
 export class SessionRemovalService {
   constructor(private readonly deps: SessionRemovalDeps) {}
 
+  /**
+   * The original repository's execution target.
+   *
+   * Cleanup must run where the checkout lives. Resolving it from the persisted
+   * worktree row's repository — not from a path string — is what keeps a guest
+   * path out of local Git and out of `node:fs`.
+   */
+  /**
+   * The host that owns a session's PTY, from persisted rows only.
+   *
+   * A **Path A** terminal (shell harness on a WSL repository) runs on the desktop
+   * Host. Asking the distro's managed Host about it reported a live terminal as
+   * gone, which let removal delete the row and orphan the `wsl.exe` behind it.
+   */
+  private targetForSession(row: StoredSession): ExecutionTarget {
+    const workspace = this.deps.repositories.findWorkspaceById(row.workspaceId)
+    const repository = workspace === null ? null : this.deps.repositories.findById(workspace.repoId)
+    if (!repository) {
+      throw new SessionServiceError(
+        makeAppError('DB_CORRUPT', 'Session repository is missing.', {
+          context: { sessionId: row.id }
+        })
+      )
+    }
+    return hostTargetFor(row.harness, repository.executionTarget)
+  }
+
+  private targetFor(repoId: string): ExecutionTarget {
+    const repository = this.deps.repositories.findById(repoId as RepoId)
+    if (!repository) {
+      throw new SessionServiceError(
+        makeAppError('DB_CORRUPT', 'Session repository is missing.', {
+          context: { repoId }
+        })
+      )
+    }
+    return repository.executionTarget
+  }
+
   async remove(sessionId: string): Promise<RemoveSessionResult> {
     const row = this.requireSession(sessionId)
     const summary = await this.deps.summarise(sessionId)
-    const liveness = await this.liveness(sessionId)
+    const liveness = await this.liveness(sessionId, this.targetForSession(row))
     if (!liveness.ok) return { status: 'host_unavailable', error: liveness.error }
     if (liveness.live) return { status: 'blocked_live_sessions', session: summary }
 
@@ -61,17 +101,21 @@ export class SessionRemovalService {
         record.path,
         record.branch,
         repository.path,
-        record.state
+        record.state,
+        repository.executionTarget
       )
       if (blocker !== null) {
         return { status: 'blocked_worktree', session: summary, blocker }
       }
+      const target = this.targetFor(record.repoId)
       try {
-        if (existsSync(record.path)) {
+        const hostFs = await this.deps.gitWorktrees.hostFsFor(target)
+        if (await hostFs.exists(record.path)) {
           await this.deps.gitWorktrees.remove({
             primaryRoot: repository.path,
             path: record.path,
-            force: false
+            force: false,
+            target
           })
         }
       } catch (error) {
@@ -117,7 +161,7 @@ export class SessionRemovalService {
         })
       )
     }
-    const liveness = await this.liveness(sessionId)
+    const liveness = await this.liveness(sessionId, this.targetForSession(this.requireSession(sessionId)))
     if (!liveness.ok) return { status: 'host_unavailable', error: liveness.error }
     if (liveness.live) return { status: 'blocked_live_sessions', session: summary }
 
@@ -137,10 +181,12 @@ export class SessionRemovalService {
         blocker: { kind: 'inconsistent', detail: 'The session repository is no longer registered.' }
       }
     }
+    const discardTarget = repository.executionTarget
     const inspection = await this.deps.gitWorktrees.inspect({
       primaryRoot: repository.path,
       path: record.path,
-      branch: record.branch
+      branch: record.branch,
+      target: discardTarget
     })
     // Missing or unregistered worktrees are never implicitly pruned, even by
     // discard: the directory may hold work that must be recovered first.
@@ -162,7 +208,8 @@ export class SessionRemovalService {
       await this.deps.gitWorktrees.remove({
         primaryRoot: repository.path,
         path: record.path,
-        force: true
+        force: true,
+        target: discardTarget
       })
     } catch (error) {
       throw new SessionServiceError(
@@ -195,7 +242,10 @@ export class SessionRemovalService {
         makeAppError('INVALID_ARGUMENT', 'Repository is not registered.', { context: { repoId } })
       )
     }
-    const registered = await this.deps.gitWorktrees.listWorktrees(repository.path).catch(() => [])
+    const target = repository.executionTarget
+    const registered = await this.deps.gitWorktrees
+      .listWorktrees(repository.path, target)
+      .catch(() => [])
     const owned = this.deps.worktrees.listBranches(repoId)
     const summaries: OwnedBranchSummary[] = []
     for (const branch of owned) {
@@ -205,9 +255,9 @@ export class SessionRemovalService {
         sessionId: branch.sessionId,
         baseOid: branch.baseOid,
         createdAt: branch.createdAt,
-        exists: await this.deps.gitWorktrees.branchExists(repository.path, branch.branch),
+        exists: await this.deps.gitWorktrees.branchExists(repository.path, branch.branch, target),
         unmergedCommits: await this.deps.gitWorktrees
-          .countUnmerged(repository.path, branch.branch)
+          .countUnmerged(repository.path, branch.branch, target)
           .catch(() => null),
         worktreePath: registered.find((entry) => entry.branch === branch.branch)?.path ?? null
       })
@@ -234,7 +284,10 @@ export class SessionRemovalService {
     if (!owned || owned.repoId !== repository.id) {
       return { status: 'not_owned', branch }
     }
-    const registered = await this.deps.gitWorktrees.listWorktrees(repository.path).catch(() => null)
+    const target = repository.executionTarget
+    const registered = await this.deps.gitWorktrees
+      .listWorktrees(repository.path, target)
+      .catch(() => null)
     if (registered === null) {
       throw new SessionServiceError(
         makeAppError('INTERNAL', 'Git worktrees could not be inspected; nothing was deleted.')
@@ -245,7 +298,7 @@ export class SessionRemovalService {
       return { status: 'blocked_worktree', branch, path: inUse.path }
     }
     const commits = await this.deps.gitWorktrees
-      .countUnmerged(repository.path, branch)
+      .countUnmerged(repository.path, branch, target)
       .catch(() => null)
     if (commits === null) {
       throw new SessionServiceError(
@@ -258,6 +311,7 @@ export class SessionRemovalService {
       return { status: 'confirmation_required', branch, commits }
     }
     await this.deps.gitWorktrees.deleteBranch({
+      target,
       primaryRoot: repository.path,
       branch,
       force: commits > 0
@@ -270,10 +324,20 @@ export class SessionRemovalService {
     path: string,
     branch: string,
     primaryRoot: string,
-    state: 'creating' | 'created' | 'ready' | 'failed'
+    state: 'creating' | 'created' | 'ready' | 'failed',
+    /**
+     * The repository's execution target, which decides *where* to look.
+     *
+     * Without it every probe ran against this machine. For a WSL repository that
+     * meant `statSync` on a guest path, which is always absent on Windows — so a
+     * live, registered worktree was reported `missing` and the session could be
+     * neither removed nor discarded. The lookups below must name the target; the
+     * eventual deletion already did.
+     */
+    target: ExecutionTarget
   ): Promise<WorktreeBlocker | null> {
     const inspection = await this.deps.gitWorktrees
-      .inspect({ primaryRoot, path, branch })
+      .inspect({ primaryRoot, path, branch, target })
       .catch(() => null)
     if (inspection === null) {
       return { kind: 'inconsistent', detail: 'The worktree could not be inspected.' }
@@ -283,7 +347,7 @@ export class SessionRemovalService {
       // nothing to protect; refusing would strand the session row forever.
       if (state === 'failed') {
         const branchExists = await this.deps.gitWorktrees
-          .branchExists(primaryRoot, branch)
+          .branchExists(primaryRoot, branch, target)
           .catch(() => true)
         if (!branchExists) return null
       }
@@ -304,9 +368,16 @@ export class SessionRemovalService {
     return null
   }
 
-  private async liveness(sessionId: string): Promise<Liveness> {
+  /**
+   * Host liveness for one session, asked of the host that owns it.
+   *
+   * Without the target this always queried the local Host, so a WSL session read
+   * as "not live" (or, worse, as a local process with the same id). Measured
+   * during W7: removal refused with "could not verify" for a live guest session.
+   */
+  private async liveness(sessionId: string, target: ExecutionTarget): Promise<Liveness> {
     try {
-      const list = await this.deps.host.listSessions()
+      const list = await this.deps.host.listSessions(target)
       const entry = list.sessions.find((item) => item.sessionId === sessionId)
       return {
         ok: true,

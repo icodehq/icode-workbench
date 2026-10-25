@@ -1,3 +1,4 @@
+import { parseStatusLines } from './git-worktree-service'
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -83,5 +84,33 @@ describe('samePathResolved', () => {
     } finally {
       rmSync(base, { recursive: true, force: true })
     }
+  })
+})
+
+describe('porcelain status parsing', () => {
+  it('keeps a leading status column that trimming removed', () => {
+    // `git status --porcelain` prints " M a.txt"; stdout.trim() turns that into
+    // "M a.txt", and a fixed slice(3) then reported ".txt".
+    expect(parseStatusLines('M a.txt')).toEqual(['a.txt'])
+  })
+
+  it('parses an untrimmed line too', () => {
+    expect(parseStatusLines(' M a.txt\n')).toEqual(['a.txt'])
+  })
+
+  it('parses staged additions and untracked files', () => {
+    expect(parseStatusLines('A  new.txt\n?? loose.txt\n')).toEqual(['new.txt', 'loose.txt'])
+  })
+
+  it('reports the rename target, not the source', () => {
+    expect(parseStatusLines('R  old.txt -> new.txt\n')).toEqual(['new.txt'])
+  })
+
+  it('keeps paths with spaces intact', () => {
+    expect(parseStatusLines('M dir/a b.txt')).toEqual(['dir/a b.txt'])
+  })
+
+  it('ignores blank lines', () => {
+    expect(parseStatusLines('\n\n')).toEqual([])
   })
 })

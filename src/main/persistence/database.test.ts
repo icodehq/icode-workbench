@@ -1,3 +1,4 @@
+import { LOCAL_EXECUTION_TARGET } from '../../shared/domain/repository'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
@@ -34,7 +35,7 @@ describe('database initialization', () => {
   it('creates a fresh database at schema version 2', () => {
     const root = tempRoot()
     const db = openTempDatabase(root)
-    expect(db.userVersion()).toBe(2)
+    expect(db.userVersion()).toBe(3)
     const tables = db.raw
       .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
       .all() as Array<{ name: string }>
@@ -83,12 +84,13 @@ describe('database initialization', () => {
       lastOpenedAt: 2,
       currentBranch: 'main',
       availability: 'present',
-      gitCommonDir: null
+      gitCommonDir: null,
+      executionTarget: LOCAL_EXECUTION_TARGET
     })
     first.close()
 
     const second = openDatabase({ path, migrations: MIGRATIONS })
-    expect(second.userVersion()).toBe(2)
+    expect(second.userVersion()).toBe(3)
     expect(new RepositoryStore(second).list()).toHaveLength(1)
     second.close()
   })
@@ -120,7 +122,8 @@ describe('transactions', () => {
         lastOpenedAt: 1,
         currentBranch: null,
         availability: 'present',
-      gitCommonDir: null
+      gitCommonDir: null,
+      executionTarget: LOCAL_EXECUTION_TARGET
       })
     })
     expect(repositories.list()).toHaveLength(1)
@@ -135,7 +138,8 @@ describe('transactions', () => {
           lastOpenedAt: 2,
           currentBranch: null,
           availability: 'present',
-      gitCommonDir: null
+      gitCommonDir: null,
+      executionTarget: LOCAL_EXECUTION_TARGET
         })
         throw new Error('abort')
       })
@@ -178,7 +182,8 @@ describe('foreign keys', () => {
       lastOpenedAt: 1,
       currentBranch: 'main',
       availability: 'present',
-      gitCommonDir: null
+      gitCommonDir: null,
+      executionTarget: LOCAL_EXECUTION_TARGET
     })
     repositories.insertWorkspace({
       id: workspaceId,
@@ -225,7 +230,8 @@ describe('persisted session state is historical', () => {
       lastOpenedAt: 1,
       currentBranch: null,
       availability: 'present',
-      gitCommonDir: null
+      gitCommonDir: null,
+      executionTarget: LOCAL_EXECUTION_TARGET
     })
     repositories.insertWorkspace({
       id: workspaceId,
@@ -403,12 +409,13 @@ describe('migrations', () => {
     v1.close()
 
     const v2 = openDatabase({ path, migrations: MIGRATIONS })
-    expect(v2.userVersion()).toBe(2)
+    expect(v2.userVersion()).toBe(3)
     const repositoriesV2 = new RepositoryStore(v2)
     const sessionsV2 = new SessionStore(v2)
     expect(repositoriesV2.findById(repoId)).toMatchObject({
       displayName: 'legacy',
-      gitCommonDir: null
+      gitCommonDir: null,
+      executionTarget: LOCAL_EXECUTION_TARGET
     })
     expect(repositoriesV2.workspaceForRepo(repoId)?.id).toBe(workspaceId)
     expect(sessionsV2.findById(sessionId)).toMatchObject({ title: 'legacy session' })
@@ -437,6 +444,13 @@ describe('migrations', () => {
       .prepare("SELECT name FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%' ORDER BY name")
       .all() as Array<{ name: string }>
     expect(indexes.map((row) => row.name)).toEqual([
+      // v3: one uniqueness rule per execution target, plus the host-kind lookup
+      // index. The partial unique indexes are what allow the same path string on
+      // two targets while still refusing a duplicate within one.
+      'repos_host_kind_idx',
+      'repos_local_path_idx',
+      'repos_wsl_name_path_idx',
+      'repos_wsl_registration_path_idx',
       'session_worktrees_repo_idx',
       'sessions_workspace_idx',
       'workspaces_repo_idx',
@@ -450,7 +464,172 @@ describe('migrations', () => {
     const repo = join(root.dir, 'repo')
     execFileSync('git', ['init', '-q', '-b', 'main', repo], { stdio: 'pipe' })
     const db = openTempDatabase(root)
-    expect(db.userVersion()).toBe(2)
+    expect(db.userVersion()).toBe(3)
+    db.close()
+  })
+})
+
+/**
+ * The execution-target contract, exercised at the database boundary.
+ *
+ * These assert the *index* semantics rather than the service's convenience
+ * wrappers: the service can only be as correct as the uniqueness the schema
+ * enforces underneath it.
+ */
+describe('execution target schema (v3)', () => {
+  const wsl = (distro: string, distroId: string | null) =>
+    ({ kind: 'wsl', distro, distroId }) as const
+
+  function repoAt(path: string, target: ReturnType<typeof wsl> | typeof LOCAL_EXECUTION_TARGET) {
+    return {
+      id: newRepoId(),
+      path: toCanonicalRepositoryPath(path),
+      displayName: 'n',
+      addedAt: 1,
+      lastOpenedAt: 1,
+      currentBranch: null,
+      availability: 'present' as const,
+      gitCommonDir: null,
+      executionTarget: target
+    }
+  }
+
+  it('allows the same path on distinct execution targets', () => {
+    const db = openTempDatabase(tempRoot())
+    const store = new RepositoryStore(db)
+    store.insert(repoAt('/repo', LOCAL_EXECUTION_TARGET))
+    store.insert(repoAt('/repo', wsl('Ubuntu-A', 'guid-a')))
+    store.insert(repoAt('/repo', wsl('Ubuntu-B', 'guid-b')))
+    expect(store.list()).toHaveLength(3)
+    expect(store.findByPath('/repo', LOCAL_EXECUTION_TARGET)?.executionTarget).toEqual(
+      LOCAL_EXECUTION_TARGET
+    )
+    expect(store.findByPath('/repo', wsl('Ubuntu-A', 'guid-a'))?.executionTarget).toEqual(
+      wsl('Ubuntu-A', 'guid-a')
+    )
+    db.close()
+  })
+
+  it('deduplicates a renamed distro by registration id, not by name', () => {
+    const db = openTempDatabase(tempRoot())
+    const store = new RepositoryStore(db)
+    store.insert(repoAt('/repo', wsl('Ubuntu-Old', 'guid-a')))
+    // Same registration, renamed: the lookup must still find the original row.
+    expect(store.findByPath('/repo', wsl('Ubuntu-Renamed', 'guid-a'))).not.toBeNull()
+    // A genuinely different registration is a different target.
+    expect(store.findByPath('/repo', wsl('Ubuntu-Renamed', 'guid-b'))).toBeNull()
+    db.close()
+  })
+
+  it('uses the distro name only when no registration id exists', () => {
+    const db = openTempDatabase(tempRoot())
+    const store = new RepositoryStore(db)
+    store.insert(repoAt('/repo', wsl('Ubuntu-A', null)))
+    expect(store.findByPath('/repo', wsl('Ubuntu-A', null))).not.toBeNull()
+    // An id-bearing target is never matched against an id-less row.
+    expect(store.findByPath('/repo', wsl('Ubuntu-A', 'guid-a'))).toBeNull()
+    db.close()
+  })
+
+  it('rejects a duplicate within one target at the database boundary', () => {
+    const db = openTempDatabase(tempRoot())
+    const store = new RepositoryStore(db)
+    store.insert(repoAt('/repo', LOCAL_EXECUTION_TARGET))
+    expect(() => store.insert(repoAt('/repo', LOCAL_EXECUTION_TARGET))).toThrow(/UNIQUE/)
+    db.close()
+  })
+
+  it('rejects invalid target combinations at the schema boundary', () => {
+    const db = openTempDatabase(tempRoot())
+    // The record type cannot express these, so they are driven through raw SQL.
+    const insert = (hostKind: string, distro: string, distroId: string | null) =>
+      db.raw
+        .prepare(
+          `INSERT INTO repos (id, path, display_name, added_at, last_opened_at, current_branch,
+             availability, git_common_dir, host_kind, wsl_distro, wsl_distro_id)
+           VALUES (?, ?, 'n', 1, 1, NULL, 'present', NULL, ?, ?, ?)`
+        )
+        .run(newRepoId(), `/p-${Math.random()}`, hostKind, distro, distroId)
+
+    // wsl requires a distro name
+    expect(() => insert('wsl', '', null)).toThrow(/CHECK/)
+    // local must not carry a distro name
+    expect(() => insert('local', 'Ubuntu-A', null)).toThrow(/CHECK/)
+    // local must not carry a registration id
+    expect(() => insert('local', '', 'guid-a')).toThrow(/CHECK/)
+    // unknown host kind
+    expect(() => insert('ssh', 'Ubuntu-A', null)).toThrow(/CHECK/)
+    // the valid shapes are accepted
+    expect(() => insert('local', '', null)).not.toThrow()
+    expect(() => insert('wsl', 'Ubuntu-A', 'guid-a')).not.toThrow()
+    expect(() => insert('wsl', 'Ubuntu-A', null)).not.toThrow()
+    db.close()
+  })
+
+  it('rolls a failed rebuild back to v2 with child rows and foreign keys intact', () => {
+    const root = tempRoot()
+    const path = join(root.dir, 'ade.sqlite')
+    const v2 = openDatabase({ path, migrations: [MIGRATIONS[0]!, MIGRATIONS[1]!] })
+    const repoId = newRepoId()
+    const workspaceId = newWorkspaceId()
+    const sessionId = newSessionId()
+    v2.raw
+      .prepare(
+        `INSERT INTO repos (id, path, display_name, added_at, last_opened_at, current_branch,
+           availability, git_common_dir) VALUES (?, ?, ?, 1, 1, NULL, 'present', NULL)`
+      )
+      .run(repoId, '/tmp/keep', 'keep')
+    v2.raw
+      .prepare(`INSERT INTO workspaces (id, repo_id, path, kind, created_at) VALUES (?, ?, ?, ?, 1)`)
+      .run(workspaceId, repoId, '/tmp/keep', 'primary-checkout')
+    v2.raw
+      .prepare(
+        `INSERT INTO sessions (id, workspace_id, harness, title, created_at, last_active_at,
+           last_observed_state, last_observed_exit_code, last_observed_error_json,
+           last_observed_incarnation_id, last_observed_at)
+         VALUES (?, ?, 'shell', 'keep', 1, 1, 'exited', 0, NULL, NULL, 1)`
+      )
+      .run(sessionId, workspaceId)
+    expect(v2.userVersion()).toBe(2)
+    v2.close()
+
+    // A v3 that rebuilds and then fails: the rebuild must not commit.
+    const brokenV3 = {
+      version: 3,
+      name: 'broken-execution-target',
+      rebuildsReferencedTable: true,
+      statements: [
+        `CREATE TABLE repos_new (id TEXT PRIMARY KEY NOT NULL, path TEXT NOT NULL, display_name TEXT NOT NULL, added_at INTEGER NOT NULL, last_opened_at INTEGER NOT NULL, current_branch TEXT, availability TEXT NOT NULL, git_common_dir TEXT, host_kind TEXT NOT NULL DEFAULT 'local', wsl_distro TEXT NOT NULL DEFAULT '', wsl_distro_id TEXT) STRICT`,
+        `INSERT INTO repos_new SELECT id, path, display_name, added_at, last_opened_at, current_branch, availability, git_common_dir, 'local', '', NULL FROM repos`,
+        `DROP TABLE repos`,
+        `ALTER TABLE repos_new RENAME TO repos`,
+        'SELECT * FROM does_not_exist'
+      ]
+    }
+    expect(() =>
+      openDatabase({ path, migrations: [MIGRATIONS[0]!, MIGRATIONS[1]!, brokenV3] })
+    ).toThrow(DatabaseError)
+
+    const inspect = new DatabaseSync(path, { readOnly: true })
+    const version = inspect.prepare('PRAGMA user_version').get() as { user_version: number }
+    expect(version.user_version).toBe(2)
+    const counts = (table: string) =>
+      (inspect.prepare(`SELECT count(*) c FROM ${table}`).get() as { c: number }).c
+    expect(counts('repos')).toBe(1)
+    expect(counts('workspaces')).toBe(1)
+    expect(counts('sessions')).toBe(1)
+    // The rebuilt table must not have survived the rollback.
+    const tables = inspect
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('repos','repos_new')")
+      .all() as Array<{ name: string }>
+    expect(tables.map((r) => r.name)).toEqual(['repos'])
+    inspect.close()
+  })
+
+  it('restores foreign-key enforcement after a rebuild migration', () => {
+    const db = openTempDatabase(tempRoot())
+    const fk = db.raw.prepare('PRAGMA foreign_keys').get() as { foreign_keys: number }
+    expect(fk.foreign_keys).toBe(1)
     db.close()
   })
 })

@@ -2,6 +2,9 @@ import { execFile } from 'node:child_process'
 import { realpath, stat } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 import { promisify } from 'node:util'
+import type { ExecutionTarget } from '../../shared/domain/repository'
+import type { WslCommandRunner } from '../wsl/exec'
+import { GuestPathError, resolveGuestRepositoryRoot } from '../wsl/git/guest-path'
 import { makeAppError } from '../../shared/domain/errors'
 import type { AppError } from '../../shared/domain/errors'
 import type { CanonicalRepositoryPath } from '../../shared/domain/paths'
@@ -180,4 +183,55 @@ async function readPrimaryWorktree(
     // Fall through to the toplevel probe.
   }
   return git(['rev-parse', '--show-toplevel'], cwd)
+}
+
+export type RepositoryPathRoutingDeps = {
+  /** Needed only for a WSL target; a local target never touches it. */
+  wsl?: {
+    runner: WslCommandRunner
+    signal?: AbortSignal
+  }
+}
+
+/**
+ * The single target-aware entry point for path resolution.
+ *
+ * Routing is by `executionTarget.kind` and nothing else. The local branch runs
+ * the pre-W6 code verbatim, so existing behaviour is unchanged; the WSL branch
+ * never calls `realpath`, `stat` or Windows Git, because a guest path is not a
+ * Windows path and no amount of fallback makes it one.
+ */
+export async function resolveRepositoryRootFor(
+  inputPath: string,
+  target: ExecutionTarget,
+  deps: RepositoryPathRoutingDeps = {}
+): Promise<ResolvedRepository> {
+  if (target.kind === 'local') return resolveRepositoryRoot(inputPath)
+
+  if (!deps.wsl) {
+    throw new RepositoryPathError(
+      makeAppError(
+        'WSL_UNAVAILABLE',
+        'A WSL repository needs a distro connection to resolve its path.',
+        { detail: 'No WSL runner was provided.', context: { path: inputPath } }
+      )
+    )
+  }
+
+  try {
+    const resolved = await resolveGuestRepositoryRoot(inputPath, {
+      runner: deps.wsl.runner,
+      distro: target.distro,
+      ...(deps.wsl.signal ? { signal: deps.wsl.signal } : {})
+    })
+    return {
+      root: resolved.root,
+      currentBranch: resolved.currentBranch,
+      commonDir: resolved.commonDir,
+      registeredVia: resolved.registeredVia
+    }
+  } catch (error) {
+    if (error instanceof GuestPathError) throw new RepositoryPathError(error.appError)
+    throw error
+  }
 }

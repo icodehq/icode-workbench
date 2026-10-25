@@ -1,7 +1,8 @@
 import { spawn } from 'node:child_process'
 import { lstatSync, realpathSync } from 'node:fs'
-import { dirname, isAbsolute, join, resolve as resolvePath, sep } from 'node:path'
+import { dirname, isAbsolute, join, posix as posixPath, resolve as resolvePath, sep } from 'node:path'
 import { makeAppError, type AppError } from '../../shared/domain/errors'
+import type { ExecutionTarget } from '../../shared/domain/repository'
 import {
   REVIEW_MAX_FILE_BYTES,
   REVIEW_MAX_FILES,
@@ -385,32 +386,79 @@ export function assertSafeRelativePath(rawPath: string): void {
 }
 
 /**
+ * How to reason about a path that belongs to a particular host.
+ *
+ * A guest path is not just unresolvable here — it is not even a path *shape*
+ * this platform understands. `path.resolve('/tmp/x', 'a.txt')` on Windows
+ * returns `D:\tmp\x\a.txt`, so a Windows-dialect containment test rejects every
+ * guest path. The dialect therefore travels with the checkout, like the reader.
+ */
+export type ContainmentResolution = {
+  /** Resolves symlinks where the checkout lives. */
+  realpath: (path: string) => string
+  resolve: (root: string, child: string) => string
+  dirname: (path: string) => string
+  separator: string
+}
+
+/** The controller's own filesystem: unchanged pre-W79 behaviour. */
+const localContainment: ContainmentResolution = {
+  realpath: realpathSync,
+  resolve: (root, child) => resolvePath(root, child),
+  dirname: (value) => dirname(value),
+  separator: sep
+}
+
+/**
+ * A distro checkout: POSIX path shape, and no local symlink resolution.
+ *
+ * Containment stays lexical here (`assertSafeRelativePath` plus the prefix
+ * test). The read runs inside the distro, which is the only place a guest
+ * symlink could be followed, and no controller path can be reached through a
+ * guest path, so the boundary this protects is unchanged.
+ */
+export const guestContainment: ContainmentResolution = {
+  realpath: (value) => value,
+  resolve: (root, child) => posixPath.resolve(root, child),
+  dirname: (value) => posixPath.dirname(value),
+  separator: '/'
+}
+
+/**
  * Confirms the requested path resolves inside the worktree, following
  * intermediate symlinks. A file that is itself a symlink is allowed: Git prints
  * the link target as content and never reads through it.
+ *
+ * `resolve` is a seam, not a preference: reviewing a distro checkout must not
+ * call the controller's `realpathSync`, which throws ENOENT for a path that only
+ * exists inside the distro.
  */
-export function assertContained(worktreePath: string, rawPath: string): void {
+export function assertContained(
+  worktreePath: string,
+  rawPath: string,
+  resolution: ContainmentResolution = localContainment
+): void {
   assertSafeRelativePath(rawPath)
-  const root = realpathSync(worktreePath)
-  const candidate = resolvePath(root, rawPath)
-  if (!(candidate === root || candidate.startsWith(`${root}${sep}`))) {
+  const root = resolution.realpath(worktreePath)
+  const candidate = resolution.resolve(root, rawPath)
+  if (!(candidate === root || candidate.startsWith(`${root}${resolution.separator}`))) {
     throw readError('REVIEW_PATH_OUTSIDE', 'That path is outside the session worktree.')
   }
 
   // Resolve the nearest existing ancestor. This catches an intermediate
   // directory that is a symlink pointing outside the worktree, and works for
   // files that do not exist yet.
-  let ancestor = dirname(candidate)
+  let ancestor = resolution.dirname(candidate)
   for (;;) {
     try {
-      const real = realpathSync(ancestor)
-      if (!(real === root || real.startsWith(`${root}${sep}`))) {
+      const real = resolution.realpath(ancestor)
+      if (!(real === root || real.startsWith(`${root}${resolution.separator}`))) {
         throw readError('REVIEW_PATH_OUTSIDE', 'That path resolves outside the session worktree.')
       }
       return
     } catch (error) {
       if (error instanceof ReviewReadError) throw error
-      const parent = dirname(ancestor)
+      const parent = resolution.dirname(ancestor)
       if (parent === ancestor) {
         throw readError('REVIEW_PATH_OUTSIDE', 'That path cannot be resolved inside the worktree.')
       }
@@ -421,18 +469,70 @@ export function assertContained(worktreePath: string, rawPath: string): void {
 
 // ─── Listing and diffs ──────────────────────────────────────────────
 
+/**
+ * Refuses a WSL read when no guest reader was wired.
+ *
+ * Failing loudly is the point: the alternative is a local Git invocation against
+ * a guest path, which reports a misleading "not a repository".
+ */
+const guestReadUnavailable: typeof runGitRead = async () => {
+  throw readError(
+    'GIT_READ_FAILED',
+    'This repository runs in WSL, but no distro Git reader is available.'
+  )
+}
+
 export type ReviewReaderDeps = {
   /** Root used to bound every read; kept for symmetry with the service. */
   read?: typeof runGitRead
+  /**
+   * Guest reads, keyed by distro. Supplied by the composition root so a WSL
+   * repository's patch is read by the distro's own Git, with the same byte budget
+   * and truncation rules as the local reader.
+   */
+  readForTarget?: (target: ExecutionTarget) => typeof runGitRead | null
+  /**
+   * Path dialect and symlink resolution used by review containment. Absent means
+   * the controller's own filesystem; a distro checkout supplies the POSIX one.
+   */
+  containment?: ContainmentResolution
 }
 
 const SYMLINK_MODE = '120000'
 
 export class GitReviewReader {
-  constructor(private readonly deps: ReviewReaderDeps = {}) {}
+  private current: typeof runGitRead = runGitRead
+
+  constructor(private readonly deps: ReviewReaderDeps = {}) {
+    this.current = deps.read ?? runGitRead
+  }
+
+  /**
+   * Selects the reader for one repository's host.
+   *
+   * Kept as an explicit selection rather than a path heuristic: a review of a WSL
+   * worktree must be produced by the guest's Git, and a Windows `git` pointed at
+   * `/home/u/...` would either fail or read a different tree.
+   */
+  forTarget(target: ExecutionTarget): GitReviewReader {
+    // Local is the pre-W6 path, unchanged: the reader it was constructed with.
+    if (target.kind === 'local') return this
+    const read = this.deps.readForTarget?.(target)
+    if (read === null || read === undefined) {
+      // No guest reader wired. Returning `this` would silently read a guest path
+      // with Windows Git, so the caller gets a reader that refuses instead.
+      return new GitReviewReader({ ...this.deps, read: guestReadUnavailable, containment: guestContainment })
+    }
+    return new GitReviewReader({ ...this.deps, read, containment: guestContainment })
+  }
 
   private get read(): typeof runGitRead {
-    return this.deps.read ?? runGitRead
+    return this.current
+  }
+
+  /** Test seam: proves which reader a target selected, without changing routing. */
+  runReadForTest(options: Parameters<typeof runGitRead>[0]): ReturnType<typeof runGitRead> {
+    return this.read(options)
   }
 
   async assertBaseline(worktreePath: string, baseOid: string): Promise<void> {
@@ -602,8 +702,9 @@ export class GitReviewReader {
     deletions: number | null
   }): Promise<ReviewDiff> {
     assertSafeOid(input.baseOid)
-    assertContained(input.worktreePath, input.path)
-    if (input.oldPath !== null) assertContained(input.worktreePath, input.oldPath)
+    const containment = this.deps.containment ?? localContainment
+    assertContained(input.worktreePath, input.path, containment)
+    if (input.oldPath !== null) assertContained(input.worktreePath, input.oldPath, containment)
 
     if (input.binary) {
       return {

@@ -16,17 +16,29 @@ import {
   terminalWriteInputSchema
 } from '../../shared/schemas/ipc'
 import { reviewDiffInputSchema, reviewListInputSchema } from '../../shared/schemas/review'
+import {
+  filesListInputSchema,
+  filesReadInputSchema,
+  filesSearchInputSchema,
+  filesWriteInputSchema,
+  gitCommitInputSchema,
+  gitDiscardPathInputSchema,
+  gitStageAllInputSchema,
+  gitStatusInputSchema,
+  gitUnstageAllInputSchema
+} from '../../shared/schemas/workspace'
 import { clearActivityUnreadInputSchema } from '../../shared/schemas/activity'
 import type { IpcResult } from '../../shared/schemas/ipc'
 import { makeAppError } from '../../shared/domain/errors'
 import type { AppError } from '../../shared/domain/errors'
 import { DatabaseError } from '../persistence/database'
 import { RepositoryPathError } from '../repositories/repository-path'
+import type { ExecutionTarget } from '../../shared/domain/repository'
 import { SessionServiceError } from '../sessions/session-service'
 
 export type DispatcherServices = {
   reposList: () => Promise<unknown>
-  reposAdd: (input: { path: string }) => Promise<unknown>
+  reposAdd: (input: { path: string; target?: ExecutionTarget }) => Promise<unknown>
   reposRemove: (input: { repoId: string; acknowledgeDependentSessions?: boolean }) => Promise<unknown>
   sessionsList: (input: { repoId?: string }) => Promise<unknown>
   sessionsGet: (input: { sessionId: string }) => Promise<unknown>
@@ -40,9 +52,24 @@ export type DispatcherServices = {
   branchesRemove: (input: { repoId: string; branch: string; confirmBranch?: string }) => Promise<unknown>
   reviewList: (input: { sessionId: string }) => Promise<unknown>
   reviewDiff: (input: { sessionId: string; path: string; oldPath?: string | null }) => Promise<unknown>
+  filesList: (input: { sessionId: string; path: string }) => Promise<unknown>
+  filesRead: (input: { sessionId: string; path: string }) => Promise<unknown>
+  filesWrite: (input: { sessionId: string; path: string; text: string }) => Promise<unknown>
+  filesSearch: (input: {
+    sessionId: string
+    query: string
+    caseSensitive: boolean
+    limit: number
+  }) => Promise<unknown>
+  gitStatus: (input: { sessionId: string }) => Promise<unknown>
+  gitStageAll: (input: { sessionId: string }) => Promise<unknown>
+  gitUnstageAll: (input: { sessionId: string }) => Promise<unknown>
+  gitCommit: (input: { sessionId: string; message: string }) => Promise<unknown>
+  gitDiscardPath: (input: { sessionId: string; path: string }) => Promise<unknown>
   activityList: () => Promise<unknown>
   activityClearUnread: (input: { sessionId: string }) => Promise<unknown>
-  harnessList: (input: { force?: boolean }) => Promise<unknown>
+  harnessList: (input: { force?: boolean; repoId?: string }) => Promise<unknown>
+  wslListDistros: () => Promise<unknown>
   terminalAttach: (input: { sessionId: string }) => Promise<unknown>
   terminalWrite: (input: { sessionId: string; incarnationId: string; data: string }) => Promise<unknown>
   terminalResize: (input: {
@@ -184,6 +211,60 @@ export function createDispatcher(services: DispatcherServices): Dispatcher {
         return run(() => services.reviewDiff(input))
       }
 
+      case IPC_CHANNELS.filesList: {
+        const input = parse(filesListInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.filesList(input))
+      }
+
+      case IPC_CHANNELS.filesRead: {
+        const input = parse(filesReadInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.filesRead(input))
+      }
+
+      case IPC_CHANNELS.filesWrite: {
+        const input = parse(filesWriteInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.filesWrite(input))
+      }
+
+      case IPC_CHANNELS.filesSearch: {
+        const input = parse(filesSearchInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.filesSearch(input))
+      }
+
+      case IPC_CHANNELS.gitStatus: {
+        const input = parse(gitStatusInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.gitStatus(input))
+      }
+
+      case IPC_CHANNELS.gitStageAll: {
+        const input = parse(gitStageAllInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.gitStageAll(input))
+      }
+
+      case IPC_CHANNELS.gitUnstageAll: {
+        const input = parse(gitUnstageAllInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.gitUnstageAll(input))
+      }
+
+      case IPC_CHANNELS.gitCommit: {
+        const input = parse(gitCommitInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.gitCommit(input))
+      }
+
+      case IPC_CHANNELS.gitDiscardPath: {
+        const input = parse(gitDiscardPathInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.gitDiscardPath(input))
+      }
+
       case IPC_CHANNELS.activityList:
         return run(() => services.activityList())
 
@@ -198,6 +279,10 @@ export function createDispatcher(services: DispatcherServices): Dispatcher {
         if ('code' in input) return { ok: false, error: input }
         return run(() => services.harnessList(input))
       }
+
+      case IPC_CHANNELS.wslListDistros:
+        // No input: discovery is machine-wide and takes no parameters.
+        return run(() => services.wslListDistros())
 
       case IPC_CHANNELS.terminalAttach: {
         const input = parse(terminalAttachInputSchema, rawInput)

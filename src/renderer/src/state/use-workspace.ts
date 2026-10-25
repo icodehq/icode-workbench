@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import type { RuntimeInfo } from '../../../shared/ade-api'
-import type { AppError } from '../../../shared/domain/errors'
+import { makeAppError, type AppError } from '../../../shared/domain/errors'
 import type { HarnessId } from '../../../shared/domain/harness'
+import type { ExecutionTarget } from '../../../shared/domain/repository'
 import { isActiveSessionState, isTerminalSessionState } from '../../../shared/domain/session'
 import { callApi, errorNotice, isAbsolutePathLike } from '../lib/api'
 import {
@@ -38,11 +39,30 @@ export type CreateSessionRequest = {
   title?: string
 }
 
+export type AddRepositoryRequest = {
+  path: string
+  /** The execution target to persist. Always explicit: local is a choice too. */
+  target: ExecutionTarget
+}
+
+/** Two targets are the same when their identity is: kind, distro, registration. */
+function sameTarget(left: ExecutionTarget, right: ExecutionTarget): boolean {
+  if (left.kind !== right.kind) return false
+  if (left.kind === 'local' || right.kind === 'local') return true
+  return left.distro === right.distro && left.distroId === right.distroId
+}
+
 export function useWorkspace(): {
   state: WorkspaceState
   runtime: RuntimeInfo | null
   creating: boolean
-  addRepository: (path: string) => Promise<boolean>
+  /**
+   * Registers a repository and reports the failure to the caller.
+   *
+   * `null` means success. The dialog needs the error itself: closing the dialog
+   * and leaving only a toast makes the user retype an absolute path.
+   */
+  addRepository: (input: AddRepositoryRequest) => Promise<AppError | null>
   removeRepository: (repoId: string) => Promise<void>
   confirmRemoval: () => Promise<void>
   dismissRemoval: () => void
@@ -58,10 +78,18 @@ export function useWorkspace(): {
   dismissBranchCleanup: () => void
   selectRepo: (repoId: string) => void
   selectSession: (sessionId: string) => void
-  refreshHarnesses: (force: boolean) => Promise<void>
+  /**
+   * Re-detect Harnesses for a repository's target.
+   *
+   * `repoId` is the *question*, not a hint: a WSL repository's Agents run inside
+   * the distro, so this machine's probes do not answer for it.
+   */
+  refreshHarnesses: (force: boolean, repoId?: string | null) => Promise<void>
   refreshAll: () => Promise<void>
   dismissNotice: () => void
   reportError: (error: AppError) => void
+  /** Shared notice channel, for panels outside the workspace state machine. */
+  notify: (notice: Notice | null) => void
 } {
   const [state, dispatch] = useReducer(
     workspaceReducer,
@@ -141,9 +169,14 @@ export function useWorkspace(): {
   }, [state.activeRepoId])
 
   const refreshHarnesses = useCallback(
-    async (force: boolean): Promise<void> => {
+    async (force: boolean, repoId?: string | null): Promise<void> => {
       dispatch({ type: 'harnessesLoading' })
-      const result = await callApi(window.ade.harness.list(force ? { force: true } : {}))
+      const result = await callApi(
+        window.ade.harness.list({
+          ...(force ? { force: true } : {}),
+          ...(repoId ? { repoId } : {})
+        })
+      )
       if (!result.ok) {
         dispatch({ type: 'harnessFailed', error: result.error })
         return
@@ -262,29 +295,47 @@ export function useWorkspace(): {
   }, [])
 
   const addRepository = useCallback(
-    async (path: string): Promise<boolean> => {
-      const candidate = path.trim()
+    async (input: AddRepositoryRequest): Promise<AppError | null> => {
+      const candidate = input.path.trim()
+      const target = input.target
       if (candidate.length === 0) {
-        notify({ tone: 'error', message: 'Enter the absolute path of a Git repository.' })
-        return false
+        return makeAppError('INVALID_ARGUMENT', 'Enter the absolute path of a Git repository.', {
+          detail:
+            target.kind === 'wsl'
+              ? `That is a path inside ${target.distro}.`
+              : 'That is a path on this machine.'
+        })
       }
+      // A guest path is POSIX because the distro is Linux; a local path follows
+      // the platform. Neither is accepted as the other.
       if (!isAbsolutePathLike(candidate)) {
-        notify({
-          tone: 'error',
-          message: 'Repository paths must be absolute.',
+        return makeAppError('INVALID_ARGUMENT', 'Repository paths must be absolute.', {
           detail: candidate
         })
-        return false
       }
 
-      const existing = state.repos.find((repo) => repo.path === candidate)
-      const result = await callApi(window.ade.repos.add({ path: candidate }))
+      /**
+       * A path string alone does not identify a repository.
+       *
+       * `/home/you/app` can be this machine's home *and* the distro's home, and
+       * those are different checkouts. Comparing the target too is what stops the
+       * dialog from claiming a WSL repository "was already registered" because a
+       * local one happens to share the spelling.
+       */
+      const existing = state.repos.find(
+        (repo) => repo.path === candidate && sameTarget(repo.target, target)
+      )
+      const result = await callApi(window.ade.repos.add({ path: candidate, target }))
       if (!result.ok) {
+        // Reported to the dialog *and* as a notice: the dialog stays open with the
+        // typed path, and the workspace log keeps the failure.
         notify(errorNotice(result.error))
-        return false
+        return result.error
       }
       const reposOk = await refreshRepos()
-      if (!reposOk) return false
+      if (!reposOk) {
+        return makeAppError('INTERNAL', 'The repository was registered but the list could not be refreshed.')
+      }
       dispatch({ type: 'selectRepo', repoId: result.value.id })
       await refreshSessions()
       notify({
@@ -293,7 +344,7 @@ export function useWorkspace(): {
           ? `${result.value.displayName} was already registered.`
           : `Registered ${result.value.displayName}.`
       })
-      return true
+      return null
     },
     [notify, refreshRepos, refreshSessions, state.repos]
   )
@@ -738,6 +789,7 @@ export function useWorkspace(): {
     refreshHarnesses,
     refreshAll,
     dismissNotice,
-    reportError
+    reportError,
+    notify
   }
 }

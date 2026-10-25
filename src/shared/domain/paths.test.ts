@@ -1,3 +1,4 @@
+import { LOCAL_EXECUTION_TARGET } from '../../shared/domain/repository'
 import { describe, expect, it } from 'vitest'
 import {
   MAX_PATH_LENGTH,
@@ -38,7 +39,8 @@ describe('repository and workspace invariants', () => {
     lastOpenedAt: 2,
     currentBranch: 'main',
     availability: 'present',
-      gitCommonDir: null
+      gitCommonDir: null,
+      executionTarget: LOCAL_EXECUTION_TARGET
   }
 
   const workspace: WorkspaceRecord = {

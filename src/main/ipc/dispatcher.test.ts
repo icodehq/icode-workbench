@@ -4,6 +4,7 @@ import { IPC_CHANNELS } from '../../shared/schemas/ipc'
 import { makeAppError } from '../../shared/domain/errors'
 import { DatabaseError } from '../persistence/database'
 import { SessionServiceError } from '../sessions/session-service'
+import { RepositoryTargetError } from '../wsl/repository-target'
 import { newRepoId, newSessionId } from '../../shared/domain/ids'
 
 function services(overrides: Partial<DispatcherServices> = {}): DispatcherServices {
@@ -25,7 +26,17 @@ function services(overrides: Partial<DispatcherServices> = {}): DispatcherServic
     activityClearUnread: vi.fn(async () => true),
     reviewList: vi.fn(async () => ({ status: 'available', files: [], listTruncated: false })),
     reviewDiff: vi.fn(async () => ({ status: 'available', patch: '' })),
+    filesList: vi.fn(async () => ({ status: 'ok', path: '', entries: [], truncated: false })),
+    filesRead: vi.fn(async () => ({ status: 'ok', path: 'a', text: '', size: 0, binary: false, tooLarge: false, missingTrailingNewline: false })),
+    filesWrite: vi.fn(async () => ({ status: 'ok', size: 1 })),
+    filesSearch: vi.fn(async () => ({ status: 'ok', matches: [], truncated: false, scannedFiles: 0 })),
+    gitStatus: vi.fn(async () => ({ status: 'ok', snapshot: {} })),
+    gitStageAll: vi.fn(async () => ({ status: 'ok', staged: 0 })),
+    gitUnstageAll: vi.fn(async () => ({ status: 'ok', unstaged: 0 })),
+    gitCommit: vi.fn(async () => ({ status: 'ok', oid: 'abc1234', subject: 's', files: 1 })),
+    gitDiscardPath: vi.fn(async () => ({ status: 'ok', restored: true })),
     harnessList: vi.fn(async () => []),
+    wslListDistros: vi.fn(async () => ({ status: 'ok', distros: [], defaultRegistrationId: null })),
     terminalAttach: vi.fn(async () => ({})),
     terminalWrite: vi.fn(async () => null),
     terminalResize: vi.fn(async () => null),
@@ -50,6 +61,25 @@ describe('dispatcher validation', () => {
     const result = await dispatch(IPC_CHANNELS.reposAdd, { path: 'relative/repo' })
     expect(result).toMatchObject({ ok: false, error: { code: 'INVALID_ARGUMENT' } })
     expect(repoAdd).not.toHaveBeenCalled()
+  })
+
+  it('carries a rejected WSL target to the renderer as its own code, not INTERNAL', async () => {
+    // The dispatcher has no WSL branch: the target error rides the existing
+    // `appError` contract, so a future error code needs no dispatcher change.
+    const repoAdd = vi.fn(async () => {
+      throw new RepositoryTargetError(
+        makeAppError('WSL_DISTRO_NOT_FOUND', 'The WSL distro "Ubuntu-99.99" is gone.')
+      )
+    })
+    const dispatch = createDispatcher(services({ reposAdd: repoAdd }))
+    const result = await dispatch(IPC_CHANNELS.reposAdd, {
+      path: '/home/user/project',
+      target: { kind: 'wsl', distro: 'Ubuntu-99.99', distroId: null }
+    })
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'WSL_DISTRO_NOT_FOUND', retryable: false }
+    })
   })
 
   it('rejects unknown fields and malformed IDs', async () => {
@@ -236,6 +266,66 @@ describe('dispatcher results', () => {
     expect(await dispatch(IPC_CHANNELS.reposRemove, { repoId })).toEqual({
       ok: true,
       value: { status: 'confirmation_required', sessions: [] }
+    })
+  })
+})
+
+/**
+ * W9: detection is per execution target, so the renderer must be able to say
+ * *which* repository it is asking about. The distro list is a separate, input-free
+ * question because discovery is machine-wide.
+ */
+describe('execution-target aware IPC', () => {
+  it('passes repoId through to Harness detection', async () => {
+    const harnessList = vi.fn(async () => [])
+    const dispatch = createDispatcher(services({ harnessList }))
+    const result = await dispatch(IPC_CHANNELS.harnessList, { repoId })
+    expect(result).toMatchObject({ ok: true })
+    expect(harnessList).toHaveBeenCalledWith({ repoId })
+  })
+
+  it('keeps the pre-W9 call shape when no repository is named', async () => {
+    const harnessList = vi.fn(async () => [])
+    const dispatch = createDispatcher(services({ harnessList }))
+    await dispatch(IPC_CHANNELS.harnessList, {})
+    expect(harnessList).toHaveBeenCalledWith({})
+  })
+
+  it('rejects a malformed repoId instead of detecting for the wrong target', async () => {
+    const harnessList = vi.fn(async () => [])
+    const dispatch = createDispatcher(services({ harnessList }))
+    const result = await dispatch(IPC_CHANNELS.harnessList, { repoId: 'not-a-repo-id' })
+    expect(result).toMatchObject({ ok: false })
+    expect(harnessList).not.toHaveBeenCalled()
+  })
+
+  it('serves the distro list on its own channel', async () => {
+    const wslListDistros = vi.fn(async () => ({
+      status: 'ok' as const,
+      distros: [{ name: 'Ubuntu-26.04', registrationId: 'abc', version: 2 as const, running: true }],
+      defaultRegistrationId: 'abc'
+    }))
+    const dispatch = createDispatcher(services({ wslListDistros }))
+    const result = await dispatch(IPC_CHANNELS.wslListDistros)
+    expect(result).toMatchObject({ ok: true, value: { status: 'ok' } })
+    expect(wslListDistros).toHaveBeenCalledTimes(1)
+  })
+
+  it('returns "unavailable" as a value, not as an IPC error', async () => {
+    const dispatch = createDispatcher(
+      services({
+        wslListDistros: async () => ({
+          status: 'unavailable' as const,
+          reason: 'not_windows' as const,
+          detail: 'WSL is Windows only'
+        })
+      })
+    )
+    const result = await dispatch(IPC_CHANNELS.wslListDistros)
+    // Not an error: the dialog must still be able to offer local repositories.
+    expect(result).toMatchObject({
+      ok: true,
+      value: { status: 'unavailable', reason: 'not_windows' }
     })
   })
 })

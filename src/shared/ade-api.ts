@@ -20,6 +20,19 @@ import type {
   ReviewListResult
 } from './schemas/review'
 import type {
+  filesListInputSchema,
+  filesReadInputSchema,
+  filesSearchInputSchema,
+  filesWriteInputSchema,
+  gitCommitInputSchema,
+  gitDiscardPathInputSchema,
+  gitStageAllInputSchema,
+  gitStatusInputSchema,
+  gitUnstageAllInputSchema
+} from './schemas/workspace'
+import type { FileContent, FileListing, FileSearchResult } from './domain/workspace-files'
+import type { GitCommitResult, GitStatusEntry, GitWorkspaceStatus } from './domain/git-workspace'
+import type {
   DiscardSessionResult,
   IpcResult,
   ListSessionsInput,
@@ -32,7 +45,8 @@ import type {
   SessionListView,
   SessionSummary,
   TerminalAttachPayload,
-  RendererSessionEvent
+  RendererSessionEvent,
+  WslDistroListPayload
 } from './schemas/ipc'
 import type { HarnessDetection } from './domain/harness'
 
@@ -103,10 +117,54 @@ export type AdeProductApi = {
       input: z.infer<typeof reviewDiffInputSchema>
     ) => Promise<IpcResult<ReviewDiffResult>>
   }
+  /**
+   * Browsing, editing and search inside the selected session's worktree.
+   *
+   * Every call resolves with a truthful `unavailable` reason for the checkout
+   * (missing, unreachable, primary) rather than rejecting or answering `[]`.
+   */
+  files: {
+    list: (
+      input: z.infer<typeof filesListInputSchema>
+    ) => Promise<IpcResult<FilesListingPayload>>
+    read: (input: z.infer<typeof filesReadInputSchema>) => Promise<IpcResult<FileContentPayload>>
+    write: (
+      input: z.infer<typeof filesWriteInputSchema>
+    ) => Promise<IpcResult<FilesWritePayload>>
+    search: (
+      input: z.infer<typeof filesSearchInputSchema>
+    ) => Promise<IpcResult<FileSearchPayload>>
+  }
+  /** Worktree-scoped Git state and the common change operations. */
+  git: {
+    status: (input: z.infer<typeof gitStatusInputSchema>) => Promise<IpcResult<GitStatusPayload>>
+    stageAll: (
+      input: z.infer<typeof gitStageAllInputSchema>
+    ) => Promise<IpcResult<GitOpPayload>>
+    unstageAll: (
+      input: z.infer<typeof gitUnstageAllInputSchema>
+    ) => Promise<IpcResult<GitOpPayload>>
+    commit: (
+      input: z.infer<typeof gitCommitInputSchema>
+    ) => Promise<IpcResult<GitCommitPayload>>
+    discardPath: (
+      input: z.infer<typeof gitDiscardPathInputSchema>
+    ) => Promise<IpcResult<{ status: 'ok'; restored: boolean } | WorkspaceUnavailablePayload>>
+  }
   harness: {
+    /** `repoId` asks for that repository's execution target; omit for this machine. */
     list: (
       input?: z.infer<typeof harnessListInputSchema>
     ) => Promise<IpcResult<HarnessDetection[]>>
+  }
+  wsl: {
+    /**
+     * Registered distros for the repository dialog.
+     *
+     * `unavailable` is a normal answer on a machine without WSL, so it resolves
+     * rather than rejecting; only a broken IPC call fails.
+     */
+    listDistros: () => Promise<IpcResult<WslDistroListPayload>>
   }
   terminal: {
     attach: (
@@ -117,6 +175,34 @@ export type AdeProductApi = {
   }
   onSessionEvent: (listener: (event: RendererSessionEvent) => void) => () => void
 }
+
+/** A truthful "cannot answer" for any worktree-scoped tool. */
+export type WorkspaceUnavailablePayload = {
+  status: 'unavailable'
+  reason: string
+  detail: string
+}
+export type FilesListingPayload =
+  | ({ status: 'ok' } & FileListing)
+  | WorkspaceUnavailablePayload
+export type FileContentPayload = ({ status: 'ok' } & FileContent) | WorkspaceUnavailablePayload
+export type FileSearchPayload =
+  | ({ status: 'ok' } & FileSearchResult)
+  | WorkspaceUnavailablePayload
+export type FilesWritePayload =
+  | ({ status: 'ok'; size: number })
+  | WorkspaceUnavailablePayload
+export type GitOpPayload =
+  | ({ status: 'ok'; staged?: number; unstaged?: number })
+  | WorkspaceUnavailablePayload
+export type GitCommitPayload =
+  | ({ status: 'ok' } & GitCommitResult)
+  | WorkspaceUnavailablePayload
+export type GitStatusPayload =
+  | ({ status: 'ok'; snapshot: GitWorkspaceStatus })
+  | WorkspaceUnavailablePayload
+
+export type { FileContent, FileListing, FileSearchResult, GitCommitResult, GitStatusEntry, GitWorkspaceStatus }
 
 /** Implemented renderer surface: diagnostics plus the product API. */
 export type AdeApi = {

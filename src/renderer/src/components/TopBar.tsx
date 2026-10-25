@@ -33,6 +33,43 @@ function hostLabel(status: HostStatus): string {
   return 'Host status unknown'
 }
 
+/**
+ * Where the active repository lives, as persisted.
+ *
+ * Read straight from `RepositorySummary.target`, never inferred from the path:
+ * after a reload the renderer has no other source, and a path string alone cannot
+ * tell this machine's `/home/you` from the distro's.
+ */
+function TargetBadge({ repo }: { repo: RepositorySummary }): React.JSX.Element {
+  if (repo.target.kind === 'wsl') {
+    return (
+      <span
+        className="inline-flex h-5 shrink-0 items-center gap-1 rounded border border-sky-500/40 bg-sky-500/10 px-1.5 text-[9px] font-medium text-sky-300"
+        title={`Execution target: WSL distro ${repo.target.distro}${
+          repo.target.distroId === null ? '' : ` (registration ${repo.target.distroId})`
+        }. Agent sessions run inside the distro; WSL terminals run on this desktop.`}
+        data-testid="repo-target"
+        data-target="wsl"
+        data-distro={repo.target.distro}
+      >
+        <Server size={9} />
+        WSL · {repo.target.distro}
+      </span>
+    )
+  }
+  return (
+    <span
+      className="inline-flex h-5 shrink-0 items-center gap-1 rounded border border-border bg-muted/40 px-1.5 text-[9px] font-medium text-muted-foreground"
+      title="Execution target: this machine."
+      data-testid="repo-target"
+      data-target="local"
+    >
+      <FolderGit2 size={9} />
+      Local
+    </span>
+  )
+}
+
 type Props = {
   state: WorkspaceState
   runtime: RuntimeInfo | null
@@ -80,11 +117,13 @@ export default function TopBar({
           {state.repos.map((repo) => (
             <option key={repo.id} value={repo.id}>
               {repo.displayName}
+              {repo.target.kind === 'wsl' ? ` · WSL ${repo.target.distro}` : ''}
               {repo.currentBranch === null ? '' : ` (${repo.currentBranch})`}
               {repo.availability === 'missing' ? ' — path missing' : ''}
             </option>
           ))}
         </select>
+        {activeRepo ? <TargetBadge repo={activeRepo} /> : null}
         {activeRepo ? (
           <span
             className="hidden min-w-0 truncate font-mono text-[9px] text-muted-foreground xl:inline"

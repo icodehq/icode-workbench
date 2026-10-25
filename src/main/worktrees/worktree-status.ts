@@ -9,13 +9,21 @@ import type {
  * A worktree's user-visible status is derived, never persisted: filesystem and
  * Host truth can change while the app is closed, and a stale durable status
  * could invite the wrong cleanup action.
+ *
+ * `directoryExists` exists because existence is a question about *where the
+ * checkout lives*. A call site that already knows the answer from the right
+ * place passes it; otherwise this function would answer with the host's
+ * `statSync`, which for a WSL checkout is a question about the wrong machine
+ * (the guest path does not exist on Windows) and would report a healthy
+ * worktree as missing.
  */
 export function describeWorktree(
   record: SessionWorktreeRecord,
   sessionState: SessionLifecycleState,
-  hostCwd?: string | null
+  hostCwd?: string | null,
+  directoryExists?: boolean
 ): WorktreeSummary {
-  const exists = isDirectory(record.path)
+  const exists = directoryExists ?? isDirectory(record.path)
   let status: WorktreeSummary['status']
   if (record.state === 'failed') {
     status = 'failed'

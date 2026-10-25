@@ -39,8 +39,19 @@ type Handshake = {
   timer: NodeJS.Timeout
 }
 
-export type HostConnectionOptions = {
-  socketPath: string
+/**
+ * Where the Host is reachable.
+ *
+ * Two transports, one protocol: a local Host listens on a Unix socket or named
+ * pipe, while a managed WSL Host is reached through a loopback relay that opens a
+ * `wsl.exe` bridge per connection. Nothing above this type can tell them apart,
+ * which is why the WSL path needed no protocol change.
+ */
+export type HostTransportTarget =
+  | { socketPath: string; host?: never; port?: never }
+  | { host: string; port: number; socketPath?: never }
+
+export type HostConnectionOptions = HostTransportTarget & {
   token: string
   clientId?: string
   requestTimeoutMs?: number
@@ -72,7 +83,12 @@ export class HostClient {
 
   private open(options: HostConnectionOptions): Promise<void> {
     return new Promise((resolve, reject) => {
-      const socket = connect(options.socketPath)
+      // One line of transport selection; every other guarantee (handshake, token,
+      // framing, timeouts) is shared, so the local path is byte-identical.
+      const socket =
+        options.socketPath !== undefined
+          ? connect(options.socketPath)
+          : connect({ host: options.host, port: options.port })
       this.socket = socket
       let settled = false
       const fail = (error: Error): void => {

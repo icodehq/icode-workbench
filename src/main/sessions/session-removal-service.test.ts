@@ -406,3 +406,84 @@ describe('failed creation cleanup', () => {
     if (result.status === 'blocked_worktree') expect(result.blocker.kind).toBe('missing')
   })
 })
+
+/**
+ * A WSL session's worktree lives in its distro, so every probe on the removal path
+ * must name the execution target.
+ *
+ * Regression: `worktreeBlocker` inspected without one, so on Windows the guest
+ * path was `statSync`ed locally, found absent, and reported `missing` — a live,
+ * registered worktree that the user could never remove or discard. Invisible on a
+ * Linux controller, where the guest path happened to exist there too.
+ */
+describe('removal probes the repository target', () => {
+  it('inspects a WSL worktree through the distro, not this machine', async () => {
+    const target = {
+      kind: 'wsl' as const,
+      distro: 'Ubuntu-26.04',
+      distroId: 'a5489bf0-2b9e-49bf-940e-0c19a6caef73'
+    }
+    const seen: unknown[] = []
+    const repoId = 'repo_a5489bf0-0000-4000-8000-000000000001'
+    const sessionId = newSessionId()
+    const worktreePath = '/home/you/.ade/worktrees/s/repo/ses'
+
+    const removals = new SessionRemovalService({
+      database: { transaction: (run: () => void) => run() } as never,
+      sessions: {
+        findById: () => ({
+          id: sessionId,
+          workspaceId: 'ws_1',
+          harness: 'claude',
+          title: 'agent'
+        }),
+        delete: () => undefined
+      } as never,
+      repositories: {
+        findById: () => ({
+          id: repoId,
+          path: '/home/you/atlas',
+          displayName: 'atlas',
+          executionTarget: target
+        }),
+        findWorkspaceById: () => ({ id: 'ws_1', repoId, path: '/home/you/atlas' })
+      } as never,
+      worktrees: {
+        findBySession: () => ({
+          sessionId,
+          repoId,
+          path: worktreePath,
+          branch: 'ade/ses',
+          state: 'ready'
+        }),
+        deleteBySession: () => undefined
+      } as never,
+      gitWorktrees: {
+        inspect: async (input: { target?: unknown }) => {
+          seen.push(input.target)
+          // What a distro-aware probe answers for a present worktree.
+          return {
+            pathExists: true,
+            registered: true,
+            headOid: 'abc',
+            dirtyFiles: [],
+            unmergedCommits: 0
+          }
+        },
+        remove: async () => undefined,
+        hostFsFor: async () => ({ exists: async () => true }),
+        branchExists: async () => true,
+        countUnmerged: async () => 0
+      } as never,
+      host: {
+        listSessions: async () => ({ sessions: [], orphans: [] })
+      } as never,
+      summarise: async () => ({}) as never
+    })
+
+    const result = await removals.remove(sessionId)
+    expect(result.status).toBe('removed')
+    // The probe must be told where the worktree actually lives.
+    expect(seen).toEqual([target])
+  })
+})

@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, symlinkSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   GitReviewReader,
   ReviewReadError,
@@ -473,5 +473,53 @@ describe('file diffs', () => {
     expect(diff.truncated).toBe(true)
     expect(diff.truncatedReason).toBe('bytes')
     expect(Buffer.byteLength(diff.patch, 'utf8')).toBeLessThanOrEqual(REVIEW_MAX_FILE_BYTES)
+  })
+})
+
+/**
+ * W6: the reader must be selected by execution target, never by inspecting a path.
+ */
+describe('review reader routing by execution target', () => {
+  const WSL = {
+    kind: 'wsl' as const,
+    distro: 'Ubuntu-26.04',
+    distroId: 'a5489bf0-2b9e-49bf-940e-0c19a6caef73'
+  }
+
+  it('keeps the local reader for a local target', () => {
+    const read = vi.fn()
+    const reader = new GitReviewReader({ read: read as never })
+    expect(reader.forTarget({ kind: 'local' })).toBe(reader)
+  })
+
+  it('uses the guest reader for a WSL target', async () => {
+    const guestRead = vi.fn(async () => ({
+      stdout: 'guest output',
+      stderrTail: '',
+      exitCode: 0,
+      signal: null,
+      truncated: false,
+      truncatedReason: null
+    }))
+    const reader = new GitReviewReader({ readForTarget: () => guestRead as never })
+    const routed = reader.forTarget(WSL)
+    expect(routed).not.toBe(reader)
+    // The routed reader's read is the guest one: asserting `toHaveBeenCalled`
+    // after exercising it is what proves the selection, not the object identity.
+    const result = await routed.runReadForTest({
+      cwd: '/home/u/src',
+      args: ['diff', '--stat'],
+      timeoutMs: 1_000
+    })
+    expect(guestRead).toHaveBeenCalledTimes(1)
+    expect(result.stdout).toBe('guest output')
+  })
+
+  it('refuses a WSL read when no guest reader is wired, instead of using local Git', async () => {
+    const reader = new GitReviewReader({})
+    const routed = reader.forTarget(WSL)
+    await expect(
+      routed.runReadForTest({ cwd: '/home/u/src', args: ['diff'], timeoutMs: 1_000 })
+    ).rejects.toMatchObject({ appError: { code: 'GIT_READ_FAILED' } })
   })
 })

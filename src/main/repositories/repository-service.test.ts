@@ -3,9 +3,12 @@ import { mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { makeRepositoryService, makeTempRoot, openTempDatabase } from '../persistence/persistence-test-fixtures'
+import { resolveRepositoryRoot } from './repository-path'
 import type { TempRoot } from '../persistence/persistence-test-fixtures'
 import { newRepoId, newSessionId, newWorkspaceId } from '../../shared/domain/ids'
 import type { Database } from '../persistence/database'
+import { createTargetValidator } from '../wsl/repository-target'
+import { WslCommandRunner, type WslProcessLauncher } from '../wsl/exec'
 
 type Harness = {
   root: TempRoot
@@ -29,7 +32,15 @@ function initGitRepo(path: string): void {
 function harness(): Harness {
   const root = makeTempRoot('ade-repo-')
   const db = openTempDatabase(root)
-  const stores = makeRepositoryService(db)
+  // WSL targets need a guest resolver. These tests exercise the target model, so
+  // the stub answers with the same canonical root a guest would report for the
+  // same path; guest path semantics are covered in the W6 suites.
+  const stores = makeRepositoryService(db, {
+    resolveRoot: async (path) => {
+      const resolved = await resolveRepositoryRoot(path)
+      return resolved
+    }
+  })
   const value = { root, db, service: stores.service, stores }
   active.push(value)
   return value
@@ -69,6 +80,52 @@ describe('repository registration', () => {
 
     const detail = h.service.getRepository(result.repository.id)
     expect(detail?.workspace.id).toBe(listed[0]!.workspace.id)
+  })
+
+  it('treats the same path on another execution target as a distinct repository', async () => {
+    const h = harness()
+    const repoPath = join(h.root.dir, 'atlas')
+    initGitRepo(repoPath)
+
+    const local = await h.service.addRepository(repoPath)
+    const onWsl = await h.service.addRepository(repoPath, {
+      kind: 'wsl',
+      distro: 'Ubuntu-A',
+      distroId: 'guid-a'
+    })
+    expect(local.created).toBe(true)
+    expect(onWsl.created).toBe(true)
+    expect(onWsl.repository.id).not.toBe(local.repository.id)
+    expect(onWsl.repository.executionTarget).toEqual({
+      kind: 'wsl',
+      distro: 'Ubuntu-A',
+      distroId: 'guid-a'
+    })
+    // The local row is untouched: still local, still the same canonical path.
+    expect(h.service.getRepository(local.repository.id)?.repository.executionTarget).toEqual({
+      kind: 'local'
+    })
+    expect(h.service.listRepositories()).toHaveLength(2)
+  })
+
+  it('deduplicates a renamed distro by registration id', async () => {
+    const h = harness()
+    const repoPath = join(h.root.dir, 'atlas')
+    initGitRepo(repoPath)
+
+    const first = await h.service.addRepository(repoPath, {
+      kind: 'wsl',
+      distro: 'Ubuntu-Old',
+      distroId: 'guid-a'
+    })
+    const renamed = await h.service.addRepository(repoPath, {
+      kind: 'wsl',
+      distro: 'Ubuntu-Renamed',
+      distroId: 'guid-a'
+    })
+    expect(renamed.created).toBe(false)
+    expect(renamed.repository.id).toBe(first.repository.id)
+    expect(h.service.listRepositories()).toHaveLength(1)
   })
 
   it('treats a duplicate canonical path as the existing repository', async () => {
@@ -361,5 +418,346 @@ describe('repository deletion', () => {
     expect(h.stores.uiState.getActiveRepository()).toBe(added.repository.id)
     h.service.removeRepository(added.repository.id, { acknowledgeDependentSessions: true })
     expect(h.stores.uiState.getActiveRepository()).toBeNull()
+  })
+})
+
+/**
+ * The production boundary: a caller-supplied WSL target is validated against the
+ * real registry before it can reach storage, and the *proven* target is what
+ * gets persisted.
+ */
+describe('WSL target acceptance', () => {
+  const UBUNTU_ID = 'a5489bf0-2b9e-49bf-940e-0c19a6caef73'
+  const REGISTRY = [
+    `HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Lxss\\{${UBUNTU_ID}}`,
+    '    DistributionName    REG_SZ    Ubuntu-26.04',
+    '    Version    REG_DWORD    0x2'
+  ].join('\r\n')
+
+  function wslHarness(registry: string | null = REGISTRY): Harness {
+    const root = makeTempRoot('ade-repo-wsl-')
+    const db = openTempDatabase(root)
+    const stores = makeRepositoryService(db, {
+      validateTarget: realValidator(registry),
+      resolveRoot: async (path) => resolveRepositoryRoot(path)
+    })
+    const value = { root, db, service: stores.service, stores }
+    active.push(value)
+    return value
+  }
+
+  function realValidator(registry: string | null) {
+    const launcher: WslProcessLauncher = async () => ({
+      code: 0,
+      signal: null,
+      stdout: 'Ubuntu-26.04\n',
+      stderr: '',
+      timedOut: false
+    })
+    return createTargetValidator({
+      runner: new WslCommandRunner({ launcher, platform: 'win32' }),
+      platform: 'win32',
+      queryRegistry: async () => registry
+    })
+  }
+
+  it('persists the registration id a caller did not supply, then dedupes by it', async () => {
+    const h = wslHarness()
+    const repoPath = join(h.root.dir, 'atlas')
+    initGitRepo(repoPath)
+
+    const first = await h.service.addRepository(repoPath, {
+      kind: 'wsl',
+      distro: 'Ubuntu-26.04',
+      distroId: null
+    })
+    expect(first.created).toBe(true)
+    // The id was absent on the way in and is proven on the way out.
+    expect(first.repository.executionTarget).toEqual({
+      kind: 'wsl',
+      distro: 'Ubuntu-26.04',
+      distroId: UBUNTU_ID
+    })
+
+    // A second add of the same path, now carrying the id, is the same row.
+    const again = await h.service.addRepository(repoPath, {
+      kind: 'wsl',
+      distro: 'Ubuntu-26.04',
+      distroId: UBUNTU_ID
+    })
+    expect(again.created).toBe(false)
+    expect(again.repository.id).toBe(first.repository.id)
+    expect(h.service.listRepositories()).toHaveLength(1)
+  })
+
+  it('rejects a missing distro and stores nothing', async () => {
+    const h = wslHarness()
+    const repoPath = join(h.root.dir, 'atlas')
+    initGitRepo(repoPath)
+
+    await expect(
+      h.service.addRepository(repoPath, { kind: 'wsl', distro: 'Ubuntu-99.99', distroId: null })
+    ).rejects.toMatchObject({ appError: { code: 'WSL_DISTRO_NOT_FOUND' } })
+    expect(h.service.listRepositories()).toHaveLength(0)
+  })
+
+  it('rejects a replaced registration and stores nothing', async () => {
+    const h = wslHarness()
+    const repoPath = join(h.root.dir, 'atlas')
+    initGitRepo(repoPath)
+
+    await expect(
+      h.service.addRepository(repoPath, {
+        kind: 'wsl',
+        distro: 'Ubuntu-26.04',
+        distroId: 'ffffffff-1111-2222-3333-444455556666'
+      })
+    ).rejects.toMatchObject({ appError: { code: 'WSL_DISTRO_NOT_FOUND' } })
+    expect(h.service.listRepositories()).toHaveLength(0)
+  })
+
+  it('reports an unreadable registry as retryable rather than as a missing distro', async () => {
+    const h = wslHarness(null)
+    const repoPath = join(h.root.dir, 'atlas')
+    initGitRepo(repoPath)
+
+    await expect(
+      h.service.addRepository(repoPath, { kind: 'wsl', distro: 'Ubuntu-26.04', distroId: null })
+    ).rejects.toMatchObject({ appError: { code: 'WSL_UNAVAILABLE', retryable: true } })
+    expect(h.service.listRepositories()).toHaveLength(0)
+  })
+
+  it('reports the gone distro, not the path error it causes, when the path does not resolve', async () => {
+    const h = wslHarness()
+    // Validation runs first, so the actionable cause wins over PATH_NOT_FOUND.
+    await expect(
+      h.service.addRepository(join(h.root.dir, 'does-not-exist'), {
+        kind: 'wsl',
+        distro: 'Ubuntu-99.99',
+        distroId: null
+      })
+    ).rejects.toMatchObject({ appError: { code: 'WSL_DISTRO_NOT_FOUND' } })
+    expect(h.service.listRepositories()).toHaveLength(0)
+  })
+
+  it('leaves local registration untouched, including a local row at the same path', async () => {
+    const h = wslHarness()
+    const repoPath = join(h.root.dir, 'atlas')
+    initGitRepo(repoPath)
+
+    const local = await h.service.addRepository(repoPath)
+    const wsl = await h.service.addRepository(repoPath, {
+      kind: 'wsl',
+      distro: 'Ubuntu-26.04',
+      distroId: null
+    })
+
+    expect(local.created).toBe(true)
+    expect(wsl.created).toBe(true)
+    expect(local.repository.executionTarget).toEqual({ kind: 'local' })
+    expect(local.repository.id).not.toBe(wsl.repository.id)
+    // The local row survives a WSL registration at the same path.
+    expect(h.service.getRepository(local.repository.id)?.repository.executionTarget).toEqual({
+      kind: 'local'
+    })
+  })
+})
+
+/**
+ * AC-05: a WSL row written before a registration id could be read.
+ *
+ * The row names its distro by name only. A later add carries the proven id, so
+ * the two must be recognised as one repository — but only with evidence, because
+ * a name survives an unregister + reimport while the repository behind it may not.
+ */
+describe('legacy WSL rows without a registration id', () => {
+  const ID = 'a5489bf0-2b9e-49bf-940e-0c19a6caef73'
+
+  /** A harness whose guest resolver reports a fixed common dir for one path. */
+  function legacyHarness(commonDir: string) {
+    const root = makeTempRoot('ade-w6-legacy-')
+    const db = openTempDatabase(root)
+    const stores = makeRepositoryService(db, {
+      resolveRoot: async (path) => ({
+        root: path,
+        currentBranch: 'main',
+        commonDir
+      })
+    })
+    const value = { root, db, service: stores.service, stores }
+    active.push(value)
+    return value
+  }
+
+  /** Writes the pre-W1 shape directly: a WSL row with no registration id. */
+  function writeLegacyRow(h: Harness, path: string, commonDir: string | null): string {
+    const id = newRepoId()
+    h.stores.repositories.insert({
+      id,
+      path: path as never,
+      displayName: 'legacy',
+      addedAt: 1,
+      lastOpenedAt: 1,
+      currentBranch: 'main',
+      availability: 'present',
+      gitCommonDir: commonDir,
+      executionTarget: { kind: 'wsl', distro: 'Ubuntu-26.04', distroId: null }
+    })
+    // Every repository owns exactly one primary-checkout workspace; a legacy row
+    // is no exception, and the schema enforces it.
+    h.stores.repositories.insertWorkspace({
+      id: newWorkspaceId(),
+      repoId: id,
+      path: path as never,
+      kind: 'primary-checkout',
+      createdAt: 1
+    })
+    return id
+  }
+
+  it('completes the id in place when the common dir proves the same repository', async () => {
+    const h = legacyHarness('/home/u/src/atlas/.git')
+    const legacyId = writeLegacyRow(h, '/home/u/src/atlas', '/home/u/src/atlas/.git')
+
+    const added = await h.service.addRepository('/home/u/src/atlas', {
+      kind: 'wsl',
+      distro: 'Ubuntu-26.04',
+      distroId: ID
+    })
+
+    // One repository, the same row, no cascade.
+    expect(added.created).toBe(false)
+    expect(added.repository.id).toBe(legacyId)
+    expect(added.repository.executionTarget).toEqual({
+      kind: 'wsl',
+      distro: 'Ubuntu-26.04',
+      distroId: ID
+    })
+    expect(h.service.listRepositories()).toHaveLength(1)
+    // The id is now durable, so later lookups find the row by registration.
+    expect(
+      h.stores.repositories.findByPath('/home/u/src/atlas', {
+        kind: 'wsl',
+        distro: 'Ubuntu-26.04',
+        distroId: ID
+      })?.id
+    ).toBe(legacyId)
+  })
+
+  it('refuses to rebind when the common dir does not match', async () => {
+    const h = legacyHarness('/home/u/src/atlas/.git')
+    writeLegacyRow(h, '/home/u/src/atlas', '/home/u/other/.git')
+
+    await expect(
+      h.service.addRepository('/home/u/src/atlas', {
+        kind: 'wsl',
+        distro: 'Ubuntu-26.04',
+        distroId: ID
+      })
+    ).rejects.toMatchObject({ appError: { code: 'WSL_LEGACY_REGISTRATION_UNRESOLVED' } })
+
+    // Nothing was written: the legacy row is untouched and no duplicate appeared.
+    expect(h.service.listRepositories()).toHaveLength(1)
+    expect(h.service.listRepositories()[0]!.repository.executionTarget).toEqual({
+      kind: 'wsl',
+      distro: 'Ubuntu-26.04',
+      distroId: null
+    })
+  })
+
+  it('refuses when the legacy row recorded no common dir at all', async () => {
+    const h = legacyHarness('/home/u/src/atlas/.git')
+    writeLegacyRow(h, '/home/u/src/atlas', null)
+    await expect(
+      h.service.addRepository('/home/u/src/atlas', {
+        kind: 'wsl',
+        distro: 'Ubuntu-26.04',
+        distroId: ID
+      })
+    ).rejects.toMatchObject({ appError: { code: 'WSL_LEGACY_REGISTRATION_UNRESOLVED' } })
+  })
+
+  it('does not adopt a legacy row that belongs to a different distro name', async () => {
+    const h = legacyHarness('/home/u/src/atlas/.git')
+    writeLegacyRow(h, '/home/u/src/atlas', '/home/u/src/atlas/.git')
+
+    const added = await h.service.addRepository('/home/u/src/atlas', {
+      kind: 'wsl',
+      distro: 'Ubuntu-24.04',
+      distroId: 'bbbbbbbb-1111-2222-3333-444455556666'
+    })
+    // A different distro is a different repository, so a second row is correct.
+    expect(added.created).toBe(true)
+    expect(h.service.listRepositories()).toHaveLength(2)
+  })
+
+  it('leaves local rows and local dedupe untouched', async () => {
+    const h = legacyHarness('/home/u/src/atlas/.git')
+    const repoPath = join(h.root.dir, 'atlas')
+    initGitRepo(repoPath)
+    const first = await h.service.addRepository(repoPath)
+    const second = await h.service.addRepository(repoPath)
+    expect(second.created).toBe(false)
+    expect(second.repository.id).toBe(first.repository.id)
+    expect(first.repository.executionTarget).toEqual({ kind: 'local' })
+  })
+})
+
+/**
+ * Work 81: a WSL project must not be labelled missing because its path was
+ * checked on Windows, and an unreachable distro must not read as "gone".
+ */
+describe('remote project availability', () => {
+  it('never derives a WSL project\'s availability from the local filesystem', async () => {
+    const f = harness()
+    const guestPath = '/home/u/projects/atlas'
+    // Store the row directly: registration is covered elsewhere, and the point
+    // here is the *list* path, which used to stat the guest path locally.
+    const repoId = newRepoId()
+    f.stores.repositories.insert({
+      id: repoId,
+      path: guestPath as never,
+      displayName: 'atlas',
+      addedAt: 1,
+      lastOpenedAt: 1,
+      currentBranch: 'main',
+      availability: 'present',
+      gitCommonDir: null,
+      executionTarget: {
+        kind: 'wsl',
+        distro: 'Ubuntu-26.04',
+        distroId: 'a5489bf0-2b9e-49bf-940e-0c19a6caef73'
+      }
+    })
+    // A repository always owns one primary checkout; the list assumes it.
+    f.stores.repositories.insertWorkspace({
+      id: newWorkspaceId(),
+      repoId,
+      path: guestPath as never,
+      kind: 'primary-checkout',
+      createdAt: 1
+    })
+
+    // Without a host check the answer must stay as recorded, not become missing.
+    const listed = f.service.listRepositories()
+    expect(listed[0]?.repository.availability).toBe('present')
+
+    // A distro that cannot answer is `unknown`, and is not written to the row.
+    f.service.useHostFs(async () => ({
+      isDirectory: async () => {
+        throw new Error('the distro did not answer')
+      }
+    }))
+    await f.service.refreshTargetAvailability()
+    const unknown = f.service.listRepositories()
+    expect(unknown[0]?.repository.availability).toBe('unknown')
+    expect(f.stores.repositories.findById(unknown[0]!.repository.id)?.availability).toBe('present')
+
+    // A definite answer is applied and persisted.
+    f.service.useHostFs(async () => ({ isDirectory: async () => false }))
+    await f.service.refreshTargetAvailability()
+    const missing = f.service.listRepositories()
+    expect(missing[0]?.repository.availability).toBe('missing')
+    expect(f.stores.repositories.findById(missing[0]!.repository.id)?.availability).toBe('missing')
   })
 })

@@ -1,7 +1,12 @@
-import { execFile } from 'node:child_process'
 import { mkdirSync, readdirSync, rmdirSync, statSync } from 'node:fs'
 import { dirname } from 'node:path'
-import { promisify } from 'node:util'
+import type { ExecutionTarget } from '../../shared/domain/repository'
+import {
+  createLocalGitExecutor,
+  GitUnavailableError,
+  type GitExecutor,
+  type GitExecutorRouter
+} from '../git/executor'
 import { makeAppError, type AppError } from '../../shared/domain/errors'
 import type {
   RepositoryGitState,
@@ -10,7 +15,6 @@ import type {
 import { SessionServiceError } from '../sessions/session-errors'
 import { samePathResolved } from './worktree-status'
 
-const execFileAsync = promisify(execFile)
 const READ_TIMEOUT_MS = 10_000
 const MUTATE_TIMEOUT_MS = 30_000
 
@@ -27,7 +31,31 @@ export type GitWorktreeServiceDeps = {
   /** Root that owns every session worktree, e.g. `<userData>/worktrees`. */
   worktreeRoot: string
   now?: () => number
+  /**
+   * Routes Git and the managed worktree root by execution target. Absent means
+   * "local only", which is exactly the pre-W6 behaviour.
+   */
+  router?: GitExecutorRouter
 }
+
+/**
+ * Everything one call needs from the host that owns the repository.
+ *
+ * `isDirectory`, `ensureParentDirectory` and `exists` are part of the contract
+ * rather than node:fs calls at the call site: for a WSL repository they must run
+ * in the distro, and a `statSync` on a guest path would answer about the
+ * controller's filesystem instead.
+ */
+type WorktreeContext = {
+  target: ExecutionTarget
+  worktreeRoot: string
+  git(cwd: string, args: string[], timeoutMs: number): Promise<string>
+  isDirectory(path: string): Promise<boolean>
+  ensureParentDirectory(path: string): Promise<void>
+  exists(path: string): Promise<boolean>
+}
+
+const LOCAL_TARGET: ExecutionTarget = { kind: 'local' }
 
 export type RegisteredWorktree = {
   path: string
@@ -44,6 +72,7 @@ export type RegisteredWorktree = {
  */
 export class GitWorktreeService {
   private readonly queues = new Map<string, Promise<unknown>>()
+  private readonly localExecutor: GitExecutor = createLocalGitExecutor()
 
   constructor(private readonly deps: GitWorktreeServiceDeps) {}
 
@@ -51,13 +80,139 @@ export class GitWorktreeService {
     return this.deps.worktreeRoot
   }
 
-  worktreePathFor(repoId: string, sessionId: string): string {
-    return `${this.deps.worktreeRoot.replace(/\/+$/u, '')}/${repoId}/${sessionId}`
+  /**
+   * Resolves the host context for a target.
+   *
+   * Local keeps the pre-W6 code path exactly: node:fs, and `execFile('git', ...)`
+   * with the Windows path. WSL resolves a guest executor and the guest managed
+   * root, so every later call in the same method runs in the distro.
+   */
+  private async contextFor(target: ExecutionTarget = LOCAL_TARGET): Promise<WorktreeContext> {
+    const resolved =
+      target.kind === 'local' || !this.deps.router
+        ? {
+            executor: this.localExecutor,
+            // Local keeps the pre-W6 root and filesystem exactly.
+            worktreeRoot: this.deps.worktreeRoot,
+            fs: {
+              isDirectory: async (value: string) => this.isDirectory(value),
+              exists: async (value: string) => this.isDirectory(value),
+              ensureParentDirectory: async (value: string) => this.ensureParentDirectory(value)
+            }
+          }
+        : await this.deps.router.resolve(target)
+
+    return {
+      target: target.kind === 'local' || !this.deps.router ? LOCAL_TARGET : target,
+      worktreeRoot: resolved.worktreeRoot,
+      git: (cwd, args, timeoutMs) => this.trimmed(resolved.executor, cwd, args, timeoutMs),
+      isDirectory: resolved.fs.isDirectory,
+      ensureParentDirectory: resolved.fs.ensureParentDirectory,
+      exists: resolved.fs.exists
+    }
+  }
+
+  private async trimmed(
+    executor: GitExecutor,
+    cwd: string,
+    args: string[],
+    timeoutMs: number
+  ): Promise<string> {
+    const result = await executor.exec({ cwd, args, timeoutMs })
+    /**
+     * A timed-out Git call has not answered.
+     *
+     * Without this, the empty stdout fell through as an ordinary Git failure and
+     * `isUnborn` reported "this repository has no commit yet" about a repository
+     * that plainly has one — a wrong statement about the user's data caused by a
+     * transport stall.
+     */
+    if (result.timedOut) {
+      throw new GitUnavailableError(
+        'The WSL distro did not answer in time, so the repository could not be read.',
+        cwd
+      )
+    }
+    if (result.exitCode !== 0) {
+      const detail = result.stderr.toString('utf8').trim()
+      throw new Error(detail.length > 0 ? detail : `git exited ${String(result.exitCode)}`)
+    }
+    // Why: Git answers with a trailing newline. Passing an untrimmed OID back to
+    // Git fails as `invalid reference`.
+    return result.stdout.toString('utf8').trim()
+  }
+
+  worktreePathFor(repoId: string, sessionId: string, worktreeRoot = this.deps.worktreeRoot): string {
+    return `${worktreeRoot.replace(/\/+$/u, '')}/${repoId}/${sessionId}`
+  }
+
+  /** Resolves the managed root WorktreePaths are built from, for one target. */
+  async worktreeRootFor(target: ExecutionTarget = LOCAL_TARGET): Promise<string> {
+    return (await this.contextFor(target)).worktreeRoot
+  }
+
+  /**
+   * Filesystem questions for one target.
+   *
+   * Exposed so a caller that must stat a session path (session create, removal)
+   * asks the host that owns the repository instead of `node:fs`. There is exactly
+   * one implementation — the router's — so a guest path can never reach a local
+   * `statSync`.
+   */
+  async hostFsFor(
+    target: ExecutionTarget = LOCAL_TARGET
+  ): Promise<{ isDirectory(path: string): Promise<boolean>; exists(path: string): Promise<boolean> }> {
+    const resolved =
+      target.kind === 'local' || !this.deps.router
+        ? {
+            isDirectory: async (value: string) => this.isDirectory(value),
+            exists: async (value: string) => this.isDirectory(value)
+          }
+        : await this.deps.router.resolve(target).then((entry) => entry.fs)
+    return { isDirectory: resolved.isDirectory, exists: resolved.exists }
+  }
+
+  /**
+   * Runs read-only Git against one target's checkout.
+   *
+   * The Git panel needs status and branch questions that are not worktree
+   * bookkeeping, and it must ask them where the checkout lives. This exposes the
+   * already-resolved context instead of a second router: one implementation of
+   * "which host owns this repository" is the whole point.
+   */
+  async gitFor(
+    target: ExecutionTarget = LOCAL_TARGET
+  ): Promise<(cwd: string, args: string[], timeoutMs?: number) => Promise<string>> {
+    const ctx = await this.contextFor(target)
+    return (cwd, args, timeoutMs = READ_TIMEOUT_MS) => ctx.git(cwd, args, timeoutMs)
+  }
+
+  /**
+   * Runs Git and returns its stdout *verbatim*.
+   *
+   * Porcelain output starts with a significant space for an unstaged change
+   * (` M path`). `trimmed()` strips it, which shifts the first entry's path by
+   * one character — measured in Work 81 as a Git panel listing `rc/app.ts`. Any
+   * caller that parses a fixed-width format must use this instead.
+   */
+  async gitRawFor(
+    target: ExecutionTarget = LOCAL_TARGET
+  ): Promise<(cwd: string, args: string[], timeoutMs?: number) => Promise<{ stdout: string; exitCode: number | null }>> {
+    const executor = await this.executorFor(target)
+    return async (cwd, args, timeoutMs = READ_TIMEOUT_MS) => {
+      const result = await executor.exec({ cwd, args, timeoutMs })
+      return { stdout: result.stdout.toString('utf8'), exitCode: result.exitCode }
+    }
+  }
+
+  private async executorFor(target: ExecutionTarget): Promise<GitExecutor> {
+    if (target.kind === 'local' || !this.deps.router) return this.localExecutor
+    return (await this.deps.router.resolve(target)).executor
   }
 
   /** Refuses paths outside the managed root so a corrupted row cannot target arbitrary directories. */
-  assertManagedPath(path: string): void {
-    const root = this.deps.worktreeRoot.replace(/\/+$/u, '')
+  assertManagedPath(path: string, worktreeRoot = this.deps.worktreeRoot): void {
+    const root = worktreeRoot.replace(/\/+$/u, '')
     if (!(path === root || path.startsWith(`${root}/`))) {
       throw new SessionServiceError(
         makeAppError('WORKTREE_INCONSISTENT', 'That path is outside the managed worktree directory.', {
@@ -71,24 +226,28 @@ export class GitWorktreeService {
     mkdirSync(dirname(path), { recursive: true, mode: 0o700 })
   }
 
-  async inspectRepository(primaryRoot: string): Promise<RepositoryGitState> {
-    const unborn = await this.isUnborn(primaryRoot)
-    const headOid = unborn ? null : await this.git(primaryRoot, ['rev-parse', 'HEAD'], READ_TIMEOUT_MS).catch(() => null)
+  async inspectRepository(
+    primaryRoot: string,
+    target: ExecutionTarget = LOCAL_TARGET
+  ): Promise<RepositoryGitState> {
+    const ctx = await this.contextFor(target)
+    const git = ctx.git
+    const unborn = await this.isUnborn(git, primaryRoot)
+    const headOid = unborn ? null : await git(primaryRoot, ['rev-parse', 'HEAD'], READ_TIMEOUT_MS).catch(() => null)
     const headRef = unborn
       ? null
-      : await this.git(primaryRoot, ['rev-parse', '--abbrev-ref', 'HEAD'], READ_TIMEOUT_MS).catch(() => null)
-    const commonDir = await this.git(primaryRoot, ['rev-parse', '--git-common-dir'], READ_TIMEOUT_MS)
+      : await git(primaryRoot, ['rev-parse', '--abbrev-ref', 'HEAD'], READ_TIMEOUT_MS).catch(() => null)
+    const commonDir = await git(primaryRoot, ['rev-parse', '--git-common-dir'], READ_TIMEOUT_MS)
       .then((value) => this.resolveGitPath(primaryRoot, value))
       .catch(() => null)
     let inProgressOperation: string | null = null
     if (commonDir !== null) {
       for (const marker of IN_PROGRESS_MARKERS) {
-        try {
-          statSync(`${commonDir}/${marker}`)
+        // A guest common dir is probed in the guest; a local one with statSync, as
+        // before. Never the other way around.
+        if (await ctx.exists(`${commonDir}/${marker}`)) {
           inProgressOperation = marker
           break
-        } catch {
-          // Absent markers are the normal case.
         }
       }
     }
@@ -105,19 +264,21 @@ export class GitWorktreeService {
     path: string
     branch: string
     baseOid: string
+    target?: ExecutionTarget
   }): Promise<void> {
-    this.assertManagedPath(input.path)
-    await this.runExclusive(input.primaryRoot, async () => {
-      if (this.isDirectory(input.path)) {
+    const ctx = await this.contextFor(input.target)
+    this.assertManagedPath(input.path, ctx.worktreeRoot)
+    await this.runExclusive(`${this.queueKey(ctx)}${input.primaryRoot}`, async () => {
+      if (await ctx.isDirectory(input.path)) {
         throw new SessionServiceError(
           makeAppError('WORKTREE_CREATE_FAILED', 'The worktree directory already exists.', {
             detail: input.path
           })
         )
       }
-      this.ensureParentDirectory(input.path)
+      await ctx.ensureParentDirectory(input.path)
       try {
-        await this.git(
+        await ctx.git(
           input.primaryRoot,
           ['worktree', 'add', '-b', input.branch, input.path, input.baseOid],
           MUTATE_TIMEOUT_MS
@@ -129,7 +290,7 @@ export class GitWorktreeService {
           })
         )
       }
-      await this.assertMatches({
+      await this.assertMatches(ctx, {
         path: input.path,
         branch: input.branch,
         baseOid: input.baseOid,
@@ -139,11 +300,17 @@ export class GitWorktreeService {
   }
 
   /** Re-creates a worktree directory for an existing owned branch at its recorded path. */
-  async recover(input: { primaryRoot: string; path: string; branch: string }): Promise<void> {
-    this.assertManagedPath(input.path)
-    await this.runExclusive(input.primaryRoot, async () => {
-      if (this.isDirectory(input.path)) {
-        const registered = await this.listWorktrees(input.primaryRoot).catch(() => [])
+  async recover(input: {
+    primaryRoot: string
+    path: string
+    branch: string
+    target?: ExecutionTarget
+  }): Promise<void> {
+    const ctx = await this.contextFor(input.target)
+    this.assertManagedPath(input.path, ctx.worktreeRoot)
+    await this.runExclusive(`${this.queueKey(ctx)}${input.primaryRoot}`, async () => {
+      if (await ctx.isDirectory(input.path)) {
+        const registered = await this.listWorktrees(input.primaryRoot, ctx.target).catch(() => [])
         if (registered.some((entry) => samePathResolved(entry.path, input.path))) {
           throw new SessionServiceError(
             makeAppError('WORKTREE_INCONSISTENT', 'The worktree already exists; nothing to recover.', {
@@ -154,7 +321,7 @@ export class GitWorktreeService {
         // A failed `worktree add` can leave an empty, unregistered directory.
         // Removing an empty leftover is safe; anything else is preserved for
         // the user to inspect.
-        if (readdirSync(input.path).length > 0) {
+        if (!(await this.isEmptyDirectory(ctx, input.path))) {
           throw new SessionServiceError(
             makeAppError(
               'WORKTREE_INCONSISTENT',
@@ -163,13 +330,13 @@ export class GitWorktreeService {
             )
           )
         }
-        rmdirSync(input.path)
+        await this.removeEmptyDirectory(ctx, input.path)
       }
-      this.ensureParentDirectory(input.path)
+      await ctx.ensureParentDirectory(input.path)
       // Explicit recovery may clear stale registration for a vanished directory;
       // this is never done implicitly by deletion or reconciliation.
-      await this.git(input.primaryRoot, ['worktree', 'prune'], MUTATE_TIMEOUT_MS).catch(() => '')
-      const branchOid = await this.git(
+      await ctx.git(input.primaryRoot, ['worktree', 'prune'], MUTATE_TIMEOUT_MS).catch(() => '')
+      const branchOid = await ctx.git(
         input.primaryRoot,
         ['rev-parse', '--verify', `refs/heads/${input.branch}`],
         READ_TIMEOUT_MS
@@ -182,7 +349,7 @@ export class GitWorktreeService {
         )
       }
       try {
-        await this.git(
+        await ctx.git(
           input.primaryRoot,
           ['worktree', 'add', input.path, input.branch],
           MUTATE_TIMEOUT_MS
@@ -194,7 +361,7 @@ export class GitWorktreeService {
           })
         )
       }
-      await this.assertMatches({
+      await this.assertMatches(ctx, {
         path: input.path,
         branch: input.branch,
         baseOid: branchOid,
@@ -207,27 +374,37 @@ export class GitWorktreeService {
     primaryRoot: string
     path: string
     branch: string
+    target?: ExecutionTarget
   }): Promise<WorktreeInspection> {
-    const pathExists = this.isDirectory(input.path)
-    const registeredWorktrees = await this.listWorktrees(input.primaryRoot).catch(() => [])
+    const ctx = await this.contextFor(input.target)
+    const pathExists = await ctx.isDirectory(input.path)
+    const registeredWorktrees = await this.listWorktrees(input.primaryRoot, ctx.target).catch(() => [])
     const registered = registeredWorktrees.some((entry) => samePathResolved(entry.path, input.path))
     if (!pathExists) {
       return { pathExists, registered, headOid: null, dirtyFiles: [], unmergedCommits: null }
     }
-    const headOid = await this.git(input.path, ['rev-parse', 'HEAD'], READ_TIMEOUT_MS).catch(() => null)
-    const status = await this.git(input.path, ['status', '--porcelain'], READ_TIMEOUT_MS).catch(() => null)
+    const headOid = await ctx.git(input.path, ['rev-parse', 'HEAD'], READ_TIMEOUT_MS).catch(() => null)
+    const status = await ctx.git(input.path, ['status', '--porcelain'], READ_TIMEOUT_MS).catch(() => null)
     const dirtyFiles = status === null ? [] : parseStatusLines(status)
-    const unmergedCommits = await this.countUnmerged(input.primaryRoot, input.branch).catch(() => null)
+    const unmergedCommits = await this.countUnmerged(input.primaryRoot, input.branch, ctx.target).catch(
+      () => null
+    )
     return { pathExists, registered, headOid, dirtyFiles, unmergedCommits }
   }
 
-  async remove(input: { primaryRoot: string; path: string; force: boolean }): Promise<void> {
-    this.assertManagedPath(input.path)
-    await this.runExclusive(input.primaryRoot, async () => {
+  async remove(input: {
+    primaryRoot: string
+    path: string
+    force: boolean
+    target?: ExecutionTarget
+  }): Promise<void> {
+    const ctx = await this.contextFor(input.target)
+    this.assertManagedPath(input.path, ctx.worktreeRoot)
+    await this.runExclusive(`${this.queueKey(ctx)}${input.primaryRoot}`, async () => {
       const args = ['worktree', 'remove', input.path]
       if (input.force) args.splice(2, 0, '--force')
       try {
-        await this.git(input.primaryRoot, args, MUTATE_TIMEOUT_MS)
+        await ctx.git(input.primaryRoot, args, MUTATE_TIMEOUT_MS)
       } catch (error) {
         throw new SessionServiceError(
           makeAppError('WORKTREE_DIRTY', 'Git refused to remove the worktree.', {
@@ -235,16 +412,22 @@ export class GitWorktreeService {
           })
         )
       }
-      await this.git(input.primaryRoot, ['worktree', 'prune'], MUTATE_TIMEOUT_MS).catch(() => '')
+      await ctx.git(input.primaryRoot, ['worktree', 'prune'], MUTATE_TIMEOUT_MS).catch(() => '')
     })
   }
 
-  async countUnmerged(primaryRoot: string, branch: string): Promise<number | null> {
-    const headOid = await this.git(primaryRoot, ['rev-parse', '--verify', 'HEAD'], READ_TIMEOUT_MS).catch(
+  async countUnmerged(
+    primaryRoot: string,
+    branch: string,
+    target: ExecutionTarget = LOCAL_TARGET
+  ): Promise<number | null> {
+    const ctx = await this.contextFor(target)
+    const git = ctx.git
+    const headOid = await git(primaryRoot, ['rev-parse', '--verify', 'HEAD'], READ_TIMEOUT_MS).catch(
       () => null
     )
     if (headOid === null) return null
-    const output = await this.git(
+    const output = await git(
       primaryRoot,
       ['rev-list', '--count', branch, '--not', headOid],
       READ_TIMEOUT_MS
@@ -253,8 +436,13 @@ export class GitWorktreeService {
     return Number.isInteger(value) && value >= 0 ? value : null
   }
 
-  async branchExists(primaryRoot: string, branch: string): Promise<boolean> {
-    const oid = await this.git(
+  async branchExists(
+    primaryRoot: string,
+    branch: string,
+    target: ExecutionTarget = LOCAL_TARGET
+  ): Promise<boolean> {
+    const ctx = await this.contextFor(target)
+    const oid = await ctx.git(
       primaryRoot,
       ['rev-parse', '--verify', `refs/heads/${branch}`],
       READ_TIMEOUT_MS
@@ -262,10 +450,16 @@ export class GitWorktreeService {
     return oid !== null && oid.length > 0
   }
 
-  async deleteBranch(input: { primaryRoot: string; branch: string; force: boolean }): Promise<void> {
-    await this.runExclusive(input.primaryRoot, async () => {
+  async deleteBranch(input: {
+    primaryRoot: string
+    branch: string
+    force: boolean
+    target?: ExecutionTarget
+  }): Promise<void> {
+    const ctx = await this.contextFor(input.target)
+    await this.runExclusive(`${this.queueKey(ctx)}${input.primaryRoot}`, async () => {
       try {
-        await this.git(
+        await ctx.git(
           input.primaryRoot,
           ['branch', input.force ? '-D' : '-d', input.branch],
           MUTATE_TIMEOUT_MS
@@ -280,18 +474,26 @@ export class GitWorktreeService {
     })
   }
 
-  async listWorktrees(primaryRoot: string): Promise<RegisteredWorktree[]> {
-    const output = await this.git(primaryRoot, ['worktree', 'list', '--porcelain'], READ_TIMEOUT_MS)
+  async listWorktrees(
+    primaryRoot: string,
+    target: ExecutionTarget = LOCAL_TARGET
+  ): Promise<RegisteredWorktree[]> {
+    const ctx = await this.contextFor(target)
+    const output = await ctx.git(primaryRoot, ['worktree', 'list', '--porcelain'], READ_TIMEOUT_MS)
     return parseWorktreeList(output)
   }
 
-  private async assertMatches(input: {
-    path: string
-    branch: string
-    baseOid: string
-    registerRoot: string
-  }): Promise<void> {
-    const topLevel = await this.git(input.path, ['rev-parse', '--show-toplevel'], READ_TIMEOUT_MS)
+  private async assertMatches(
+    ctx: WorktreeContext,
+    input: {
+      path: string
+      branch: string
+      baseOid: string
+      registerRoot: string
+    }
+  ): Promise<void> {
+    const git = ctx.git
+    const topLevel = await git(input.path, ['rev-parse', '--show-toplevel'], READ_TIMEOUT_MS)
     if (!samePathResolved(topLevel, input.path)) {
       throw new SessionServiceError(
         makeAppError('WORKTREE_INCONSISTENT', 'The created worktree does not resolve to its recorded path.', {
@@ -299,7 +501,7 @@ export class GitWorktreeService {
         })
       )
     }
-    const head = await this.git(input.path, ['rev-parse', 'HEAD'], READ_TIMEOUT_MS).catch(() => null)
+    const head = await git(input.path, ['rev-parse', 'HEAD'], READ_TIMEOUT_MS).catch(() => null)
     if (head !== null && head !== input.baseOid) {
       throw new SessionServiceError(
         makeAppError('WORKTREE_INCONSISTENT', 'The created worktree is not at its recorded baseline.', {
@@ -307,7 +509,7 @@ export class GitWorktreeService {
         })
       )
     }
-    const registered = await this.listWorktrees(input.registerRoot).catch(() => [])
+    const registered = await this.listWorktrees(input.registerRoot, ctx.target).catch(() => [])
     if (!registered.some((entry) => samePathResolved(entry.path, input.path))) {
       throw new SessionServiceError(
         makeAppError('WORKTREE_INCONSISTENT', 'Git did not register the created worktree.', {
@@ -317,11 +519,16 @@ export class GitWorktreeService {
     }
   }
 
-  private async isUnborn(cwd: string): Promise<boolean> {
+  private async isUnborn(
+    git: (cwd: string, args: string[], timeoutMs: number) => Promise<string>,
+    cwd: string
+  ): Promise<boolean> {
     try {
-      await this.git(cwd, ['rev-parse', '--verify', 'HEAD'], READ_TIMEOUT_MS)
+      await git(cwd, ['rev-parse', '--verify', 'HEAD'], READ_TIMEOUT_MS)
       return false
-    } catch {
+    } catch (error) {
+      // "We could not ask" is not "there is no commit".
+      if (error instanceof GitUnavailableError) throw error
       return true
     }
   }
@@ -340,15 +547,44 @@ export class GitWorktreeService {
     return `${cwd.replace(/\/+$/u, '')}/${trimmed}`
   }
 
-  private async git(cwd: string, args: string[], timeout: number): Promise<string> {
-    const { stdout } = await execFileAsync('git', ['-C', cwd, ...args], {
-      timeout,
-      maxBuffer: 8 * 1024 * 1024,
-      env: { ...process.env, GIT_TERMINAL_PROMPT: '0' }
-    })
-    // Why: Git answers with a trailing newline. Passing an untrimmed OID back to
-    // Git fails as `invalid reference`.
-    return stdout.trim()
+  /**
+   * Mutations are serialized per repository per host. Two hosts that spell the
+   * same guest path are different repositories, so the key carries the target.
+   */
+  private queueKey(ctx: WorktreeContext): string {
+    return ctx.target.kind === 'wsl'
+      ? `wsl:${ctx.target.distroId ?? ctx.target.distro}\u0000`
+      : 'local\u0000'
+  }
+
+  /** Guest emptiness probe, so recovery never reads a guest dir with node:fs. */
+  private async isEmptyDirectory(ctx: WorktreeContext, path: string): Promise<boolean> {
+    if (ctx.target.kind === 'local') {
+      try {
+        return readdirSync(path).length === 0
+      } catch {
+        return false
+      }
+    }
+    const resolved = await this.deps.router!.resolve(ctx.target)
+    const probe = (resolved.fs as unknown as {
+      isEmptyDirectory?: (path: string) => Promise<boolean>
+    }).isEmptyDirectory
+    if (!probe) throw new Error('The guest filesystem cannot list a directory.')
+    return probe(path)
+  }
+
+  private async removeEmptyDirectory(ctx: WorktreeContext, path: string): Promise<void> {
+    if (ctx.target.kind === 'local') {
+      rmdirSync(path)
+      return
+    }
+    const resolved = await this.deps.router!.resolve(ctx.target)
+    const remove = (resolved.fs as unknown as {
+      removeDirectory?: (path: string) => Promise<void>
+    }).removeDirectory
+    if (!remove) throw new Error('The guest filesystem cannot remove a directory.')
+    await remove(path)
   }
 
   private runExclusive<T>(key: string, task: () => Promise<T>): Promise<T> {
@@ -384,13 +620,22 @@ export function parseWorktreeList(output: string): RegisteredWorktree[] {
   return entries
 }
 
+/**
+ * Parses `git status --porcelain`.
+ *
+ * The `XY ` prefix is two status columns plus one space, and the *first* column is
+ * a space for an unstaged modification (`" M a.txt"`). Callers trim stdout before
+ * this runs, which drops that space — and a fixed `slice(3)` then reported
+ * `".txt"`. The prefix is therefore measured, not assumed: two status characters,
+ * then a separating space only if one is still there.
+ */
 export function parseStatusLines(output: string): string[] {
   return output
     .split('\n')
     .map((line) => line.trimEnd())
     .filter((line) => line.length > 0)
     .map((line) => {
-      const payload = line.slice(3)
+      const payload = line.charAt(2) === ' ' ? line.slice(3) : line.slice(2)
       const renameTarget = payload.includes(' -> ') ? payload.split(' -> ').pop() : undefined
       return renameTarget ?? payload
     })

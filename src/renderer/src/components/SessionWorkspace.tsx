@@ -2,6 +2,7 @@ import { useState } from 'react'
 import {
   AlertTriangle,
   FileDiff,
+  Files,
   GitBranch,
   Loader2,
   RefreshCw,
@@ -16,9 +17,11 @@ import type {
   SessionSummary,
   WorktreeSummary
 } from '../../../shared/schemas/ipc'
-import type { PendingAction } from '../state/workspace'
+import type { Notice, PendingAction } from '../state/workspace'
 import TerminalPane from './TerminalPane'
 import ChangesPanel from './ChangesPanel'
+import FilesPanel from './FilesPanel'
+import GitPanel from './GitPanel'
 import { useSessionReview } from '../review/use-session-review'
 import {
   activityDotClass,
@@ -44,6 +47,17 @@ type Props = {
   onRemove: (sessionId: string) => void
   onRecoverWorktree: (sessionId: string) => void
   onError: (error: AppError) => void
+  /** Shared notice channel for the tools panels. */
+  notify: (notice: Notice) => void
+  /** Bumped by the global refresh action; every tools panel reloads. */
+  refreshToken: number
+  /** A file opened from outside the panel (search hit, quick open). */
+  openRequest: { path: string; line: number; nonce: number } | null
+  onOpenRequestHandled: () => void
+  /** Sends review feedback to the Agent's terminal. */
+  onSendToAgent: (text: string) => void
+  /** Asks the shell to open a file in the Files tab (Git list, review). */
+  onRequestOpenInFiles: (path: string, line: number) => void
 }
 
 const WORKTREE_STATUS_LABEL: Record<WorktreeSummary['status'], string> = {
@@ -238,12 +252,18 @@ export default function SessionWorkspace({
   onRecheck,
   onRemove,
   onRecoverWorktree,
-  onError
+  onError,
+  notify,
+  refreshToken,
+  openRequest,
+  onOpenRequestHandled,
+  onSendToAgent,
+  onRequestOpenInFiles
 }: Props): React.JSX.Element {
   const worktree = session.worktree
   const blocked = worktreeBlocksTerminal(worktree)
   // The view survives re-renders but resets when the active session changes.
-  const [view, setView] = useState<'terminal' | 'changes'>('terminal')
+  const [view, setView] = useState<'terminal' | 'changes' | 'files' | 'git'>('terminal')
   const [viewSessionId, setViewSessionId] = useState(session.id)
   if (viewSessionId !== session.id) {
     setViewSessionId(session.id)
@@ -288,7 +308,13 @@ export default function SessionWorkspace({
             </span>
           </div>
           <div className="mt-0.5 flex min-w-0 items-center gap-2 text-[9px] text-muted-foreground">
-            <span>{harnessName(session.harness)}</span>
+            <span>
+              {repo?.target.kind === 'wsl' && session.harness === 'shell'
+                ? `WSL terminal · ${repo.target.distro}`
+                : repo?.target.kind === 'wsl'
+                  ? `${harnessName(session.harness)} · in ${repo.target.distro}`
+                  : harnessName(session.harness)}
+            </span>
             <span className="text-border">|</span>
             <span className="truncate" title={repo?.path}>
               {repo?.displayName ?? 'Unknown repository'}
@@ -366,6 +392,36 @@ export default function SessionWorkspace({
               <FileDiff size={10} />
               Changes
             </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === 'files'}
+              className={`inline-flex h-6 items-center gap-1 rounded px-2 text-[10px] ${
+                view === 'files'
+                  ? 'bg-muted text-foreground'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+              onClick={() => setView('files')}
+              data-testid="view-files"
+            >
+              <Files size={10} />
+              Files
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === 'git'}
+              className={`inline-flex h-6 items-center gap-1 rounded px-2 text-[10px] ${
+                view === 'git'
+                  ? 'bg-muted text-foreground'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+              onClick={() => setView('git')}
+              data-testid="view-git"
+            >
+              <GitBranch size={10} />
+              Git
+            </button>
           </div>
           <button
             type="button"
@@ -429,6 +485,33 @@ export default function SessionWorkspace({
         ) : null}
       </div>
 
+      {view === 'files' ? (
+        <div className="flex min-h-0 flex-1" data-testid="files-view">
+          <FilesPanel
+            sessionId={session.id}
+            refreshToken={refreshToken}
+            notify={notify}
+            openRequest={openRequest}
+            onOpenRequestHandled={onOpenRequestHandled}
+          />
+        </div>
+      ) : null}
+
+      {view === 'git' ? (
+        <div className="flex min-h-0 flex-1" data-testid="git-view">
+          <GitPanel
+            sessionId={session.id}
+            refreshToken={refreshToken}
+            notify={notify}
+            onOpenPath={(path) => {
+              setView('files')
+              onRequestOpenInFiles(path, 1)
+            }}
+            onChanged={() => onRecheck(session.id)}
+          />
+        </div>
+      ) : null}
+
       {view === 'changes' ? (
         <div className="min-h-0 flex-1" data-testid="changes-view">
           <ChangesPanel
@@ -437,6 +520,8 @@ export default function SessionWorkspace({
             sessionState={session.state}
             worktreeBranch={worktree?.branch ?? null}
             baselineOid={worktree?.baseOid ?? null}
+            onSendToAgent={onSendToAgent}
+            canSendToAgent={session.state === 'live'}
           />
         </div>
       ) : null}

@@ -8,6 +8,7 @@ import {
   type HarnessId,
   type HarnessProbeEvidence
 } from '../../shared/domain/harness'
+import type { LaunchCommand } from './launch-command'
 import { chooseShellCommand } from './default-shell'
 import { findExecutable } from './find-executable'
 
@@ -68,7 +69,7 @@ export type HarnessDetectorDeps = {
 
 export type HarnessDetectionResult = HarnessDetection & {
   /** Command configuration to hand to the host. Only present when available. */
-  command: { command: string; args: string[] } | null
+  command: LaunchCommand | null
 }
 
 export class HarnessDetector {

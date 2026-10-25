@@ -60,8 +60,24 @@ export function createAdeApi(invoke: InvokeFn, subscribe: SubscribeFn): AdeApi {
       list: (input) => call(IPC_CHANNELS.reviewList, input),
       diff: (input) => call(IPC_CHANNELS.reviewDiff, input)
     },
+    files: {
+      list: (input) => call(IPC_CHANNELS.filesList, input),
+      read: (input) => call(IPC_CHANNELS.filesRead, input),
+      write: (input) => call(IPC_CHANNELS.filesWrite, input),
+      search: (input) => call(IPC_CHANNELS.filesSearch, input)
+    },
+    git: {
+      status: (input) => call(IPC_CHANNELS.gitStatus, input),
+      stageAll: (input) => call(IPC_CHANNELS.gitStageAll, input),
+      unstageAll: (input) => call(IPC_CHANNELS.gitUnstageAll, input),
+      commit: (input) => call(IPC_CHANNELS.gitCommit, input),
+      discardPath: (input) => call(IPC_CHANNELS.gitDiscardPath, input)
+    },
     harness: {
       list: (input) => call(IPC_CHANNELS.harnessList, input ?? {})
+    },
+    wsl: {
+      listDistros: () => call(IPC_CHANNELS.wslListDistros)
     },
     terminal: {
       attach: (input) => call(IPC_CHANNELS.terminalAttach, input),
@@ -85,6 +101,8 @@ export function createAdeApi(invoke: InvokeFn, subscribe: SubscribeFn): AdeApi {
   Object.freeze(api.harness)
   Object.freeze(api.branches)
   Object.freeze(api.review)
+  Object.freeze(api.files)
+  Object.freeze(api.git)
   Object.freeze(api.activity)
   Object.freeze(api.terminal)
   return Object.freeze(api)

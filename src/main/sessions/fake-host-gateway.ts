@@ -1,4 +1,5 @@
 import { HostRequestError } from '../host/host-client'
+import type { HostTarget } from './host-gateway'
 import type {
   CreateOrAttachPayload,
   HostEvent,
@@ -33,18 +34,45 @@ function emptySnapshot(cols: number, rows: number): TerminalSnapshot {
 export class FakeHostGateway implements HostGateway {
   readonly sessions = new Map<string, FakeSession>()
   readonly calls = {
-    createOrAttach: [] as Array<{ sessionId: string; attachOnly: boolean; command: string }>,
+    createOrAttach: [] as Array<{
+      sessionId: string
+      attachOnly: boolean
+      command: string
+      cwd: string
+      args: string[]
+      /** Which host served the call: `local` or the distro's registration. */
+      host: string
+    }>,
     write: [] as Array<{ sessionId: string; incarnationId: string; data: string }>,
-    resize: [] as Array<{ sessionId: string; incarnationId: string; cols: number; rows: number }>,
-    kill: [] as string[],
+    resize: [] as Array<{
+      sessionId: string
+      incarnationId: string
+      cols: number
+      rows: number
+      host: string
+    }>,
+    kill: [] as Array<{ sessionId: string; host: string }>,
     listSessions: 0
   }
 
   reachable = true
+  /**
+   * Fail only one host, so multi-host reconciliation can be tested. `null` fails
+   * everything through `reachable`.
+   */
+  failForTarget: 'local' | 'wsl' | null = null
   failNextSpawn: Error | null = null
   private nextPid = 6000
   private nextIncarnation = 1
   private listeners = new Set<(event: HostEvent) => void>()
+
+  private assertTarget(target?: HostTarget): void {
+    if (this.failForTarget === null) return
+    const isLocal = target === undefined || target.kind === 'local'
+    if (this.failForTarget === 'local' ? isLocal : !isLocal) {
+      throw new HostRequestError('HOST_CONNECT_FAILED', 'Fake host is unreachable for this target')
+    }
+  }
 
   private ensureReachable(): void {
     if (!this.reachable) {
@@ -82,12 +110,19 @@ export class FakeHostGateway implements HostGateway {
     cols: number
     rows: number
     attachOnly?: boolean
-  }): Promise<CreateOrAttachPayload> {
+  }, target?: HostTarget): Promise<CreateOrAttachPayload> {
+    this.assertTarget(target)
     this.ensureReachable()
     this.calls.createOrAttach.push({
       sessionId: params.sessionId,
       attachOnly: params.attachOnly === true,
-      command: params.command
+      command: params.command,
+      cwd: params.cwd,
+      args: params.args ?? [],
+      host:
+        target === undefined || target.kind === 'local'
+          ? 'local'
+          : `wsl:${target.distro}:${target.distroId ?? ''}`
     })
 
     const existing = this.sessions.get(params.sessionId)
@@ -133,7 +168,12 @@ export class FakeHostGateway implements HostGateway {
     return { ...info, created: true, snapshot: session.snapshot }
   }
 
-  async write(sessionId: string, incarnationId: string, data: string): Promise<void> {
+  async write(
+    sessionId: string,
+    incarnationId: string,
+    data: string,
+    _target?: HostTarget
+  ): Promise<void> {
     this.ensureReachable()
     const session = this.sessions.get(sessionId)
     if (!session) throw new HostRequestError('SESSION_NOT_FOUND', 'Unknown session')
@@ -150,8 +190,10 @@ export class FakeHostGateway implements HostGateway {
     sessionId: string,
     incarnationId: string,
     cols: number,
-    rows: number
+    rows: number,
+    target?: HostTarget
   ): Promise<void> {
+    this.assertTarget(target)
     this.ensureReachable()
     const session = this.sessions.get(sessionId)
     if (!session) throw new HostRequestError('SESSION_NOT_FOUND', 'Unknown session')
@@ -160,20 +202,31 @@ export class FakeHostGateway implements HostGateway {
     }
     session.info.cols = cols
     session.info.rows = rows
-    this.calls.resize.push({ sessionId, incarnationId, cols, rows })
+    this.calls.resize.push({
+      sessionId,
+      incarnationId,
+      cols,
+      rows,
+      host: target === undefined || target.kind === 'local' ? 'local' : `wsl:${target.distro}`
+    })
   }
 
-  async kill(sessionId: string): Promise<void> {
+  async kill(sessionId: string, target?: HostTarget): Promise<void> {
+    this.assertTarget(target)
     this.ensureReachable()
     const session = this.sessions.get(sessionId)
     if (!session) throw new HostRequestError('SESSION_NOT_FOUND', 'Unknown session')
-    this.calls.kill.push(sessionId)
+    this.calls.kill.push({
+      sessionId,
+      host: target === undefined || target.kind === 'local' ? 'local' : `wsl:${target.distro}`
+    })
     session.info.stopRequested = true
     // Mirror node-pty: a kill surfaces SIGHUP (129), not a clean zero exit.
     this.finish(sessionId, 129, true)
   }
 
-  async listSessions(): Promise<ListSessionsPayload> {
+  async listSessions(target?: HostTarget): Promise<ListSessionsPayload> {
+    this.assertTarget(target)
     this.ensureReachable()
     this.calls.listSessions += 1
     return {

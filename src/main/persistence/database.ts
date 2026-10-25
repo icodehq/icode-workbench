@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, openSync, readSync, closeSync, statSync } from '
 import { dirname } from 'node:path'
 import { makeAppError, type AppError } from '../../shared/domain/errors'
 
-export const SCHEMA_VERSION = 2
+export const SCHEMA_VERSION = 3
 export const BUSY_TIMEOUT_MS = 5000
 
 const SQLITE_MAGIC = Buffer.from('SQLite format 3\0', 'binary')
@@ -34,6 +34,23 @@ export type Migration = {
   version: number
   name: string
   statements: readonly string[]
+  /**
+   * Rebuild a table that other tables reference with `REFERENCES ... ON DELETE
+   * CASCADE`.
+   *
+   * Why this exists: with `foreign_keys = ON`, SQLite's `DROP TABLE` performs an
+   * implicit `DELETE`, which fires the cascade and empties every child table.
+   * Measured on this schema, rebuilding `repos` that way deleted all workspaces
+   * and sessions. `PRAGMA foreign_keys` cannot be changed inside a transaction,
+   * and `defer_foreign_keys` does not suppress the *actions*, so the pragma has
+   * to be lifted around the transaction.
+   *
+   * The transaction and its rollback guarantee are unchanged; only the
+   * enforcement window moves. `PRAGMA foreign_key_check` runs before COMMIT, so a
+   * rebuild that orphans a row still rolls back, and the pragma is restored in a
+   * `finally` so a failed migration cannot leave the connection unprotected.
+   */
+  rebuildsReferencedTable?: boolean
 }
 
 export type Database = {
@@ -224,11 +241,23 @@ export function runMigrations(db: DatabaseSync, migrations: readonly Migration[]
 
   for (const migration of pending) {
     const fromVersion = readUserVersion(db)
+    const rebuild = migration.rebuildsReferencedTable === true
+    // Why outside the transaction: SQLite ignores this pragma inside one.
+    if (rebuild) db.exec('PRAGMA foreign_keys = OFF')
     try {
       // One transaction per migration: a failed step leaves the previous
       // version fully committed and never leaves partial schema behind.
       applyTransaction(db, () => {
         for (const statement of migration.statements) db.exec(statement)
+        if (rebuild) {
+          // Refuse to commit a rebuild that orphaned a child row.
+          const violations = db.prepare('PRAGMA foreign_key_check').all() as unknown[]
+          if (violations.length > 0) {
+            throw new Error(
+              `Rebuild left ${violations.length} foreign-key violation(s); refusing to commit`
+            )
+          }
+        }
         db.exec(`PRAGMA user_version = ${migration.version}`)
       })
     } catch (error) {
@@ -241,6 +270,8 @@ export function runMigrations(db: DatabaseSync, migrations: readonly Migration[]
         },
         error
       )
+    } finally {
+      if (rebuild) db.exec('PRAGMA foreign_keys = ON')
     }
     const after = readUserVersion(db)
     if (after !== migration.version) {

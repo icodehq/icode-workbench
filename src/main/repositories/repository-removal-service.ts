@@ -69,7 +69,9 @@ export class RepositoryRemovalService {
 
     let hostSessions: Map<string, HostSessionStatus>
     try {
-      const list = await this.deps.host.listSessions()
+      // The repository's own host: a WSL repository's sessions live in its distro.
+      const repository = this.deps.repositories.findById(repoId)
+      const list = await this.deps.host.listSessions(repository?.executionTarget)
       hostSessions = new Map(list.sessions.map((entry) => [entry.sessionId, entry.status]))
     } catch (error) {
       return {

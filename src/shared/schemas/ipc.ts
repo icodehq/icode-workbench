@@ -32,12 +32,22 @@ export const IPC_CHANNELS = {
   branchesRemove: 'ade:branches:remove',
   reviewList: 'ade:review:list',
   reviewDiff: 'ade:review:diff',
+  filesList: 'ade:files:list',
+  filesRead: 'ade:files:read',
+  filesWrite: 'ade:files:write',
+  filesSearch: 'ade:files:search',
+  gitStatus: 'ade:git:status',
+  gitStageAll: 'ade:git:stage-all',
+  gitUnstageAll: 'ade:git:unstage-all',
+  gitCommit: 'ade:git:commit',
+  gitDiscardPath: 'ade:git:discard-path',
   activityList: 'ade:activity:list',
   activityClearUnread: 'ade:activity:clear-unread',
   terminalAttach: 'ade:terminal:attach',
   terminalWrite: 'ade:terminal:write',
   terminalResize: 'ade:terminal:resize',
   harnessList: 'ade:harness:list',
+  wslListDistros: 'ade:wsl:list-distros',
   sessionEvent: 'ade:session-event'
 } as const
 
@@ -52,8 +62,60 @@ export function ipcResultSchema<T extends z.ZodType>(value: T) {
   ])
 }
 
+/**
+ * Execution target. Local omits the WSL fields entirely, so every existing
+ * renderer payload stays valid and unchanged.
+ *
+ * `distroId` is the WSL registration identity. It is optional because it may be
+ * unreadable; when absent the distro name is the only identity available and the
+ * database treats it as the weaker, name-scoped match.
+ */
+export const executionTargetSchema = z.discriminatedUnion('kind', [
+  z.strictObject({ kind: z.literal('local') }),
+  z.strictObject({
+    kind: z.literal('wsl'),
+    distro: z.string().min(1).max(255),
+    distroId: z.string().min(1).max(255).nullable()
+  })
+])
+
+/**
+ * One registered distro, as the add-repository dialog may offer it.
+ *
+ * `running` is `null` when the running probe failed: the dialog says "not running
+ * or unknown" rather than guessing, and starting a terminal starts it anyway.
+ */
+export const wslDistroSummarySchema = z.strictObject({
+  name: z.string().min(1).max(255),
+  registrationId: z.string().min(1).max(255),
+  version: z.union([z.literal(1), z.literal(2)]).nullable(),
+  running: z.boolean().nullable()
+})
+
+/**
+ * Discovered distros, or why discovery could not answer.
+ *
+ * "unavailable" is a first-class result, not an error: on a machine without WSL
+ * the repository dialog must still work for local repositories and must not
+ * pretend WSL is merely empty.
+ */
+export const wslDistroListPayloadSchema = z.union([
+  z.strictObject({
+    status: z.literal('ok'),
+    distros: z.array(wslDistroSummarySchema).max(64),
+    defaultRegistrationId: z.string().min(1).max(255).nullable()
+  }),
+  z.strictObject({
+    status: z.literal('unavailable'),
+    reason: z.enum(['not_windows', 'registry_unreadable', 'undecodable_names']),
+    detail: z.string().max(4000)
+  })
+])
+
 export const addRepositoryInputSchema = z.strictObject({
-  path: absolutePathSchema
+  path: absolutePathSchema,
+  /** Absent means local, which is what every pre-existing caller sends. */
+  target: executionTargetSchema.optional()
 })
 
 export const removeRepositoryInputSchema = z.strictObject({
@@ -80,7 +142,15 @@ export const sessionTargetInputSchema = z.strictObject({
 
 export const harnessListInputSchema = z.strictObject({
   /** Re-resolve and re-probe instead of returning a recent observation. */
-  force: z.boolean().optional()
+  force: z.boolean().optional(),
+  /**
+   * Detect for *this repository's* execution target.
+   *
+   * Absent keeps the original behaviour (detect on this machine). A WSL
+   * repository must not be shown this machine's Harnesses: the Agent runs inside
+   * the distro, so a local `claude` says nothing about the guest one.
+   */
+  repoId: repoIdSchema.optional()
 })
 
 export const terminalAttachInputSchema = z.strictObject({
@@ -105,7 +175,9 @@ export const repositorySummarySchema = z.strictObject({
   displayName: z.string().min(1).max(200),
   path: absolutePathSchema,
   currentBranch: z.string().min(1).max(255).nullable(),
-  availability: z.enum(['present', 'missing'])
+  availability: z.enum(['present', 'missing', 'unknown']),
+  /** Always present on the wire; local for every repository that predates v3. */
+  target: executionTargetSchema
 })
 
 export const worktreeSummarySchema = z.strictObject({
@@ -321,6 +393,8 @@ export const rendererSessionEventSchema = z.union([
 ])
 
 export type HarnessListInput = z.infer<typeof harnessListInputSchema>
+export type WslDistroSummary = z.infer<typeof wslDistroSummarySchema>
+export type WslDistroListPayload = z.infer<typeof wslDistroListPayloadSchema>
 export type OrphanedHostSession = z.infer<typeof orphanedHostSessionSchema>
 export type SessionListView = z.infer<typeof sessionListViewSchema>
 export type RemoveRepositoryResult = z.infer<typeof removeRepositoryResultSchema>

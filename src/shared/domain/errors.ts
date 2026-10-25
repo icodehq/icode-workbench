@@ -32,7 +32,23 @@ export const APP_ERROR_CODES = [
   'GIT_OPERATION_IN_PROGRESS',
   'REVIEW_PATH_OUTSIDE',
   'GIT_READ_FAILED',
-  'GIT_READ_TIMEOUT'
+  'GIT_READ_TIMEOUT',
+  // WSL execution targets. Each names a different remedy, so they are separate
+  // codes rather than one WSL_* bucket: the distro is gone, versus WSL itself is
+  // unavailable, versus a probe against a live distro failed.
+  'WSL_UNAVAILABLE',
+  'WSL_DISTRO_NOT_FOUND',
+  'WSL_GUEST_PROBE_FAILED',
+  // Managed WSL Host lifecycle (W4). Each is a different remedy: deploy again,
+  // launch again, stop what is already running, or replace an incompatible Host.
+  'WSL_HOST_DEPLOY_FAILED',
+  'WSL_HOST_START_FAILED',
+  'WSL_HOST_UNVERIFIABLE',
+  'WSL_HOST_STOP_FAILED',
+  'WSL_HOST_PROTOCOL_MISMATCH',
+  // A pre-W1 WSL row names its distro only by name; the recorded repository and
+  // the proven registration cannot be shown to be the same installation.
+  'WSL_LEGACY_REGISTRATION_UNRESOLVED'
 ] as const
 
 export type AppErrorCode = (typeof APP_ERROR_CODES)[number]
@@ -70,6 +86,12 @@ const RETRYABLE_CODES: ReadonlySet<AppErrorCode> = new Set<AppErrorCode>([
   'WORKTREE_CREATE_FAILED',
   'GIT_READ_FAILED',
   'GIT_READ_TIMEOUT',
+  // A stopped distro or a busy WSL service generally answers on the next attempt.
+  'WSL_UNAVAILABLE',
+  'WSL_GUEST_PROBE_FAILED',
+  'WSL_HOST_DEPLOY_FAILED',
+  'WSL_HOST_START_FAILED',
+  'WSL_HOST_STOP_FAILED',
   'INTERNAL'
 ])
 

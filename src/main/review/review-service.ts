@@ -6,6 +6,7 @@ import type { SessionService } from '../sessions/session-service'
 import { SessionServiceError } from '../sessions/session-errors'
 import { ReviewReadError, GitReviewReader } from './git-review-reader'
 import { makeAppError } from '../../shared/domain/errors'
+import type { ExecutionTarget } from '../../shared/domain/repository'
 import type {
   ReviewAvailability,
   ReviewDiff,
@@ -27,7 +28,17 @@ export type ReviewListOutcome = ({ status: 'available' } & ReviewList) | Unavail
 export type ReviewDiffOutcome = ({ status: 'available' } & ReviewDiff) | Unavailable
 
 type Target =
-  | { status: 'available'; worktreePath: string; baseOid: string; sessionId: string }
+  | {
+      status: 'available'
+      worktreePath: string
+      baseOid: string
+      sessionId: string
+      /**
+       * The repository's routing authority. Review reads must run where the
+       * checkout lives, so the reader is selected from this, never from the path.
+       */
+      executionTarget: ExecutionTarget
+    }
   | { status: 'unavailable'; reason: ReviewUnavailableReason; detail: string }
 
 /**
@@ -47,8 +58,9 @@ export class ReviewService {
   async list(sessionId: string): Promise<ReviewListOutcome> {
     const target = await this.resolveTarget(sessionId)
     if (target.status === 'unavailable') return target
+    const reader = this.readerFor(target.executionTarget)
     const list = await this.read(() =>
-      this.reader.list({
+      reader.list({
         worktreePath: target.worktreePath,
         baseOid: target.baseOid,
         sessionId: target.sessionId
@@ -68,8 +80,9 @@ export class ReviewService {
 
     // The renderer may only select from the validated listing, so re-read it and
     // refuse a path Git does not actually report as changed.
+    const reader = this.readerFor(target.executionTarget)
     const list = await this.read(() =>
-      this.reader.list({
+      reader.list({
         worktreePath: target.worktreePath,
         baseOid: target.baseOid,
         sessionId: target.sessionId
@@ -87,7 +100,7 @@ export class ReviewService {
     }
 
     const diff = await this.read(() =>
-      this.reader.diff({
+      reader.diff({
         worktreePath: target.worktreePath,
         baseOid: target.baseOid,
         sessionId: target.sessionId,
@@ -129,7 +142,26 @@ export class ReviewService {
       }
     }
 
-    const described = describeWorktree(record, summary.state, null)
+    const repository = this.deps.repositories.findById(record.repoId)
+    if (!repository) {
+      return {
+        status: 'unavailable',
+        reason: 'worktree-inconsistent',
+        detail: 'The session repository is no longer registered.'
+      }
+    }
+
+    // Existence is a question about where the checkout lives. The host's
+    // `statSync` answers it for a local worktree, but a WSL worktree path is a
+    // guest path that never exists on Windows: asking locally would report every
+    // healthy guest checkout as missing. For a distro the question is therefore
+    // deferred to the target-aware inspection below, which asks the distro.
+    const executionTarget = repository.executionTarget
+    const isLocal = executionTarget.kind === 'local'
+
+    const described = isLocal
+      ? describeWorktree(record, summary.state, null)
+      : describeWorktree(record, summary.state, null, true)
     if (described.status === 'missing') {
       return {
         status: 'unavailable',
@@ -152,23 +184,33 @@ export class ReviewService {
       }
     }
 
-    const repository = this.deps.repositories.findById(record.repoId)
-    if (!repository) {
+    let inspection
+    try {
+      inspection = await this.deps.gitWorktrees.inspect({
+        primaryRoot: repository.path,
+        path: record.path,
+        branch: record.branch,
+        target: executionTarget
+      })
+    } catch {
+      // A check that could not run is not a missing worktree. Permissions, an
+      // unreachable distro and a broken repository all arrive here, and calling
+      // any of them "missing" would invite the user to recreate a healthy tree.
       return {
         status: 'unavailable',
         reason: 'worktree-inconsistent',
-        detail: 'The session repository is no longer registered.'
+        detail: isLocal
+          ? 'The session worktree could not be inspected.'
+          : 'The session worktree could not be inspected inside its distro.'
       }
     }
-
-    const inspection = await this.deps.gitWorktrees
-      .inspect({ primaryRoot: repository.path, path: record.path, branch: record.branch })
-      .catch(() => null)
-    if (!inspection || !inspection.pathExists) {
+    if (!inspection.pathExists) {
       return {
         status: 'unavailable',
         reason: 'worktree-missing',
-        detail: 'The session worktree directory is missing. Re-create it from its branch first.'
+        detail: isLocal
+          ? 'The session worktree directory is missing. Re-create it from its branch first.'
+          : 'The session worktree directory is missing inside its distro. Re-create it from its branch first.'
       }
     }
     if (!inspection.registered) {
@@ -180,7 +222,9 @@ export class ReviewService {
     }
 
     try {
-      await this.reader.assertBaseline(record.path, record.baseOid)
+      await this.reader
+        .forTarget(repository.executionTarget)
+        .assertBaseline(record.path, record.baseOid)
     } catch (error) {
       if (error instanceof ReviewReadError && error.appError.code === 'GIT_READ_FAILED') {
         return {
@@ -196,10 +240,18 @@ export class ReviewService {
       status: 'available',
       worktreePath: record.path,
       baseOid: record.baseOid,
-      sessionId: record.sessionId
+      sessionId: record.sessionId,
+      executionTarget: repository.executionTarget
     }
   }
 
+  /**
+   * Error mapping for a read, selected by target.
+   *
+   * The target parameter is not decoration: a WSL read must be produced by the
+   * guest reader, and the reader refuses rather than silently falling back when
+   * no guest reader is wired (see `GitReviewReader.forTarget`).
+   */
   private async read<T>(work: () => Promise<T>): Promise<T> {
     try {
       return await work()
@@ -207,5 +259,16 @@ export class ReviewService {
       if (error instanceof ReviewReadError) throw new SessionServiceError(error.appError)
       throw error
     }
+  }
+
+  /**
+   * The reader for one repository's host.
+   *
+   * Selection is by execution target, so a WSL checkout is always read by the
+   * distro's Git. A WSL target with no guest reader wired gets a reader that
+   * refuses — never the local one.
+   */
+  private readerFor(target: ExecutionTarget): GitReviewReader {
+    return this.reader.forTarget(target)
   }
 }

@@ -10,7 +10,9 @@ import {
   defaultPathStatus,
   type RepositoryService
 } from '../repositories/repository-service'
-import { resolveRepositoryRoot } from '../repositories/repository-path'
+import { resolveRepositoryRootFor } from '../repositories/repository-path'
+import { WslCommandRunner } from '../wsl/exec'
+import { createTargetValidator } from '../wsl/repository-target'
 
 export type AppPersistence = {
   database: Database
@@ -21,6 +23,16 @@ export type AppPersistence = {
 }
 
 let instance: AppPersistence | null = null
+
+/**
+ * Lazily created so a local-only run never resolves `wsl.exe`, and so importing
+ * this module in a test does not touch the OS.
+ */
+let wslRunner: WslCommandRunner | null = null
+function sharedWslRunner(): WslCommandRunner {
+  wslRunner ??= new WslCommandRunner()
+  return wslRunner
+}
 
 export function databasePath(): string {
   return join(app.getPath('userData'), 'ade.sqlite')
@@ -46,9 +58,14 @@ export function getAppPersistence(): AppPersistence {
       repositories,
       sessions,
       uiState,
-      resolveRoot: resolveRepositoryRoot,
+      // One runner for the whole process: it holds no per-distro state, so there is
+      // nothing to invalidate when a distro restarts.
+      resolveRoot: (path, target) =>
+        resolveRepositoryRootFor(path, target, { wsl: { runner: sharedWslRunner() } }),
       now: Date.now,
-      pathStatus: defaultPathStatus
+      pathStatus: defaultPathStatus,
+      // The production WSL authority: real registry, real wsl.exe, real discovery.
+      validateTarget: createTargetValidator()
     })
   }
   return instance

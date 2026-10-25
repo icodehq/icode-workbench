@@ -18,7 +18,8 @@ function repo(id: string, name = id): RepositorySummary {
     displayName: name,
     path: `/work/${name}`,
     currentBranch: 'main',
-    availability: 'present'
+    availability: 'present',
+    target: { kind: 'local' }
   }
 }
 
