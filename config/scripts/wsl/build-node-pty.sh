@@ -3,7 +3,7 @@
 # Builds node-pty from source for Linux x64 against the declared glibc baseline.
 #
 # Runs INSIDE an ubuntu:22.04 container (glibc 2.35), driven by
-# scripts/wsl/host-artifacts.cjs. Every input is pinned by version AND checksum;
+# config/scripts/wsl/host-artifacts.cjs. Every input is pinned by version AND checksum;
 # nothing is resolved from a mutable tag at build time.
 #
 # Why the source is always unpacked at /build/node-pty: gcc records the

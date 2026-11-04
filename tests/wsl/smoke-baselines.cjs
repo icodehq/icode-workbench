@@ -9,7 +9,7 @@
  * deployment target's. Each image gets the tree mounted read-only and nothing
  * else — no apt install, no build tools.
  *
- * Usage: node scripts/wsl/smoke-baselines.cjs [--tree <dir>]
+ * Usage: node tests/wsl/smoke-baselines.cjs [--tree <dir>]
  */
 
 const { execFileSync } = require('node:child_process')

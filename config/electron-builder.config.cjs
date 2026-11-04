@@ -24,6 +24,7 @@ module.exports = {
   appId: identity.appId,
   productName: identity.name,
   directories: {
+    buildResources: 'resources/build',
     output: 'dist'
   },
   files: ['out/**/*', 'package.json'],
@@ -80,7 +81,7 @@ module.exports = {
      * mark is the app's own (a terminal prompt on the product's dark tile), not
      * an inherited Electron icon.
      */
-    icon: 'build/icon.ico',
+    icon: 'resources/build/icon.ico',
     /**
      * A Windows package must not carry a Linux native build.
      *

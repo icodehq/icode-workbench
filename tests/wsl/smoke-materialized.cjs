@@ -12,7 +12,7 @@
  *   - the Host handshake succeeds with the protocol this repository speaks, so a
  *     deployment target runs the same contract as a local Host.
  *
- * Usage: node scripts/wsl/smoke-materialized.cjs [--tree <dir>]
+ * Usage: node tests/wsl/smoke-materialized.cjs [--tree <dir>]
  */
 
 const { execFileSync, spawn } = require('node:child_process')
@@ -90,7 +90,7 @@ function connect(socketPath, token) {
 async function main() {
   const treeArg = process.argv.indexOf('--tree')
   const tree = treeArg === -1 ? DEFAULT_TREE : path.resolve(process.argv[treeArg + 1])
-  if (!fs.existsSync(tree)) fail(`no artifact tree at ${tree}; run "node scripts/wsl/host-artifacts.cjs build"`)
+  if (!fs.existsSync(tree)) fail(`no artifact tree at ${tree}; run "node config/scripts/wsl/host-artifacts.cjs build"`)
 
   // Copy out of the repository: a deployment target does not have one.
   const work = fs.mkdtempSync(path.join(os.tmpdir(), 'icode-wsl-materialized-'))

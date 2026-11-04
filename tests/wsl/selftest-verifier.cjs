@@ -13,14 +13,14 @@
  *     libpthread, none of which are in the allow-list;
  *   - a missing file and a hash mismatch: a copy of a verified tree, damaged.
  *
- * Usage: node scripts/wsl/selftest-verifier.cjs [--tree <dir>]
+ * Usage: node tests/wsl/selftest-verifier.cjs [--tree <dir>]
  */
 
 const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
 
-const verify = require('./verify-artifacts.cjs')
+const verify = require('../../config/scripts/wsl/verify-artifacts.cjs')
 
 const DEFAULT_TREE = path.resolve(__dirname, '..', '..', 'artifacts', 'wsl-host', 'linux-x64')
 const ELECTRON_PTY = path.resolve(

@@ -18,9 +18,7 @@ artifacts/
 *.log
 .DS_Store
 
-# Local Windows MSI staging and probe outputs
-build/msi-extract/
-build/msi-extract-latest/
-build/msi-tool/node_modules/
+# Root build output. Packaging assets are tracked under resources/build/.
+/build/
 /index.js
 /C:*Temp/

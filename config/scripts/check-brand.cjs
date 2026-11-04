@@ -8,11 +8,11 @@
 const { readdirSync, readFileSync, statSync } = require('node:fs')
 const { join, relative, sep } = require('node:path')
 
-const root = join(__dirname, '..')
-const roots = ['src', 'scripts', 'config']
-const files = ['package.json', 'README.md', 'NOTICE', 'LICENSE']
+const root = join(__dirname, '..', '..')
+const roots = ['src', 'config', 'tests']
+const files = ['package.json', 'README.md', 'NOTICE', 'LICENSE', '.github/CONTRIBUTING.md']
 const allowedPrefixes = []
-const allowedFiles = new Set(['scripts/check-brand.cjs'])
+const allowedFiles = new Set(['config/scripts/check-brand.cjs'])
 const exts = new Set(['.ts', '.tsx', '.js', '.cjs', '.mjs', '.json', '.md', '.css', '.html', '.cmd', '.ps1', '.toml'])
 
 function walk(dir) {
@@ -28,11 +28,7 @@ function walk(dir) {
 
 const candidates = []
 for (const dir of roots) {
-  try {
-    candidates.push(...walk(join(root, dir)))
-  } catch {
-    // Optional directory.
-  }
+  candidates.push(...walk(join(root, dir)))
 }
 for (const file of files) candidates.push(join(root, file))
 
