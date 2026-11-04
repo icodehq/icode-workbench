@@ -1,10 +1,10 @@
-import type { AppError } from '../../../../shared/domain/errors'
-import type { RepositorySummary, SessionSummary } from '../../../../shared/schemas/ipc'
-import type { AgentSendResult } from '../../lib/agent-send'
-import type { WorkbenchDraftStore } from '../../review/drafts'
-import type { OpenFileRequest, ViewRequest } from '../../router/use-app-navigation'
-import type { Notice, PendingAction } from '../../state/workspace'
-import SessionWorkspace from '../../components/SessionWorkspace'
+import type { AppError } from '../../../shared/domain/errors'
+import type { RepositorySummary, SessionSummary } from '../../../shared/schemas/ipc'
+import type { AgentSendResult } from '../lib/agent-send'
+import type { WorkbenchDraftStore } from '../review/drafts'
+import type { OpenFileRequest, ViewRequest } from '../router/use-app-navigation'
+import type { Notice, PendingAction } from '../state/workspace'
+import SessionWorkspace from './SessionWorkspace'
 
 type Props = {
   session: SessionSummary

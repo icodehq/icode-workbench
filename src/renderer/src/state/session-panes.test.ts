@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { SessionSummary } from '../../../../shared/schemas/ipc'
+import type { SessionSummary } from '../../../shared/schemas/ipc'
 import { nextPaneKeys, paneKey } from './session-panes'
 
 function session(id: string, overrides: Partial<SessionSummary> = {}): SessionSummary {

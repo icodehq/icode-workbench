@@ -10,7 +10,7 @@ import type {
 } from '../router/use-app-navigation'
 import type { Notice, PendingAction } from '../state/workspace'
 import ProjectTasksView from '../components/ProjectTasksView'
-import SessionHost from '../features/sessions/SessionHost'
+import SessionHost from '../components/SessionHost'
 
 export type TasksPageProps = {
   repo: RepositorySummary | null

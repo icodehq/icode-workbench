@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { SessionSummary } from '../../../../shared/schemas/ipc'
+import type { SessionSummary } from '../../../shared/schemas/ipc'
 import { nextPaneKeys, paneKey } from './session-panes'
 
 /**

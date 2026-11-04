@@ -1,5 +1,5 @@
-import { isActiveSessionState } from '../../../../shared/domain/session'
-import type { SessionSummary } from '../../../../shared/schemas/ipc'
+import { isActiveSessionState } from '../../../shared/domain/session'
+import type { SessionSummary } from '../../../shared/schemas/ipc'
 
 /** A pane is identified by both the durable session and its PTY incarnation. */
 export function paneKey(sessionId: string, incarnationId: string | null): string {

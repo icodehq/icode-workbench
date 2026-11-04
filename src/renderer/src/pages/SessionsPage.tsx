@@ -11,7 +11,7 @@ import type { WorkbenchDraftStore } from '../review/drafts'
 import type { OpenFileRequest, ViewRequest } from '../router/use-app-navigation'
 import type { Notice, PendingAction } from '../state/workspace'
 import ProjectSessionsList from '../components/ProjectSessionsList'
-import SessionHost from '../features/sessions/SessionHost'
+import SessionHost from '../components/SessionHost'
 
 export type SessionsPageProps = {
   repo: RepositorySummary | null
