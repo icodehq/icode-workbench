@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { FolderGit2, Plus } from 'lucide-react'
 import type { SessionSummary } from '../../shared/schemas/ipc'
@@ -18,6 +18,7 @@ import AppLayout from './layouts/AppLayout'
 import GlobalOverlays from './layouts/GlobalOverlays'
 import AppRoutes from './router/AppRoutes'
 import { useAppNavigation } from './router/use-app-navigation'
+import { useGlobalShortcuts } from './router/use-global-shortcuts'
 import { taskAttention, taskAttentionCounts } from './components/task-status'
 import { useWorkspace } from './state/use-workspace'
 import { useTaskQueue } from './state/use-task-queue'
@@ -81,8 +82,6 @@ export default function App(): React.JSX.Element {
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [markingActivity, setMarkingActivity] = useState(false)
-  const quickOpenSessionRef = useRef<SessionSummary | null>(null)
-  const activeSessionIdRef = useRef<string | null>(state.activeSessionId)
   const [refreshToken, setRefreshToken] = useState(0)
   const [newSessionOpen, setNewSessionOpen] = useState(false)
   const [removalBusy, setRemovalBusy] = useState(false)
@@ -90,6 +89,16 @@ export default function App(): React.JSX.Element {
   const [mounted, setMounted] = useState<Set<string>>(new Set())
   /** Line notes and commit messages survive panel and task switches. */
   const drafts = useMemo(() => new WorkbenchDraftStore(), [])
+
+  useGlobalShortcuts({
+    hasActiveSession: state.activeSessionId !== null,
+    hasQuickOpenSession: quickOpenSession !== null,
+    focusableSessionId,
+    requestView: commands.requestView,
+    setPaletteOpen,
+    setQuickOpenOpen,
+    setTerminalFocus
+  })
 
   const repo = activeRepo(state)
   const active = activeSession(state)
@@ -195,20 +204,6 @@ export default function App(): React.JSX.Element {
       }),
     [focusableSessionId]
   )
-
-  useEffect(() => {
-    if (focusableSessionId === null) return
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key !== 'F11') return
-      // Capture before xterm: the terminal should not receive a function key
-      // whose whole purpose here is to give the terminal more room.
-      event.preventDefault()
-      event.stopPropagation()
-      setTerminalFocus((current) => !current)
-    }
-    window.addEventListener('keydown', onKeyDown, true)
-    return () => window.removeEventListener('keydown', onKeyDown, true)
-  }, [focusableSessionId])
 
   const sendToAgent = useCallback(
     async (
@@ -328,52 +323,6 @@ export default function App(): React.JSX.Element {
   }
 
   useEffect(() => {
-    activeSessionIdRef.current = state.activeSessionId
-  }, [state.activeSessionId])
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent): void => {
-      // Ctrl+K and Ctrl+P are line/history bindings inside a shell. Leave them
-      // to xterm when the terminal owns focus; the palette remains one click
-      // away in the command bar.
-      const target = event.target
-      if (target instanceof Element && target.closest('.xterm') !== null) return
-      if (
-        (event.metaKey || event.ctrlKey) &&
-        event.shiftKey &&
-        (event.key.toLowerCase() === 'g' || event.key.toLowerCase() === 'e')
-      ) {
-        if (activeSessionIdRef.current !== null) {
-          event.preventDefault()
-          setPaletteOpen(false)
-          setQuickOpenOpen(false)
-          commands.requestView(event.key.toLowerCase() === 'g' ? 'changes' : 'files')
-        }
-        return
-      }
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
-        event.preventDefault()
-        setQuickOpenOpen(false)
-        setPaletteOpen((current) => !current)
-        return
-      }
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'p' && !event.shiftKey) {
-        if (quickOpenSessionRef.current !== null) {
-          event.preventDefault()
-          setPaletteOpen(false)
-          setQuickOpenOpen((current) => !current)
-        }
-      }
-      if (event.key === 'Escape') {
-        setPaletteOpen(false)
-        setQuickOpenOpen(false)
-      }
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [commands.requestView])
-
-  useEffect(() => {
     setMounted((previous) => {
       const next = new Set<string>()
       const byId = new Map(state.sessions.map((entry) => [entry.id, entry]))
@@ -409,8 +358,6 @@ export default function App(): React.JSX.Element {
       state.sessions.filter((entry) => mounted.has(paneKey(entry.id, entry.incarnationId))),
     [mounted, state.sessions]
   )
-
-  quickOpenSessionRef.current = quickOpenSession
 
   const renderSession = (
     session: NonNullable<typeof projectSession>,
