@@ -82,7 +82,7 @@ afterEach(async () => {
   process.env = { ...savedEnv }
 })
 
-describe('profile-scoped socket path', () => {
+describe.skipIf(process.platform === 'win32')('profile-scoped socket path', () => {
   it('gives two profiles sharing one runtime directory different sockets', () => {
     const runtime = root()
     process.env.XDG_RUNTIME_DIR = runtime
@@ -148,7 +148,7 @@ describe('profile-scoped socket path', () => {
   })
 })
 
-describe('ownership-safe discovery', () => {
+describe.skipIf(process.platform === 'win32')('ownership-safe discovery', () => {
   it('never unlinks a live socket this profile does not own', async () => {
     const runtime = root()
     process.env.XDG_RUNTIME_DIR = runtime
@@ -254,6 +254,15 @@ describe('ownership-safe discovery', () => {
 })
 
 describe('named-pipe endpoints', () => {
+  it('derives a profile-scoped pipe on Windows', () => {
+    const pipe = hostSocketPath({
+      profileDir: 'C:\\Users\\a\\AppData\\Roaming\\iCode\\run',
+      env: {},
+      platform: 'win32'
+    })
+    expect(pipe.startsWith('\\\\.\\pipe\\icode-host-')).toBe(true)
+  })
+
   it('treats an absent named pipe as startable', async () => {
     process.env.ICODE_HOST_SOCKET = `\\\\.\\pipe\\icode-supervisor-absent-${process.pid}-${Date.now()}`
     const supervisor = new HostSupervisor(profile('pipe-absent'))

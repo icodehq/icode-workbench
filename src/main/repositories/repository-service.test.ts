@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process'
+import { realpathSync } from 'node:fs'
 import { mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -63,7 +64,7 @@ describe('repository registration', () => {
     const h = harness()
     const repoPath = join(h.root.dir, 'atlas')
     initGitRepo(repoPath)
-    const real = execFileSync('realpath', [repoPath]).toString().trim()
+    const real = realpathSync.native(repoPath)
 
     const result = await h.service.addRepository(repoPath)
     expect(result.created).toBe(true)
@@ -86,7 +87,7 @@ describe('repository registration', () => {
     const h = harness()
     const repoPath = join(h.root.dir, 'fresh')
     mkdirSync(repoPath, { recursive: true })
-    const real = execFileSync('realpath', [repoPath]).toString().trim()
+    const real = realpathSync.native(repoPath)
 
     const first = await h.service.addInitializedRepository(repoPath)
     expect(first.created).toBe(true)

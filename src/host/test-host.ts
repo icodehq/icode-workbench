@@ -8,6 +8,7 @@ import { MAX_FRAME_BYTES, type HostEvent, type HostRequest } from '../shared/hos
 import { createPtyRegistry, type PtyLike } from './pty-registry'
 import { createProtocolServer, type ProtocolServer } from './protocol-server'
 import { prepareHostDirectory, writeToken, type HostPaths } from './paths'
+import { testSocketPath } from './test-platform'
 
 export type TestHost = {
   dir: string
@@ -35,7 +36,7 @@ export function makeHostPaths(root: string): HostPaths {
   const dir = join(root, 'state')
   return {
     dir,
-    socket: join(root, 'socket', 'terminal-host.sock'),
+    socket: testSocketPath(root),
     token: join(dir, 'token'),
     meta: join(dir, 'meta.json'),
     log: join(dir, 'host.log')

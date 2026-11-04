@@ -53,7 +53,9 @@ describe('activity endpoint selection', () => {
 })
 
 describe('activity hook server startup and delivery', () => {
-  it('creates its directory, accepts one payload, and cleans up', async () => {
+  it.skipIf(process.platform === 'win32')(
+    'creates its directory, accepts one payload, and cleans up',
+    async () => {
     const dir = tempRoot()
     const socketPath = activitySocketPath({ userDataDir: dir, platform: 'linux' })
     const received: string[] = []

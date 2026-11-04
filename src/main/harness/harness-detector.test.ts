@@ -152,7 +152,7 @@ describe('findExecutable', () => {
     expect(findExecutable('bin/sh', { PATH: '/bin' }, 'linux')).toBeNull()
   })
 
-  it('ignores non-executable files', () => {
+  it.skipIf(process.platform === 'win32')('ignores non-executable files', () => {
     const dir = mkdtempSync(join(tmpdir(), 'icode-path-'))
     try {
       const file = join(dir, 'not-exec')

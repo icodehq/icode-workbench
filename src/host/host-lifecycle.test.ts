@@ -16,6 +16,7 @@ import {
 import { startTerminalHost, type RunningHost } from './server'
 import { createFakePtyFactory, FakePty } from './fake-pty'
 import { connectTestClient, makeHostPaths } from './test-host'
+import { isWindows } from './test-platform'
 
 const roots: string[] = []
 const hosts: RunningHost[] = []
@@ -39,7 +40,7 @@ afterEach(async () => {
 })
 
 describe('startup safety', () => {
-  it('repairs an exposed directory when chmod is honoured', () => {
+  it.skipIf(isWindows)('repairs an exposed directory when chmod is honoured', () => {
     const dir = root()
     const paths = makeHostPaths(dir)
     mkdirSync(paths.dir, { recursive: true })
@@ -48,7 +49,7 @@ describe('startup safety', () => {
     expect((require('node:fs').statSync(paths.dir).mode & 0o777).toString(8)).toBe('700')
   })
 
-  it('refuses to start when the filesystem ignores chmod', () => {
+  it.skipIf(isWindows)('refuses to start when the filesystem ignores chmod', () => {
     const dir = root()
     const paths = makeHostPaths(dir)
     mkdirSync(paths.dir, { recursive: true })
@@ -62,7 +63,7 @@ describe('startup safety', () => {
     }
   })
 
-  it('writes a 0600 token', () => {
+  it.skipIf(isWindows)('writes a 0600 token', () => {
     const dir = root()
     const paths = makeHostPaths(dir)
     prepareHostDirectory(paths)
@@ -71,7 +72,7 @@ describe('startup safety', () => {
     expect((require('node:fs').statSync(paths.token).mode & 0o777).toString(8)).toBe('600')
   })
 
-  it('refuses a non-socket path without deleting it', async () => {
+  it.skipIf(isWindows)('refuses a non-socket path without deleting it', async () => {
     const dir = root()
     const paths = makeHostPaths(dir)
     mkdirSync(join(dir, 'socket'), { recursive: true })
@@ -82,7 +83,7 @@ describe('startup safety', () => {
     expect(existsSync(paths.socket)).toBe(true)
   })
 
-  it('refuses to start when another host is listening', async () => {
+  it.skipIf(isWindows)('refuses to start when another host is listening', async () => {
     const dir = root()
     const paths = makeHostPaths(dir)
     mkdirSync(join(dir, 'socket'), { recursive: true })
@@ -95,7 +96,7 @@ describe('startup safety', () => {
     }
   })
 
-  it('scopes the socket to the profile when the runtime dir is shared', () => {
+  it.skipIf(isWindows)('scopes the socket to the profile when the runtime dir is shared', () => {
     const runtime = root()
     const alpha = join(root(), 'alpha', 'run')
     const beta = join(root(), 'beta', 'run')
@@ -121,7 +122,7 @@ describe('startup safety', () => {
     expect(paths.socket).toBe(explicit)
   })
 
-  it('removes a socket whose recorded owner is dead', async () => {
+  it.skipIf(isWindows)('removes a socket whose recorded owner is dead', async () => {
     const dir = root()
     const paths = makeHostPaths(dir)
     mkdirSync(join(dir, 'socket'), { recursive: true })
@@ -144,7 +145,7 @@ describe('startup safety', () => {
     expect(existsSync(paths.socket)).toBe(false)
   })
 
-  it('keeps a stale-looking socket when the recorded host is alive', async () => {
+  it.skipIf(isWindows)('keeps a stale-looking socket when the recorded host is alive', async () => {
     const dir = root()
     const paths = makeHostPaths(dir)
     mkdirSync(join(dir, 'socket'), { recursive: true })
@@ -215,7 +216,7 @@ describe('running host', () => {
     const client = await connectTestClient(host.paths, host.token)
     clients.push(client)
     await client.request('createOrAttach', createParams('ses_life-2'))
-    expect(existsSync(host.paths.socket)).toBe(true)
+    if (!isWindows) expect(existsSync(host.paths.socket)).toBe(true)
     expect(existsSync(host.paths.token)).toBe(true)
 
     await client.request('shutdown')

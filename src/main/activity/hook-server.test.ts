@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ActivityHookServer } from './hook-server'
+import { isWindows, testSocketPath } from '../../host/test-platform'
 import type { ActivityHookEvent } from '../../shared/domain/activity'
 
 const roots: string[] = []
@@ -12,7 +13,7 @@ const running: ActivityHookServer[] = []
 function socketPath(): string {
   const root = mkdtempSync(join(tmpdir(), 'icode-hook-sock-'))
   roots.push(root)
-  return join(root, 'activity.sock')
+  return testSocketPath(root, 'activity')
 }
 
 function send(path: string, payload: string, options: { stall?: boolean } = {}): Promise<string> {
@@ -71,7 +72,7 @@ describe('hook ingress', () => {
   it('accepts a valid payload and creates a 0700 socket', async () => {
     const { server, path, events } = start()
     await server.start()
-    expect(existsSync(path)).toBe(true)
+    if (!isWindows) expect(existsSync(path)).toBe(true)
     await send(path, VALID)
     expect(events).toHaveLength(1)
     expect(events[0]).toMatchObject({ event: 'PreToolUse', toolName: 'Bash' })

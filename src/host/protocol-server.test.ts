@@ -69,7 +69,9 @@ describe('handshake', () => {
     expect((reply.error as { code: string }).code).toBe('AUTH_FAILED')
   })
 
-  it('reports effective private permissions for token and socket', async () => {
+  it.skipIf(process.platform === 'win32')(
+    'reports effective private permissions for token and socket',
+    async () => {
     const fake = createFakePtyFactory()
     const host = await hostWith(fake)
     expect(socketMode(host.paths.token)).toBe('600')

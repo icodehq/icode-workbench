@@ -83,3 +83,62 @@ jobs:
             dist/*.deb
             dist/*.rpm
           if-no-files-found: error
+
+  wsl-artifacts:
+    name: WSL Host artifacts
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - name: Build prerequisites
+        run: sudo apt-get update && sudo apt-get install -y build-essential python3
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build:host
+      - run: pnpm build:wsl-host
+      - run: pnpm verify:wsl-host
+      - run: pnpm selftest:wsl-host
+      - run: pnpm selftest:wsl-prepare
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wsl-host-linux-x64
+          path: artifacts/wsl-host/linux-x64
+          if-no-files-found: error
+
+  package-windows:
+    name: Package (Windows x64)
+    runs-on: windows-2022
+    timeout-minutes: 45
+    needs: wsl-artifacts
+    # First iteration: record the result; flip to blocking once the Windows
+    # suite and packaged smoke are confirmed green.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          name: wsl-host-linux-x64
+          path: artifacts/wsl-host/linux-x64
+      - name: Package NSIS
+        run: pnpm package:win
+      - name: Verify packaged payload
+        run: node config/scripts/verify-package.cjs --platform win --arch x64 --dir dist/win-unpacked
+      - name: Packaged smoke
+        run: node tests/compat/packaged-smoke-win.cjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64
+          path: |
+            dist/*.exe
+            dist/*.exe.blockmap
+          if-no-files-found: error

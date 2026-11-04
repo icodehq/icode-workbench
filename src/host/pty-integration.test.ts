@@ -1,7 +1,9 @@
 import { execFileSync } from 'node:child_process'
+import { realpathSync } from 'node:fs'
 import { afterEach, describe, expect, it } from 'vitest'
 import * as pty from 'node-pty'
 import { PtyRegistry, type PtySpawnConfig } from './pty-registry'
+import { isWindows } from './test-platform'
 import type { HostEvent } from '../shared/host-protocol'
 
 const SHELL = '/bin/bash'
@@ -76,7 +78,7 @@ afterEach(() => {
   while (registries.length > 0) registries.pop()?.closeAll()
 })
 
-describe('real PTY sessions', () => {
+describe.skipIf(isWindows)('real PTY sessions', () => {
   it('spawns a shell, accepts input, and produces output', async () => {
     const { registry, waitFor } = setup()
     const created = registry.createOrAttach(createParams('ses_real-echo'))
@@ -202,5 +204,68 @@ describe('real PTY sessions', () => {
     await waitFor((item) => item.event === 'data' && item.data.includes(cwd))
     const snapshot = await registry.snapshot('ses_real-cwd')
     expect(snapshot.data).toContain(cwd)
+  })
+})
+
+/**
+ * cmd.exe has no POSIX shell semantics, so the POSIX suite above is skipped and
+ * these are the equivalents that matter on Windows: input, output, exit truth,
+ * working directory, and kill isolation through ConPTY.
+ */
+describe.runIf(isWindows)('real PTY sessions (Windows)', () => {
+  const CMD = process.env.ComSpec ?? 'cmd.exe'
+
+  function windowsParams(sessionId: string, cwd = process.cwd()) {
+    return { sessionId, cwd, command: CMD, args: [], cols: 100, rows: 30 }
+  }
+
+  it('spawns cmd.exe, accepts input, and produces output', async () => {
+    const { registry, waitFor } = setup()
+    const created = registry.createOrAttach(windowsParams('ses_win-echo'))
+    const marker = `ICODE_WIN_${Date.now()}`
+    registry.write('ses_win-echo', created.info.incarnationId, `echo ${marker}\r\n`)
+    await waitFor((item) => item.event === 'data' && item.data.includes(marker))
+    const snapshot = await registry.snapshot('ses_win-echo')
+    expect(snapshot.data).toContain(marker)
+  })
+
+  it('captures a nonzero exit code', async () => {
+    const { registry, waitFor } = setup()
+    const created = registry.createOrAttach(windowsParams('ses_win-exit'))
+    registry.write('ses_win-exit', created.info.incarnationId, 'exit 3\r\n')
+    const exit = await waitFor((item) => item.event === 'exit')
+    expect(exit).toMatchObject({ sessionId: 'ses_win-exit', exitCode: 3 })
+    expect(registry.list()[0]!.status).toBe('failed')
+  })
+
+  it('uses the requested working directory', async () => {
+    const { registry, waitFor } = setup()
+    const cwd = realpathSync.native(process.cwd())
+    const created = registry.createOrAttach(windowsParams('ses_win-cwd', cwd))
+    registry.write('ses_win-cwd', created.info.incarnationId, 'cd\r\n')
+    await waitFor(
+      (item) => item.event === 'data' && item.data.toLowerCase().includes(cwd.toLowerCase())
+    )
+    const snapshot = await registry.snapshot('ses_win-cwd')
+    expect(snapshot.data.toLowerCase()).toContain(cwd.toLowerCase())
+  })
+
+  it('isolates kill between two cmd.exe sessions', async () => {
+    const { registry, waitFor } = setup()
+    const a = registry.createOrAttach(windowsParams('ses_win-iso-a'))
+    const b = registry.createOrAttach(windowsParams('ses_win-iso-b'))
+    registry.write('ses_win-iso-a', a.info.incarnationId, 'echo ONLY-A\r\n')
+    await waitFor((item) => item.event === 'data' && item.data.includes('ONLY-A'))
+    const snapshotB = await registry.snapshot('ses_win-iso-b')
+    expect(snapshotB.data).not.toContain('ONLY-A')
+
+    registry.kill('ses_win-iso-a')
+    await waitFor((item) => item.event === 'exit' && item.sessionId === 'ses_win-iso-a')
+    const listed = registry.list()
+    expect(listed.find((entry) => entry.sessionId === 'ses_win-iso-b')?.status).toBe('live')
+
+    // B still accepts input after A is killed.
+    registry.write('ses_win-iso-b', b.info.incarnationId, 'echo B-ALIVE\r\n')
+    await waitFor((item) => item.event === 'data' && item.data.includes('B-ALIVE'))
   })
 })
