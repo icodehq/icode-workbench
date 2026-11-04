@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, FolderGit2, Loader2, Plus, RefreshCw } from 'lucide-react'
+import type { ReactNode } from 'react'
+import { FolderGit2, Plus } from 'lucide-react'
 import type { TaskRecordPayload } from '../../shared/icode-api'
 import type { SessionSummary } from '../../shared/schemas/ipc'
 import AppRail from './components/AppRail'
@@ -16,6 +17,7 @@ import SettingsView from './components/SettingsView'
 import StatusBar from './components/StatusBar'
 import AppLayout from './layouts/AppLayout'
 import GlobalOverlays from './layouts/GlobalOverlays'
+import AppRoutes from './router/AppRoutes'
 import { taskAttention, taskAttentionCounts } from './components/task-status'
 import { useWorkspace } from './state/use-workspace'
 import { useTaskQueue } from './state/use-task-queue'
@@ -761,41 +763,9 @@ export default function App(): React.JSX.Element {
     )
   }
 
-  const renderContent = (): React.JSX.Element => {
-    if (state.boot === 'loading') {
-      return (
-        <div className="flex flex-1 items-center justify-center">
-          <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-            <Loader2 size={13} className="animate-spin" />
-            Loading repositories and sessions…
-          </div>
-        </div>
-      )
-    }
-    if (state.boot === 'failed') {
-      return (
-        <div className="flex flex-1 items-center justify-center p-8">
-          <div className="w-full max-w-md rounded-lg border border-destructive/40 bg-card p-5">
-            <div className="flex items-center gap-2 text-[12px] font-medium text-destructive">
-              <AlertTriangle size={14} />
-              iCode could not load the workspace
-            </div>
-            <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">{state.bootError}</p>
-            <button
-              type="button"
-              className="mt-4 inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-[11px] hover:bg-muted"
-              onClick={refreshEverything}
-              data-testid="boot-retry"
-            >
-              <RefreshCw size={12} />
-              Retry
-            </button>
-          </div>
-        </div>
-      )
-    }
-    if (state.repos.length === 0 && displaySurface === 'projects') {
-      return (
+  const pages: Record<Surface, ReactNode> = {
+    projects:
+      state.repos.length === 0 && displaySurface === 'projects' ? (
         <div className="flex flex-1 items-center justify-center p-8" data-testid="empty-workspace">
           <div className="w-full max-w-md rounded-lg border border-border bg-card p-6">
             <div className="flex items-center gap-2">
@@ -817,66 +787,56 @@ export default function App(): React.JSX.Element {
             </button>
           </div>
         </div>
-      )
-    }
-    switch (displaySurface) {
-      case 'projects':
-        return (
-          <ProjectsWall
-            repos={state.repos}
-            sessions={state.sessions}
-            tasks={tasks.tasks}
-            maxConcurrent={tasks.maxConcurrent}
-            onOpenProject={openProject}
-            onOpenTask={openTask}
-            onManageRepositories={() => {
-              clearProjectView()
-              setSurface('repositories')
-            }}
-            onAddRepository={() => setAddOpen(true)}
-            onRetryPreparation={(repoId) => void workspace.retryPreparation(repoId)}
-          />
-        )
-      case 'sessions':
-        return renderProjectSessions()
-      case 'tasks':
-        return renderProjectTasks()
-      case 'schedules':
-        return (
-          <SchedulesView
-            repos={state.repos}
-            schedules={tasks.schedules}
-            notify={workspace.notify}
-            onReload={() => tasks.reload()}
-          />
-        )
-      case 'repositories':
-        return (
-          <RepositoriesView
-            repos={state.repos}
-            sessions={state.sessions}
-            tasks={tasks.tasks}
-            onBack={() => setSurface('projects')}
-            onAdd={() => setAddOpen(true)}
-            onRemove={(repoId) => void workspace.removeRepository(repoId)}
-            onOpenProject={(repoId) => openProject(repoId)}
-          />
-        )
-      case 'settings':
-        return (
-          <SettingsView
-            state={state}
-            runtime={workspace.runtime}
-            maxConcurrent={tasks.maxConcurrent}
-            onSetMaxConcurrent={tasks.setMaxConcurrent}
-            refreshing={state.refreshing}
-            onRefresh={refreshEverything}
-            themePreference={theme.preference}
-            resolvedTheme={theme.resolved}
-            onSetTheme={theme.setPreference}
-          />
-        )
-    }
+      ) : (
+        <ProjectsWall
+          repos={state.repos}
+          sessions={state.sessions}
+          tasks={tasks.tasks}
+          maxConcurrent={tasks.maxConcurrent}
+          onOpenProject={openProject}
+          onOpenTask={openTask}
+          onManageRepositories={() => {
+            clearProjectView()
+            setSurface('repositories')
+          }}
+          onAddRepository={() => setAddOpen(true)}
+          onRetryPreparation={(repoId) => void workspace.retryPreparation(repoId)}
+        />
+      ),
+    sessions: renderProjectSessions(),
+    tasks: renderProjectTasks(),
+    schedules: (
+      <SchedulesView
+        repos={state.repos}
+        schedules={tasks.schedules}
+        notify={workspace.notify}
+        onReload={() => tasks.reload()}
+      />
+    ),
+    repositories: (
+      <RepositoriesView
+        repos={state.repos}
+        sessions={state.sessions}
+        tasks={tasks.tasks}
+        onBack={() => setSurface('projects')}
+        onAdd={() => setAddOpen(true)}
+        onRemove={(repoId) => void workspace.removeRepository(repoId)}
+        onOpenProject={(repoId) => openProject(repoId)}
+      />
+    ),
+    settings: (
+      <SettingsView
+        state={state}
+        runtime={workspace.runtime}
+        maxConcurrent={tasks.maxConcurrent}
+        onSetMaxConcurrent={tasks.setMaxConcurrent}
+        refreshing={state.refreshing}
+        onRefresh={refreshEverything}
+        themePreference={theme.preference}
+        resolvedTheme={theme.resolved}
+        onSetTheme={theme.setPreference}
+      />
+    )
   }
 
   const projectLabel =
@@ -1105,7 +1065,13 @@ export default function App(): React.JSX.Element {
           onRetryPreparation={(repoId) => void workspace.retryPreparation(repoId)}
         />
       ) : null}
-      {renderContent()}
+      <AppRoutes
+        boot={state.boot}
+        bootError={state.bootError}
+        onRetryBoot={refreshEverything}
+        surface={displaySurface}
+        pages={pages}
+      />
     </AppLayout>
   )
 }
