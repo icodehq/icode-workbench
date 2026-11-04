@@ -13,6 +13,9 @@ const base = require('./electron-builder.base.cjs')
  */
 module.exports = {
   ...base,
+  // Repair node-pty's spawn-helper mode before signing/dmg creation. This is a
+  // top-level lifecycle hook, not a `mac` option.
+  afterPack: 'config/scripts/native/after-pack-mac.cjs',
   mac: {
     target: ['dmg', 'zip'],
     category: 'public.app-category.developer-tools',
@@ -23,8 +26,6 @@ module.exports = {
     gatekeeperAssess: false,
     minimumSystemVersion: '12.0',
     notarize: true,
-    // Repair node-pty's spawn-helper mode before signing/dmg creation.
-    afterPack: 'config/scripts/native/after-pack-mac.cjs',
     artifactName: '${productName}-${version}-mac-${arch}.${ext}',
     /**
      * The darwin prebuilds are the payload. Excluding `build/**` and `bin/**`
