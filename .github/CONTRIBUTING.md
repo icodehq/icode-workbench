@@ -153,6 +153,13 @@ builds it after downloading the verified WSL tree, then runs
 which covers SQLite, a native PowerShell ConPTY session, the named-pipe Host, and
 shutdown.
 
+`node config/scripts/package.cjs mac --x64` (or `--arm64`) produces the dmg and
+zip on macOS. CI builds both architectures, runs `verify-package`, then runs
+`tests/compat/packaged-smoke-mac.cjs`, which covers the Finder-launched login
+environment, harness discovery through the login shell, a real PTY, Host
+start/reattach, and the packaged turn-end hook. The artifacts are unsigned until
+`CSC_*`/`APPLE_*` credentials are supplied.
+
 ## Packaged Linux acceptance
 
 ```bash
