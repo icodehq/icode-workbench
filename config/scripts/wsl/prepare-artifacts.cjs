@@ -13,10 +13,11 @@
  * Order of operations:
  *   1. **Verify first.** A tree whose manifest verifies is already correct, so it
  *      is used as-is: no Docker, no network, no second copy of the bytes.
- *   2. **Build when absent.** `host-artifacts.cjs build` is the project's
- *      reproducible builder (pinned Docker image, node-pty built twice, hashes
- *      compared). A missing tree is normal on a fresh checkout, so packaging
- *      produces it rather than demanding a developer stage it first.
+ *   2. **Build only when asked.** Packaging defaults to `--verify-only` because
+ *      CI builds the tree once on Linux and downloads it; a Windows packaging job
+ *      must never depend on Docker. `--build-if-missing` is the local
+ *      convenience (`host-artifacts.cjs build`: pinned Docker image, node-pty
+ *      built twice, hashes compared).
  *   3. **Verify what was built.** A build that produces an unverifiable tree is a
  *      failed build, not a usable one.
  *
@@ -46,8 +47,9 @@ const MANIFEST = path.join(ARTIFACT_ROOT, 'manifest.json')
 
 /** Docs the error text points at, so a failure is actionable without context. */
 const BUILD_HINT =
-  'Run "pnpm build:wsl-host" on Linux with Docker, or build with "pnpm package:win" ' +
-  'which prepares the artifacts itself.'
+  'Build it on Linux with Docker via "pnpm build:wsl-host" and copy it to ' +
+  'artifacts/wsl-host/linux-x64, download the verified tree from the CI artifact ' +
+  'job, or pass --build-if-missing for a local build.'
 
 function log(message) {
   process.stdout.write(`[prepare-artifacts] ${message}\n`)
@@ -122,6 +124,8 @@ function buildFresh() {
 
 function main(argv = []) {
   const rebuild = argv.includes('--rebuild')
+  const buildIfMissing = argv.includes('--build-if-missing')
+  const verifyOnly = argv.includes('--verify-only')
   try {
     if (rebuild) {
       log('--rebuild requested: replacing the artifact tree')
@@ -141,10 +145,13 @@ function main(argv = []) {
       verifyExisting()
       return 0
     }
-    log('no artifact tree is present')
-    buildFresh()
-    verifyExisting()
-    return 0
+    if (buildIfMissing && !verifyOnly) {
+      log('no artifact tree is present; building one (Docker and network required)')
+      buildFresh()
+      verifyExisting()
+      return 0
+    }
+    throw new verifier.ArtifactError(`no verified artifact tree at ${ARTIFACT_ROOT}; ${BUILD_HINT}`)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     process.stderr.write(

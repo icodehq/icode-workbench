@@ -4,6 +4,14 @@
   "private": true,
   "description": "iCode — an agent development environment for local Coding Agent TUIs",
   "license": "MIT",
+  "homepage": "https://github.com/LoongLab/iCode",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LoongLab/iCode.git"
+  },
+  "bugs": {
+    "url": "https://github.com/LoongLab/iCode/issues"
+  },
   "main": "./out/main/index.js",
   "packageManager": "pnpm@11.16.0",
   "engines": {
@@ -22,8 +30,11 @@
     "gate:host:verify": "ICODE_HOST_SOCKET=/tmp/icode-work1/host/terminal-host.sock ELECTRON_RUN_AS_NODE=1 electron tests/compat/host-verify.cjs",
     "gate:reattach": "pnpm build:app && ICODE_HOST_DIR=/tmp/icode-work1/host ICODE_HOST_SOCKET=/tmp/icode-work1/host/terminal-host.sock electron . --icode-gate-reattach",
     "gate:host:stop": "ICODE_HOST_SOCKET=/tmp/icode-work1/host/terminal-host.sock ELECTRON_RUN_AS_NODE=1 electron tests/compat/host-stop.cjs",
-    "package:dir": "pnpm build && node config/scripts/wsl/prepare-artifacts.cjs && electron-builder --dir --config config/electron-builder.config.cjs",
-    "package:win": "pnpm build && node config/scripts/wsl/prepare-artifacts.cjs && electron-builder --win nsis --x64 --config config/electron-builder.config.cjs",
+    "package:dir": "pnpm build && node config/scripts/package.cjs dir",
+    "package:linux": "pnpm build && node config/scripts/package.cjs linux",
+    "package:win": "pnpm build && node config/scripts/package.cjs win",
+    "package:mac": "pnpm build && node config/scripts/package.cjs mac",
+    "verify:package": "node config/scripts/verify-package.cjs",
     "gate:packaged": "node tests/compat/packaged-smoke.cjs",
     "build:host": "node config/scripts/build-host.cjs",
     "build:wsl-host": "node config/scripts/wsl/host-artifacts.cjs build",
@@ -40,7 +51,6 @@
     "check:brand": "node config/scripts/check-brand.cjs",
     "perf:scm": "ICODE_PERF=1 vitest run --config config/vitest.config.mts src/main/git/git-workspace-service.test.ts -t \"reads 10k untracked files\"",
     "smoke:activity": "node tests/compat/activity-smoke.cjs",
-    "package:msi": "pnpm build && node config/scripts/wsl/prepare-artifacts.cjs && electron-builder --win msi --x64 --config config/electron-builder.config.cjs",
     "smoke:features": "node tests/compat/feature-smoke.cjs",
     "smoke:projects": "node tests/compat/project-onboarding-smoke.cjs",
     "smoke:scm": "node tests/compat/scm-smoke.cjs"
@@ -75,5 +85,8 @@
     "vite": "8.3.4",
     "vitest": "5.0.5"
   },
-  "author": "iCode contributors"
+  "author": {
+    "name": "iCode contributors",
+    "email": "icode-maintainers@users.noreply.github.com"
+  }
 }

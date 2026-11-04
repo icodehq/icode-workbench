@@ -103,17 +103,27 @@ copy outside the repository.
 ```bash
 pnpm install
 pnpm build
-pnpm package:dir    # electron-builder --dir -> dist/linux-unpacked
+pnpm package:dir      # current platform, unpacked
+pnpm package:linux    # AppImage, deb, rpm
+pnpm package:win      # NSIS installer
+pnpm package:mac      # dmg + zip; pass -- --x64 or -- --arm64
+pnpm verify:package   # inspect the produced directory
 ```
 
-`dist/linux-unpacked/icode` is the application; it needs no repository checkout at
-runtime. `resources/app.asar.unpacked/` holds the Host bundle and the Electron-ABI
-`node-pty`, both required because the Host runs via `ELECTRON_RUN_AS_NODE`.
+Platform configs live in `config/electron-builder.{base,linux,win,mac}.cjs`;
+`config/scripts/package.cjs` selects the right one. MSI is removed; NSIS is the
+Windows target.
 
-`config/scripts/wsl/prepare-artifacts.cjs` verifies or builds
-`artifacts/wsl-host/linux-x64` before electron-builder starts. A tree that is
-present but does not verify stops packaging with the exact defect; a missing tree
-is built. `--rebuild` replaces a tree deliberately.
+The WSL Host tree is required **only** for Windows packaging. CI builds and
+verifies it once on Linux, and the Windows job downloads it.
+`config/scripts/wsl/prepare-artifacts.cjs --verify-only` (the packaging default)
+never invokes Docker; `--build-if-missing` is the local convenience, and
+`--rebuild` replaces a tree deliberately. Linux and macOS packages never ship the
+WSL tree.
+
+Signing is inert without credentials: macOS Developer ID/notarization and Windows
+Authenticode/SignPath activate from standard environment variables. Unsigned
+builds still produce artifacts and skip those steps.
 
 **Packaging on DrvFs.** `electron-builder` scans pnpm's module tree while
 packaging. On a `/mnt/d` checkout that scan did not complete in 20+ minutes;
