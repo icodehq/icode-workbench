@@ -1,14 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import { FolderGit2, Plus } from 'lucide-react'
 import type { SessionSummary } from '../../shared/schemas/ipc'
 import AppRail from './components/AppRail'
 import GlobalTopBar from './components/GlobalTopBar'
 import type { ActivityEntry } from './components/NotificationsDrawer'
 import ProjectHeader, { type ProjectStat } from './components/ProjectHeader'
-import ProjectsWall from './components/ProjectsWall'
 import RepositoriesView from './components/RepositoriesView'
 import SchedulesView from './components/SchedulesView'
+import ProjectsPage from './pages/ProjectsPage'
 import SessionsPage from './pages/SessionsPage'
 import SettingsPage from './pages/SettingsPage'
 import TasksPage from './pages/TasksPage'
@@ -320,42 +319,19 @@ export default function App(): React.JSX.Element {
   const paneSessions = useSessionPanes(state.sessions)
 
   const pages: Record<Surface, ReactNode> = {
-    projects:
-      state.repos.length === 0 && displaySurface === 'projects' ? (
-        <div className="flex flex-1 items-center justify-center p-8" data-testid="empty-workspace">
-          <div className="w-full max-w-md rounded-lg border border-border bg-card p-6">
-            <div className="flex items-center gap-2">
-              <FolderGit2 size={15} className="text-muted-foreground" />
-              <h1 className="text-[14px] font-semibold">Add a project</h1>
-            </div>
-            <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-              iCode runs coding agents in isolated worktrees on this machine or in a WSL distro.
-              Add an existing Git checkout, or initialize a folder once to make it usable.
-            </p>
-            <button
-              type="button"
-              className="mt-4 inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-[11px] font-medium text-accent-ink hover:opacity-90"
-              onClick={() => setAddOpen(true)}
-              data-testid="empty-add-repo"
-            >
-              <Plus size={12} />
-              Add project
-            </button>
-          </div>
-        </div>
-      ) : (
-        <ProjectsWall
-          repos={state.repos}
-          sessions={state.sessions}
-          tasks={tasks.tasks}
-          maxConcurrent={tasks.maxConcurrent}
-          onOpenProject={commands.openProject}
-          onOpenTask={commands.openTask}
-          onManageRepositories={commands.showRepositories}
-          onAddRepository={() => setAddOpen(true)}
-          onRetryPreparation={(repoId) => void workspace.retryPreparation(repoId)}
-        />
-      ),
+    projects: (
+      <ProjectsPage
+        repos={state.repos}
+        sessions={state.sessions}
+        tasks={tasks.tasks}
+        maxConcurrent={tasks.maxConcurrent}
+        onOpenProject={commands.openProject}
+        onOpenTask={commands.openTask}
+        onManageRepositories={commands.showRepositories}
+        onAddRepository={() => setAddOpen(true)}
+        onRetryPreparation={(repoId) => void workspace.retryPreparation(repoId)}
+      />
+    ),
     sessions: (
       <SessionsPage
         repo={repo}
