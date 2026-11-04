@@ -10,10 +10,10 @@
 pnpm install
 ```
 
-`pnpm install` runs `config/scripts/rebuild-native.cjs`, which rebuilds `node-pty`
-against the pinned Electron ABI. The detached Host runs under
-`ELECTRON_RUN_AS_NODE`, so the native module must match Electron, not the
-workstation Node.
+`pnpm install` runs `config/scripts/rebuild-native.cjs`. On Linux it rebuilds
+`node-pty` against the pinned Electron ABI; Windows and macOS use node-pty's
+Node-API prebuilds and skip the rebuild. The packaged Linux artifact is staged
+separately against glibc 2.35.
 
 ## Repository layout
 
@@ -120,6 +120,14 @@ verifies it once on Linux, and the Windows job downloads it.
 never invokes Docker; `--build-if-missing` is the local convenience, and
 `--rebuild` replaces a tree deliberately. Linux and macOS packages never ship the
 WSL tree.
+
+Linux packaging stages node-pty in the pinned Ubuntu 22.04 (glibc 2.35) image
+before electron-builder; `pnpm package:linux` runs
+`config/scripts/native/prepare-linux-pty.cjs` automatically. Pass
+`--artifact <dir>` to reuse a cached container build, or set
+`ICODE_SKIP_NATIVE_STAGE=1` for a local directory build that will not be
+shipped. A development `pnpm install` rebuilds node-pty for the workstation
+glibc, so packaging always restages the baseline artifact.
 
 Signing is inert without credentials: macOS Developer ID/notarization and Windows
 Authenticode/SignPath activate from standard environment variables. Unsigned

@@ -13,6 +13,7 @@
     "url": "https://github.com/LoongLab/iCode/issues"
   },
   "main": "./out/main/index.js",
+  "desktopName": "iCode.desktop",
   "packageManager": "pnpm@11.16.0",
   "engines": {
     "node": "24.x"

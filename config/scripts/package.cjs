@@ -14,6 +14,10 @@
  *   node config/scripts/package.cjs win [--x64]
  *   node config/scripts/package.cjs mac [--x64|--arm64]
  *   node config/scripts/package.cjs dir
+ *
+ * Linux packaging stages node-pty in a pinned Ubuntu 22.04 container before
+ * electron-builder. Set ICODE_SKIP_NATIVE_STAGE=1 only for a development
+ * directory build that is not meant to be shipped.
  */
 
 const { existsSync } = require('node:fs')
@@ -55,6 +59,12 @@ function electronBuilderCli() {
   }
 }
 
+function archFromArgs(args) {
+  if (args.includes('--arm64')) return 'arm64'
+  if (args.includes('--x64')) return 'x64'
+  return process.arch
+}
+
 function main(argv) {
   const requested = argv[0]
   if (!requested) {
@@ -73,6 +83,21 @@ function main(argv) {
   if (platform === 'win') {
     // Windows packaging consumes a verified tree; it must never invoke Docker.
     run(process.execPath, ['config/scripts/wsl/prepare-artifacts.cjs', '--verify-only'])
+  }
+
+  if (platform === 'linux') {
+    if (process.env.ICODE_SKIP_NATIVE_STAGE === '1') {
+      process.stdout.write(
+        '[package] ICODE_SKIP_NATIVE_STAGE=1: using the development node-pty build\n'
+      )
+    } else {
+      // Stage the glibc 2.35 build immediately before packaging.
+      run(process.execPath, [
+        'config/scripts/native/prepare-linux-pty.cjs',
+        '--arch',
+        archFromArgs(passthrough)
+      ])
+    }
   }
 
   const args = [electronBuilderCli(), '--config', CONFIGS[platform], `--${platform}`]

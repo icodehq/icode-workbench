@@ -17,6 +17,7 @@ module.exports = {
     executableName: identity.executableName,
     category: 'Development',
     icon: 'resources/build/icons',
+    syncDesktopName: true,
     maintainer: 'iCode contributors <icode-maintainers@users.noreply.github.com>',
     synopsis: 'Agent development environment',
     description: 'iCode is an agent development environment for local coding agent TUIs.',
