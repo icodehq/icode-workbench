@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { FolderGit2, Plus } from 'lucide-react'
-import type { TaskRecordPayload } from '../../shared/icode-api'
 import type { SessionSummary } from '../../shared/schemas/ipc'
 import AppRail from './components/AppRail'
 import GlobalTopBar from './components/GlobalTopBar'
@@ -18,13 +17,14 @@ import StatusBar from './components/StatusBar'
 import AppLayout from './layouts/AppLayout'
 import GlobalOverlays from './layouts/GlobalOverlays'
 import AppRoutes from './router/AppRoutes'
+import { useAppNavigation } from './router/use-app-navigation'
 import { taskAttention, taskAttentionCounts } from './components/task-status'
 import { useWorkspace } from './state/use-workspace'
 import { useTaskQueue } from './state/use-task-queue'
 import { useThemePreference } from './theme/use-theme'
 import { activeRepo, activeSession, pendingAction } from './state/workspace'
 import { hostStatus } from './state/host-status'
-import { type ProjectMode, type Surface } from './router/routes'
+import type { Surface } from './router/routes'
 import { callApi } from './lib/api'
 import { sendAgentText, type AgentSendResult } from './lib/agent-send'
 import { harnessLabel, isAgentHarness } from '../../shared/domain/harness'
@@ -32,11 +32,6 @@ import { WorkbenchDraftStore } from './review/drafts'
 
 function paneKey(sessionId: string, incarnationId: string | null): string {
   return `${sessionId}:${incarnationId ?? 'pending'}`
-}
-
-type TaskSessionRoute = {
-  taskId: string
-  sessionId: string
 }
 
 const NEEDS_ORDER = { Answer: 0, Retry: 1, Review: 2 } as const
@@ -62,12 +57,25 @@ export default function App(): React.JSX.Element {
   const { state } = workspace
   const tasks = useTaskQueue(workspace.notify)
   const theme = useThemePreference()
-  const [surface, setSurface] = useState<Surface>('projects')
+  const {
+    displaySurface,
+    taskSession,
+    taskSessionTask,
+    taskSessionLive,
+    focusTaskId,
+    focusComposerNonce,
+    taskSelectionByRepo,
+    taskSessionIds,
+    projectDirectSessions,
+    projectSession,
+    quickOpenSession,
+    focusableSessionId,
+    viewRequest,
+    openRequest,
+    commands
+  } = useAppNavigation({ workspace, tasks })
   const [sessionsListOpen, setSessionsListOpen] = useState<boolean>(initialSessionsListOpen)
   const [terminalFocus, setTerminalFocus] = useState(false)
-  const [taskSession, setTaskSession] = useState<TaskSessionRoute | null>(null)
-  const [focusTaskId, setFocusTaskId] = useState<string | null>(null)
-  const [focusComposerNonce, setFocusComposerNonce] = useState(0)
   const [addOpen, setAddOpen] = useState(false)
   const [quickOpenOpen, setQuickOpenOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
@@ -76,44 +84,16 @@ export default function App(): React.JSX.Element {
   const quickOpenSessionRef = useRef<SessionSummary | null>(null)
   const activeSessionIdRef = useRef<string | null>(state.activeSessionId)
   const [refreshToken, setRefreshToken] = useState(0)
-  const [openRequest, setOpenRequest] = useState<{ path: string; line: number; nonce: number } | null>(null)
   const [newSessionOpen, setNewSessionOpen] = useState(false)
   const [removalBusy, setRemovalBusy] = useState(false)
-  const [viewRequest, setViewRequest] = useState<{
-    view: 'terminal' | 'changes' | 'files'
-    nonce: number
-  } | null>(null)
   const [cleanupBusy, setCleanupBusy] = useState(false)
   const [mounted, setMounted] = useState<Set<string>>(new Set())
-  const [taskSelectionByRepo, setTaskSelectionByRepo] = useState<Record<string, string>>({})
   /** Line notes and commit messages survive panel and task switches. */
   const drafts = useMemo(() => new WorkbenchDraftStore(), [])
 
   const repo = activeRepo(state)
   const active = activeSession(state)
   const hostUnreachable = hostStatus(state) === 'unreachable'
-  const taskSessionIds = useMemo(
-    () =>
-      new Set(
-        tasks.tasks
-          .map((task) => task.sessionId)
-          .filter((id): id is string => id !== null)
-      ),
-    [tasks.tasks]
-  )
-
-  const directSessions = useMemo(
-    () => state.sessions.filter((session) => !taskSessionIds.has(session.id)),
-    [state.sessions, taskSessionIds]
-  )
-  const projectDirectSessions = useMemo(
-    () => (repo === null ? [] : directSessions.filter((session) => session.repoId === repo.id)),
-    [directSessions, repo]
-  )
-  const projectSession = useMemo(
-    () => projectDirectSessions.find((session) => session.id === state.activeSessionId) ?? null,
-    [projectDirectSessions, state.activeSessionId]
-  )
   const projectStats = useMemo(() => {
     const byRepo: Record<string, ProjectStat> = {}
     for (const entry of state.repos) {
@@ -187,28 +167,7 @@ export default function App(): React.JSX.Element {
     }
   }, [markingActivity, state.sessions, workspace])
 
-  const taskSessionTask = taskSession === null
-    ? null
-    : tasks.tasks.find((task) => task.id === taskSession.taskId) ?? null
-  const taskSessionLive = taskSession === null
-    ? null
-    : state.sessions.find((session) => session.id === taskSession.sessionId) ?? null
-
-  // A project surface without a project is the wall. The status and task stores
-  // can change under a removed repository, so this is derived on every render.
-  const displaySurface: Surface =
-    (surface === 'sessions' || surface === 'tasks') && repo === null ? 'projects' : surface
-  const focusableSessionId =
-    displaySurface === 'sessions'
-      ? projectSession?.id ?? null
-      : displaySurface === 'tasks'
-        ? taskSessionLive?.id ?? null
-        : null
   const focusActive = terminalFocus && focusableSessionId !== null
-
-  useEffect(() => {
-    if ((surface === 'sessions' || surface === 'tasks') && repo === null) setSurface('projects')
-  }, [repo, surface])
 
   useEffect(() => {
     try {
@@ -250,25 +209,6 @@ export default function App(): React.JSX.Element {
     window.addEventListener('keydown', onKeyDown, true)
     return () => window.removeEventListener('keydown', onKeyDown, true)
   }, [focusableSessionId])
-
-  useEffect(() => {
-    if (taskSession === null) return
-    if (taskSessionTask === null || taskSessionLive === null) setTaskSession(null)
-  }, [taskSession, taskSessionLive, taskSessionTask])
-
-  // Sessions is a direct-session mode. If the remembered row belongs to a task,
-  // choose a direct session rather than silently showing a task-owned PTY.
-  useEffect(() => {
-    if (surface !== 'sessions' || repo === null) return
-    if (projectDirectSessions.length === 0) return
-    if (projectDirectSessions.some((session) => session.id === state.activeSessionId)) return
-    const first = projectDirectSessions[0]
-    if (first) workspace.selectSession(first.id)
-  }, [projectDirectSessions, repo, state.activeSessionId, surface, workspace])
-
-  useEffect(() => {
-    if (taskSession !== null && taskSession.taskId !== taskSessionTask?.id) setTaskSession(null)
-  }, [taskSession, taskSessionTask])
 
   const sendToAgent = useCallback(
     async (
@@ -324,112 +264,6 @@ export default function App(): React.JSX.Element {
     void tasks.reload(true)
   }, [tasks, workspace])
 
-  const requestOpenInFiles = useCallback((path: string, line: number): void => {
-    setOpenRequest({ path, line, nonce: Date.now() })
-  }, [])
-
-  const clearProjectView = (): void => {
-    setTaskSession(null)
-    setViewRequest(null)
-    setFocusTaskId(null)
-  }
-
-  const openProject = useCallback(
-    (repoId: string, mode?: ProjectMode): void => {
-      const direct = state.sessions.filter(
-        (session) => session.repoId === repoId && !taskSessionIds.has(session.id)
-      )
-      const repoTasks = tasks.tasks.filter((task) => task.repoId === repoId)
-      const nextMode: ProjectMode = mode ?? (direct.length > 0 ? 'sessions' : repoTasks.length > 0 ? 'tasks' : 'sessions')
-      if (nextMode === 'sessions' && direct.length > 0) {
-        const first = direct[0]
-        if (first) workspace.selectSession(first.id)
-      } else {
-        workspace.selectRepo(repoId)
-      }
-      setSurface(nextMode)
-      clearProjectView()
-    },
-    [state.sessions, taskSessionIds, tasks.tasks, workspace]
-  )
-
-  const switchProject = useCallback(
-    (repoId: string): void => {
-      openProject(repoId, displaySurface === 'tasks' ? 'tasks' : 'sessions')
-    },
-    [displaySurface, openProject]
-  )
-
-  const changeMode = useCallback(
-    (mode: ProjectMode): void => {
-      if (repo === null) return
-      setTaskSession(null)
-      setViewRequest(null)
-      setSurface(mode)
-      if (mode === 'sessions') {
-        const direct = state.sessions.filter(
-          (session) => session.repoId === repo.id && !taskSessionIds.has(session.id)
-        )
-        if (direct.length > 0 && !direct.some((session) => session.id === state.activeSessionId)) {
-          const first = direct[0]
-          if (first) workspace.selectSession(first.id)
-        }
-      }
-    },
-    [repo, state.activeSessionId, state.sessions, taskSessionIds, workspace]
-  )
-
-  const openDirectSession = useCallback(
-    (sessionId: string): void => {
-      const session = state.sessions.find((entry) => entry.id === sessionId)
-      if (!session) return
-      const owningTask = tasks.tasks.find((task) => task.sessionId === sessionId)
-      if (owningTask) {
-        workspace.selectSession(sessionId)
-        setSurface('tasks')
-        setTaskSession({ taskId: owningTask.id, sessionId })
-        setFocusTaskId(owningTask.id)
-        setViewRequest(null)
-        return
-      }
-      workspace.selectSession(sessionId)
-      setSurface('sessions')
-      setTaskSession(null)
-      setViewRequest(null)
-    },
-    [state.sessions, tasks.tasks, workspace]
-  )
-
-  const openTask = useCallback(
-    (task: TaskRecordPayload): void => {
-      workspace.selectRepo(task.repoId)
-      setSurface('tasks')
-      setTaskSession(null)
-      setFocusTaskId(task.id)
-      setViewRequest(null)
-    },
-    [workspace]
-  )
-
-  const openTaskSession = useCallback(
-    (sessionId: string, view?: 'terminal' | 'changes' | 'files'): void => {
-      const owningTask = tasks.tasks.find((task) => task.sessionId === sessionId)
-      if (!owningTask) {
-        workspace.selectSession(sessionId)
-        setSurface('sessions')
-        setTaskSession(null)
-        if (view) setViewRequest({ view, nonce: Date.now() })
-        return
-      }
-      workspace.selectSession(sessionId)
-      setSurface('tasks')
-      setTaskSession({ taskId: owningTask.id, sessionId })
-      setFocusTaskId(owningTask.id)
-      setViewRequest(view ? { view, nonce: Date.now() } : null)
-    },
-    [tasks.tasks, workspace]
-  )
-
   const openQueueTask = useCallback((): void => {
     if (state.repos.length === 0) {
       setAddOpen(true)
@@ -438,12 +272,8 @@ export default function App(): React.JSX.Element {
     const target = repo ?? state.repos[0]
     if (!target) return
     if (target.id !== state.activeRepoId) workspace.selectRepo(target.id)
-    setSurface('tasks')
-    setTaskSession(null)
-    setFocusTaskId(null)
-    setViewRequest(null)
-    setFocusComposerNonce((current) => current + 1)
-  }, [repo, state.activeRepoId, state.repos, workspace])
+    commands.openTaskComposer()
+  }, [commands.openTaskComposer, repo, state.activeRepoId, state.repos, workspace])
 
   const openNewSession = (): void => {
     if (hostUnreachable) {
@@ -463,26 +293,19 @@ export default function App(): React.JSX.Element {
   const createSession = useCallback(
     async (input: Parameters<typeof workspace.createSession>[0]): Promise<boolean> => {
       const created = await workspace.createSession(input)
-      if (created) {
-        setSurface('sessions')
-        setTaskSession(null)
-        setViewRequest(null)
-      }
+      if (created) commands.showSessions()
       return created
     },
-    [workspace]
+    [commands.showSessions, workspace]
   )
 
   const addRepository = useCallback(
     async (input: Parameters<typeof workspace.addRepository>[0]): Promise<Awaited<ReturnType<typeof workspace.addRepository>>> => {
       const failure = await workspace.addRepository(input)
-      if (failure === null) {
-        setSurface('projects')
-        clearProjectView()
-      }
+      if (failure === null) commands.showProjects()
       return failure
     },
-    [workspace]
+    [commands.showProjects, workspace]
   )
 
   const initializeRepository = useCallback(
@@ -490,13 +313,10 @@ export default function App(): React.JSX.Element {
       input: Parameters<typeof workspace.initializeRepository>[0]
     ): Promise<Awaited<ReturnType<typeof workspace.initializeRepository>>> => {
       const failure = await workspace.initializeRepository(input)
-      if (failure === null) {
-        setSurface('projects')
-        clearProjectView()
-      }
+      if (failure === null) commands.showProjects()
       return failure
     },
-    [workspace]
+    [commands.showProjects, workspace]
   )
 
   const confirmRemoval = async (): Promise<void> => {
@@ -527,10 +347,7 @@ export default function App(): React.JSX.Element {
           event.preventDefault()
           setPaletteOpen(false)
           setQuickOpenOpen(false)
-          setViewRequest({
-            view: event.key.toLowerCase() === 'g' ? 'changes' : 'files',
-            nonce: Date.now()
-          })
+          commands.requestView(event.key.toLowerCase() === 'g' ? 'changes' : 'files')
         }
         return
       }
@@ -554,7 +371,7 @@ export default function App(): React.JSX.Element {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [])
+  }, [commands.requestView])
 
   useEffect(() => {
     setMounted((previous) => {
@@ -593,44 +410,7 @@ export default function App(): React.JSX.Element {
     [mounted, state.sessions]
   )
 
-  const selectedWorkbenchTask =
-    displaySurface !== 'tasks' || repo === null
-      ? null
-      : (tasks.tasks.find(
-          (task) =>
-            task.repoId === repo.id &&
-            task.id === (focusTaskId ?? taskSelectionByRepo[repo.id] ?? null)
-        ) ?? null)
-  const taskWorkbenchSession =
-    selectedWorkbenchTask?.sessionId === null || selectedWorkbenchTask?.sessionId === undefined
-      ? null
-      : (state.sessions.find((session) => session.id === selectedWorkbenchTask.sessionId) ?? null)
-
-  const quickOpenSession =
-    taskSession !== null
-      ? active
-      : displaySurface === 'sessions'
-        ? projectSession
-        : displaySurface === 'tasks'
-          ? taskWorkbenchSession
-          : null
   quickOpenSessionRef.current = quickOpenSession
-
-  /**
-   * A palette file belongs to the active workbench, not to whichever surface
-   * happens to be mounted. Direct sessions switch the view explicitly; a task
-   * workbench consumes the same request through its own Files pane.
-   */
-  const openFileFromPalette = useCallback(
-    (path: string, line: number): void => {
-      if (quickOpenSession === null) return
-      requestOpenInFiles(path, line)
-      if (displaySurface === 'sessions' || taskSession !== null) {
-        setViewRequest({ view: 'files', nonce: Date.now() })
-      }
-    },
-    [displaySurface, quickOpenSession, requestOpenInFiles, taskSession]
-  )
 
   const renderSession = (
     session: NonNullable<typeof projectSession>,
@@ -653,12 +433,12 @@ export default function App(): React.JSX.Element {
       notify={workspace.notify}
       refreshToken={refreshToken}
       openRequest={openRequest}
-      onOpenRequestHandled={() => setOpenRequest(null)}
+      onOpenRequestHandled={commands.clearOpenRequest}
       onSendToAgent={(text) => sendToAgent(text, session)}
       drafts={drafts}
-      onRequestOpenInFiles={requestOpenInFiles}
+      onRequestOpenInFiles={commands.requestOpenInFiles}
       viewRequest={viewRequest}
-      onViewRequestHandled={() => setViewRequest(null)}
+      onViewRequestHandled={commands.clearViewRequest}
       sessionsListHidden={sessionsListHidden}
       onShowSessionsList={sessionsListHidden ? () => setSessionsListOpen(true) : undefined}
     />
@@ -678,7 +458,7 @@ export default function App(): React.JSX.Element {
             pending={state.pending}
             branches={state.branches}
             orphans={state.orphans}
-            onSelectSession={openDirectSession}
+            onSelectSession={commands.openDirectSession}
             onNewSession={openNewSession}
             onRemoveBranch={(branch) => void workspace.requestRemoveBranch(branch)}
             onCollapse={() => setSessionsListOpen(false)}
@@ -721,7 +501,7 @@ export default function App(): React.JSX.Element {
             <button
               type="button"
               className="rounded px-1 py-0.5 hover:bg-muted hover:text-foreground"
-              onClick={() => setTaskSession(null)}
+              onClick={commands.backToTasks}
               data-testid="task-session-back"
             >
               ← Tasks
@@ -746,14 +526,10 @@ export default function App(): React.JSX.Element {
         refreshToken={refreshToken}
         drafts={drafts}
         openRequest={openRequest}
-        onOpenRequestHandled={() => setOpenRequest(null)}
+        onOpenRequestHandled={commands.clearOpenRequest}
         onReload={() => tasks.reload()}
-        onTaskSelected={(taskId) =>
-          setTaskSelectionByRepo((current) =>
-            current[repo.id] === taskId ? current : { ...current, [repo.id]: taskId }
-          )
-        }
-        onOpenSession={(sessionId) => openTaskSession(sessionId)}
+        onTaskSelected={commands.rememberTaskSelection}
+        onOpenSession={commands.openTaskSession}
         onStopSession={(sessionId) => void workspace.stopSession(sessionId)}
         onRestartSession={(sessionId) => void workspace.restartSession(sessionId)}
         onRecheckSession={(sessionId) => void workspace.recheckSession(sessionId)}
@@ -793,12 +569,9 @@ export default function App(): React.JSX.Element {
           sessions={state.sessions}
           tasks={tasks.tasks}
           maxConcurrent={tasks.maxConcurrent}
-          onOpenProject={openProject}
-          onOpenTask={openTask}
-          onManageRepositories={() => {
-            clearProjectView()
-            setSurface('repositories')
-          }}
+          onOpenProject={commands.openProject}
+          onOpenTask={commands.openTask}
+          onManageRepositories={commands.showRepositories}
           onAddRepository={() => setAddOpen(true)}
           onRetryPreparation={(repoId) => void workspace.retryPreparation(repoId)}
         />
@@ -818,10 +591,10 @@ export default function App(): React.JSX.Element {
         repos={state.repos}
         sessions={state.sessions}
         tasks={tasks.tasks}
-        onBack={() => setSurface('projects')}
+        onBack={commands.backToProjects}
         onAdd={() => setAddOpen(true)}
         onRemove={(repoId) => void workspace.removeRepository(repoId)}
-        onOpenProject={(repoId) => openProject(repoId)}
+        onOpenProject={commands.openProject}
       />
     ),
     settings: (
@@ -863,15 +636,9 @@ export default function App(): React.JSX.Element {
           }}
           onNewSession={openNewSession}
           onQueueTask={openQueueTask}
-          onSchedules={() => {
-            clearProjectView()
-            setSurface('schedules')
-          }}
+          onSchedules={commands.showSchedules}
           onOpenNotifications={() => setNotificationsOpen(true)}
-          onProjects={() => {
-            clearProjectView()
-            setSurface('projects')
-          }}
+          onProjects={commands.showProjects}
           themePreference={theme.preference}
           resolvedTheme={theme.resolved}
           onSetTheme={theme.setPreference}
@@ -880,18 +647,9 @@ export default function App(): React.JSX.Element {
       rail={
         <AppRail
           surface={displaySurface}
-          onProjects={() => {
-            clearProjectView()
-            setSurface('projects')
-          }}
-          onSchedules={() => {
-            clearProjectView()
-            setSurface('schedules')
-          }}
-          onSettings={() => {
-            clearProjectView()
-            setSurface('settings')
-          }}
+          onProjects={commands.showProjects}
+          onSchedules={commands.showSchedules}
+          onSettings={commands.showSettings}
         />
       }
       statusBar={
@@ -906,9 +664,7 @@ export default function App(): React.JSX.Element {
           onRetryHost={refreshEverything}
           notice={state.notice}
           onDismissNotice={workspace.dismissNotice}
-          onFocusSourceControl={() =>
-            setViewRequest({ view: 'changes', nonce: Date.now() })
-          }
+          onFocusSourceControl={() => commands.requestView('changes')}
         />
       }
       overlays={
@@ -919,8 +675,8 @@ export default function App(): React.JSX.Element {
             activity: activityEntries,
             markingRead: markingActivity,
             onClose: () => setNotificationsOpen(false),
-            onOpenTask: openTask,
-            onOpenSession: openDirectSession,
+            onOpenTask: commands.openTask,
+            onOpenSession: commands.openDirectSession,
             onMarkRead: () => void markActivityRead()
           }}
           palette={{
@@ -935,30 +691,17 @@ export default function App(): React.JSX.Element {
             onClose: () => setPaletteOpen(false),
             onNewSession: openNewSession,
             onQueueTask: openQueueTask,
-            onProjects: () => {
-              clearProjectView()
-              setSurface('projects')
-            },
-            onSchedules: () => {
-              clearProjectView()
-              setSurface('schedules')
-            },
-            onRepositories: () => {
-              clearProjectView()
-              setSurface('repositories')
-            },
-            onSettings: () => {
-              clearProjectView()
-              setSurface('settings')
-            },
-            onSourceControl: () =>
-              setViewRequest({ view: 'changes', nonce: Date.now() }),
+            onProjects: commands.showProjects,
+            onSchedules: commands.showSchedules,
+            onRepositories: commands.showRepositories,
+            onSettings: commands.showSettings,
+            onSourceControl: () => commands.requestView('changes'),
             onToggleTheme: () =>
               theme.setPreference(theme.resolved === 'dark' ? 'light' : 'dark'),
-            onOpenProject: openProject,
-            onOpenSession: openDirectSession,
-            onOpenTask: openTask,
-            onOpenFile: openFileFromPalette
+            onOpenProject: commands.openProject,
+            onOpenSession: commands.openDirectSession,
+            onOpenTask: commands.openTask,
+            onOpenFile: commands.openFileFromPalette
           }}
           quickOpen={
             quickOpenSession !== null
@@ -968,7 +711,7 @@ export default function App(): React.JSX.Element {
                   notify: workspace.notify,
                   onClose: () => setQuickOpenOpen(false),
                   onOpen: (path, line) => {
-                    openFileFromPalette(path, line)
+                    commands.openFileFromPalette(path, line)
                     setQuickOpenOpen(false)
                   }
                 }
@@ -1056,12 +799,9 @@ export default function App(): React.JSX.Element {
           repo={repo}
           mode={displaySurface === 'tasks' ? 'tasks' : 'sessions'}
           stats={projectStats}
-          onBack={() => {
-            clearProjectView()
-            setSurface('projects')
-          }}
-          onSwitch={switchProject}
-          onMode={changeMode}
+          onBack={commands.showProjects}
+          onSwitch={commands.switchProject}
+          onMode={commands.changeMode}
           onRetryPreparation={(repoId) => void workspace.retryPreparation(repoId)}
         />
       ) : null}
