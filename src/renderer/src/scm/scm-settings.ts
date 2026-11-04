@@ -102,7 +102,7 @@ export function saveScmSettings(
   return true
 }
 
-/** Subscribe to same-window saves; SettingsView and the SCM controller share it. */
+/** Subscribe to same-window saves; SettingsPage and the SCM controller share it. */
 export function subscribeScmSettings(listener: (settings: ScmSettings) => void): () => void {
   listeners.add(listener)
   return () => listeners.delete(listener)

@@ -1,5 +1,5 @@
 import { CalendarClock, LayoutGrid, Settings } from 'lucide-react'
-import type { Surface } from '../state/navigation'
+import type { Surface } from '../router/routes'
 
 type Props = {
   surface: Surface

@@ -5,9 +5,9 @@ import type { ThemeName, ThemePreference } from '../theme/apply-theme'
 import { hostStatus } from '../state/host-status'
 import type { WorkspaceState } from '../state/workspace'
 import ScmSettingsCard from '../scm/ScmSettingsCard'
-import SettingsCard from './SettingsCard'
+import SettingsCard from '../components/SettingsCard'
 
-type Props = {
+type SettingsPageProps = {
   state: WorkspaceState
   runtime: RuntimeInfo | null
   maxConcurrent: number
@@ -45,7 +45,7 @@ function Row({
   )
 }
 
-export default function SettingsView({
+export default function SettingsPage({
   state,
   runtime,
   maxConcurrent,
@@ -55,7 +55,7 @@ export default function SettingsView({
   themePreference,
   resolvedTheme,
   onSetTheme
-}: Props): React.JSX.Element {
+}: SettingsPageProps): React.JSX.Element {
   const host = hostStatus(state)
   const available = state.harnesses.filter((entry) => entry.state === 'available').length
 

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ArrowLeft, ChevronDown, ListTodo, Loader2, RotateCcw, TerminalSquare } from 'lucide-react'
 import type { RepositorySummary } from '../../../shared/schemas/ipc'
-import type { ProjectMode } from '../state/navigation'
+import type { ProjectMode } from '../router/routes'
 import { repositoryPreparationView } from '../lib/repository-preparation'
 import TargetBadge from './TargetBadge'
 
