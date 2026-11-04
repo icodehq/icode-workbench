@@ -6,11 +6,11 @@ import AppRail from './components/AppRail'
 import GlobalTopBar from './components/GlobalTopBar'
 import type { ActivityEntry } from './components/NotificationsDrawer'
 import ProjectHeader, { type ProjectStat } from './components/ProjectHeader'
-import ProjectSessionsList from './components/ProjectSessionsList'
 import ProjectTasksView from './components/ProjectTasksView'
 import ProjectsWall from './components/ProjectsWall'
 import RepositoriesView from './components/RepositoriesView'
 import SchedulesView from './components/SchedulesView'
+import SessionsPage from './pages/SessionsPage'
 import SettingsPage from './pages/SettingsPage'
 import StatusBar from './components/StatusBar'
 import AppLayout from './layouts/AppLayout'
@@ -320,82 +320,6 @@ export default function App(): React.JSX.Element {
 
   const paneSessions = useSessionPanes(state.sessions)
 
-  const renderProjectSessions = (): React.JSX.Element => {
-    if (repo === null) return <></>
-    const showSessionsList =
-      projectSession === null || (sessionsListOpen && !focusActive)
-    return (
-      <div className="flex min-h-0 flex-1 max-[900px]:flex-col">
-        {showSessionsList ? (
-          <ProjectSessionsList
-            repo={repo}
-            sessions={projectDirectSessions}
-            activeSessionId={projectSession?.id ?? null}
-            pending={state.pending}
-            branches={state.branches}
-            orphans={state.orphans}
-            onSelectSession={commands.openDirectSession}
-            onNewSession={openNewSession}
-            onRemoveBranch={(branch) => void workspace.requestRemoveBranch(branch)}
-            onCollapse={() => setSessionsListOpen(false)}
-          />
-        ) : null}
-        <div className="flex min-w-0 flex-1">
-          {projectSession !== null ? (
-            <SessionHost
-              session={projectSession}
-              repo={repo}
-              pending={pendingAction(state, projectSession.id)}
-              panes={paneSessions}
-              allowSleep
-              refreshToken={refreshToken}
-              openRequest={openRequest}
-              viewRequest={viewRequest}
-              drafts={drafts}
-              sessionsListHidden={!sessionsListOpen && !focusActive}
-              onShowSessionsList={
-                !sessionsListOpen && !focusActive
-                  ? () => setSessionsListOpen(true)
-                  : undefined
-              }
-              onRestart={(sessionId) => void workspace.restartSession(sessionId)}
-              onSleep={(sessionId) => void workspace.sleepSession(sessionId)}
-              onWake={(sessionId) => void workspace.wakeSession(sessionId)}
-              onRecheck={(sessionId) => void workspace.recheckSession(sessionId)}
-              onRemove={(sessionId) => void workspace.requestRemoveSession(sessionId)}
-              onRecoverWorktree={(sessionId) => void workspace.recoverWorktree(sessionId)}
-              onError={workspace.reportError}
-              notify={workspace.notify}
-              onSendToAgent={(text) => sendToAgent(text, projectSession)}
-              onClearOpenRequest={commands.clearOpenRequest}
-              onRequestOpenInFiles={commands.requestOpenInFiles}
-              onClearViewRequest={commands.clearViewRequest}
-            />
-          ) : (
-            <div className="flex flex-1 items-center justify-center p-8">
-              <div className="w-full max-w-md rounded-lg border border-border bg-card p-6">
-                <h1 className="text-[14px] font-semibold">No direct sessions in {repo.displayName}</h1>
-                <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-                  Direct sessions open a live terminal immediately. Tasks have their own list and do not
-                  appear here.
-                </p>
-                <button
-                  type="button"
-                  className="mt-4 inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-[11px] font-medium text-accent-ink hover:opacity-90"
-                  onClick={openNewSession}
-                  data-testid="empty-new-session"
-                >
-                  <Plus size={12} />
-                  New session
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    )
-  }
-
   const renderProjectTasks = (): React.JSX.Element => {
     if (repo === null) return <></>
     if (taskSession !== null && taskSessionTask !== null && taskSessionLive !== null) {
@@ -502,7 +426,40 @@ export default function App(): React.JSX.Element {
           onRetryPreparation={(repoId) => void workspace.retryPreparation(repoId)}
         />
       ),
-    sessions: renderProjectSessions(),
+    sessions: (
+      <SessionsPage
+        repo={repo}
+        sessions={projectDirectSessions}
+        activeSession={projectSession}
+        pending={state.pending}
+        branches={state.branches}
+        orphans={state.orphans}
+        sessionsListOpen={sessionsListOpen}
+        focusActive={focusActive}
+        onSelectSession={commands.openDirectSession}
+        onNewSession={openNewSession}
+        onRemoveBranch={(branch) => void workspace.requestRemoveBranch(branch)}
+        onCollapseSessions={() => setSessionsListOpen(false)}
+        onShowSessionsList={() => setSessionsListOpen(true)}
+        paneSessions={paneSessions}
+        refreshToken={refreshToken}
+        openRequest={openRequest}
+        viewRequest={viewRequest}
+        drafts={drafts}
+        sendToAgent={sendToAgent}
+        onRestartSession={(sessionId) => void workspace.restartSession(sessionId)}
+        onSleepSession={(sessionId) => void workspace.sleepSession(sessionId)}
+        onWakeSession={(sessionId) => void workspace.wakeSession(sessionId)}
+        onRecheckSession={(sessionId) => void workspace.recheckSession(sessionId)}
+        onRemoveSession={(sessionId) => void workspace.requestRemoveSession(sessionId)}
+        onRecoverWorktree={(sessionId) => void workspace.recoverWorktree(sessionId)}
+        onError={workspace.reportError}
+        notify={workspace.notify}
+        onClearOpenRequest={commands.clearOpenRequest}
+        onRequestOpenInFiles={commands.requestOpenInFiles}
+        onClearViewRequest={commands.clearViewRequest}
+      />
+    ),
     tasks: renderProjectTasks(),
     schedules: (
       <SchedulesView
