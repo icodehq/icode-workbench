@@ -169,6 +169,16 @@ function main(argv) {
 
   const ptyDir = join(unpacked, 'node_modules', 'node-pty')
   check(existsSync(ptyDir), 'unpacked node-pty module is missing')
+  // The detached Host runs without asar support, so node-pty's JS is unpacked
+  // and its helper path must not be expanded twice. afterPack applies the
+  // anchored replacement; refuse a package that lost it.
+  const unixTerminal = join(ptyDir, 'lib', 'unixTerminal.js')
+  if (existsSync(unixTerminal)) {
+    check(
+      readFileSync(unixTerminal, 'utf8').includes('app\\.asar(?!\\.unpacked)'),
+      'node-pty asar helper-path fix is missing from the package'
+    )
+  }
 
   const nativePath =
     options.platform === 'linux'

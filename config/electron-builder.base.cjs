@@ -22,6 +22,8 @@ module.exports = {
   // ELECTRON_RUN_AS_NODE, so it and its native PTY must exist outside the asar.
   asar: true,
   asarUnpack: ['out/host/**', 'node_modules/node-pty/**'],
+  // Repair packed node-pty paths/modes before signing and artifacts.
+  afterPack: 'config/scripts/native/after-pack.cjs',
   // node-pty is prepared per platform by config/scripts/native; electron-builder
   // must not rebuild it for the host Node ABI.
   npmRebuild: false,
