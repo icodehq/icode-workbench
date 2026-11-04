@@ -13,7 +13,7 @@ const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(
 
 describe('GitStatusWatcherService with chokidar', () => {
   it('sees a file written through the host path', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'ade-watch-'))
+    const root = mkdtempSync(join(tmpdir(), 'icode-watch-'))
     const worktreePath = join(root, 'worktree')
     const gitDir = join(root, 'git')
     mkdirSync(worktreePath)

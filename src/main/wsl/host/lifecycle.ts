@@ -53,7 +53,7 @@ export const GUEST_START_SCRIPT = `umask 077
 command -v setsid >/dev/null 2>&1 || exit 4
 rm -f "$5"
 : > "$6"
-setsid -f sh -c 'echo $$ > "$1"; shift; exec "$@"' ade-host-launch "$5" env ADE_HOST_DIR="$3" ADE_HOST_SOCKET="$4" "$1" "$2" >> "$6" 2>&1 < /dev/null || exit 3
+setsid -f sh -c 'echo $$ > "$1"; shift; exec "$@"' icode-host-launch "$5" env ICODE_HOST_DIR="$3" ICODE_HOST_SOCKET="$4" "$1" "$2" >> "$6" 2>&1 < /dev/null || exit 3
 exit 0`
 
 const GUEST_KILL_SCRIPT = 'kill -TERM "$1" 2>/dev/null || exit 1'
@@ -76,7 +76,7 @@ export async function readGuestHome(
     runner.run({
       scope: 'guest',
       distro,
-      argv: ['sh', '-c', GUEST_HOME_SCRIPT, 'ade-home'],
+      argv: ['sh', '-c', GUEST_HOME_SCRIPT, 'icode-home'],
       ...(options.signal ? { signal: options.signal } : {})
     })
 
@@ -104,12 +104,12 @@ export async function readGuestHome(
       outcome.status === 'exit_failure'
         ? `exit ${String(outcome.code)}: ${`${outcome.stdout}${outcome.stderr}`.trim().slice(0, 200)}`
         : outcome.status
-    process.stderr.write(`[ade] guest home probe failed in ${distro}: ${reason}\n`)
+    process.stderr.write(`[icode] guest home probe failed in ${distro}: ${reason}\n`)
     return null
   }
   const home = outcome.stdout.trim()
   if (!home.startsWith('/')) {
-    process.stderr.write(`[ade] guest home probe returned a non-path in ${distro}: ${home.slice(0, 120)}\n`)
+    process.stderr.write(`[icode] guest home probe returned a non-path in ${distro}: ${home.slice(0, 120)}\n`)
     return null
   }
   return home
@@ -159,7 +159,7 @@ export type WslHostLifecycleDeps = {
   artifactRoot: string
   manifest: HostArtifactManifest
   /**
-   * Guest directory holding every build for this ADE profile. Scoped by the
+   * Guest directory holding every build for this iCode profile. Scoped by the
    * caller so two profiles in one distro cannot adopt each other's Host.
    */
   hostRoot: string
@@ -176,7 +176,7 @@ export type WslHostLifecycleDeps = {
 }
 
 function startError(detail: string): AppError {
-  return makeAppError('WSL_HOST_START_FAILED', 'The ADE Host did not start inside the distro.', {
+  return makeAppError('WSL_HOST_START_FAILED', 'The iCode Host did not start inside the distro.', {
     detail
   })
 }
@@ -184,7 +184,7 @@ function startError(detail: string): AppError {
 function unverifiableError(detail: string): AppError {
   return makeAppError(
     'WSL_HOST_UNVERIFIABLE',
-    'ADE cannot prove which process is running in that distro.',
+    'iCode cannot prove which process is running in that distro.',
     { detail }
   )
 }
@@ -231,7 +231,7 @@ export class WslHostLifecycle {
     const outcome = await this.deps.runner.run({
       scope: 'guest',
       distro,
-      argv: ['sh', '-c', GUEST_KILL_SCRIPT, 'ade-kill', String(pid)],
+      argv: ['sh', '-c', GUEST_KILL_SCRIPT, 'icode-kill', String(pid)],
       ...(signal ? { signal } : {})
     })
     return outcome.status === 'ok'
@@ -246,7 +246,7 @@ export class WslHostLifecycle {
    * W4 owns: a stale pid file otherwise reports a dead Host as recorded forever.
    */
   private async clearPidFile(distro: string, pidFile: string): Promise<void> {
-    await this.runGuest(distro, ['sh', '-c', 'rm -f "$1"', 'ade-rm-pid', pidFile])
+    await this.runGuest(distro, ['sh', '-c', 'rm -f "$1"', 'icode-rm-pid', pidFile])
   }
 
   private async defaultAlive(
@@ -258,7 +258,7 @@ export class WslHostLifecycle {
     const outcome = await this.deps.runner.run({
       scope: 'guest',
       distro,
-      argv: ['sh', '-c', GUEST_ALIVE_SCRIPT, 'ade-alive', String(pid)],
+      argv: ['sh', '-c', GUEST_ALIVE_SCRIPT, 'icode-alive', String(pid)],
       ...(signal ? { signal } : {})
     })
     if (outcome.status === 'ok') return true
@@ -375,13 +375,13 @@ export class WslHostLifecycle {
       !pidFileStale &&
       !guestHostIsOurs(first.identity, { entryPath: paths.entry })
     ) {
-      // Something really is running under that pid and ADE cannot prove it started
+      // Something really is running under that pid and iCode cannot prove it started
       // it. Starting a second Host could collide on the socket, and killing is out
       // of the question, so the only honest answer is to refuse.
       return {
         status: 'unverifiable',
         error: unverifiableError(
-          `Guest pid ${first.identity.hostPid} is recorded but its command line does not identify this ADE Host. ADE will not replace or stop it.`
+          `Guest pid ${first.identity.hostPid} is recorded but its command line does not identify this iCode Host. iCode will not replace or stop it.`
         ),
         detail: 'guest_pid_unproven'
       }
@@ -439,7 +439,7 @@ export class WslHostLifecycle {
           status: 'protocol_mismatch',
           error: makeAppError(
             'WSL_HOST_PROTOCOL_MISMATCH',
-            'An incompatible ADE Host is running and ADE could not stop it.',
+            'An incompatible iCode Host is running and iCode could not stop it.',
             { detail: `guest pid ${previousPid}: ${stopped}` }
           ),
           detail: stopped
@@ -510,7 +510,7 @@ export class WslHostLifecycle {
         'sh',
         '-c',
         GUEST_START_SCRIPT,
-        'ade-start',
+        'icode-start',
         input.paths.node,
         input.paths.entry,
         input.paths.runDir,
@@ -553,7 +553,7 @@ export class WslHostLifecycle {
           status: 'protocol_mismatch',
           error: makeAppError(
             'WSL_HOST_PROTOCOL_MISMATCH',
-            'The deployed Host speaks a different protocol than this ADE build.',
+            'The deployed Host speaks a different protocol than this iCode build.',
             {
               detail: `deployed ${running.meta.protocolVersion}, expected ${HOST_PROTOCOL_VERSION}`
             }
@@ -700,7 +700,7 @@ export class WslHostLifecycle {
           return {
             status: 'unverifiable',
             error: unverifiableError(
-              `Guest pid ${identity.hostPid} cannot be proven to be this ADE Host; ADE will not signal it.`
+              `Guest pid ${identity.hostPid} cannot be proven to be this iCode Host; iCode will not signal it.`
             ),
             detail: 'guest_pid_unproven'
           }
@@ -714,7 +714,7 @@ export class WslHostLifecycle {
             status: 'still_running',
             error: makeAppError(
               'WSL_HOST_STOP_FAILED',
-              'The ADE Host did not exit within the shutdown timeout.',
+              'The iCode Host did not exit within the shutdown timeout.',
               { detail: `guest pid ${identity.hostPid} still answers` }
             ),
             detail: 'still_running'
@@ -725,7 +725,7 @@ export class WslHostLifecycle {
             status: 'unverifiable',
             error: makeAppError(
               'WSL_HOST_STOP_FAILED',
-              'ADE could not confirm the ADE Host stopped.',
+              'iCode could not confirm the iCode Host stopped.',
               { detail: `guest pid ${identity.hostPid}` }
             ),
             detail: 'stop_unconfirmed'

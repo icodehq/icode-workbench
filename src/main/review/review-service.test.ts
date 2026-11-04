@@ -39,7 +39,7 @@ function git(cwd: string, ...args: string[]): string {
 }
 
 async function setup(): Promise<Fixture> {
-  const root = makeTempRoot('ade-review-svc-')
+  const root = makeTempRoot('icode-review-svc-')
   const db = openTempDatabase(root)
   const stores = makeRepositoryService(db)
   const host = new FakeHostGateway()
@@ -81,7 +81,7 @@ async function setup(): Promise<Fixture> {
   git(repoPath, 'add', '.')
   execFileSync(
     'git',
-    ['-C', repoPath, '-c', 'user.email=ade@test', '-c', 'user.name=ADE', 'commit', '-qm', 'init'],
+    ['-C', repoPath, '-c', 'user.email=icode@test', '-c', 'user.name=iCode', 'commit', '-qm', 'init'],
     { stdio: 'pipe' }
   )
   const added = await stores.service.addRepository(repoPath)

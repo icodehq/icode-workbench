@@ -16,7 +16,7 @@ const WSL: ExecutionTarget = {
 const LOCAL: ExecutionTarget = { kind: 'local' }
 
 function tempHome(): string {
-  const root = mkdtempSync(join(tmpdir(), 'ade-trust-'))
+  const root = mkdtempSync(join(tmpdir(), 'icode-trust-'))
   roots.push(root)
   return root
 }
@@ -53,7 +53,7 @@ function guestService(home: string, files: Map<string, string>) {
         timedOut: false
       }
     }
-    if (script.includes('tmp="$1.ade-tmp-$$"')) {
+    if (script.includes('tmp="$1.icode-tmp-$$"')) {
       files.set(path, typeof spec.stdin === 'string' ? spec.stdin : (spec.stdin?.toString('utf8') ?? ''))
       return { code: 0, signal: null, stdout: '', stderr: '', timedOut: false }
     }
@@ -109,11 +109,11 @@ describe('Claude workspace trust', () => {
     await trust.prepare({
       harness: 'claude',
       target: LOCAL,
-      worktreePath: 'C:\\Users\\you\\ade\\worktrees\\repo\\ses'
+      worktreePath: 'C:\\Users\\you\\icode\\worktrees\\repo\\ses'
     })
 
     const data = JSON.parse(readFileSync(join(home, '.claude.json'), 'utf8'))
-    expect(data.projects['C:/Users/you/ade/worktrees/repo/ses']).toEqual({
+    expect(data.projects['C:/Users/you/icode/worktrees/repo/ses']).toEqual({
       hasTrustDialogAccepted: true
     })
   })
@@ -182,10 +182,10 @@ describe('Codex workspace trust', () => {
   it('seeds the ordinary Codex project key on Windows', async () => {
     const home = tempHome()
     const trust = localService(home, 'win32')
-    const path = 'C:\\Users\\you\\ade\\worktrees\\repo\\ses'
+    const path = 'C:\\Users\\you\\icode\\worktrees\\repo\\ses'
     await trust.prepare({ harness: 'codex', target: LOCAL, worktreePath: path })
     const text = readFileSync(join(home, '.codex', 'config.toml'), 'utf8')
-    expect(text).toContain("[projects.'C:\\Users\\you\\ade\\worktrees\\repo\\ses']")
+    expect(text).toContain("[projects.'C:\\Users\\you\\icode\\worktrees\\repo\\ses']")
     // The extended prefix is not Codex's trust key and must not be invented.
     expect(text).not.toContain('\\\\?\\')
   })
@@ -214,7 +214,7 @@ describe('target routing and unsupported harnesses', () => {
     const home = tempHome()
     const files = new Map<string, string>()
     const trust = guestService(home, files)
-    const path = '/home/u/.ade/worktrees/scope/repo/ses'
+    const path = '/home/u/.icode/worktrees/scope/repo/ses'
 
     await expect(trust.prepare({ harness: 'claude', target: WSL, worktreePath: path })).resolves.toEqual({
       status: 'trusted'

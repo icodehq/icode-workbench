@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, FolderGit2, Loader2, Plus, RefreshCw } from 'lucide-react'
-import type { TaskRecordPayload } from '../../shared/ade-api'
+import type { TaskRecordPayload } from '../../shared/icode-api'
 import type { SessionSummary } from '../../shared/schemas/ipc'
 import AddRepositoryDialog from './components/AddRepositoryDialog'
 import AppRail from './components/AppRail'
@@ -43,7 +43,7 @@ type TaskSessionRoute = {
 }
 
 const NEEDS_ORDER = { Answer: 0, Retry: 1, Review: 2 } as const
-const SESSIONS_LIST_KEY = 'ade.sessionsListOpen'
+const SESSIONS_LIST_KEY = 'icode.sessionsListOpen'
 
 /**
  * The session list is useful for switching between several terminals, but at
@@ -181,7 +181,7 @@ export default function App(): React.JSX.Element {
     setMarkingActivity(true)
     try {
       for (const session of unread) {
-        const result = await callApi<boolean>(window.ade.activity.clearUnread({ sessionId: session.id }))
+        const result = await callApi<boolean>(window.icode.activity.clearUnread({ sessionId: session.id }))
         if (!result.ok) workspace.notify({ tone: 'error', message: result.error.message })
       }
       await workspace.refreshAll()
@@ -230,7 +230,7 @@ export default function App(): React.JSX.Element {
 
   useEffect(
     () =>
-      window.ade.onViewCommand((command) => {
+      window.icode.onViewCommand((command) => {
         if (command === 'sessions') {
           setSessionsListOpen((current) => !current)
           return
@@ -292,7 +292,7 @@ export default function App(): React.JSX.Element {
         workspace.notify({ tone: 'error', message })
         return { ok: false, message }
       }
-      const attach = await callApi(window.ade.terminal.attach({ sessionId: target.id }))
+      const attach = await callApi(window.icode.terminal.attach({ sessionId: target.id }))
       if (!attach.ok) {
         workspace.reportError(attach.error)
         return { ok: false, message: attach.error.message }
@@ -305,7 +305,7 @@ export default function App(): React.JSX.Element {
       }
       const write = async (data: string): Promise<AgentSendResult> => {
         const result = await callApi(
-          window.ade.terminal.write({ sessionId: target.id, incarnationId, data })
+          window.icode.terminal.write({ sessionId: target.id, incarnationId, data })
         )
         if (!result.ok) {
           workspace.reportError(result.error)

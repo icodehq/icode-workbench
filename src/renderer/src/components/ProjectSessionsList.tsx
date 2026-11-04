@@ -112,7 +112,7 @@ export default function ProjectSessionsList({
                     type="button"
                     className={`flex w-full items-start gap-2 rounded-md border px-2.5 py-2 text-left ${
                       selected
-                        ? 'border-accent/50 bg-muted text-foreground shadow-[inset_2px_0_0_var(--ade-accent)]'
+                        ? 'border-accent/50 bg-muted text-foreground shadow-[inset_2px_0_0_var(--icode-accent)]'
                         : 'border-transparent text-muted-foreground hover:bg-muted/60 hover:text-foreground'
                     }`}
                     onClick={() => onSelectSession(session.id)}

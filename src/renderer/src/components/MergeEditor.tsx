@@ -4,7 +4,7 @@ import type {
   FileContentPayload,
   GitConflictFilePayload,
   GitConflictSide
-} from '../../../shared/ade-api'
+} from '../../../shared/icode-api'
 import { callApi } from '../lib/api'
 import {
   parseConflictBlocks,
@@ -56,9 +56,9 @@ export default function MergeEditor({
     void (async (): Promise<void> => {
       const [conflict, result] = await Promise.all([
         callApi<GitConflictFilePayload>(
-          window.ade.git.conflictFile({ sessionId, path })
+          window.icode.git.conflictFile({ sessionId, path })
         ),
-        callApi<FileContentPayload>(window.ade.files.read({ sessionId, path }))
+        callApi<FileContentPayload>(window.icode.files.read({ sessionId, path }))
       ])
       if (cancelled) return
       if (!conflict.ok) {

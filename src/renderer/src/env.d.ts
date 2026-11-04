@@ -1,8 +1,8 @@
-import type { AdeApi } from '../../shared/ade-api'
+import type { IcodeApi } from '../../shared/icode-api'
 
 declare global {
   interface Window {
-    ade: AdeApi
+    icode: IcodeApi
   }
 }
 

@@ -14,7 +14,7 @@ const INIT_STAT = '1 (systemd) S 0 1 1 0 -1 4194560 100 0 0 0 1 5 0 0 20 0 1 0 1
 
 /** Frames a payload the way the guest script does. */
 function framed(...sections: string[]): string {
-  return sections.map((section) => `__ADE_IDENTITY__\n${section}`).join('') + '__ADE_IDENTITY__\n'
+  return sections.map((section) => `__ICODE_IDENTITY__\n${section}`).join('') + '__ICODE_IDENTITY__\n'
 }
 
 function runnerReturning(stdout: string, status: 'ok' | 'timed_out' = 'ok'): WslCommandRunner {

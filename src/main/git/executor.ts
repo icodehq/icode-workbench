@@ -114,7 +114,7 @@ export function createGuestHostFileSystem(
     const result = await runIdempotentGuest(runner, {
       scope: 'guest',
       distro,
-      argv: ['sh', '-c', script, 'ade-fs', path],
+      argv: ['sh', '-c', script, 'icode-fs', path],
       timeoutMs: 10_000
     })
     if ('status' in result) {
@@ -145,7 +145,7 @@ export function createGuestHostFileSystem(
       const result = await runIdempotentGuest(runner, {
         scope: 'guest',
         distro,
-        argv: ['sh', '-c', 'umask 077; mkdir -p "$1"', 'ade-mkdir', parent],
+        argv: ['sh', '-c', 'umask 077; mkdir -p "$1"', 'icode-mkdir', parent],
         timeoutMs: 10_000
       })
       if ('status' in result || result.code !== 0) {
@@ -157,7 +157,7 @@ export function createGuestHostFileSystem(
       const result = await runIdempotentGuest(runner, {
         scope: 'guest',
         distro,
-        argv: ['sh', '-c', 'test -d "$1" || exit 1; test -z "$(ls -A "$1")"', 'ade-empty', path],
+        argv: ['sh', '-c', 'test -d "$1" || exit 1; test -z "$(ls -A "$1")"', 'icode-empty', path],
         timeoutMs: 10_000
       })
       return !('status' in result) && result.code === 0
@@ -166,7 +166,7 @@ export function createGuestHostFileSystem(
       const result = await runner.runBytes({
         scope: 'guest',
         distro,
-        argv: ['sh', '-c', 'rmdir "$1"', 'ade-rmdir', path],
+        argv: ['sh', '-c', 'rmdir "$1"', 'icode-rmdir', path],
         timeoutMs: 10_000
       })
       if ('status' in result || result.code !== 0) {
@@ -324,7 +324,7 @@ export type GitExecutorRouterDeps = {
   /** Managed local root, unchanged from before W6. */
   localWorktreeRoot: string
   runner: WslCommandRunner
-  /** `<guestHome>/.ade/worktrees/<profileScope>`. */
+  /** `<guestHome>/.icode/worktrees/<profileScope>`. */
   guestWorktreeRoot: (distro: string) => Promise<string | null>
   localExecutor?: GitExecutor
 }

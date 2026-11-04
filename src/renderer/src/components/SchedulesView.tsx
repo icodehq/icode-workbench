@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Pause, Pencil, Play, Plus, RotateCcw } from 'lucide-react'
-import type { TaskSchedulePayload } from '../../../shared/ade-api'
+import type { TaskSchedulePayload } from '../../../shared/icode-api'
 import { scheduleLabel } from '../../../shared/domain/task-schedule'
 import type { RepositorySummary } from '../../../shared/schemas/ipc'
 import { callApi, errorNotice } from '../lib/api'
@@ -57,7 +57,7 @@ export default function SchedulesView({
     setBusyId(schedule.id)
     try {
       const result = await callApi<TaskSchedulePayload>(
-        window.ade.schedules.setEnabled({ scheduleId: schedule.id, enabled: !schedule.enabled })
+        window.icode.schedules.setEnabled({ scheduleId: schedule.id, enabled: !schedule.enabled })
       )
       if (!result.ok) notify(errorNotice(result.error))
       else {
@@ -76,7 +76,7 @@ export default function SchedulesView({
     setBusyId(schedule.id)
     try {
       const result = await callApi<{ result: string }>(
-        window.ade.schedules.runNow({ scheduleId: schedule.id })
+        window.icode.schedules.runNow({ scheduleId: schedule.id })
       )
       if (!result.ok) notify(errorNotice(result.error))
       else if (result.value.result === 'created') {

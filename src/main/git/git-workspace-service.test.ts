@@ -66,7 +66,7 @@ type Fixture = {
 }
 
 async function realRepo(): Promise<Fixture> {
-  const root = makeTempRoot('ade-gitw-')
+  const root = makeTempRoot('icode-gitw-')
   const db = openTempDatabase(root)
   const stores = makeRepositoryService(db)
   const worktrees = new WorktreeStore(db)
@@ -117,7 +117,7 @@ async function realRepo(): Promise<Fixture> {
 
   const sessionId = newSessionId()
   const worktreePath = join(root.dir, 'worktrees', 'wt')
-  const branch = 'ade/w83'
+  const branch = 'icode/w83'
   mkdirSync(join(root.dir, 'worktrees'), { recursive: true })
   execFileSync('git', ['-C', repoPath, 'worktree', 'add', '-q', '-b', branch, worktreePath, baseOid], {
     stdio: 'pipe'
@@ -1714,10 +1714,10 @@ describe('git workspace: inspection and history operations', () => {
 
 /**
  * Opt-in budgets for the change set that motivated lazy stats. Run with
- * `ADE_PERF=1 pnpm exec vitest run src/main/git/git-workspace-service.test.ts`.
+ * `ICODE_PERF=1 pnpm exec vitest run src/main/git/git-workspace-service.test.ts`.
  * The default suite skips it because creating 10,000 files is not a unit test.
  */
-describe.runIf(process.env.ADE_PERF === '1')('large repository performance', () => {
+describe.runIf(process.env.ICODE_PERF === '1')('large repository performance', () => {
   it('reads 10k untracked files without per-file stats inside the budget', async () => {
     const f = await realRepo()
     const generated = join(f.worktree, 'generated')

@@ -10,7 +10,7 @@ const roots: string[] = []
 const running: ActivityHookServer[] = []
 
 function socketPath(): string {
-  const root = mkdtempSync(join(tmpdir(), 'ade-hook-sock-'))
+  const root = mkdtempSync(join(tmpdir(), 'icode-hook-sock-'))
   roots.push(root)
   return join(root, 'activity.sock')
 }

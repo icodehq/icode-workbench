@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { AlertCircle, AlertTriangle, ArrowDown, ArrowUp, CheckCircle2, GitBranch, Info, RefreshCw, Server, TerminalSquare, X } from 'lucide-react'
-import type { RuntimeInfo, TaskRecordPayload } from '../../../shared/ade-api'
+import type { RuntimeInfo, TaskRecordPayload } from '../../../shared/icode-api'
 import { hostLabel, hostStatus } from '../state/host-status'
 import type { Notice, WorkspaceState } from '../state/workspace'
 import { useScmStatusSummary } from '../scm/scm-status-store'

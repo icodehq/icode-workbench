@@ -227,7 +227,7 @@ describe('session updates', () => {
       prompt: {
         sessionId: 'ses_two',
         title: 'ses_two',
-        branch: 'ade/ses_two',
+        branch: 'icode/ses_two',
         blocker: null
       }
     })
@@ -322,7 +322,7 @@ describe('worktree lifecycle state', () => {
       type: 'branchesLoaded',
       branches: [
         {
-          branch: 'ade/ses_one',
+          branch: 'icode/ses_one',
           repoId: 'repo_a',
           sessionId: 'ses_one',
           baseOid: 'abc',
@@ -344,7 +344,7 @@ describe('worktree lifecycle state', () => {
       prompt: {
         sessionId: 'ses_one',
         title: 'alpha',
-        branch: 'ade/ses_one',
+        branch: 'icode/ses_one',
         blocker: { kind: 'dirty', files: ['a.ts'] }
       }
     })
@@ -360,7 +360,7 @@ describe('worktree lifecycle state', () => {
       prompt: {
         sessionId: 'ses_one',
         title: 'alpha',
-        branch: 'ade/ses_one',
+        branch: 'icode/ses_one',
         blocker: { kind: 'unmerged', commits: 1 }
       }
     })
@@ -376,11 +376,11 @@ describe('worktree lifecycle state', () => {
     let state = loaded()
     state = workspaceReducer(state, {
       type: 'branchCleanup',
-      prompt: { repoId: 'repo_a', branch: 'ade/ses_two', commits: 3 }
+      prompt: { repoId: 'repo_a', branch: 'icode/ses_two', commits: 3 }
     })
     expect(state.branchCleanup).toEqual({
       repoId: 'repo_a',
-      branch: 'ade/ses_two',
+      branch: 'icode/ses_two',
       commits: 3
     })
     state = workspaceReducer(state, { type: 'branchCleanup', prompt: null })
@@ -394,7 +394,7 @@ describe('worktree lifecycle state', () => {
       session: session('ses_one', 'repo_a', {
         worktree: {
           path: '/tmp/worktrees/a/ses_one',
-          branch: 'ade/ses_one',
+          branch: 'icode/ses_one',
           baseOid: 'abc',
           state: 'ready',
           status: 'missing',

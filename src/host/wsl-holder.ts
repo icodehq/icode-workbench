@@ -2,15 +2,15 @@
  * Hidden Windows wrapper for the WSL lifetime holder.
  *
  * Why this exists. The holder is a long-lived `wsl.exe` that keeps the distro
- * from idling. It must outlive ADE, so it cannot simply be a non-detached child
- * of the Electron main process: ADE's Windows job object kills those when the
+ * from idling. It must outlive iCode, so it cannot simply be a non-detached child
+ * of the Electron main process: iCode's Windows job object kills those when the
  * app exits. But spawning `wsl.exe` with `detached: true` gives the console
  * application its own console, and on Windows 11 with Windows Terminal as the
  * default terminal, `windowsHide: true` does not hide it. The result was a
  * visible, empty terminal window for every WSL host.
  *
  * This wrapper is launched with `ELECTRON_RUN_AS_NODE=1` from the GUI-subsystem
- * ADE executable, so the wrapper itself has no console. It starts `wsl.exe`
+ * iCode executable, so the wrapper itself has no console. It starts `wsl.exe`
  * non-detached with `windowsHide: true`, reports the WSL child's PID through a
  * ready file, and waits for it. The PID recorded as the holder is therefore the
  * actual `wsl.exe` holder, exactly as before this wrapper existed.
@@ -59,7 +59,7 @@ function fail(readyFile: string | undefined, detail: string): never {
 }
 
 /**
- * Entry point used by `out/host/index.js` when ADE launches it as a holder
+ * Entry point used by `out/host/index.js` when iCode launches it as a holder
  * wrapper. The environment is produced by `spawnDetachedHolder` in
  * `main/wsl/host/holder.ts`; the fields are internal and not user input.
  */

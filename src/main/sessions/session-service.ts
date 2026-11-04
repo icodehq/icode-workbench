@@ -95,7 +95,7 @@ export type SessionServiceDeps = {
     target: ExecutionTarget,
     guestCwd: string
   ) => Promise<PathATerminalOutcome>
-  /** Extra CLI arguments for a harness (Claude receives ADE's hook overlay). */
+  /** Extra CLI arguments for a harness (Claude receives iCode's hook overlay). */
   /**
    * Extra arguments for a harness launch — the Claude hook overlay.
    *
@@ -748,7 +748,7 @@ export class SessionService {
     }
     if (pathA !== null && !samePath(attached.cwd, expectedCwd)) {
       // Path A: the PTY must be the one this route starts, or the terminal is not
-      // the WSL terminal ADE claims it is.
+      // the WSL terminal iCode claims it is.
       throw new SessionServiceError(
         makeAppError('WORKTREE_INCONSISTENT', 'The WSL terminal is not running in its expected directory.', {
           detail: `${attached.cwd} != ${expectedCwd}`,
@@ -1060,7 +1060,7 @@ export class SessionService {
         makeAppError('DB_CORRUPT', 'Session repository is missing.', { context: { sessionId } })
       )
     }
-    // Why: only branches ADE recorded for this session may be used to rebuild a
+    // Why: only branches iCode recorded for this session may be used to rebuild a
     // checkout; otherwise recovery could resurrect unrelated user work.
     const owned = this.deps.worktrees.findBranch(record.branch)
     if (!owned || owned.sessionId !== String(sessionId)) {
@@ -1492,7 +1492,7 @@ export class SessionService {
     }
     if (reason === 'session_not_known') {
       return makeAppError('SESSION_NOT_FOUND', 'The terminal host no longer owns this session.', {
-        detail: 'The process ended while ADE was not connected.'
+        detail: 'The process ended while iCode was not connected.'
       })
     }
     return null

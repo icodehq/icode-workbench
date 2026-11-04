@@ -1,4 +1,4 @@
-import type { AdeApi, RuntimeInfo, ViewCommand } from '../shared/ade-api'
+import type { IcodeApi, RuntimeInfo, ViewCommand } from '../shared/icode-api'
 import type { GitStatusWatchEvent } from '../shared/domain/git-workspace'
 import { IPC_CHANNELS } from '../shared/schemas/ipc'
 import type { IpcResult, RendererSessionEvent } from '../shared/schemas/ipc'
@@ -11,7 +11,7 @@ export type SubscribeFn = (channel: string, listener: (payload: unknown) => void
  * surface can be tested without Electron. The renderer gets named operations
  * only: no channel strings, no ipcRenderer, no Node primitives.
  */
-export function createAdeApi(invoke: InvokeFn, subscribe: SubscribeFn): AdeApi {
+export function createIcodeApi(invoke: InvokeFn, subscribe: SubscribeFn): IcodeApi {
   const listeners = new Set<(event: RendererSessionEvent) => void>()
   let disposeChannel: (() => void) | null = null
 
@@ -31,7 +31,7 @@ export function createAdeApi(invoke: InvokeFn, subscribe: SubscribeFn): AdeApi {
   const call = <T>(channel: string, input?: unknown): Promise<IpcResult<T>> =>
     invoke(channel, input) as Promise<IpcResult<T>>
 
-  const api: AdeApi = {
+  const api: IcodeApi = {
     getRuntimeInfo: (): Promise<RuntimeInfo> =>
       invoke(IPC_CHANNELS.runtimeInfo) as Promise<RuntimeInfo>,
     repos: {

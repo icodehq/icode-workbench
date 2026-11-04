@@ -22,10 +22,10 @@ const GUEST: WslGuestHostRecord = {
   distroInstance: 'fde34a6a-a6bf-46a0-8563-9a249cd0f8ad:145',
   pid: 991,
   startTicks: '52397645',
-  hostDir: '/home/u/.ade/host/scope/v24.21.0-node-pty-1.1.0-linux-x64-glibc2.35',
-  socket: '/home/u/.ade/host/scope/v24.21.0-node-pty-1.1.0-linux-x64-glibc2.35/run/host.sock',
+  hostDir: '/home/u/.icode/host/scope/v24.21.0-node-pty-1.1.0-linux-x64-glibc2.35',
+  socket: '/home/u/.icode/host/scope/v24.21.0-node-pty-1.1.0-linux-x64-glibc2.35/run/host.sock',
   protocolVersion: 1,
-  hostVersion: '0.1.0-work4',
+  hostVersion: '0.1.0-icode1',
   buildFingerprint: 'v24.21.0-node-pty-1.1.0-linux-x64-glibc2.35:04a46ad2702cf99a',
   artifactVersion: 'v24.21.0-node-pty-1.1.0-linux-x64-glibc2.35',
   recordedAtMs: 1_729_000_001_000
@@ -83,7 +83,7 @@ describe('Host meta parsing', () => {
         pid: 991,
         startedAt: 1_729_000_001_000,
         protocolVersion: 1,
-        hostVersion: '0.1.0-work4',
+        hostVersion: '0.1.0-icode1',
         socket: '/run/host.sock',
         tokenFile: '/run/token',
         tokenMode: '600'
@@ -93,7 +93,7 @@ describe('Host meta parsing', () => {
       pid: 991,
       startedAt: 1_729_000_001_000,
       protocolVersion: 1,
-      hostVersion: '0.1.0-work4',
+      hostVersion: '0.1.0-icode1',
       socket: '/run/host.sock'
     })
   })

@@ -2,6 +2,7 @@
 node_modules/
 out/
 dist/
+dist-*/
 .cache/
 
 # Generated release packages
@@ -19,6 +20,8 @@ artifacts/*
 # these as not evidence for the Work they sit under).
 artifacts/work12/claude/
 artifacts/work13/worktree/
+# One-off failure capture from a smoke run, not part of the curated evidence.
+artifacts/work14/failure.png
 
 # Logs and OS noise. The curated Work 12-14 app logs are tracked evidence.
 *.log

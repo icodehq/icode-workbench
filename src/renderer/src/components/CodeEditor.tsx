@@ -6,7 +6,7 @@ import type {
   GitApplyPatchPayload,
   GitBlameLine,
   GitBlamePayload
-} from '../../../shared/ade-api'
+} from '../../../shared/icode-api'
 import type { ReviewDiffResult } from '../../../shared/schemas/review'
 import { callApi } from '../lib/api'
 import type { MonacoApi } from '../editor/monaco'
@@ -192,7 +192,7 @@ export default function CodeEditor({
         handle.current = { editor, model, monaco }
         decorationIds.current = []
         blameDecorationIds.current = []
-        ;(container.current as HTMLElement & { __adeEditor?: unknown }).__adeEditor = editor
+        ;(container.current as HTMLElement & { __icodeEditor?: unknown }).__icodeEditor = editor
         setMonacoState('ready')
       })
       .catch(() => {
@@ -203,7 +203,7 @@ export default function CodeEditor({
       const current = handle.current
       handle.current = null
       if (container.current !== null) {
-        delete (container.current as HTMLElement & { __adeEditor?: unknown }).__adeEditor
+        delete (container.current as HTMLElement & { __icodeEditor?: unknown }).__icodeEditor
       }
       decorationIds.current = []
       blameDecorationIds.current = []
@@ -262,7 +262,7 @@ export default function CodeEditor({
     setPeekState({ phase: 'checking' })
     const request = (scope: 'staged' | 'unstaged') =>
       callApi<ReviewDiffResult>(
-        window.ade.review.areaDiff({
+        window.icode.review.areaDiff({
           sessionId,
           path,
           scope,
@@ -332,9 +332,9 @@ export default function CodeEditor({
             options: {
               isWholeLine: true,
               linesDecorationsClassName:
-                change.oldCount > 0 ? 'ade-quick-diff-modified' : 'ade-quick-diff-added',
-              glyphMarginClassName: `ade-quick-diff-glyph ${
-                change.oldCount > 0 ? 'ade-quick-diff-glyph-modified' : 'ade-quick-diff-glyph-added'
+                change.oldCount > 0 ? 'icode-quick-diff-modified' : 'icode-quick-diff-added',
+              glyphMarginClassName: `icode-quick-diff-glyph ${
+                change.oldCount > 0 ? 'icode-quick-diff-glyph-modified' : 'icode-quick-diff-glyph-added'
               }`,
               overviewRuler: {
                 color:
@@ -350,8 +350,8 @@ export default function CodeEditor({
           range: new monaco.Range(safe, 1, safe, model.getLineMaxColumn(safe)),
           options: {
             isWholeLine: true,
-            linesDecorationsClassName: 'ade-quick-diff-deleted',
-            glyphMarginClassName: 'ade-quick-diff-glyph ade-quick-diff-glyph-deleted',
+            linesDecorationsClassName: 'icode-quick-diff-deleted',
+            glyphMarginClassName: 'icode-quick-diff-glyph icode-quick-diff-glyph-deleted',
             overviewRuler: {
               color: 'rgba(248,81,73,0.85)',
               position: monaco.editor.OverviewRulerLane.Left
@@ -382,7 +382,7 @@ export default function CodeEditor({
     }
     let cancelled = false
     const timer = window.setTimeout(() => {
-      void callApi<GitBlamePayload>(window.ade.git.blame({ sessionId, path })).then((result) => {
+      void callApi<GitBlamePayload>(window.icode.git.blame({ sessionId, path })).then((result) => {
         if (cancelled) return
         if (result.ok && result.value.status === 'ok') setBlameLines(result.value.lines)
         else setBlameLines([])
@@ -421,7 +421,7 @@ export default function CodeEditor({
         options: {
           after: {
             content: `  ${text.slice(0, 160)}`,
-            inlineClassName: 'ade-blame-inline'
+            inlineClassName: 'icode-blame-inline'
           },
           hoverMessage: {
             value: `${info.oid.slice(0, 12)} · ${info.author} · ${new Date(
@@ -533,7 +533,7 @@ export default function CodeEditor({
     setPeekNote(null)
     try {
       const result = await callApi<GitApplyPatchPayload>(
-        window.ade.git.applyPatch({
+        window.icode.git.applyPatch({
           sessionId,
           path,
           patch: built.patch,
@@ -556,7 +556,7 @@ export default function CodeEditor({
         })
         return
       }
-      const read = await callApi<FileContentPayload>(window.ade.files.read({ sessionId, path }))
+      const read = await callApi<FileContentPayload>(window.icode.files.read({ sessionId, path }))
       if (read.ok && read.value.status === 'ok') {
         onQuickDiffChanged?.(read.value.text)
       } else {

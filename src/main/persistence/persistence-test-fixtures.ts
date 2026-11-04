@@ -14,7 +14,7 @@ import type { ExecutionTarget } from '../../shared/domain/repository'
 
 export type TempRoot = { dir: string; cleanup: () => void }
 
-export function makeTempRoot(prefix = 'ade-test-'): TempRoot {
+export function makeTempRoot(prefix = 'icode-test-'): TempRoot {
   const dir = mkdtempSync(join(tmpdir(), prefix))
   return {
     dir,
@@ -23,7 +23,7 @@ export function makeTempRoot(prefix = 'ade-test-'): TempRoot {
 }
 
 export function openTempDatabase(root: TempRoot): Database {
-  return openDatabase({ path: join(root.dir, 'ade.sqlite'), migrations: MIGRATIONS })
+  return openDatabase({ path: join(root.dir, 'icode.sqlite'), migrations: MIGRATIONS })
 }
 
 export function makeRepositoryService(

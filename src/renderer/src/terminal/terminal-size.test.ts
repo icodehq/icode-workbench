@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const STORAGE_KEY = 'ade.terminalSize'
+const STORAGE_KEY = 'icode.terminalSize'
 
 function storage(initial: Record<string, string> = {}): {
   getItem: (key: string) => string | null

@@ -1,6 +1,6 @@
 import { app, BrowserWindow, Menu, type MenuItemConstructorOptions } from 'electron'
 import { IPC_CHANNELS } from '../shared/schemas/ipc'
-import type { ViewCommand } from '../shared/ade-api'
+import type { ViewCommand } from '../shared/icode-api'
 
 /**
  * View actions live in the native menu, not in the session header.

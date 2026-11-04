@@ -246,7 +246,7 @@ export class RepositoryService {
               'A repository is already registered for that WSL folder without a distro id.',
               {
                 detail:
-                  'ADE cannot prove the existing registration and this distro are the same installation, so it will not rebind it. Remove that repository and add it again.',
+                  'iCode cannot prove the existing registration and this distro are the same installation, so it will not rebind it. Remove that repository and add it again.',
                 context: { path: root, distro: executionTarget.distro }
               }
             )
@@ -468,7 +468,7 @@ export class RepositoryService {
           'A repository is already registered for that WSL folder without a distro id.',
           {
             detail:
-              'ADE cannot prove the existing registration and this distro are the same installation, so it will not rebind it. Remove that repository and add it again.',
+              'iCode cannot prove the existing registration and this distro are the same installation, so it will not rebind it. Remove that repository and add it again.',
             context: { path: root, distro: target.distro }
           }
         )
@@ -497,7 +497,7 @@ export class RepositoryService {
     const workspace = this.deps.repositories.workspaceForRepo(repository.id)
     if (!workspace) {
       // The one-primary-checkout invariant is enforced by the schema; a missing
-      // row means the database was edited outside ADE.
+      // row means the database was edited outside iCode.
       throw new DatabaseError(
         makeAppError('DB_CORRUPT', 'Repository is missing its primary checkout.', {
           context: { repoId: repository.id }

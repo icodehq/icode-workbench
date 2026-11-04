@@ -1,4 +1,4 @@
-import type { WorkspaceUnavailablePayload } from '../../../shared/ade-api'
+import type { WorkspaceUnavailablePayload } from '../../../shared/icode-api'
 
 /** Shared copy for a checkout that cannot answer Git or file requests. */
 export function workspaceUnavailableText(payload: WorkspaceUnavailablePayload): string {

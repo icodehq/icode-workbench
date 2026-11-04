@@ -1,5 +1,6 @@
 import type { AppError } from './errors'
 import type { RepoId, SessionId } from './ids'
+import { APP_BRANCH_PREFIX } from './app-identity'
 
 /**
  * Durable state of a session worktree. `missing` and `inconsistent` are
@@ -45,7 +46,7 @@ export type WorktreeSummary = {
 
 /**
  * Branch ownership outlives the session row so a retained branch can only be
- * deleted through ADE when ADE created it, and only with the exact name.
+ * deleted through iCode when iCode created it, and only with the exact name.
  */
 export type OwnedBranchRecord = {
   branch: string
@@ -77,9 +78,9 @@ export type RepositoryGitState = {
   inProgressOperation: string | null
 }
 
-export const WORKTREE_BRANCH_PREFIX = 'ade/'
+export const WORKTREE_BRANCH_PREFIX = APP_BRANCH_PREFIX
 
-/** Session IDs already start with `ses_`, so the branch reads `ade/ses_<uuid>`. */
+/** Session IDs already start with `ses_`, so the branch reads `icode/ses_<uuid>`. */
 export function branchNameForSession(sessionId: string): string {
   return `${WORKTREE_BRANCH_PREFIX}${sessionId}`
 }

@@ -1,5 +1,5 @@
 import { Check, Monitor, Moon, RefreshCw, Sun } from 'lucide-react'
-import type { RuntimeInfo } from '../../../shared/ade-api'
+import type { RuntimeInfo } from '../../../shared/icode-api'
 import type { HarnessDetection } from '../../../shared/domain/harness'
 import type { ThemeName, ThemePreference } from '../theme/apply-theme'
 import { hostStatus } from '../state/host-status'
@@ -213,7 +213,7 @@ export default function SettingsView({
 
             <SettingsCard title="About">
               <p className="text-[11px] leading-relaxed text-muted-foreground">
-                Internal application identifiers still use the existing ADE package and data paths.
+                Internal application identifiers still use the existing iCode package and data paths.
                 The visible iCode wordmark is a UI treatment.
               </p>
             </SettingsCard>

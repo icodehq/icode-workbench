@@ -15,7 +15,7 @@ afterEach(() => {
  * shape of a Windows Store App Execution Alias stub.
  */
 function fixture(files: string[], empty: string[] = []): string {
-  const dir = mkdtempSync(join(tmpdir(), 'ade-findexec-'))
+  const dir = mkdtempSync(join(tmpdir(), 'icode-findexec-'))
   dirs.push(dir)
   const write = (file: string, content: string): void => {
     mkdirSync(join(dir, file).replace(/[\\/][^\\/]+$/u, ''), { recursive: true })
@@ -90,7 +90,7 @@ describe('findExecutable on Windows', () => {
   })
 
   it('does not select a .ps1 sibling under the default PATHEXT', () => {
-    // ADE cannot launch a .ps1: Node reports EFTYPE and a Restricted policy
+    // iCode cannot launch a .ps1: Node reports EFTYPE and a Restricted policy
     // blocks the script host outright.
     const dir = fixture([], ['claude.ps1'])
     expect(findExecutable('claude', { PATH: dir }, 'win32')).toBeNull()

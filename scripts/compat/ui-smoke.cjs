@@ -22,7 +22,7 @@ const { connect } = require('./ui-cdp.cjs')
 const APP_DIR = resolve(__dirname, '..', '..')
 const ELECTRON = require('electron')
 const ARTIFACT_DIR = join(APP_DIR, 'artifacts', 'work6')
-const RUN_DIR = mkdtempSync(join(tmpdir(), 'ade-work6-smoke-'))
+const RUN_DIR = mkdtempSync(join(tmpdir(), 'icode-work6-smoke-'))
 const REPO_DIR = join(RUN_DIR, 'repo')
 const USER_DATA = join(RUN_DIR, 'userdata')
 const HOST_DIR = join(RUN_DIR, 'host')
@@ -354,11 +354,11 @@ function prepareRunDir() {
   mkdirSync(HOST_DIR, { recursive: true, mode: 0o700 })
   mkdirSync(EMPTY_BIN, { recursive: true })
   execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: REPO_DIR })
-  writeFileSync(join(REPO_DIR, 'README.md'), '# ADE Work 6 smoke\n')
+  writeFileSync(join(REPO_DIR, 'README.md'), '# iCode Work 6 smoke\n')
   execFileSync('git', ['add', 'README.md'], { cwd: REPO_DIR })
   execFileSync(
     'git',
-    ['-c', 'user.email=ade@example.test', '-c', 'user.name=ADE', 'commit', '-qm', 'init'],
+    ['-c', 'user.email=icode@example.test', '-c', 'user.name=iCode', 'commit', '-qm', 'init'],
     { cwd: REPO_DIR }
   )
   writeFileSync(BROKEN_DIR, 'not a directory\n')
@@ -372,8 +372,8 @@ async function launch(label, environment, port) {
     cwd: APP_DIR,
     env: {
       ...process.env,
-      ADE_GATE_USER_DATA: USER_DATA,
-      ADE_BACKGROUND_LAUNCH: '0',
+      ICODE_GATE_USER_DATA: USER_DATA,
+      ICODE_BACKGROUND_LAUNCH: '0',
       ...environment
     },
     stdio: ['ignore', 'pipe', 'pipe']
@@ -461,7 +461,7 @@ async function main() {
   let port = nextPort++
 
   await step('boot empty workspace and detect Harnesses', async () => {
-    await launch('initial', { ADE_HOST_DIR: HOST_DIR, ADE_HOST_SOCKET: SOCKET }, port)
+    await launch('initial', { ICODE_HOST_DIR: HOST_DIR, ICODE_HOST_SOCKET: SOCKET }, port)
     const empty = await bodyText()
     assert(empty.includes('Add a project'), 'First-run empty state is missing')
     assert((await sessions()).length === 0, 'Expected no sessions on first run')
@@ -564,7 +564,7 @@ async function main() {
     await cdp.send('Emulation.clearDeviceMetricsOverride')
     await sleep(300)
 
-    const before = await cdp.evaluate('window.ade.window.isMaximized()')
+    const before = await cdp.evaluate('window.icode.window.isMaximized()')
     assert(before.ok, `isMaximized failed: ${JSON.stringify(before)}`)
     const expected = !before.value
     await click('[data-testid="window-toggle"]')
@@ -635,7 +635,7 @@ async function main() {
     )
     await typeInSession(
       firstSession.id,
-      'export ADE_SMOKE=first; echo FIRST_PID=$$; echo FIRST_READY'
+      'export ICODE_SMOKE=first; echo FIRST_PID=$$; echo FIRST_READY'
     )
     const output = await waitForTerminalLine(
       firstSession.id,
@@ -830,7 +830,7 @@ async function main() {
     )
     await typeInSession(
       secondSession.id,
-      'export ADE_SMOKE=second; echo SECOND_PID=$$; echo SECOND_READY'
+      'export ICODE_SMOKE=second; echo SECOND_PID=$$; echo SECOND_READY'
     )
     await waitForTerminalLine(
       secondSession.id,
@@ -842,7 +842,7 @@ async function main() {
     await sleep(400)
     await typeInSession(
       firstSession.id,
-      'echo FIRST_STILL=$ADE_SMOKE; echo FIRST_PID_NOW=$$; echo STILL_ALIVE'
+      'echo FIRST_STILL=$ICODE_SMOKE; echo FIRST_PID_NOW=$$; echo STILL_ALIVE'
     )
     await waitForTerminalLine(
       firstSession.id,
@@ -944,7 +944,7 @@ async function main() {
     return feedback
   })
 
-  await step('relaunch ADE and reattach to the surviving incarnations', async () => {
+  await step('relaunch iCode and reattach to the surviving incarnations', async () => {
     const meta = hostMeta()
     assert(meta && pidAlive(meta.pid), 'Detached terminal host is not running before relaunch')
     const beforeQuit = await sessions()
@@ -955,11 +955,11 @@ async function main() {
 
     await quitApp()
     await sleep(1000)
-    assert(pidAlive(hostPid), 'Terminal host died with the ADE app')
-    assert(existsSync(SOCKET), 'Terminal host socket disappeared with the ADE app')
+    assert(pidAlive(hostPid), 'Terminal host died with the iCode app')
+    assert(existsSync(SOCKET), 'Terminal host socket disappeared with the iCode app')
 
     port = nextPort++
-    await launch('relaunch', { ADE_HOST_DIR: HOST_DIR, ADE_HOST_SOCKET: SOCKET }, port)
+    await launch('relaunch', { ICODE_HOST_DIR: HOST_DIR, ICODE_HOST_SOCKET: SOCKET }, port)
     await openProjectSessions()
     await waitFor(
       `new Set(Array.from(document.querySelectorAll('[data-session-id]')).map((el) => el.dataset.sessionId)).size === 2`,
@@ -1002,8 +1002,8 @@ async function main() {
     await launch(
       'unreachable-host',
       {
-        ADE_HOST_DIR: BROKEN_DIR,
-        ADE_HOST_SOCKET: join(BROKEN_DIR, 'terminal-host.sock')
+        ICODE_HOST_DIR: BROKEN_DIR,
+        ICODE_HOST_SOCKET: join(BROKEN_DIR, 'terminal-host.sock')
       },
       port
     )
@@ -1064,7 +1064,7 @@ async function main() {
   await step('restore Host and stop the surviving sessions', async () => {
     await quitApp()
     port = nextPort++
-    await launch('restored', { ADE_HOST_DIR: HOST_DIR, ADE_HOST_SOCKET: SOCKET }, port)
+    await launch('restored', { ICODE_HOST_DIR: HOST_DIR, ICODE_HOST_SOCKET: SOCKET }, port)
     await waitFor(
       `document.querySelector('[data-testid="host-status"]')?.dataset.hostStatus === 'reachable'`,
       'reachable Host status',
@@ -1101,8 +1101,8 @@ async function main() {
     await launch(
       'no-harnesses',
       {
-        ADE_HOST_DIR: HOST_DIR,
-        ADE_HOST_SOCKET: SOCKET,
+        ICODE_HOST_DIR: HOST_DIR,
+        ICODE_HOST_SOCKET: SOCKET,
         // Hide agent executables and the user shell from Harness detection.
         PATH: EMPTY_BIN,
         SHELL: join(EMPTY_BIN, 'no-shell')
@@ -1150,7 +1150,7 @@ async function main() {
 
   await step('complete acknowledged repository removal', async () => {
     port = nextPort++
-    await launch('final', { ADE_HOST_DIR: HOST_DIR, ADE_HOST_SOCKET: SOCKET }, port)
+    await launch('final', { ICODE_HOST_DIR: HOST_DIR, ICODE_HOST_SOCKET: SOCKET }, port)
     await waitFor(
       `document.querySelector('[data-testid="host-status"]')?.dataset.hostStatus === 'reachable'`,
       'reachable Host status',

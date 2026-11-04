@@ -759,7 +759,7 @@ export class ProjectFolderService {
     const result = await runIdempotentGuest(this.deps.runner, {
       scope: 'guest',
       distro: target.distro,
-      argv: ['sh', '-c', 'test -w "$1"', 'ade-writable', path],
+      argv: ['sh', '-c', 'test -w "$1"', 'icode-writable', path],
       timeoutMs: WRITE_CHECK_TIMEOUT_MS
     })
     if ('status' in result || isTransportFailure(result)) {
@@ -803,7 +803,7 @@ export class ProjectFolderService {
     const result = await runIdempotentGuest(this.deps.runner, {
       scope: 'guest',
       distro: target.distro,
-      argv: ['sh', '-c', script, 'ade-nested', parent],
+      argv: ['sh', '-c', script, 'icode-nested', parent],
       timeoutMs: WRITE_CHECK_TIMEOUT_MS
     })
     if ('status' in result || isTransportFailure(result) || result.code !== 0) {

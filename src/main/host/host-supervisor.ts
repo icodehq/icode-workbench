@@ -29,11 +29,11 @@ export class HostSupervisor {
   ) {}
 
   get directory(): string {
-    return this.hostDir ?? process.env.ADE_HOST_DIR ?? join(app.getPath('userData'), 'run')
+    return this.hostDir ?? process.env.ICODE_HOST_DIR ?? join(app.getPath('userData'), 'run')
   }
 
   /**
-   * Scoped to this profile, so two ADE profiles sharing one XDG_RUNTIME_DIR
+   * Scoped to this profile, so two iCode profiles sharing one XDG_RUNTIME_DIR
    * cannot collide and one can never clean up the other's endpoint.
    */
   get socketPath(): string {
@@ -157,7 +157,7 @@ export class HostSupervisor {
           new HostRequestError(
             'HOST_CONNECT_FAILED',
             `Terminal host entry is missing at ${this.hostEntryPath}`,
-            'Run the build before starting ADE.'
+            'Run the build before starting iCode.'
           )
         )
         return
@@ -169,8 +169,8 @@ export class HostSupervisor {
         env: {
           ...process.env,
           ELECTRON_RUN_AS_NODE: '1',
-          ADE_HOST_DIR: this.directory,
-          ADE_HOST_SOCKET: this.socketPath,
+          ICODE_HOST_DIR: this.directory,
+          ICODE_HOST_SOCKET: this.socketPath,
           ...this.extraEnv
         }
       })
@@ -222,7 +222,7 @@ export class HostSupervisor {
 
 /**
  * Keeps the original diagnostic while making it actionable. A host recorded in
- * this profile is left untouched: ADE never signals it, and its endpoint stays
+ * this profile is left untouched: iCode never signals it, and its endpoint stays
  * in place for whoever still owns it.
  */
 function unreachableMessage(meta: HostMeta, socketPath: string): string {
@@ -233,7 +233,7 @@ function unreachableMessage(meta: HostMeta, socketPath: string): string {
       : ` at ${endpoint}`
   return (
     `Terminal host ${meta.pid} is running but is not accepting connections${moved}. ` +
-    'ADE will not stop it or remove its endpoint. Save any work in its sessions, stop that process, then retry.'
+    'iCode will not stop it or remove its endpoint. Save any work in its sessions, stop that process, then retry.'
   )
 }
 

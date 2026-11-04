@@ -74,7 +74,7 @@ describe('session creation', () => {
     expect(config.cols).toBe(120)
     expect(config.rows).toBe(40)
     expect(config.env.TERM).toBe('xterm-256color')
-    expect(config.env.ADE_SESSION_ID).toBe('ses_aaaaaaaaaaaa')
+    expect(config.env.ICODE_SESSION_ID).toBe('ses_aaaaaaaaaaaa')
     expect(config.env.ELECTRON_RUN_AS_NODE).toBeUndefined()
     await expect(registry.snapshot(request.sessionId)).resolves.toMatchObject({
       cols: 120,

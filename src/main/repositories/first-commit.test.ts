@@ -26,7 +26,7 @@ afterEach(() => {
 })
 
 function tempRoot(): string {
-  const root = mkdtempSync(join(tmpdir(), 'ade-first-commit-'))
+  const root = mkdtempSync(join(tmpdir(), 'icode-first-commit-'))
   roots.push(root)
   return root
 }

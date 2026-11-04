@@ -18,7 +18,7 @@ const { connect } = require('./ui-cdp.cjs')
 const APP_DIR = resolve(__dirname, '..', '..')
 const ELECTRON = require('electron')
 const ARTIFACT_DIR = join(APP_DIR, 'artifacts', 'project-onboarding-smoke')
-const RUN_DIR = mkdtempSync(join(tmpdir(), 'ade-project-onboarding-'))
+const RUN_DIR = mkdtempSync(join(tmpdir(), 'icode-project-onboarding-'))
 const USER_DATA = join(RUN_DIR, 'userdata')
 const FOLDER = join(RUN_DIR, 'plain-project')
 const PARENT = join(RUN_DIR, 'repo-parent')
@@ -132,8 +132,8 @@ async function launch() {
     cwd: APP_DIR,
     env: {
       ...process.env,
-      ADE_GATE_USER_DATA: USER_DATA,
-      ADE_BACKGROUND_LAUNCH: '0'
+      ICODE_GATE_USER_DATA: USER_DATA,
+      ICODE_BACKGROUND_LAUNCH: '0'
     },
     stdio: ['ignore', 'pipe', 'pipe']
   })
@@ -227,7 +227,7 @@ async function main() {
   await step('finish the first commit in the background and skip dependencies', async () => {
     await waitFor(
       `(async () => {
-        const result = await window.ade.repos.list();
+        const result = await window.icode.repos.list();
         return result.ok && result.value.some((repo) =>
           repo.path === ${JSON.stringify(FOLDER)} && repo.preparation?.state === 'ready'
         );
@@ -272,7 +272,7 @@ async function main() {
       20_000
     )
     const repos = await cdp.evaluate(`(async () => {
-      const result = await window.ade.repos.list();
+      const result = await window.icode.repos.list();
       return result.ok ? result.value.map((repo) => repo.path) : result;
     })()`)
     assert(Array.isArray(repos) && repos.includes(CHILD), 'The child repository was not registered')

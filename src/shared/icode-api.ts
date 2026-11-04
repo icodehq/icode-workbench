@@ -141,7 +141,7 @@ export type RuntimeInfo = {
  * The renderer never sees IPC channel names or a raw ipcRenderer, and cannot
  * supply commands, cwd, or host protocol messages.
  */
-export type AdeProductApi = {
+export type IcodeProductApi = {
   repos: {
     list: () => Promise<IpcResult<RepositorySummary[]>>
     add: (
@@ -732,6 +732,6 @@ export type GitRemoteBranchesPayload =
 export type { FileContent, FileListing, FileSearchResult, GitCommitResult, GitStatusEntry, GitWorkspaceStatus }
 
 /** Implemented renderer surface: diagnostics plus the product API. */
-export type AdeApi = {
+export type IcodeApi = {
   getRuntimeInfo: () => Promise<RuntimeInfo>
-} & AdeProductApi
+} & IcodeProductApi

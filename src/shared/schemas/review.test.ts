@@ -121,7 +121,7 @@ describe('review diff payloads', () => {
     expect(
       reviewDiffResultSchema.safeParse({
         status: 'unavailable',
-        reason: 'made-up',
+        reason: 'invalid',
         detail: 'nope'
       }).success
     ).toBe(false)

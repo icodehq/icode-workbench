@@ -14,7 +14,7 @@ export type ActivityBroadcasterOptions = {
 
 /**
  * Pushes activity to renderers and raises at most one OS notification per
- * logical transition into `done` or `waiting`, and only while no ADE window has
+ * logical transition into `done` or `waiting`, and only while no iCode window has
  * focus. Duplicate hook delivery cannot notify twice because the service only
  * reports an `attention` value for an accepted state change.
  */
@@ -29,7 +29,7 @@ export class ActivityBroadcaster {
     this.isAnyWindowFocused =
       options.isAnyWindowFocused ??
       (() => BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && window.isFocused()))
-    this.log = options.log ?? ((message) => process.stderr.write(`[ade] ${message}\n`))
+    this.log = options.log ?? ((message) => process.stderr.write(`[icode] ${message}\n`))
     this.send =
       options.send ??
       ((event) => {

@@ -5,8 +5,8 @@
  * dials the Host's Unix socket and pipes its own stdin/stdout to it, which turns
  * `wsl.exe --exec` into a byte pipe over an arbitrary Windows-side transport.
  *
- * Why a Unix socket and not Orca's loopback TCP: ADE's Host listens on a socket
- * path (`ADE_HOST_SOCKET`), and a path is also what proves the endpoint belongs
+ * Why a Unix socket and not Orca's loopback TCP: iCode's Host listens on a socket
+ * path (`ICODE_HOST_SOCKET`), and a path is also what proves the endpoint belongs
  * to this profile — see `endpoint.ts`. The piping rules are Orca's, because they
  * are what makes a bridge survive real traffic:
  *
@@ -20,11 +20,11 @@
  */
 
 /** Printed once the Host socket is connected. */
-export const BRIDGE_READY = 'ADE-STDIO-BRIDGE READY'
+export const BRIDGE_READY = 'ICODE-STDIO-BRIDGE READY'
 /** The Host socket refused the dial: the Host is not listening. */
-export const BRIDGE_REFUSED = 'ADE-STDIO-BRIDGE REFUSED'
+export const BRIDGE_REFUSED = 'ICODE-STDIO-BRIDGE REFUSED'
 /** The pinned runtime could not start the script at all. */
-export const BRIDGE_NO_NODE = 'ADE-STDIO-BRIDGE NO_NODE'
+export const BRIDGE_NO_NODE = 'ICODE-STDIO-BRIDGE NO_NODE'
 
 /**
  * Bounds a half-closed bridge whose Host side never closes after the client's

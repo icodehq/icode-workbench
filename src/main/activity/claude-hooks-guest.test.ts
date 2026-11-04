@@ -23,9 +23,9 @@ import {
  */
 
 const ACCESS = {
-  guestExecutablePath: '/mnt/d/Apps/ADE/ade.exe',
-  scriptPath: 'D:\\Users\\Oliver Xu\\AppData\\Roaming\\ADE\\agent-hooks\\ade-activity-hook.cjs',
-  activitySocket: '\\\\.\\pipe\\ade-activity-1a2b3c'
+  guestExecutablePath: '/mnt/d/Apps/iCode/icode.exe',
+  scriptPath: 'D:\\Users\\Oliver Xu\\AppData\\Roaming\\iCode\\agent-hooks\\icode-activity-hook.cjs',
+  activitySocket: '\\\\.\\pipe\\icode-activity-1a2b3c'
 }
 
 const commands = (settings: string): string[] => {
@@ -45,7 +45,7 @@ describe('guest Claude settings', () => {
   it('starts the Windows hook through a guest-executable path, never a drive path', () => {
     for (const command of commands(buildGuestClaudeSettings(ACCESS, true))) {
       // The executable is the /mnt spelling: a guest shell cannot exec `D:\…`.
-      expect(command).toContain("'/mnt/d/Apps/ADE/ade.exe'")
+      expect(command).toContain("'/mnt/d/Apps/iCode/icode.exe'")
       expect(command).not.toContain("'D:\\Apps")
     }
   })
@@ -57,10 +57,10 @@ describe('guest Claude settings', () => {
 
   it('carries the activity endpoint and crosses the per-session variables', () => {
     const command = commands(buildGuestClaudeSettings(ACCESS, true))[0]!
-    expect(command).toContain(`ADE_ACTIVITY_SOCKET='${ACCESS.activitySocket}'`)
+    expect(command).toContain(`ICODE_ACTIVITY_SOCKET='${ACCESS.activitySocket}'`)
     // Without /p: a pipe name is not a path and must arrive unchanged.
     expect(command).toContain(
-      "WSLENV='ADE_ACTIVITY_SOCKET:ADE_SESSION_ID:ADE_SESSION_INCARNATION:ELECTRON_RUN_AS_NODE'"
+      "WSLENV='ICODE_ACTIVITY_SOCKET:ICODE_SESSION_ID:ICODE_SESSION_INCARNATION:ELECTRON_RUN_AS_NODE'"
     )
     expect(command).toContain('ELECTRON_RUN_AS_NODE=1')
     expect(command).not.toMatch(/WSLENV='[^']*\/p/)
@@ -73,7 +73,7 @@ describe('guest Claude settings', () => {
     }
     // A space in the script path stays inside one quoted word.
     expect(guestHookCommandFor(ACCESS, 'Stop', true)).toContain(
-      "'D:\\Users\\Oliver Xu\\AppData\\Roaming\\ADE\\agent-hooks\\ade-activity-hook.cjs'"
+      "'D:\\Users\\Oliver Xu\\AppData\\Roaming\\iCode\\agent-hooks\\icode-activity-hook.cjs'"
     )
   })
 
@@ -108,7 +108,7 @@ describe('installing the guest overlay', () => {
   })
 
   it('writes both overlays and leaves the local one byte-identical', () => {
-    root = mkdtempSync(join(tmpdir(), 'ade-hooks-'))
+    root = mkdtempSync(join(tmpdir(), 'icode-hooks-'))
     const directory = join(root, 'agent-hooks')
 
     const withoutGuest = installClaudeHooks({
@@ -124,7 +124,7 @@ describe('installing the guest overlay', () => {
       directory,
       execPath: '/usr/bin/node',
       electronRunAsNode: false,
-      guest: { guestExecutablePath: '/mnt/c/node.exe', activitySocket: '\\\\.\\pipe\\ade-activity-x' }
+      guest: { guestExecutablePath: '/mnt/c/node.exe', activitySocket: '\\\\.\\pipe\\icode-activity-x' }
     })
     // Local behaviour is untouched by the guest overlay existing.
     expect(readFileSync(withGuest.settingsPath, 'utf8')).toBe(localBefore)

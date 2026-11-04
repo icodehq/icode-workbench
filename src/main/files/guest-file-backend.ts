@@ -54,7 +54,7 @@ cd "$root" 2>/dev/null || { echo "NOTFOUND"; exit 4; }
 if [ -d "$f" ]; then echo "ISDIR"; exit 6; fi
 if [ -e "$f" ] && [ ! -f "$f" ]; then echo "NOTFILE"; exit 7; fi
 # Stage then move, so a failed or empty write cannot truncate the real file.
-tmp="$f.ade-write-$$"
+tmp="$f.icode-write-$$"
 cat > "$tmp" || { rm -f "$tmp"; echo "WRITEFAIL"; exit 8; }
 mv -f "$tmp" "$f" || { rm -f "$tmp"; echo "WRITEFAIL"; exit 8; }
 wc -c < "$f"

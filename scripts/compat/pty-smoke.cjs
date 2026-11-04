@@ -11,8 +11,8 @@ const pty = require('node-pty')
 
 const EXPECTED_ELECTRON = '43.7.8'
 const EXPECTED_ABI = '148'
-const artifacts = process.env.ADE_GATE_ARTIFACTS
-  ? path.resolve(process.env.ADE_GATE_ARTIFACTS)
+const artifacts = process.env.ICODE_GATE_ARTIFACTS
+  ? path.resolve(process.env.ICODE_GATE_ARTIFACTS)
   : path.resolve('artifacts/work1')
 const evidencePath = path.join(artifacts, 'pty-smoke.json')
 
@@ -108,7 +108,7 @@ async function main() {
     }
   }
   writeEvidence(evidence)
-  process.stdout.write(`ADE_GATE_PTY_OK ${JSON.stringify(evidence.pty)}\n`)
+  process.stdout.write(`ICODE_GATE_PTY_OK ${JSON.stringify(evidence.pty)}\n`)
 }
 
 main().catch(fail)

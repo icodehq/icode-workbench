@@ -77,7 +77,7 @@ export const MIGRATIONS: readonly Migration[] = [
        ) STRICT`,
       `CREATE INDEX session_worktrees_repo_idx ON session_worktrees (repo_id)`,
       // Why: branch ownership must outlive the session row so a retained branch
-      // can only be deleted through ADE with the exact name the user confirms.
+      // can only be deleted through iCode with the exact name the user confirms.
       `CREATE TABLE worktree_branches (
          branch TEXT PRIMARY KEY NOT NULL,
          repo_id TEXT NOT NULL REFERENCES repos(id) ON DELETE CASCADE,

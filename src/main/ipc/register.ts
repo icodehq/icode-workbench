@@ -192,7 +192,7 @@ export function createAppDispatcher(
       /*
        * The picker is composed here because only this layer may touch Electron.
        * The dialog is parented to the window that asked, so it behaves like a
-       * sheet over ADE rather than a stray window, and the distro's home is read
+       * sheet over iCode rather than a stray window, and the distro's home is read
        * through the same WSL runner every other guest call uses.
        */
       const picker = new RepositoryFolderPicker({
@@ -504,7 +504,7 @@ export function registerAppIpc(
       if (!isTrustedFrame(event.senderFrame, options.devServerUrl)) {
         return {
           ok: false,
-          error: makeAppError('INVALID_ARGUMENT', 'Request did not come from the ADE renderer.')
+          error: makeAppError('INVALID_ARGUMENT', 'Request did not come from the iCode renderer.')
         }
       }
       return dispatcher(channel, input)

@@ -30,7 +30,7 @@ function sha(text: string): string {
 
 /** A tiny artifact tree with the same shape as the real one. */
 function makeArtifactTree(): { root: string; manifest: HostArtifactManifest; text: string } {
-  const root = mkdtempSync(join(tmpdir(), 'ade-w58-artifacts-'))
+  const root = mkdtempSync(join(tmpdir(), 'icode-w58-artifacts-'))
   roots.push(root)
   const files: Record<string, string> = {}
   const contents: Array<[string, Buffer]> = [
@@ -87,11 +87,11 @@ describe('manifest', () => {
   })
 
   it('gives two builds different paths and a stable path per build', () => {
-    const a = deployPathsFor('/home/u/.ade/host/scope', 'v1')
-    const b = deployPathsFor('/home/u/.ade/host/scope', 'v2')
-    expect(a.root).toBe('/home/u/.ade/host/scope/v1')
+    const a = deployPathsFor('/home/u/.icode/host/scope', 'v1')
+    const b = deployPathsFor('/home/u/.icode/host/scope', 'v2')
+    expect(a.root).toBe('/home/u/.icode/host/scope/v1')
     expect(a.root).not.toBe(b.root)
-    expect(a.pidFile).toBe('/home/u/.ade/host/scope/v1/run/host.pid')
+    expect(a.pidFile).toBe('/home/u/.icode/host/scope/v1/run/host.pid')
   })
 })
 
@@ -133,13 +133,13 @@ describe('deployment', () => {
       calls.push([...argv])
       const guestArgv = argv.slice(argv.indexOf('--exec') + 1)
       if (script.failOn?.(guestArgv)) {
-        const stderr = guestArgv.includes('ade-verify')
+        const stderr = guestArgv.includes('icode-verify')
           ? 'node: cannot execute /tree/node/bin/node'
           : 'upload failed'
         return { code: 1, signal: null, stdout: '', stderr, timedOut: false }
       }
       // The marker read is the only call whose target is the marker file.
-      if (guestArgv.includes('ade-read')) {
+      if (guestArgv.includes('icode-read')) {
         return {
           code: 0,
           signal: null,
@@ -148,7 +148,7 @@ describe('deployment', () => {
           timedOut: false
         }
       }
-      if (guestArgv.includes('ade-verify')) {
+      if (guestArgv.includes('icode-verify')) {
         return {
           code: 0,
           signal: null,
@@ -172,7 +172,7 @@ describe('deployment', () => {
         runner,
         distro: 'Ubuntu-26.04',
         artifactRoot: root,
-        hostRoot: '/home/u/.ade/host/scope',
+        hostRoot: '/home/u/.icode/host/scope',
         manifest
       })
     )
@@ -182,7 +182,7 @@ describe('deployment', () => {
     expect(outcome.reused).toBe(false)
     // 4 files + manifest + verify script + dirs + chmod + verify + marker
     expect(calls.length).toBeGreaterThanOrEqual(9)
-    expect(calls.some((argv) => argv.includes('ade-verify'))).toBe(true)
+    expect(calls.some((argv) => argv.includes('icode-verify'))).toBe(true)
   })
 
   it('reuses a tree whose marker names this exact build', async () => {
@@ -193,7 +193,7 @@ describe('deployment', () => {
         runner,
         distro: 'Ubuntu-26.04',
         artifactRoot: root,
-        hostRoot: '/home/u/.ade/host/scope',
+        hostRoot: '/home/u/.icode/host/scope',
         manifest
       })
     )
@@ -215,7 +215,7 @@ describe('deployment', () => {
         runner,
         distro: 'Ubuntu-26.04',
         artifactRoot: root,
-        hostRoot: '/home/u/.ade/host/scope',
+        hostRoot: '/home/u/.icode/host/scope',
         manifest
       })
     )
@@ -238,7 +238,7 @@ describe('deployment', () => {
         runner,
         distro: 'Ubuntu-26.04',
         artifactRoot: root,
-        hostRoot: '/home/u/.ade/host/scope',
+        hostRoot: '/home/u/.icode/host/scope',
         manifest
       })
     )
@@ -258,7 +258,7 @@ describe('deployment', () => {
         runner,
         distro: 'Ubuntu-26.04',
         artifactRoot: root,
-        hostRoot: '/home/u/.ade/host/scope',
+        hostRoot: '/home/u/.icode/host/scope',
         manifest
       })
     )
@@ -270,13 +270,13 @@ describe('deployment', () => {
 
   it('fails when the pinned runtime cannot run the verifier', async () => {
     const { root, manifest } = makeArtifactTree()
-    const { runner } = runnerFor({ failOn: (argv) => argv.includes('ade-verify') })
+    const { runner } = runnerFor({ failOn: (argv) => argv.includes('icode-verify') })
     const outcome = outcomeOf(
       await deployHost({
         runner,
         distro: 'Ubuntu-26.04',
         artifactRoot: root,
-        hostRoot: '/home/u/.ade/host/scope',
+        hostRoot: '/home/u/.icode/host/scope',
         manifest
       })
     )
@@ -294,15 +294,15 @@ describe('deployment', () => {
       const guest = spec.args.slice(spec.args.indexOf('--exec') + 1)
       calls.push([...guest])
       const isTargetUpload =
-        guest.includes('ade-write') && guest.some((arg) => arg.endsWith('node-pty/package.json'))
+        guest.includes('icode-write') && guest.some((arg) => arg.endsWith('node-pty/package.json'))
       if (isTargetUpload && !failedOnce) {
         failedOnce = true
         return { code: 1, signal: null, stdout: '', stderr: '', timedOut: false }
       }
-      if (guest.includes('ade-read')) {
+      if (guest.includes('icode-read')) {
         return { code: 0, signal: null, stdout: '', stderr: '', timedOut: false }
       }
-      if (guest.includes('ade-verify')) {
+      if (guest.includes('icode-verify')) {
         return { code: 0, signal: null, stdout: JSON.stringify({ checked: 4, mismatches: [] }), stderr: '', timedOut: false }
       }
       return { code: 0, signal: null, stdout: '', stderr: '', timedOut: false }
@@ -311,12 +311,12 @@ describe('deployment', () => {
       runner: new WslCommandRunner({ launcher, platform: 'win32' }),
       distro: 'Ubuntu-26.04',
       artifactRoot: root,
-      hostRoot: '/home/u/.ade/host/scope',
+      hostRoot: '/home/u/.icode/host/scope',
       manifest
     })
     expect(outcome.status).toBe('deployed')
     const targetWrites = calls.filter(
-      (guest) => guest.includes('ade-write') && guest.some((arg) => arg.endsWith('node-pty/package.json'))
+      (guest) => guest.includes('icode-write') && guest.some((arg) => arg.endsWith('node-pty/package.json'))
     )
     expect(targetWrites).toHaveLength(2)
   })
@@ -330,7 +330,7 @@ describe('deployment', () => {
       runner,
       distro: 'Ubuntu-26.04',
       artifactRoot: root,
-      hostRoot: '/home/u/.ade/host/scope',
+      hostRoot: '/home/u/.icode/host/scope',
       manifest
     })
     expect(outcome.status).toBe('upload_failed')
@@ -345,10 +345,10 @@ describe('deployment', () => {
       runner,
       distro: 'Ubuntu-26.04',
       artifactRoot: root,
-      hostRoot: '/home/u/.ade/host/scope',
+      hostRoot: '/home/u/.icode/host/scope',
       manifest
     })
-    expect(calls.some((argv) => argv.includes('ade-marker'))).toBe(false)
+    expect(calls.some((argv) => argv.includes('icode-marker'))).toBe(false)
   })
 
   it('verifies with the pinned node, never a system interpreter', async () => {
@@ -358,11 +358,11 @@ describe('deployment', () => {
       runner,
       distro: 'Ubuntu-26.04',
       artifactRoot: root,
-      hostRoot: '/home/u/.ade/host/scope',
+      hostRoot: '/home/u/.icode/host/scope',
       manifest
     })
-    const verifyCall = calls.find((argv) => argv.includes('ade-verify'))!
-    const paths = deployPathsFor('/home/u/.ade/host/scope', manifest.artifactVersion)
+    const verifyCall = calls.find((argv) => argv.includes('icode-verify'))!
+    const paths = deployPathsFor('/home/u/.icode/host/scope', manifest.artifactVersion)
     expect(verifyCall).toContain(paths.node)
     expect(verifyCall).toContain(paths.verifyScript)
   })

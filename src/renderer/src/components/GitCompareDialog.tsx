@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { FileDiff, X } from 'lucide-react'
-import type { GitComparePayload } from '../../../shared/ade-api'
+import type { GitComparePayload } from '../../../shared/icode-api'
 
 type CompareData = Extract<GitComparePayload, { status: 'ok' }>
 
@@ -47,7 +47,7 @@ export default function GitCompareDialog({
         if (event.target === event.currentTarget) onClose()
       }}
     >
-      <div className="ade-modal flex max-h-[80vh] w-[min(600px,100%)] flex-col overflow-hidden rounded-xl border border-line-strong bg-overlay shadow-[var(--ade-shadow-overlay)]">
+      <div className="icode-modal flex max-h-[80vh] w-[min(600px,100%)] flex-col overflow-hidden rounded-xl border border-line-strong bg-overlay shadow-[var(--icode-shadow-overlay)]">
         <div className="flex items-start gap-3 border-b border-border px-4 py-3">
           <div className="min-w-0 flex-1">
             <h2 className="text-[14px] font-semibold">Compare with baseline</h2>

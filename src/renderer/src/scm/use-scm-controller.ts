@@ -12,7 +12,7 @@ import type {
   GitOperationStatePayload,
   GitResolveConflictPayload,
   GitStatusPayload
-} from '../../../shared/ade-api'
+} from '../../../shared/icode-api'
 import type {
   GitOperationKind,
   GitWorkspaceStatus,
@@ -205,7 +205,7 @@ export function useScmController({
       gitGeneration.current = generation
       if (!silent) setLoading(true)
       try {
-        const result = await callApi<GitStatusPayload>(window.ade.git.status({ sessionId }))
+        const result = await callApi<GitStatusPayload>(window.icode.git.status({ sessionId }))
         if (generation !== gitGeneration.current) return
         if (!silent) setLoading(false)
         if (!result.ok) {
@@ -250,7 +250,7 @@ export function useScmController({
 
   const loadOperation = useCallback(async (): Promise<void> => {
     const result = await callApi<GitOperationStatePayload>(
-      window.ade.git.operationState({ sessionId })
+      window.icode.git.operationState({ sessionId })
     )
     if (result.ok && result.value.status === 'ok') setOperation(result.value.operation)
     else setOperation(null)
@@ -299,17 +299,17 @@ export function useScmController({
     let cancelled = false
     const start = async (): Promise<void> => {
       const result = await callApi<{ watching: boolean; reason?: GitWatchUnavailableReason }>(
-        window.ade.git.watchStatus({ sessionId, active: true })
+        window.icode.git.watchStatus({ sessionId, active: true })
       )
       if (cancelled) {
         if (result.ok && result.value.watching) {
-          void window.ade.git.watchStatus({ sessionId, active: false })
+          void window.icode.git.watchStatus({ sessionId, active: false })
         }
         return
       }
       setWatchMode(result.ok && result.value.watching ? 'watch' : 'poll')
     }
-    const unsubscribe = window.ade.git.onStatusChange((event) => {
+    const unsubscribe = window.icode.git.onStatusChange((event) => {
       if (cancelled || event.sessionId !== sessionId) return
       if (event.failed) {
         setWatchMode('poll')
@@ -323,7 +323,7 @@ export function useScmController({
     void start()
     const onVisibility = (): void => {
       const visible = document.visibilityState === 'visible'
-      void window.ade.git.watchStatus({ sessionId, active: visible })
+      void window.icode.git.watchStatus({ sessionId, active: visible })
       if (visible) void loadGit(true)
     }
     document.addEventListener('visibilitychange', onVisibility)
@@ -332,7 +332,7 @@ export function useScmController({
       unsubscribe()
       document.removeEventListener('visibilitychange', onVisibility)
       setWatchMode('probing')
-      void window.ade.git.watchStatus({ sessionId, active: false })
+      void window.icode.git.watchStatus({ sessionId, active: false })
     }
   }, [active, loadGit, loadOperation, sessionId])
 
@@ -370,7 +370,7 @@ export function useScmController({
       if (inFlight) return
       inFlight = true
       try {
-        const result = await callApi<GitFetchPayload>(window.ade.git.fetch({ sessionId }))
+        const result = await callApi<GitFetchPayload>(window.icode.git.fetch({ sessionId }))
         if (cancelled) return
         if (result.ok && result.value.status === 'ok') {
           autoFetchFailures.current = 0
@@ -457,7 +457,7 @@ export function useScmController({
       if (stageGeneration.current !== generation) return
       try {
         const result = await callApi<GitOpPayload>(
-          window.ade.git.setPathStaged({ sessionId, path, staged })
+          window.icode.git.setPathStaged({ sessionId, path, staged })
         )
         if (stageGeneration.current !== generation) return
         if (!result.ok) {
@@ -509,7 +509,7 @@ export function useScmController({
       }
       try {
         const result = await callApi<GitApplyPatchPayload>(
-          window.ade.git.applyPatch({ sessionId, path, patch, mode })
+          window.icode.git.applyPatch({ sessionId, path, patch, mode })
         )
         if (!result.ok) {
           notify(errorNotice(result.error))
@@ -575,7 +575,7 @@ export function useScmController({
       }
       try {
         const write = await callApi<FilesWritePayload>(
-          window.ade.files.write({ sessionId, path, text })
+          window.icode.files.write({ sessionId, path, text })
         )
         if (!write.ok) {
           notify(errorNotice(write.error))
@@ -588,7 +588,7 @@ export function useScmController({
           return outcome
         }
         const resolved = await callApi<GitResolveConflictPayload>(
-          window.ade.git.resolveConflict({ sessionId, path })
+          window.icode.git.resolveConflict({ sessionId, path })
         )
         if (!resolved.ok) {
           notify(errorNotice(resolved.error))
@@ -642,7 +642,7 @@ export function useScmController({
         status: entry.entry.status
       }))
       const result = await callApi<GitBatchPayload>(
-        window.ade.git.setPathsStaged({ sessionId, targets, staged })
+        window.icode.git.setPathsStaged({ sessionId, targets, staged })
       )
       if (!result.ok) {
         notify(errorNotice(result.error))
@@ -692,7 +692,7 @@ export function useScmController({
         status: target.entry.status
       }))
       const result = await callApi<GitBatchPayload>(
-        window.ade.git.discardPaths({
+        window.icode.git.discardPaths({
           sessionId,
           targets,
           ...(snapshot?.revision ? { expectedRevision: snapshot.revision } : {})
@@ -742,7 +742,7 @@ export function useScmController({
     setCommitBusy(true)
     try {
       const result = await callApi<GitCommitPayload>(
-        window.ade.git.commit({
+        window.icode.git.commit({
           sessionId,
           message,
           ...options,
@@ -767,7 +767,7 @@ export function useScmController({
         commitMessage: current.commitMessage === message ? '' : current.commitMessage
       }))
       if (pushAfter) {
-        const pushed = await callApi<GitBranchPayload>(window.ade.git.push({ sessionId }))
+        const pushed = await callApi<GitBranchPayload>(window.icode.git.push({ sessionId }))
         if (!pushed.ok) {
           notify(errorNotice(pushed.error))
         } else if (pushed.value.status === 'unavailable') {
@@ -803,8 +803,8 @@ export function useScmController({
     try {
       const result = await callApi<GitOperationActionPayload>(
         action === 'continue'
-          ? window.ade.git.continueOperation({ sessionId })
-          : window.ade.git.abortOperation({ sessionId })
+          ? window.icode.git.continueOperation({ sessionId })
+          : window.icode.git.abortOperation({ sessionId })
       )
       if (!result.ok) {
         notify(errorNotice(result.error))
@@ -835,7 +835,7 @@ export function useScmController({
       const call = kind === 'publish' ? 'publish' : kind === 'pull' || kind === 'sync' ? 'pull' : 'push'
       const input =
         call === 'pull' ? { sessionId, rebase: settings.pullRebase } : { sessionId }
-      const result = await callApi<GitBranchPayload>(window.ade.git[call](input))
+      const result = await callApi<GitBranchPayload>(window.icode.git[call](input))
       if (!result.ok) {
         notify(errorNotice(result.error))
         return
@@ -845,7 +845,7 @@ export function useScmController({
         return
       }
       if (kind === 'sync') {
-        const pushed = await callApi<GitBranchPayload>(window.ade.git.push({ sessionId }))
+        const pushed = await callApi<GitBranchPayload>(window.icode.git.push({ sessionId }))
         if (!pushed.ok) {
           notify(errorNotice(pushed.error))
           return
@@ -878,7 +878,7 @@ export function useScmController({
     if (busy) return
     setBusy(true)
     try {
-      const result = await callApi<GitFetchPayload>(window.ade.git.fetch({ sessionId }))
+      const result = await callApi<GitFetchPayload>(window.icode.git.fetch({ sessionId }))
       if (!result.ok) {
         notify(errorNotice(result.error))
         return
@@ -908,7 +908,7 @@ export function useScmController({
     setAmendBusy(true)
     try {
       const result = await callApi<GitCommitPayload>(
-        window.ade.git.amend({
+        window.icode.git.amend({
           sessionId,
           ...(sentMessage.trim().length > 0 ? { message: sentMessage.trim() } : {}),
           ...(settings.enableCommitSigning ? { sign: true } : {})

@@ -37,7 +37,7 @@ export function findExecutable(
   const dirs = pathValue.split(delimiter).filter((dir) => dir.length > 0)
   // A name that already carries an extension must not have every PATHEXT
   // extension appended to it: `powershell.exe` was searched as
-  // `powershell.exe.EXE`, so the default shell could never be found and ADE
+  // `powershell.exe.EXE`, so the default shell could never be found and iCode
   // silently fell back to cmd.exe.
   const hasExtension = /\.[A-Za-z0-9]+$/u.test(name)
   const candidates =

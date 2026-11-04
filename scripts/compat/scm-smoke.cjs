@@ -21,12 +21,12 @@ const { join, resolve } = require('node:path')
 const { connect } = require('./ui-cdp.cjs')
 
 const APP_DIR = resolve(__dirname, '..', '..')
-const PACKAGED_EXECUTABLE = process.env.ADE_SMOKE_EXECUTABLE
-  ? resolve(process.env.ADE_SMOKE_EXECUTABLE)
+const PACKAGED_EXECUTABLE = process.env.ICODE_SMOKE_EXECUTABLE
+  ? resolve(process.env.ICODE_SMOKE_EXECUTABLE)
   : null
 const ELECTRON = PACKAGED_EXECUTABLE ?? require('electron')
 const ARTIFACT_DIR = join(APP_DIR, 'artifacts', 'scm-smoke')
-const RUN_DIR = mkdtempSync(join(tmpdir(), 'ade-scm-smoke-'))
+const RUN_DIR = mkdtempSync(join(tmpdir(), 'icode-scm-smoke-'))
 const REPO_DIR = join(RUN_DIR, 'repo')
 const REMOTE_DIR = join(RUN_DIR, 'remote.git')
 const USER_DATA = join(RUN_DIR, 'userdata')
@@ -202,8 +202,8 @@ async function launch() {
     cwd: APP_DIR,
     env: {
       ...process.env,
-      ADE_GATE_USER_DATA: USER_DATA,
-      ADE_BACKGROUND_LAUNCH: '0',
+      ICODE_GATE_USER_DATA: USER_DATA,
+      ICODE_BACKGROUND_LAUNCH: '0',
       // The fixture submodule uses an absolute local path. Real users who use
       // file submodules set this in Git config; keep the smoke isolated.
       GIT_CONFIG_COUNT: '1',
@@ -342,7 +342,7 @@ async function run() {
       25000
     )
     const session = await cdp.evaluate(`(async () => {
-      const result = await window.ade.sessions.list({});
+      const result = await window.icode.sessions.list({});
       return result.ok ? result.value.sessions.find((entry) => entry.title === 'SCM smoke session') ?? null : null;
     })()`)
     assert(session, 'Could not find the SCM smoke session')
@@ -384,9 +384,9 @@ async function run() {
 
   await step('smart commit is off by default and stages only after opt-in', async () => {
     await cdp.evaluate(`(async () => {
-      const result = await window.ade.files.write({ sessionId: ${JSON.stringify(sessionId)}, path: 'README.md', text: 'smart commit change\\n' });
+      const result = await window.icode.files.write({ sessionId: ${JSON.stringify(sessionId)}, path: 'README.md', text: 'smart commit change\\n' });
       if (!result.ok) throw new Error(result.error.message);
-      const nested = await window.ade.files.write({ sessionId: ${JSON.stringify(sessionId)}, path: 'src/app.ts', text: 'export const value = 2\\n' });
+      const nested = await window.icode.files.write({ sessionId: ${JSON.stringify(sessionId)}, path: 'src/app.ts', text: 'export const value = 2\\n' });
       if (!nested.ok) throw new Error(nested.error.message);
       return result.value;
     })()`)
@@ -449,7 +449,7 @@ async function run() {
   await step('filter, tree/list and batch stage two untracked files', async () => {
     await cdp.evaluate(`(async () => {
       for (const path of ['src/alpha.txt', 'src/beta.txt']) {
-        const result = await window.ade.files.write({ sessionId: ${JSON.stringify(sessionId)}, path, text: path + '\\n' });
+        const result = await window.icode.files.write({ sessionId: ${JSON.stringify(sessionId)}, path, text: path + '\\n' });
         if (!result.ok) throw new Error(result.error.message);
       }
       return true;
@@ -703,9 +703,9 @@ async function run() {
   await step('stash changes, inspect, apply and pop', async () => {
     const exec = require('node:child_process').execFileSync
     await cdp.evaluate(`(async () => {
-      const tracked = await window.ade.files.write({ sessionId: ${JSON.stringify(sessionId)}, path: 'README.md', text: 'stash tracked change\\n' });
+      const tracked = await window.icode.files.write({ sessionId: ${JSON.stringify(sessionId)}, path: 'README.md', text: 'stash tracked change\\n' });
       if (!tracked.ok) throw new Error(tracked.error.message);
-      const untracked = await window.ade.files.write({ sessionId: ${JSON.stringify(sessionId)}, path: 'stash-untracked.txt', text: 'stash untracked\\n' });
+      const untracked = await window.icode.files.write({ sessionId: ${JSON.stringify(sessionId)}, path: 'stash-untracked.txt', text: 'stash untracked\\n' });
       if (!untracked.ok) throw new Error(untracked.error.message);
       return true;
     })()`)
@@ -1091,12 +1091,12 @@ async function run() {
     await click('[data-testid="scm-history-file-README.md"]')
     await waitForSelector('[data-testid="scm-history-file-diff"]', 10000)
     await waitFor(
-      `Boolean(document.querySelector('[data-testid="monaco-diff"]')?.__adeDiff) || Boolean(document.querySelector('[data-testid="review-diff-README.md"]'))`,
+      `Boolean(document.querySelector('[data-testid="monaco-diff"]')?.__icodeDiff) || Boolean(document.querySelector('[data-testid="review-diff-README.md"]'))`,
       'commit file diff mounted',
       20000
     )
     const diffText = await cdp.evaluate(`(() => {
-      const diff = document.querySelector('[data-testid="monaco-diff"]')?.__adeDiff;
+      const diff = document.querySelector('[data-testid="monaco-diff"]')?.__icodeDiff;
       if (diff) return diff.getModel()?.modified.getValue() ?? '';
       return document.querySelector('[data-testid="review-diff-README.md"]')?.innerText ?? '';
     })()`)
@@ -1114,7 +1114,7 @@ async function run() {
     await waitForSelector('[data-testid="scm-multi-diff"]', 10000)
     await waitForSelector('[data-testid="scm-multi-file-README.md"]', 10000)
     await waitFor(
-      `Boolean(document.querySelector('[data-testid="scm-multi-file-README.md"] [data-testid="monaco-diff"]')?.__adeDiff) || Boolean(document.querySelector('[data-testid="scm-multi-file-README.md"] [data-testid="review-diff-README.md"]'))`,
+      `Boolean(document.querySelector('[data-testid="scm-multi-file-README.md"] [data-testid="monaco-diff"]')?.__icodeDiff) || Boolean(document.querySelector('[data-testid="scm-multi-file-README.md"] [data-testid="review-diff-README.md"]'))`,
       'multi-diff section mounted',
       20000
     )
@@ -1255,12 +1255,12 @@ async function run() {
     await click('[data-testid="working-file-conflicts-src/app.ts"]')
     await waitForSelector('[data-testid="merge-editor"]', 15000)
     await waitFor(
-      `Boolean(document.querySelector('[data-testid="merge-result"]')?.__adeEditor) && Boolean(document.querySelector('[data-testid="merge-pane-incoming"]')?.__adeEditor)`,
+      `Boolean(document.querySelector('[data-testid="merge-result"]')?.__icodeEditor) && Boolean(document.querySelector('[data-testid="merge-pane-incoming"]')?.__icodeEditor)`,
       'merge editor Monaco panes',
       20000
     )
     const mergeState = await cdp.evaluate(`(() => {
-      const value = (id) => document.querySelector('[data-testid="' + id + '"]')?.__adeEditor?.getModel()?.getValue() ?? null;
+      const value = (id) => document.querySelector('[data-testid="' + id + '"]')?.__icodeEditor?.getModel()?.getValue() ?? null;
       return {
         result: value('merge-result'),
         current: value('merge-pane-current'),
@@ -1289,7 +1289,7 @@ async function run() {
     await click('[data-testid="merge-open"]')
     await waitForSelector('[data-testid="merge-editor"]', 15000)
     await waitFor(
-      `Boolean(document.querySelector('[data-testid="merge-result"]')?.__adeEditor)`,
+      `Boolean(document.querySelector('[data-testid="merge-result"]')?.__icodeEditor)`,
       'merge editor reloaded',
       20000
     )
@@ -1304,7 +1304,7 @@ async function run() {
 
     await click('[data-testid="merge-accept-incoming"]')
     await waitFor(
-      `document.querySelector('[data-testid="merge-result"]')?.__adeEditor?.getModel()?.getValue() === 'merge side\\n'`,
+      `document.querySelector('[data-testid="merge-result"]')?.__icodeEditor?.getModel()?.getValue() === 'merge side\\n'`,
       'accepted incoming result',
       10000
     )
@@ -1434,9 +1434,9 @@ async function run() {
     const quickBefore = await cdp.evaluate(
       `document.querySelector('[data-testid="editor-quick-diff"]')?.textContent ?? ''`
     )
-    await waitForSelector('.ade-blame-inline', 20000)
+    await waitForSelector('.icode-blame-inline', 20000)
     const blameBefore = (
-      await cdp.evaluate(`document.querySelector('.ade-blame-inline')?.textContent ?? ''`)
+      await cdp.evaluate(`document.querySelector('.icode-blame-inline')?.textContent ?? ''`)
     ).replace(/\u00a0/g, ' ')
     assert(
       blameBefore.includes('SCM Smoke') && blameBefore.includes('Smart commit smoke'),
@@ -1454,15 +1454,15 @@ async function run() {
     )
     await click('[data-testid="editor-blame-toggle"]')
     await waitFor(
-      `!document.querySelector('.ade-blame-inline')`,
+      `!document.querySelector('.icode-blame-inline')`,
       'inline blame toggled off',
       5000
     )
     await click('[data-testid="editor-blame-toggle"]')
-    await waitForSelector('.ade-blame-inline', 10000)
+    await waitForSelector('.icode-blame-inline', 10000)
 
     await cdp.evaluate(
-      `document.querySelector('[data-testid="monaco-editor"]')?.__adeEditor?.focus()`
+      `document.querySelector('[data-testid="monaco-editor"]')?.__icodeEditor?.focus()`
     )
     await sleep(250)
     await cdp.send('Input.dispatchKeyEvent', {
@@ -1499,7 +1499,7 @@ async function run() {
     )
     await screenshot('15-monaco')
     await waitFor(
-      `!document.querySelector('.ade-blame-inline')`,
+      `!document.querySelector('.icode-blame-inline')`,
       'inline blame hidden for unsaved text',
       5000
     )
@@ -1519,9 +1519,9 @@ async function run() {
       content.includes('Edited in the real editor.'),
       `the Monaco edit was not saved: ${content.slice(0, 200)}`
     )
-    await waitForSelector('.ade-blame-inline', 15000)
+    await waitForSelector('.icode-blame-inline', 15000)
     const blameAfter = (
-      await cdp.evaluate(`document.querySelector('.ade-blame-inline')?.textContent ?? ''`)
+      await cdp.evaluate(`document.querySelector('.icode-blame-inline')?.textContent ?? ''`)
     ).replace(/\u00a0/g, ' ')
     assert(
       blameAfter.includes('uncommitted'),
@@ -1569,7 +1569,7 @@ async function run() {
     )
 
     await cdp.evaluate(
-      `document.querySelector('[data-testid="monaco-editor"]')?.__adeEditor?.focus()`
+      `document.querySelector('[data-testid="monaco-editor"]')?.__icodeEditor?.focus()`
     )
     await sleep(250)
     await cdp.send('Input.dispatchKeyEvent', {

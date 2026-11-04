@@ -29,35 +29,35 @@
  */
 
 @theme inline {
-  --color-background: var(--ade-canvas);
-  --color-foreground: var(--ade-ink-1);
-  --color-card: var(--ade-panel);
-  --color-card-foreground: var(--ade-ink-1);
-  --color-overlay: var(--ade-overlay);
-  --color-muted: var(--ade-raised);
-  --color-muted-foreground: var(--ade-ink-2);
-  --color-border: var(--ade-line);
-  --color-line: var(--ade-line);
-  --color-line-strong: var(--ade-line-strong);
-  --color-destructive: var(--ade-danger);
+  --color-background: var(--icode-canvas);
+  --color-foreground: var(--icode-ink-1);
+  --color-card: var(--icode-panel);
+  --color-card-foreground: var(--icode-ink-1);
+  --color-overlay: var(--icode-overlay);
+  --color-muted: var(--icode-raised);
+  --color-muted-foreground: var(--icode-ink-2);
+  --color-border: var(--icode-line);
+  --color-line: var(--icode-line);
+  --color-line-strong: var(--icode-line-strong);
+  --color-destructive: var(--icode-danger);
   /* iCode's wordmark green; the primary action accent is defined below. */
-  --color-brand: var(--ade-brand);
-  --color-signal: var(--ade-signal);
-  --color-signal-weak: var(--ade-signal-weak);
-  --color-signal-line: var(--ade-signal-line);
-  --color-signal-ink: var(--ade-signal-ink);
-  --color-info: var(--ade-info);
-  --color-info-weak: var(--ade-info-weak);
-  --color-add: var(--ade-add);
-  --color-add-weak: var(--ade-add-weak);
+  --color-brand: var(--icode-brand);
+  --color-signal: var(--icode-signal);
+  --color-signal-weak: var(--icode-signal-weak);
+  --color-signal-line: var(--icode-signal-line);
+  --color-signal-ink: var(--icode-signal-ink);
+  --color-info: var(--icode-info);
+  --color-info-weak: var(--icode-info-weak);
+  --color-add: var(--icode-add);
+  --color-add-weak: var(--icode-add-weak);
 
   /*
    * The iCode prototype promotes green to the primary action colour. The ink
    * token is the text colour that clears contrast on that green in each
    * appearance; filled buttons must use it instead of a fixed white.
    */
-  --color-accent: var(--ade-accent);
-  --color-accent-ink: var(--ade-accent-ink);
+  --color-accent: var(--icode-accent);
+  --color-accent-ink: var(--icode-accent-ink);
 }
 
 @theme {
@@ -68,11 +68,11 @@
 }
 
 /* The frameless window: the top bar is the drag region; every control opts out. */
-.ade-titlebar {
+.icode-titlebar {
   -webkit-app-region: drag;
 }
 
-.ade-titlebar :is(button, input, a, [role='button']) {
+.icode-titlebar :is(button, input, a, [role='button']) {
   -webkit-app-region: no-drag;
 }
 
@@ -81,136 +81,136 @@
   color-scheme: dark;
 
   /* Surfaces, lowest to highest. */
-  --ade-canvas: #0A0E14;
-  --ade-panel: #0F1520;
-  --ade-raised: #141C29;
-  --ade-overlay: #1E2A3C;
+  --icode-canvas: #0A0E14;
+  --icode-panel: #0F1520;
+  --icode-raised: #141C29;
+  --icode-overlay: #1E2A3C;
 
   /* Hairline that separates two surfaces, and the border of a control. */
-  --ade-line: #243146;
-  --ade-line-strong: #34445E;
+  --icode-line: #243146;
+  --icode-line-strong: #34445E;
 
   /*
-   * Terminal scrollbar thumb. Kept separate from `--ade-line-strong`: a control
+   * Terminal scrollbar thumb. Kept separate from `--icode-line-strong`: a control
    * border is a decorative separator, while a scrollbar is a UI control that
    * needs 3:1 against the surface it sits on. Defined here per appearance so it
    * still resolves while the terminal colours come from xterm itself.
    */
-  --ade-terminal-scrollbar: #2C3B52;
+  --icode-terminal-scrollbar: #2C3B52;
 
   /* Text, most to least prominent. */
-  --ade-ink-1: #E6EDF7;
-  --ade-ink-2: #9FB0C7;
-  --ade-ink-3: #7B8BA3;
+  --icode-ink-1: #E6EDF7;
+  --icode-ink-2: #9FB0C7;
+  --icode-ink-3: #7B8BA3;
 
   /* Interaction. */
-  --ade-sel: #1A2434;
-  --ade-hover: #141C29;
-  --ade-focus: #58A6FF;
+  --icode-sel: #1A2434;
+  --icode-hover: #141C29;
+  --icode-focus: #58A6FF;
 
   /* A human is needed: agent waiting, or an unread completion. */
-  --ade-signal: #D29922;
-  --ade-signal-weak: rgba(210, 153, 34, 0.14);
-  --ade-signal-line: rgba(210, 153, 34, 0.42);
-  --ade-signal-ink: #1B1404;
-  --ade-info: #58A6FF;
-  --ade-info-weak: rgba(88, 166, 255, 0.12);
+  --icode-signal: #D29922;
+  --icode-signal-weak: rgba(210, 153, 34, 0.14);
+  --icode-signal-line: rgba(210, 153, 34, 0.42);
+  --icode-signal-ink: #1B1404;
+  --icode-info: #58A6FF;
+  --icode-info-weak: rgba(88, 166, 255, 0.12);
 
   /* iCode brand; the primary action accent below is the same hue. */
-  --ade-brand: #3FB950;
-  --ade-accent: #3FB950;
-  --ade-accent-ink: #07110A;
+  --icode-brand: #3FB950;
+  --icode-accent: #3FB950;
+  --icode-accent-ink: #07110A;
 
   /* Failure. */
-  --ade-danger: #F85149;
+  --icode-danger: #F85149;
 
   /* Diff. */
-  --ade-add: #56D364;
-  --ade-add-weak: rgba(46, 160, 67, 0.13);
-  --ade-remove: #FF7B72;
-  --ade-remove-weak: rgba(248, 81, 73, 0.13);
+  --icode-add: #56D364;
+  --icode-add-weak: rgba(46, 160, 67, 0.13);
+  --icode-remove: #FF7B72;
+  --icode-remove-weak: rgba(248, 81, 73, 0.13);
 
   /*
    * Neutral lifecycle fallbacks. The shell uses add/info/signal for live,
    * working and waiting; these remain for components that only need ink weight.
    */
-  --ade-state-live: var(--ade-ink-2);
-  --ade-state-working: var(--ade-ink-2);
-  --ade-state-idle: var(--ade-ink-3);
-  --ade-rail-off: #3A4048;
+  --icode-state-live: var(--icode-ink-2);
+  --icode-state-working: var(--icode-ink-2);
+  --icode-state-idle: var(--icode-ink-3);
+  --icode-rail-off: #3A4048;
 
   /*
    * Selection is a blue tint because focus is blue; it must not be confused
    * with signal, which means a human is needed.
    */
-  --ade-selection: rgba(31, 111, 235, 0.28);
+  --icode-selection: rgba(31, 111, 235, 0.28);
 
-  --ade-shadow-overlay: 0 18px 48px rgba(0, 0, 0, 0.55);
-  --ade-focus-ring: rgba(88, 166, 255, 0.32);
+  --icode-shadow-overlay: 0 18px 48px rgba(0, 0, 0, 0.55);
+  --icode-focus-ring: rgba(88, 166, 255, 0.32);
 
   /* History graph lanes; fixed hues so lane identity stays stable per theme. */
-  --ade-lane-1: #58A6FF;
-  --ade-lane-2: #3FB950;
-  --ade-lane-3: #D29922;
-  --ade-lane-4: #BC8CFF;
-  --ade-lane-5: #39C5CF;
-  --ade-lane-6: #FF7B72;
+  --icode-lane-1: #58A6FF;
+  --icode-lane-2: #3FB950;
+  --icode-lane-3: #D29922;
+  --icode-lane-4: #BC8CFF;
+  --icode-lane-5: #39C5CF;
+  --icode-lane-6: #FF7B72;
 }
 
 /* --------------------------------------------------------------- light ---- */
 :root[data-theme='light'] {
   color-scheme: light;
 
-  --ade-canvas: #F6F8FA;
-  --ade-panel: #FFFFFF;
-  --ade-raised: #F0F3F7;
-  --ade-overlay: #FFFFFF;
+  --icode-canvas: #F6F8FA;
+  --icode-panel: #FFFFFF;
+  --icode-raised: #F0F3F7;
+  --icode-overlay: #FFFFFF;
 
-  --ade-line: #D0D7DE;
-  --ade-line-strong: #B6C0CC;
-  --ade-terminal-scrollbar: #556170;
+  --icode-line: #D0D7DE;
+  --icode-line-strong: #B6C0CC;
+  --icode-terminal-scrollbar: #556170;
 
-  --ade-ink-1: #1F2328;
-  --ade-ink-2: #57606A;
-  --ade-ink-3: #5E6873;
+  --icode-ink-1: #1F2328;
+  --icode-ink-2: #57606A;
+  --icode-ink-3: #5E6873;
 
-  --ade-sel: #E6EBF2;
-  --ade-hover: #F0F3F7;
-  --ade-focus: #0969DA;
+  --icode-sel: #E6EBF2;
+  --icode-hover: #F0F3F7;
+  --icode-focus: #0969DA;
 
-  --ade-signal: #8A5A00;
-  --ade-signal-weak: rgba(138, 90, 0, 0.1);
-  --ade-signal-line: rgba(138, 90, 0, 0.34);
-  --ade-signal-ink: #FFFFFF;
-  --ade-info: #0969DA;
-  --ade-info-weak: rgba(9, 105, 218, 0.09);
+  --icode-signal: #8A5A00;
+  --icode-signal-weak: rgba(138, 90, 0, 0.1);
+  --icode-signal-line: rgba(138, 90, 0, 0.34);
+  --icode-signal-ink: #FFFFFF;
+  --icode-info: #0969DA;
+  --icode-info-weak: rgba(9, 105, 218, 0.09);
 
-  --ade-brand: #166A2D;
-  --ade-accent: #166A2D;
-  --ade-accent-ink: #FFFFFF;
-  --ade-danger: #CF222E;
+  --icode-brand: #166A2D;
+  --icode-accent: #166A2D;
+  --icode-accent-ink: #FFFFFF;
+  --icode-danger: #CF222E;
 
-  --ade-add: #116329;
-  --ade-add-weak: rgba(26, 127, 55, 0.08);
-  --ade-remove: #A40E26;
-  --ade-remove-weak: rgba(207, 34, 46, 0.08);
+  --icode-add: #116329;
+  --icode-add-weak: rgba(26, 127, 55, 0.08);
+  --icode-remove: #A40E26;
+  --icode-remove-weak: rgba(207, 34, 46, 0.08);
 
-  --ade-state-live: var(--ade-ink-2);
-  --ade-state-working: var(--ade-ink-2);
-  --ade-state-idle: var(--ade-ink-3);
-  --ade-rail-off: #B9B3A8;
+  --icode-state-live: var(--icode-ink-2);
+  --icode-state-working: var(--icode-ink-2);
+  --icode-state-idle: var(--icode-ink-3);
+  --icode-rail-off: #B9B3A8;
 
-  --ade-selection: rgba(9, 105, 218, 0.16);
+  --icode-selection: rgba(9, 105, 218, 0.16);
 
-  --ade-shadow-overlay: 0 18px 48px rgba(31, 35, 40, 0.22);
-  --ade-focus-ring: rgba(9, 105, 218, 0.24);
+  --icode-shadow-overlay: 0 18px 48px rgba(31, 35, 40, 0.22);
+  --icode-focus-ring: rgba(9, 105, 218, 0.24);
 
-  --ade-lane-1: #0969DA;
-  --ade-lane-2: #166A2D;
-  --ade-lane-3: #8A5A00;
-  --ade-lane-4: #8250DF;
-  --ade-lane-5: #1B7C83;
-  --ade-lane-6: #CF222E;
+  --icode-lane-1: #0969DA;
+  --icode-lane-2: #166A2D;
+  --icode-lane-3: #8A5A00;
+  --icode-lane-4: #8250DF;
+  --icode-lane-5: #1B7C83;
+  --icode-lane-6: #CF222E;
 }
 
 /*
@@ -227,7 +227,7 @@
 @media (prefers-color-scheme: light) {
   :root:not([data-theme]) {
     color-scheme: light;
-    --ade-canvas: #F6F8FA;
+    --icode-canvas: #F6F8FA;
   }
 }
 
@@ -240,8 +240,8 @@ body,
 
 body {
   margin: 0;
-  background: var(--ade-canvas);
-  color: var(--ade-ink-1);
+  background: var(--icode-canvas);
+  color: var(--icode-ink-1);
   font-family:
     'IBM Plex Sans', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
     'Segoe UI', sans-serif;
@@ -255,7 +255,7 @@ body {
 /* The prototype's thin, rounded scrollbar is part of the visual language. */
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--ade-terminal-scrollbar) transparent;
+  scrollbar-color: var(--icode-terminal-scrollbar) transparent;
 }
 
 *::-webkit-scrollbar {
@@ -264,7 +264,7 @@ body {
 }
 
 *::-webkit-scrollbar-thumb {
-  background: var(--ade-terminal-scrollbar);
+  background: var(--icode-terminal-scrollbar);
   border: 2px solid transparent;
   border-radius: 8px;
   background-clip: padding-box;
@@ -275,7 +275,7 @@ body {
 }
 
 ::selection {
-  background: var(--ade-selection);
+  background: var(--icode-selection);
 }
 
 /* Terminal surface: xterm must fill its pane without inheriting page spacing. */
@@ -285,7 +285,7 @@ body {
 
 .terminal-host .xterm-viewport {
   scrollbar-width: thin;
-  scrollbar-color: var(--ade-terminal-scrollbar) transparent;
+  scrollbar-color: var(--icode-terminal-scrollbar) transparent;
 }
 
 .terminal-host .xterm-screen {
@@ -293,31 +293,31 @@ body {
 }
 
 select option {
-  background: var(--ade-panel);
-  color: var(--ade-ink-1);
+  background: var(--icode-panel);
+  color: var(--icode-ink-1);
 }
 
 /* iCode focus treatment: a 2px focus-blue ring with a 1px offset. */
 *:focus-visible {
-  outline: 2px solid var(--ade-focus);
+  outline: 2px solid var(--icode-focus);
   outline-offset: 1px;
 }
 
 /* Overlay continuity: drawers keep spatial orientation instead of snapping. */
-.ade-command-palette {
-  animation: ade-palette-in 140ms ease-out;
+.icode-command-palette {
+  animation: icode-palette-in 140ms ease-out;
 }
 
-.ade-modal {
-  animation: ade-modal-in 140ms ease-out;
+.icode-modal {
+  animation: icode-modal-in 140ms ease-out;
 }
 
-.ade-drawer {
-  animation: ade-drawer-in 180ms ease-out;
+.icode-drawer {
+  animation: icode-drawer-in 180ms ease-out;
 }
 
 /* Needs-you queue: one compact row per exception, not a card. */
-.ade-need-row {
+.icode-need-row {
   display: grid;
   grid-template-columns: 72px minmax(110px, 0.7fr) minmax(0, 2.4fr) 46px 16px;
   gap: 10px;
@@ -325,15 +325,15 @@ select option {
 }
 
 /* Project directory: the only all-project surface. Rows, not lanes. */
-.ade-project-table {
+.icode-project-table {
   overflow: hidden;
-  border: 1px solid var(--ade-line);
+  border: 1px solid var(--icode-line);
   border-radius: 8px;
-  background: var(--ade-panel);
+  background: var(--icode-panel);
 }
 
-.ade-project-head,
-.ade-project-row {
+.icode-project-head,
+.icode-project-row {
   display: grid;
   grid-template-columns: minmax(210px, 2.4fr) minmax(90px, 1fr) 110px 104px 76px 68px;
   gap: 10px;
@@ -341,69 +341,69 @@ select option {
   padding: 0 10px;
 }
 
-.ade-project-head {
+.icode-project-head {
   height: 28px;
-  border-bottom: 1px solid var(--ade-line);
-  background: var(--ade-raised);
-  color: var(--ade-ink-3);
+  border-bottom: 1px solid var(--icode-line);
+  background: var(--icode-raised);
+  color: var(--icode-ink-3);
   font-size: 8.5px;
   font-weight: 600;
   letter-spacing: 0.09em;
   text-transform: uppercase;
 }
 
-.ade-project-body {
+.icode-project-body {
   max-height: 430px;
   overflow: auto;
 }
 
-.ade-project-row {
+.icode-project-row {
   position: relative;
   min-height: 44px;
-  border-bottom: 1px solid var(--ade-line);
-  color: var(--ade-ink-2);
+  border-bottom: 1px solid var(--icode-line);
+  color: var(--icode-ink-2);
   font-size: 10px;
   cursor: pointer;
 }
 
-.ade-project-row:last-child {
+.icode-project-row:last-child {
   border-bottom: 0;
 }
 
-.ade-project-row:hover {
-  background: var(--ade-raised);
+.icode-project-row:hover {
+  background: var(--icode-raised);
 }
 
-.ade-project-row.needs {
-  box-shadow: inset 2px 0 0 var(--ade-signal);
+.icode-project-row.needs {
+  box-shadow: inset 2px 0 0 var(--icode-signal);
 }
 
-.ade-project-row.needs:hover {
-  background: var(--ade-signal-weak);
+.icode-project-row.needs:hover {
+  background: var(--icode-signal-weak);
 }
 
-.ade-project-row.setup-failed {
-  box-shadow: inset 2px 0 0 var(--ade-danger);
+.icode-project-row.setup-failed {
+  box-shadow: inset 2px 0 0 var(--icode-danger);
 }
 
-.ade-project-row.setup-failed:hover {
-  background: color-mix(in srgb, var(--ade-danger) 10%, transparent);
+.icode-project-row.setup-failed:hover {
+  background: color-mix(in srgb, var(--icode-danger) 10%, transparent);
 }
 
-.ade-project-mobile {
+.icode-project-mobile {
   display: none;
 }
 
 @media (max-width: 1100px) {
-  .ade-project-head,
-  .ade-project-row {
+  .icode-project-head,
+  .icode-project-row {
     grid-template-columns: minmax(190px, 2.2fr) minmax(80px, 1fr) 96px 96px 62px 64px;
     gap: 8px;
   }
 }
 
 @media (max-width: 760px) {
-  .ade-need-row {
+  .icode-need-row {
     grid-template-columns: 58px minmax(0, 1fr) 38px 14px;
     grid-template-areas:
       'reason project age arrow'
@@ -412,17 +412,17 @@ select option {
     column-gap: 6px;
   }
 
-  .ade-need-reason { grid-area: reason; }
-  .ade-need-project { grid-area: project; }
-  .ade-need-title { grid-area: title; }
-  .ade-need-age { grid-area: age; }
-  .ade-need-arrow { grid-area: arrow; }
+  .icode-need-reason { grid-area: reason; }
+  .icode-need-project { grid-area: project; }
+  .icode-need-title { grid-area: title; }
+  .icode-need-age { grid-area: age; }
+  .icode-need-arrow { grid-area: arrow; }
 
-  .ade-project-head {
+  .icode-project-head {
     display: none;
   }
 
-  .ade-project-row {
+  .icode-project-row {
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas:
       'project actions'
@@ -432,16 +432,16 @@ select option {
     padding: 7px 9px;
   }
 
-  .ade-project-project { grid-area: project; }
-  .ade-project-actions { grid-area: actions; }
-  .ade-project-branch,
-  .ade-project-work,
-  .ade-project-needs,
-  .ade-project-updated {
+  .icode-project-project { grid-area: project; }
+  .icode-project-actions { grid-area: actions; }
+  .icode-project-branch,
+  .icode-project-work,
+  .icode-project-needs,
+  .icode-project-updated {
     display: none;
   }
 
-  .ade-project-mobile {
+  .icode-project-mobile {
     grid-area: meta;
     display: flex;
     align-items: center;
@@ -450,16 +450,16 @@ select option {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    color: var(--ade-ink-3);
+    color: var(--icode-ink-3);
     font-size: 9px;
   }
 
-  .ade-project-body {
+  .icode-project-body {
     max-height: 300px;
   }
 }
 
-@keyframes ade-palette-in {
+@keyframes icode-palette-in {
   from {
     opacity: 0;
     transform: translateY(-6px) scale(0.995);
@@ -470,7 +470,7 @@ select option {
   }
 }
 
-@keyframes ade-modal-in {
+@keyframes icode-modal-in {
   from {
     opacity: 0;
     transform: scale(0.985);
@@ -481,7 +481,7 @@ select option {
   }
 }
 
-@keyframes ade-drawer-in {
+@keyframes icode-drawer-in {
   from {
     opacity: 0;
     transform: translateX(16px);
@@ -504,37 +504,37 @@ select option {
 }
 
 /* Quick-diff line decorations in the Monaco glyph margin. */
-.ade-quick-diff-added {
-  border-left: 3px solid var(--ade-add);
+.icode-quick-diff-added {
+  border-left: 3px solid var(--icode-add);
   margin-left: 2px;
 }
-.ade-quick-diff-modified {
-  border-left: 3px solid var(--ade-info);
+.icode-quick-diff-modified {
+  border-left: 3px solid var(--icode-info);
   margin-left: 2px;
 }
-.ade-quick-diff-deleted {
-  border-left: 3px solid var(--ade-remove);
+.icode-quick-diff-deleted {
+  border-left: 3px solid var(--icode-remove);
   margin-left: 2px;
 }
-.ade-quick-diff-glyph {
+.icode-quick-diff-glyph {
   width: 7px;
   height: 7px;
   margin: 6px auto;
   border-radius: 999px;
   cursor: pointer;
 }
-.ade-quick-diff-glyph-added {
-  background: var(--ade-add);
+.icode-quick-diff-glyph-added {
+  background: var(--icode-add);
 }
-.ade-quick-diff-glyph-modified {
-  background: var(--ade-info);
+.icode-quick-diff-glyph-modified {
+  background: var(--icode-info);
 }
-.ade-quick-diff-glyph-deleted {
-  background: var(--ade-remove);
+.icode-quick-diff-glyph-deleted {
+  background: var(--icode-remove);
 }
 
-.ade-blame-inline {
-  color: var(--ade-ink-3);
+.icode-blame-inline {
+  color: var(--icode-ink-3);
   font-size: 10px;
   font-style: italic;
   opacity: 0.9;
@@ -546,7 +546,7 @@ select option {
  * keeping the DOM and keyboard model intact; the intrinsic size is the row's
  * approximate height so the scrollbar stays proportional before first paint.
  */
-.ade-scm-row {
+.icode-scm-row {
   content-visibility: auto;
   contain-intrinsic-size: auto 34px;
 }

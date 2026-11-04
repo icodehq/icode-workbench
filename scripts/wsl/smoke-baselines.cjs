@@ -55,7 +55,7 @@ function main() {
   // The probe rides a read-only mount rather than an env var: docker forwards
   // only explicitly requested environment, and a multiline script does not
   // survive shell quoting reliably.
-  const probeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ade-wsl-probe-'))
+  const probeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'icode-wsl-probe-'))
   const probePath = path.join(probeDir, 'probe.cjs')
   fs.writeFileSync(probePath, PROBE)
 

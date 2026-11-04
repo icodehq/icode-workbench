@@ -96,7 +96,7 @@ function branchFromRow(row: BranchRow): OwnedBranchRecord {
 
 /**
  * Durable session-worktree metadata and branch ownership. Rows describe what
- * ADE created and intended; liveness and path state always come from the
+ * iCode created and intended; liveness and path state always come from the
  * filesystem and the Host at the moment of use.
  */
 export class WorktreeStore {

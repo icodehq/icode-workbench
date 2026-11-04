@@ -7,7 +7,7 @@
  *
  * 1. the shipped Hook script, invoked from a real PTY, for deterministic
  *    working/waiting/ordering transitions;
- * 2. the real `claude` CLI with ADE's additive `--settings` overlay, for the
+ * 2. the real `claude` CLI with iCode's additive `--settings` overlay, for the
  *    actual Hook dispatch path, while a user canary hook keeps running;
  * 3. the packaged UI, which must show activity separately from lifecycle state.
  *
@@ -32,13 +32,13 @@ const { join, resolve } = require('node:path')
 const { connect } = require('./ui-cdp.cjs')
 
 const APP_DIR = resolve(__dirname, '..', '..')
-const PACKAGED_EXE = process.env.ADE_SMOKE_EXECUTABLE ?? join(APP_DIR, 'dist', 'linux-unpacked', 'ade')
-const ARTIFACT_DIR = process.env.ADE_SMOKE_ARTIFACTS ?? join(APP_DIR, 'artifacts', 'work14')
-const RUN_DIR = mkdtempSync(join(tmpdir(), 'ade-work14-accept-'))
+const PACKAGED_EXE = process.env.ICODE_SMOKE_EXECUTABLE ?? join(APP_DIR, 'dist', 'linux-unpacked', 'icode')
+const ARTIFACT_DIR = process.env.ICODE_SMOKE_ARTIFACTS ?? join(APP_DIR, 'artifacts', 'work14')
+const RUN_DIR = mkdtempSync(join(tmpdir(), 'icode-work14-accept-'))
 const REPO_DIR = join(RUN_DIR, 'repo')
 const XDG_CONFIG = join(RUN_DIR, 'xdg-config')
 const XDG_RUNTIME = join(RUN_DIR, 'xdg-runtime')
-const USER_DATA = join(XDG_CONFIG, 'ade')
+const USER_DATA = join(XDG_CONFIG, 'iCode')
 const HOST_DIR = join(USER_DATA, 'run')
 const CLAUDE_CONFIG = join(RUN_DIR, 'claude-config')
 const CANARY = join(RUN_DIR, 'canary.log')
@@ -394,11 +394,11 @@ function probeSource() {
   return `'use strict'
 const net = require('node:net')
 const mode = process.argv[2]
-const socketPath = process.env.ADE_ACTIVITY_SOCKET
-const sessionId = process.env.ADE_SESSION_ID
-const incarnationId = process.env.ADE_SESSION_INCARNATION
+const socketPath = process.env.ICODE_ACTIVITY_SOCKET
+const sessionId = process.env.ICODE_SESSION_ID
+const incarnationId = process.env.ICODE_SESSION_INCARNATION
 if (!socketPath || !sessionId || !incarnationId) {
-  process.stderr.write('missing ADE session environment\\n')
+  process.stderr.write('missing iCode session environment\\n')
   process.exit(2)
 }
 function send(event, options) {
@@ -454,11 +454,11 @@ async function main() {
   execFileSync('git', ['add', 'README.md'], { cwd: REPO_DIR })
   execFileSync(
     'git',
-    ['-c', 'user.email=ade@test', '-c', 'user.name=ADE', 'commit', '-qm', 'init'],
+    ['-c', 'user.email=icode@test', '-c', 'user.name=iCode', 'commit', '-qm', 'init'],
     { cwd: REPO_DIR }
   )
 
-  // The isolated config is ADE's "user" Claude config: ADE must never edit it,
+  // The isolated config is iCode's "user" Claude config: iCode must never edit it,
   // and the canary hook proves the --settings overlay is additive.
   writeFileSync(
     join(CLAUDE_CONFIG, 'settings.json'),
@@ -487,7 +487,7 @@ async function main() {
     realClaudeSettings: REAL_CLAUDE_SETTINGS,
     realClaudeSettingsHashBefore: realSettingsHashBefore,
     isolatedSettingsHashBefore,
-    gateOverrides: Object.keys(process.env).filter((key) => key.startsWith('ADE_GATE_'))
+    gateOverrides: Object.keys(process.env).filter((key) => key.startsWith('ICODE_GATE_'))
   }
   persist()
 
@@ -497,7 +497,7 @@ async function main() {
   await step('launch the packaged app and verify the additive Hook overlay', 'AC1', async () => {
     await launch()
     const hookDir = join(USER_DATA, 'agent-hooks')
-    const scriptPath = join(hookDir, 'ade-activity-hook.cjs')
+    const scriptPath = join(hookDir, 'icode-activity-hook.cjs')
     const settingsPath = join(hookDir, 'settings.json')
     assert(existsSync(scriptPath), 'The shipped Hook script was not installed')
     assert(existsSync(settingsPath), 'The Claude settings overlay was not installed')
@@ -678,11 +678,11 @@ async function main() {
     assert(canary.includes('CANARY_USER'), 'The user UserPromptSubmit hook did not run')
     assert(
       sha256(join(CLAUDE_CONFIG, 'settings.json')) === isolatedSettingsHashBefore,
-      'ADE changed the user Claude settings'
+      'iCode changed the user Claude settings'
     )
     assert(
       sha256(REAL_CLAUDE_SETTINGS) === realSettingsHashBefore,
-      'ADE changed ~/.claude/settings.json'
+      'iCode changed ~/.claude/settings.json'
     )
     await screenshot('07-real-claude')
     return { claudeVersion, ui, canary: canary.trim().split('\n').slice(0, 4) }

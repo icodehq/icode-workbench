@@ -67,7 +67,7 @@ function toSlash(value: string): string {
 }
 
 async function setup(options: { resolveTargetFails?: boolean } = {}): Promise<Fixture> {
-  const root = makeTempRoot('ade-review-wsl-')
+  const root = makeTempRoot('icode-review-wsl-')
   const db = openTempDatabase(root)
   const stores = makeRepositoryService(db)
   const host = new FakeHostGateway()
@@ -80,7 +80,7 @@ async function setup(options: { resolveTargetFails?: boolean } = {}): Promise<Fi
   git(repoPath, 'add', '.')
   execFileSync(
     'git',
-    ['-C', repoPath, '-c', 'user.email=ade@test', '-c', 'user.name=ADE', 'commit', '-qm', 'init'],
+    ['-C', repoPath, '-c', 'user.email=icode@test', '-c', 'user.name=iCode', 'commit', '-qm', 'init'],
     { stdio: 'pipe' }
   )
   const baseOid = git(repoPath, 'rev-parse', 'HEAD')
@@ -135,7 +135,7 @@ async function setup(options: { resolveTargetFails?: boolean } = {}): Promise<Fi
       }
       return {
         executor: { exec: guestGit },
-        worktreeRoot: `${GUEST_HOST_ROOT}/.ade/worktrees`,
+        worktreeRoot: `${GUEST_HOST_ROOT}/.icode/worktrees`,
         fs: {
           // The guest filesystem: a guest path *is* present here, even though the
           // controller cannot see it.
@@ -249,7 +249,7 @@ async function setup(options: { resolveTargetFails?: boolean } = {}): Promise<Fi
     seedSession: () => {
       const sessionId = newSessionId()
       const workspace = stores.repositories.workspaceForRepo(added.repository.id)!
-      const guestPath = `${GUEST_HOST_ROOT}/.ade/worktrees/scope/${added.repository.id}/${sessionId}`
+      const guestPath = `${GUEST_HOST_ROOT}/.icode/worktrees/scope/${added.repository.id}/${sessionId}`
       const realPath = toReal(guestPath)
       mkdirSync(realPath, { recursive: true })
       // A checkout the distro really has, at the path the record claims.
@@ -276,7 +276,7 @@ async function setup(options: { resolveTargetFails?: boolean } = {}): Promise<Fi
         sessionId,
         repoId: added.repository.id,
         path: guestPath,
-        branch: `ade/${sessionId}`,
+        branch: `icode/${sessionId}`,
         baseRef: 'main',
         baseOid,
         state: 'ready',

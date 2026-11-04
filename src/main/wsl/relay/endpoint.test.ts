@@ -18,8 +18,8 @@ import {
 
 const DISTRO = 'Ubuntu-26.04'
 const ID = 'a5489bf0-2b9e-49bf-940e-0c19a6caef73'
-const PROFILE_A = '/home/u/.config/ADE'
-const PROFILE_B = '/home/u/.config/ADE-work'
+const PROFILE_A = '/home/u/.config/iCode'
+const PROFILE_B = '/home/u/.config/iCode-work'
 const TOKEN = 'a'.repeat(64)
 const MANIFEST: HostArtifactManifest = {
   artifactVersion: 'v-test',
@@ -43,7 +43,7 @@ function recordFor(hostRoot: string): WslGuestHostRecord {
     hostDir: paths.root,
     socket: paths.socket,
     protocolVersion: 1,
-    hostVersion: '0.1.0-work4',
+    hostVersion: '0.1.0-icode1',
     buildFingerprint: buildFingerprint(MANIFEST),
     artifactVersion: MANIFEST.artifactVersion,
     recordedAtMs: 1
@@ -95,7 +95,7 @@ function harness(options: Options = {}) {
 
   const launcher = async (spec: { args: readonly string[] }) => {
     const args = [...spec.args]
-    if (args.some((arg) => arg === 'ade-home')) {
+    if (args.some((arg) => arg === 'icode-home')) {
       return {
         code: 0,
         signal: null,
@@ -104,7 +104,7 @@ function harness(options: Options = {}) {
         timedOut: false
       }
     }
-    if (args.some((arg) => arg === 'ade-token')) {
+    if (args.some((arg) => arg === 'icode-token')) {
       const token = options.token === undefined ? TOKEN : options.token
       return { code: token === null ? 1 : 0, signal: null, stdout: token ?? '', stderr: '', timedOut: false }
     }
@@ -175,7 +175,7 @@ describe('profile scope', () => {
     const a = wslHostRoot('/home/u', PROFILE_A)
     const b = wslHostRoot('/home/u', PROFILE_B)
     expect(a).not.toBe(b)
-    expect(a).toContain('/.ade/host/')
+    expect(a).toContain('/.icode/host/')
     expect(a.startsWith('/home/u')).toBe(true)
   })
 
@@ -329,7 +329,7 @@ describe('Host persistence across client loss', () => {
 })
 
 describe('token location', () => {
-  it('reads the token from ADE_HOST_DIR, which is the run directory', () => {
+  it('reads the token from ICODE_HOST_DIR, which is the run directory', () => {
     // Measured the hard way: the Host writes to `<runDir>/token`, and looking in
     // the deployment root reported a healthy Host as unverified.
     const paths = deployPathsFor(wslHostRoot('/home/u', PROFILE_A), MANIFEST.artifactVersion)
@@ -342,7 +342,7 @@ describe('token location', () => {
     const runner = new WslCommandRunner({
       launcher: async (spec) => {
         const args = [...spec.args]
-        const tokenIndex = args.indexOf('ade-token')
+        const tokenIndex = args.indexOf('icode-token')
         if (tokenIndex !== -1) requested.push(args[tokenIndex + 1] ?? '')
         return { code: 0, signal: null, stdout: `${TOKEN}\n`, stderr: '', timedOut: false }
       },
@@ -360,7 +360,7 @@ describe('token read', () => {
       launcher: async () => ({ code: 0, signal: null, stdout: `${TOKEN}\n`, stderr: '', timedOut: false }),
       platform: 'win32'
     })
-    await expect(readHostToken(runner, DISTRO, '/home/u/.ade/host/scope/v-test')).resolves.toBe(TOKEN)
+    await expect(readHostToken(runner, DISTRO, '/home/u/.icode/host/scope/v-test')).resolves.toBe(TOKEN)
   })
 
   it('rejects a token that is not plausibly one', async () => {

@@ -13,7 +13,7 @@ export type ActivityState = (typeof ACTIVITY_STATES)[number]
 export const ACTIVITY_OUTCOMES = ['completed', 'failed'] as const
 export type ActivityOutcome = (typeof ACTIVITY_OUTCOMES)[number]
 
-/** Claude's structured hook events ADE consumes. `Notification` is intentionally absent. */
+/** Claude's structured hook events iCode consumes. `Notification` is intentionally absent. */
 export const ACTIVITY_EVENTS = [
   'SessionStart',
   'UserPromptSubmit',
@@ -41,7 +41,7 @@ export const ACTIVITY_MAX_EVENT_SKEW_MS = 250
 
 export type ActivityHookEvent = {
   event: ActivityEventName
-  /** ADE identity, injected into the PTY environment by the Host. */
+  /** iCode identity, injected into the PTY environment by the Host. */
   sessionId: string
   incarnationId: string
   /** Claude's own identifiers, used to reject stale turns when present. */

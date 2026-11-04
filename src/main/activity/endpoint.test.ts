@@ -13,7 +13,7 @@ afterEach(() => {
 })
 
 function tempRoot(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'ade-activity-endpoint-'))
+  const dir = mkdtempSync(join(tmpdir(), 'icode-activity-endpoint-'))
   cleanups.push(() => rmSync(dir, { recursive: true, force: true }))
   return dir
 }
@@ -29,7 +29,7 @@ describe('activity endpoint selection', () => {
   it('uses a named pipe on Windows, never a .sock path', () => {
     const dir = tempRoot()
     const endpoint = activitySocketPath({
-      userDataDir: 'C:\\Users\\a\\AppData\\Roaming\\ade',
+      userDataDir: 'C:\\Users\\a\\AppData\\Roaming\\icode',
       platform: 'win32'
     })
     expect(isNamedPipe(endpoint)).toBe(true)
@@ -48,7 +48,7 @@ describe('activity endpoint selection', () => {
   it('shares the profile scope with the terminal host namespace', () => {
     // Same profile directory, different namespaces: names differ only by purpose.
     const host = activitySocketPath({ userDataDir: '/profiles/alpha', platform: 'win32' })
-    expect(host).toContain('ade-activity-')
+    expect(host).toContain('icode-activity-')
   })
 })
 
@@ -102,7 +102,7 @@ describe('activity hook server startup and delivery', () => {
    */
   it.skipIf(process.platform !== 'win32')('listens on a pipe without a directory', async () => {
     const server = new ActivityHookServer({
-      socketPath: `${WINDOWS_PIPE_PREFIX}ade-activity-test-${process.pid}`,
+      socketPath: `${WINDOWS_PIPE_PREFIX}icode-activity-test-${process.pid}`,
       ingest: () => 'accepted',
       readTimeoutMs: 50
     })

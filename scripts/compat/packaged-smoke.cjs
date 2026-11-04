@@ -11,15 +11,15 @@ const os = require('node:os')
 const { spawnSync } = require('node:child_process')
 
 const root = path.resolve(__dirname, '../..')
-const artifacts = process.env.ADE_GATE_ARTIFACTS
-  ? path.resolve(process.env.ADE_GATE_ARTIFACTS)
+const artifacts = process.env.ICODE_GATE_ARTIFACTS
+  ? path.resolve(process.env.ICODE_GATE_ARTIFACTS)
   : path.join(root, 'artifacts', 'work1')
 // Why: electron-builder's pnpm dependency scan can be prohibitively slow on
 // DrvFs/9p mounts, so the package may be produced on a POSIX filesystem.
-const packagedDir = process.env.ADE_GATE_PACKAGED_DIR
-  ? path.resolve(process.env.ADE_GATE_PACKAGED_DIR)
+const packagedDir = process.env.ICODE_GATE_PACKAGED_DIR
+  ? path.resolve(process.env.ICODE_GATE_PACKAGED_DIR)
   : path.join(root, 'dist', 'linux-unpacked')
-const executable = path.join(packagedDir, 'ade')
+const executable = path.join(packagedDir, 'icode')
 const resources = path.join(packagedDir, 'resources')
 const evidencePath = path.join(artifacts, 'packaged-smoke.json')
 const runPath = path.join(artifacts, 'packaged-run.json')
@@ -27,7 +27,7 @@ const runPath = path.join(artifacts, 'packaged-run.json')
 // requirement, and the real userData directory lives on a POSIX filesystem.
 //
 // Every run gets its own profile *and* runtime directory. XDG_RUNTIME_DIR is
-// shared by all ADE instances the user runs, so the smoke must never inherit the
+// shared by all iCode instances the user runs, so the smoke must never inherit the
 // user's: doing so previously let a gate host unlink the user's live socket.
 let runRoot = null
 let userData = null
@@ -78,7 +78,7 @@ function main() {
   fs.mkdirSync(artifacts, { recursive: true })
   // Created before the packaged check so the paths exist for the record, but
   // removed again if the package is missing (nothing ran).
-  runRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ade-packaged-smoke-'))
+  runRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'icode-packaged-smoke-'))
   userData = path.join(runRoot, 'user-data')
   runtimeDir = path.join(runRoot, 'run')
   const checks = {
@@ -119,14 +119,14 @@ function main() {
   fs.rmSync(evidencePath, { force: true })
 
   const startedAt = Date.now()
-  const result = spawnSync(executable, ['--ade-compat-smoke'], {
+  const result = spawnSync(executable, ['--icode-compat-smoke'], {
     cwd: os.tmpdir(),
     env: {
       ...process.env,
-      ADE_GATE_EVIDENCE: evidencePath,
-      ADE_GATE_USER_DATA: userData,
-      ADE_GATE_ARTIFACTS: artifacts,
-      ADE_BACKGROUND_LAUNCH: '1',
+      ICODE_GATE_EVIDENCE: evidencePath,
+      ICODE_GATE_USER_DATA: userData,
+      ICODE_GATE_ARTIFACTS: artifacts,
+      ICODE_BACKGROUND_LAUNCH: '1',
       XDG_RUNTIME_DIR: runtimeDir
     },
     encoding: 'utf8',
@@ -186,7 +186,7 @@ function main() {
     process.exit(1)
   }
   process.stdout.write(
-    `ADE_GATE_PACKAGED_OK electron=${packagedEvidence.runtime.electron} abi=${packagedEvidence.runtime.modules} socket=${socket}\n`
+    `ICODE_GATE_PACKAGED_OK electron=${packagedEvidence.runtime.electron} abi=${packagedEvidence.runtime.modules} socket=${socket}\n`
   )
 }
 

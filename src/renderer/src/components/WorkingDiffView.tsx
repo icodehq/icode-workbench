@@ -4,7 +4,7 @@ import type {
   FileContentPayload,
   GitFileAtRevisionPayload,
   GitIndexFilePayload
-} from '../../../shared/ade-api'
+} from '../../../shared/icode-api'
 import { callApi } from '../lib/api'
 import type { ReviewDiffPayload } from '../../../shared/schemas/review'
 import type { LineComment } from '../review/drafts'
@@ -55,7 +55,7 @@ async function readRevision(
   allowMissing: boolean
 ): Promise<SideRead> {
   const result = await callApi<GitFileAtRevisionPayload>(
-    window.ade.git.fileAtRevision({ sessionId, rev, path })
+    window.icode.git.fileAtRevision({ sessionId, rev, path })
   )
   if (!result.ok) return { ok: false, error: result.error.message }
   const value = result.value
@@ -75,7 +75,7 @@ async function readIndex(
   allowMissing: boolean
 ): Promise<SideRead> {
   const result = await callApi<GitIndexFilePayload>(
-    window.ade.git.indexFile({ sessionId, path })
+    window.icode.git.indexFile({ sessionId, path })
   )
   if (!result.ok) return { ok: false, error: result.error.message }
   const value = result.value
@@ -92,7 +92,7 @@ async function readWorktree(
   path: string,
   allowMissing: boolean
 ): Promise<SideRead> {
-  const result = await callApi<FileContentPayload>(window.ade.files.read({ sessionId, path }))
+  const result = await callApi<FileContentPayload>(window.icode.files.read({ sessionId, path }))
   if (!result.ok) return { ok: false, error: result.error.message }
   const value = result.value
   if (value.status !== 'ok') {

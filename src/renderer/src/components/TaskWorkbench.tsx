@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { FileDiff, Files, ListTodo, Square, TerminalSquare } from 'lucide-react'
-import type { TaskRecordPayload } from '../../../shared/ade-api'
+import type { TaskRecordPayload } from '../../../shared/icode-api'
 import type { AppError } from '../../../shared/domain/errors'
 import { isAgentHarness } from '../../../shared/domain/harness'
 import type { RepositorySummary, SessionSummary } from '../../../shared/schemas/ipc'

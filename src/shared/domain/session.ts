@@ -42,7 +42,7 @@ export type HostSessionSnapshot = {
   incarnationId: PtyIncarnationId
   ptyPid: number
   exitCode: number | null
-  /** A termination ADE asked for is an exit, not a failure. */
+  /** A termination iCode asked for is an exit, not a failure. */
   stopRequested?: boolean
 }
 

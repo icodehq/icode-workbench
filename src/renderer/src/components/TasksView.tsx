@@ -14,7 +14,7 @@ import {
   XCircle
 } from 'lucide-react'
 import { callApi, errorNotice } from '../lib/api'
-import type { TaskRecordPayload, TaskSchedulePayload } from '../../../shared/ade-api'
+import type { TaskRecordPayload, TaskSchedulePayload } from '../../../shared/icode-api'
 import type { RepositorySummary } from '../../../shared/schemas/ipc'
 import type { HarnessDetection } from '../../../shared/domain/harness'
 import type { Notice } from '../state/workspace'
@@ -42,7 +42,7 @@ type FormState = {
  * Its job is to answer three questions without the user opening a terminal:
  * what is waiting, what is running, and what did it leave behind. Everything
  * shown here comes from a durable row — the view holds no state a restart would
- * lose, so closing ADE cannot make the queue disagree with itself.
+ * lose, so closing iCode cannot make the queue disagree with itself.
  */
 export default function TasksView({
   repos,
@@ -121,9 +121,9 @@ export default function TasksView({
 
   const load = useCallback(async (): Promise<void> => {
     const [tasksResult, schedulesResult, settingsResult] = await Promise.all([
-      callApi<TaskRecordPayload[]>(window.ade.tasks.list({ limit: 200 })),
-      callApi<TaskSchedulePayload[]>(window.ade.schedules.list({})),
-      callApi<{ maxConcurrent: number }>(window.ade.tasks.settings())
+      callApi<TaskRecordPayload[]>(window.icode.tasks.list({ limit: 200 })),
+      callApi<TaskSchedulePayload[]>(window.icode.schedules.list({})),
+      callApi<{ maxConcurrent: number }>(window.icode.tasks.settings())
     ])
     if (!mounted.current) return
     if (tasksResult.ok) setTasks(tasksResult.value)
@@ -137,14 +137,14 @@ export default function TasksView({
   }, [load])
 
   // Main says when the queue changed; polling would either lag or burn cycles.
-  useEffect(() => window.ade.onTaskEvent(() => void load()), [load])
+  useEffect(() => window.icode.onTaskEvent(() => void load()), [load])
 
   const repoId = form.repoId || activeRepoId || repos[0]?.id || ''
 
   useEffect(() => {
     if (!repoId) return
     let cancelled = false
-    void callApi<HarnessDetection[]>(window.ade.harness.list({ repoId })).then((result) => {
+    void callApi<HarnessDetection[]>(window.icode.harness.list({ repoId })).then((result) => {
       if (cancelled || !result.ok) return
       setHarnesses({ repoId, list: result.value })
       const available = result.value.filter((entry) => entry.state === 'available')
@@ -187,7 +187,7 @@ export default function TasksView({
       return
     }
     let cancelled = false
-    void callApi<TaskRecordPayload[]>(window.ade.tasks.history({ taskId: id })).then((result) => {
+    void callApi<TaskRecordPayload[]>(window.icode.tasks.history({ taskId: id })).then((result) => {
       if (cancelled || !result.ok) return
       setAttempts(result.value.filter((entry) => entry.id !== id))
     })
@@ -212,7 +212,7 @@ export default function TasksView({
     setBusyId('create')
     try {
       const result = await callApi<TaskRecordPayload>(
-        window.ade.tasks.create({
+        window.icode.tasks.create({
           repoId,
           prompt: form.prompt,
           harness: form.harness as never
@@ -238,7 +238,7 @@ export default function TasksView({
   const cancelUnguarded = async (task: TaskRecordPayload): Promise<void> => {
     setBusyId(task.id)
     try {
-      const result = await callApi<TaskRecordPayload>(window.ade.tasks.cancel({ taskId: task.id }))
+      const result = await callApi<TaskRecordPayload>(window.icode.tasks.cancel({ taskId: task.id }))
       if (!result.ok) notify(errorNotice(result.error))
       else notify({ tone: 'info', message: `Cancelled ${task.title}` })
       await load()
@@ -255,7 +255,7 @@ export default function TasksView({
   const retryUnguarded = async (task: TaskRecordPayload): Promise<void> => {
     setBusyId(task.id)
     try {
-      const result = await callApi<TaskRecordPayload>(window.ade.tasks.retry({ taskId: task.id }))
+      const result = await callApi<TaskRecordPayload>(window.icode.tasks.retry({ taskId: task.id }))
       if (!result.ok) notify(errorNotice(result.error))
       else notify({ tone: 'success', message: `Retrying as attempt ${String(result.value.attempt)}` })
       await load()
@@ -265,7 +265,7 @@ export default function TasksView({
   }
 
   const changeConcurrency = async (value: number): Promise<void> => {
-    const result = await callApi<number>(window.ade.tasks.setSettings({ maxConcurrent: value }))
+    const result = await callApi<number>(window.icode.tasks.setSettings({ maxConcurrent: value }))
     if (!result.ok) notify(errorNotice(result.error))
     else setMaxConcurrent(result.value)
     await load()
@@ -284,7 +284,7 @@ export default function TasksView({
     setBusyId('schedule')
     try {
       const result = await callApi<TaskSchedulePayload>(
-        window.ade.schedules.create({
+        window.icode.schedules.create({
           repoId,
           prompt: scheduleForm.prompt,
           ...(scheduleForm.title.trim() ? { title: scheduleForm.title.trim() } : {}),
@@ -331,7 +331,7 @@ export default function TasksView({
     setBusyId(schedule.id)
     try {
       const result = await callApi<TaskSchedulePayload>(
-        window.ade.schedules.setEnabled({ scheduleId: schedule.id, enabled: !schedule.enabled })
+        window.icode.schedules.setEnabled({ scheduleId: schedule.id, enabled: !schedule.enabled })
       )
       if (!result.ok) notify(errorNotice(result.error))
       await load()
@@ -349,7 +349,7 @@ export default function TasksView({
     setBusyId(schedule.id)
     try {
       const result = await callApi<{ result: string; taskId?: string }>(
-        window.ade.schedules.runNow({ scheduleId: schedule.id })
+        window.icode.schedules.runNow({ scheduleId: schedule.id })
       )
       if (!result.ok) notify(errorNotice(result.error))
       else if (result.value.result === 'created') {
@@ -366,7 +366,7 @@ export default function TasksView({
   const removeSchedule = async (schedule: TaskSchedulePayload): Promise<void> => {
     setBusyId(schedule.id)
     try {
-      const result = await callApi<null>(window.ade.schedules.remove({ scheduleId: schedule.id }))
+      const result = await callApi<null>(window.icode.schedules.remove({ scheduleId: schedule.id }))
       if (!result.ok) notify(errorNotice(result.error))
       await load()
     } finally {

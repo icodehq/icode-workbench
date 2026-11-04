@@ -210,7 +210,7 @@ const incarnationId = 'abcdef1234567890'
 describe('dispatcher validation', () => {
   it('rejects an unknown channel', async () => {
     const dispatch = createDispatcher(services())
-    const result = await dispatch('ade:exec', { command: 'rm -rf /' })
+    const result = await dispatch('icode:exec', { command: 'rm -rf /' })
     expect(result).toMatchObject({ ok: false, error: { code: 'INVALID_ARGUMENT' } })
   })
 

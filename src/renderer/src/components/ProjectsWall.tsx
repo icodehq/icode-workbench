@@ -12,7 +12,7 @@ import {
   Search,
   Settings
 } from 'lucide-react'
-import type { TaskRecordPayload } from '../../../shared/ade-api'
+import type { TaskRecordPayload } from '../../../shared/icode-api'
 import type { RepositorySummary, SessionSummary } from '../../../shared/schemas/ipc'
 import type { ProjectMode } from '../state/navigation'
 import { repositoryPreparationView } from '../lib/repository-preparation'
@@ -90,26 +90,26 @@ function AttentionRow({
   return (
     <button
       type="button"
-      className="ade-need-row w-full border-t border-border px-2.5 py-1.5 text-left first:border-t-0 hover:bg-muted/40"
+      className="icode-need-row w-full border-t border-border px-2.5 py-1.5 text-left first:border-t-0 hover:bg-muted/40"
       onClick={onOpen}
       title={detail ?? title}
       data-testid={entry.source === 'task' ? `needs-${entry.task.id}` : `needs-setup-${entry.repo.id}`}
     >
       <span
-        className={`ade-need-reason inline-flex h-[18px] items-center rounded-full border px-1.5 text-[8.5px] font-semibold uppercase tracking-[0.06em] ${reasonPillClass(entry.kind)}`}
+        className={`icode-need-reason inline-flex h-[18px] items-center rounded-full border px-1.5 text-[8.5px] font-semibold uppercase tracking-[0.06em] ${reasonPillClass(entry.kind)}`}
       >
         {entry.kind}
       </span>
-      <span className="ade-need-project truncate font-mono text-[9px] text-muted-foreground">
+      <span className="icode-need-project truncate font-mono text-[9px] text-muted-foreground">
         {entry.repo.displayName}
       </span>
-      <span className="ade-need-title truncate text-[11px] font-medium text-foreground">
+      <span className="icode-need-title truncate text-[11px] font-medium text-foreground">
         {title}
       </span>
-      <span className="ade-need-age text-right font-mono text-[9px] text-muted-foreground">
+      <span className="icode-need-age text-right font-mono text-[9px] text-muted-foreground">
         {relativeTimeLabel(entry.since, now)}
       </span>
-      <ChevronRight size={11} className={`ade-need-arrow ${reasonTextClass(entry.kind)}`} />
+      <ChevronRight size={11} className={`icode-need-arrow ${reasonTextClass(entry.kind)}`} />
     </button>
   )
 }
@@ -174,11 +174,11 @@ function ProjectRow({
   ].filter(Boolean).join(' ')
   return (
     <div
-      className={`ade-project-row ${rowClass}`}
+      className={`icode-project-row ${rowClass}`}
       data-testid={`project-row-${repo.id}`}
       onClick={open}
     >
-      <div className="ade-project-project flex min-w-0 items-center gap-1.5">
+      <div className="icode-project-project flex min-w-0 items-center gap-1.5">
         <span className={`h-[7px] w-[7px] shrink-0 rounded-full ${projectDotClass(stats)}`} />
         <button
           type="button"
@@ -198,24 +198,24 @@ function ProjectRow({
         </button>
         <TargetBadge repo={repo} compact />
       </div>
-      <div className="ade-project-branch truncate font-mono text-[9.5px] text-muted-foreground" title={branch}>
+      <div className="icode-project-branch truncate font-mono text-[9.5px] text-muted-foreground" title={branch}>
         {branch}
       </div>
-      <div className={`ade-project-work truncate text-[9.5px] ${work.tone}`} title={work.title}>
+      <div className={`icode-project-work truncate text-[9.5px] ${work.tone}`} title={work.title}>
         {work.text}
       </div>
       <div
-        className={`ade-project-needs truncate text-[9.5px] ${
+        className={`icode-project-needs truncate text-[9.5px] ${
           stats.attention.total > 0 ? 'font-medium text-signal' : 'text-muted-foreground'
         }`}
         title={needs === '—' ? undefined : needs}
       >
         {needs}
       </div>
-      <div className="ade-project-updated font-mono text-[9.5px] text-muted-foreground">
+      <div className="icode-project-updated font-mono text-[9.5px] text-muted-foreground">
         {updated}
       </div>
-      <div className="ade-project-actions flex items-center justify-end gap-0.5">
+      <div className="icode-project-actions flex items-center justify-end gap-0.5">
         {preparation?.kind === 'failed' ? (
           <button
             type="button"
@@ -261,7 +261,7 @@ function ProjectRow({
           <ArrowUpRight size={12} />
         </button>
       </div>
-      <span className="ade-project-mobile">
+      <span className="icode-project-mobile">
         {branch} · {work.text}
         {needs === '—' ? '' : ` · ${needs}`} · {updated}
       </span>
@@ -482,8 +482,8 @@ export default function ProjectsWall({
             </div>
           </div>
 
-          <div ref={directoryRef} className="ade-project-table">
-            <div className="ade-project-head" aria-hidden="true">
+          <div ref={directoryRef} className="icode-project-table">
+            <div className="icode-project-head" aria-hidden="true">
               <span>Project</span>
               <span>Branch</span>
               <span>Work</span>
@@ -491,7 +491,7 @@ export default function ProjectsWall({
               <span>Updated</span>
               <span />
             </div>
-            <div className="ade-project-body" data-testid="project-directory">
+            <div className="icode-project-body" data-testid="project-directory">
               {filtered.length === 0 ? (
                 <div
                   className="flex flex-wrap items-center gap-2 px-3 py-4 text-[10.5px] text-muted-foreground"

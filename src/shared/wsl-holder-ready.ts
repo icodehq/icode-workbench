@@ -7,10 +7,10 @@
 
 export type WslHolderReady = { pid: number } | { error: string }
 
-export const WSL_HOLDER_READY_ENV = 'ADE_WSL_HOLDER_READY_FILE'
-export const WSL_HOLDER_WSL_ENV = 'ADE_WSL_HOLDER_WSL'
-export const WSL_HOLDER_ARGS_ENV = 'ADE_WSL_HOLDER_ARGS'
-export const WSL_HOLDER_CWD_ENV = 'ADE_WSL_HOLDER_CWD'
+export const WSL_HOLDER_READY_ENV = 'ICODE_WSL_HOLDER_READY_FILE'
+export const WSL_HOLDER_WSL_ENV = 'ICODE_WSL_HOLDER_WSL'
+export const WSL_HOLDER_ARGS_ENV = 'ICODE_WSL_HOLDER_ARGS'
+export const WSL_HOLDER_CWD_ENV = 'ICODE_WSL_HOLDER_CWD'
 
 const MAX_ERROR_LENGTH = 2_000
 

@@ -72,8 +72,8 @@ const DEFAULT_PRAGMAS = [
 
 function corrupt(path: string, detail: string, cause?: unknown): DatabaseError {
   return new DatabaseError(
-    makeAppError('DB_CORRUPT', 'The ADE database cannot be read safely.', {
-      detail: `${detail} Database preserved at ${path}. Close ADE, back up this file, then remove or repair it manually.`,
+    makeAppError('DB_CORRUPT', 'The iCode database cannot be read safely.', {
+      detail: `${detail} Database preserved at ${path}. Close iCode, back up this file, then remove or repair it manually.`,
       context: { path }
     }),
     { cause }
@@ -99,7 +99,7 @@ function assertSqliteHeader(path: string): void {
     const code = (error as NodeJS.ErrnoException).code
     if (code === 'EACCES' || code === 'EPERM') {
       throw new DatabaseError(
-        makeAppError('INTERNAL', 'The ADE database cannot be read with the current permissions.', {
+        makeAppError('INTERNAL', 'The iCode database cannot be read with the current permissions.', {
           detail: 'Fix the file or directory permissions; the database was not modified.',
           context: { path }
         }),
@@ -151,7 +151,7 @@ function openWritable(path: string, busyTimeoutMs: number): DatabaseSync {
       throw corrupt(path, 'SQLite could not open the database file.', error)
     }
     throw new DatabaseError(
-      makeAppError('INTERNAL', 'The ADE database could not be opened.', {
+      makeAppError('INTERNAL', 'The iCode database could not be opened.', {
         detail: message,
         context: { path }
       }),
@@ -303,7 +303,7 @@ export class MigrationFailureError extends Error {
 
   toDatabaseError(path: string): DatabaseError {
     return new DatabaseError(
-      makeAppError('DB_CORRUPT', 'The ADE database could not be migrated safely.', {
+      makeAppError('DB_CORRUPT', 'The iCode database could not be migrated safely.', {
         detail: `Migration "${this.detail.migrationName}" failed; user_version remains ${this.detail.fromVersion}. Back up and repair the database at ${path} before retrying.`,
         context: { path, migration: this.detail.migrationName }
       }),
@@ -348,7 +348,7 @@ export function openDatabase(options: DatabaseOptions): Database {
     const version = runMigrations(raw, options.migrations ?? [])
     if (version > SCHEMA_VERSION) {
       throw new DatabaseError(
-        makeAppError('DB_CORRUPT', 'The ADE database was written by a newer version.', {
+        makeAppError('DB_CORRUPT', 'The iCode database was written by a newer version.', {
           detail: `Database schema is v${version}; this build supports v${SCHEMA_VERSION}.`,
           context: { path }
         })
@@ -363,7 +363,7 @@ export function openDatabase(options: DatabaseOptions): Database {
     if (error instanceof MigrationFailureError) throw error.toDatabaseError(path)
     if (error instanceof DatabaseError) throw error
     throw new DatabaseError(
-      makeAppError('INTERNAL', 'The ADE database could not be initialized.', {
+      makeAppError('INTERNAL', 'The iCode database could not be initialized.', {
         detail: error instanceof Error ? error.message : String(error),
         context: { path }
       }),

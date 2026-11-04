@@ -26,7 +26,7 @@ function git(cwd: string, ...args: string[]): string {
 function commit(repo: string, message: string): void {
   execFileSync(
     'git',
-    ['-C', repo, '-c', 'user.email=ade@test', '-c', 'user.name=ADE', 'commit', '-qm', message],
+    ['-C', repo, '-c', 'user.email=icode@test', '-c', 'user.name=iCode', 'commit', '-qm', message],
     { stdio: 'pipe' }
   )
 }
@@ -40,7 +40,7 @@ type Fixture = {
 }
 
 function makeRepo(options: { baseline?: boolean } = {}): Fixture {
-  const root = mkdtempSync(join(tmpdir(), 'ade-review-'))
+  const root = mkdtempSync(join(tmpdir(), 'icode-review-'))
   roots.push(root)
   const repo = join(root, 'atlas')
   mkdirSync(repo)

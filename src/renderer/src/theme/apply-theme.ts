@@ -14,7 +14,7 @@ export type ThemeName = 'dark' | 'light'
 export type ThemePreference = 'system' | ThemeName
 
 const LIGHT_QUERY = '(prefers-color-scheme: light)'
-const STORAGE_KEY = 'ade.themePreference'
+const STORAGE_KEY = 'icode.themePreference'
 
 const listeners = new Set<() => void>()
 

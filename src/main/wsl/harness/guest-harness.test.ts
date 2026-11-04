@@ -101,10 +101,10 @@ describe('guest path lookup', () => {
     // Measured on this machine: `command -v claude` resolves to
     // /mnt/c/nvm4w/nodejs/claude, a Windows shim, not a guest install.
     expect(GUEST_PATH_LOOKUP_BATCH_SCRIPT).toContain(
-      'case "$__ade_dir" in /mnt/*|/mnt) continue ;; esac'
+      'case "$__icode_dir" in /mnt/*|/mnt) continue ;; esac'
     )
-    expect(GUEST_PATH_LOOKUP_BATCH_SCRIPT).toContain('[ -f "$__ade_dir/$__ade_name" ]')
-    expect(GUEST_PATH_LOOKUP_BATCH_SCRIPT).toContain('[ -x "$__ade_dir/$__ade_name" ]')
+    expect(GUEST_PATH_LOOKUP_BATCH_SCRIPT).toContain('[ -f "$__icode_dir/$__icode_name" ]')
+    expect(GUEST_PATH_LOOKUP_BATCH_SCRIPT).toContain('[ -x "$__icode_dir/$__icode_name" ]')
   })
 
   it('takes the command names as argv, never interpolated into the script', () => {

@@ -21,8 +21,8 @@
 import type { WslCommandRunner, WslExecFailureStatus } from './exec'
 import { WSL_DEFAULT_TIMEOUT_MS } from './exec'
 
-const PLATFORM_SENTINEL = '__ADE_PLATFORM__'
-const LOGIN_SENTINEL = '__ADE_LOGIN__'
+const PLATFORM_SENTINEL = '__ICODE_PLATFORM__'
+const LOGIN_SENTINEL = '__ICODE_LOGIN__'
 
 /**
  * Constant scripts. No caller value is interpolated; every substitution is
@@ -42,11 +42,11 @@ export const GUEST_PLATFORM_SCRIPT = [
 ].join('; ')
 
 export const GUEST_LOGIN_SCRIPT = [
-  `__ade_shell=$(getent passwd "$(id -un)" 2>/dev/null | cut -d: -f7)`,
-  `if [ -z "$__ade_shell" ] || [ ! -x "$__ade_shell" ]; then __ade_shell="\${SHELL:-/bin/sh}"; fi`,
+  `__icode_shell=$(getent passwd "$(id -un)" 2>/dev/null | cut -d: -f7)`,
+  `if [ -z "$__icode_shell" ] || [ ! -x "$__icode_shell" ]; then __icode_shell="\${SHELL:-/bin/sh}"; fi`,
   `printf '%s\\n' ${LOGIN_SENTINEL}`,
-  `printf 'login_shell=%s\\n' "$__ade_shell"`,
-  `"$__ade_shell" -lc 'printf "login_path=%s\\n" "$PATH"; printf "login_node_path=%s\\n" "$(command -v node 2>/dev/null)"; printf "login_node_version=%s\\n" "$(node --version 2>/dev/null)"; printf "login_git_path=%s\\n" "$(command -v git 2>/dev/null)"; printf "login_git_version=%s\\n" "$(git --version 2>/dev/null)"' 2>/dev/null`,
+  `printf 'login_shell=%s\\n' "$__icode_shell"`,
+  `"$__icode_shell" -lc 'printf "login_path=%s\\n" "$PATH"; printf "login_node_path=%s\\n" "$(command -v node 2>/dev/null)"; printf "login_node_version=%s\\n" "$(node --version 2>/dev/null)"; printf "login_git_path=%s\\n" "$(command -v git 2>/dev/null)"; printf "login_git_version=%s\\n" "$(git --version 2>/dev/null)"' 2>/dev/null`,
   `printf '%s\\n' ${LOGIN_SENTINEL}`
 ].join('; ')
 

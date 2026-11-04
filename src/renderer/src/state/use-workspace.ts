@@ -3,7 +3,7 @@ import type {
   AddRepositoryResultPayload,
   InitializeRepositoryResultPayload,
   RuntimeInfo
-} from '../../../shared/ade-api'
+} from '../../../shared/icode-api'
 import { makeAppError, type AppError } from '../../../shared/domain/errors'
 import type { HarnessId } from '../../../shared/domain/harness'
 import type { ExecutionTarget } from '../../../shared/domain/repository'
@@ -18,8 +18,8 @@ import {
   type WorkspaceState
 } from './workspace'
 
-const REPO_STORAGE_KEY = 'ade.activeRepoId'
-const SESSION_STORAGE_KEY = 'ade.activeSessionId'
+const REPO_STORAGE_KEY = 'icode.activeRepoId'
+const SESSION_STORAGE_KEY = 'icode.activeSessionId'
 const STOP_RECONCILE_MS = 5000
 
 function readStored(key: string): string | null {
@@ -125,7 +125,7 @@ export function useWorkspace(): {
   const clearUnreadIfFocused = useCallback((sessionId: string | null): void => {
     if (sessionId === null) return
     if (typeof document !== 'undefined' && !document.hasFocus()) return
-    void window.ade.activity.clearUnread({ sessionId }).catch(() => undefined)
+    void window.icode.activity.clearUnread({ sessionId }).catch(() => undefined)
   }, [])
 
   const notify = useCallback((notice: Notice | null) => {
@@ -140,7 +140,7 @@ export function useWorkspace(): {
   )
 
   const refreshRepos = useCallback(async (): Promise<boolean> => {
-    const result = await callApi(window.ade.repos.list())
+    const result = await callApi(window.icode.repos.list())
     if (!result.ok) {
       notify(errorNotice(result.error))
       return false
@@ -150,7 +150,7 @@ export function useWorkspace(): {
   }, [notify])
 
   const refreshSessions = useCallback(async (): Promise<boolean> => {
-    const result = await callApi(window.ade.sessions.list({}))
+    const result = await callApi(window.icode.sessions.list({}))
     if (!result.ok) {
       notify(errorNotice(result.error))
       return false
@@ -169,7 +169,7 @@ export function useWorkspace(): {
       dispatch({ type: 'branchesLoaded', branches: [] })
       return
     }
-    const result = await callApi(window.ade.branches.list({ repoId }))
+    const result = await callApi(window.icode.branches.list({ repoId }))
     if (!result.ok) {
       dispatch({ type: 'branchesLoaded', branches: [] })
       return
@@ -181,7 +181,7 @@ export function useWorkspace(): {
     async (force: boolean, repoId?: string | null): Promise<void> => {
       dispatch({ type: 'harnessesLoading' })
       const result = await callApi(
-        window.ade.harness.list({
+        window.icode.harness.list({
           ...(force ? { force: true } : {}),
           ...(repoId ? { repoId } : {})
         })
@@ -216,7 +216,7 @@ export function useWorkspace(): {
     if (booted.current) return
     booted.current = true
     void (async () => {
-      void window.ade
+      void window.icode
         .getRuntimeInfo()
         .then(setRuntime)
         .catch(() => setRuntime(null))
@@ -234,7 +234,7 @@ export function useWorkspace(): {
 
   useEffect(
     () =>
-      window.ade.onSessionEvent((event) => {
+      window.icode.onSessionEvent((event) => {
         if (event.type === 'state') {
           dispatch({ type: 'sessionUpserted', session: event.session })
           if (isTerminalSessionState(event.session.state)) {
@@ -266,7 +266,7 @@ export function useWorkspace(): {
   // changes; the renderer never guesses progress from elapsed time.
   useEffect(
     () =>
-      window.ade.onRepoEvent(() => {
+      window.icode.onRepoEvent(() => {
         void refreshRepos()
       }),
     [refreshRepos]
@@ -358,7 +358,7 @@ export function useWorkspace(): {
       const validation = validateAddPath(input)
       if (validation !== null) return validation
       const candidate = input.path.trim()
-      const result = await callApi(window.ade.repos.add({ path: candidate, target: input.target }))
+      const result = await callApi(window.icode.repos.add({ path: candidate, target: input.target }))
       if (!result.ok) {
         // Reported to the dialog *and* as a notice: the dialog stays open with the
         // typed path, and the workspace log keeps the failure.
@@ -388,7 +388,7 @@ export function useWorkspace(): {
       if (validation !== null) return validation
       const candidate = input.path.trim()
       const result = await callApi(
-        window.ade.repos.initialize({
+        window.icode.repos.initialize({
           path: candidate,
           target: input.target,
           ...(input.identity === undefined ? {} : { identity: input.identity })
@@ -414,7 +414,7 @@ export function useWorkspace(): {
 
   const retryPreparation = useCallback(
     async (repoId: string): Promise<void> => {
-      const result = await callApi(window.ade.repos.retryPreparation({ repoId }))
+      const result = await callApi(window.icode.repos.retryPreparation({ repoId }))
       if (!result.ok) {
         notify(errorNotice(result.error))
         return
@@ -430,7 +430,7 @@ export function useWorkspace(): {
 
   const removeRepository = useCallback(
     async (repoId: string): Promise<void> => {
-      const result = await callApi(window.ade.repos.remove({ repoId }))
+      const result = await callApi(window.icode.repos.remove({ repoId }))
       if (!result.ok) {
         notify(errorNotice(result.error))
         return
@@ -485,7 +485,7 @@ export function useWorkspace(): {
     const prompt = state.removal
     if (!prompt) return
     const result = await callApi(
-      window.ade.repos.remove({
+      window.icode.repos.remove({
         repoId: prompt.repoId,
         acknowledgeDependentSessions: true
       })
@@ -538,7 +538,7 @@ export function useWorkspace(): {
     async (sessionId: string): Promise<void> => {
       const session = state.sessions.find((entry) => entry.id === sessionId)
       dispatch({ type: 'pendingSet', sessionId, action: 'removing' })
-      const result = await callApi(window.ade.sessions.remove({ sessionId, stopIfLive: true }))
+      const result = await callApi(window.icode.sessions.remove({ sessionId, stopIfLive: true }))
       if (!result.ok) {
         dispatch({ type: 'pendingClear', sessionId })
         notify(errorNotice(result.error))
@@ -588,7 +588,7 @@ export function useWorkspace(): {
   const discardSession = useCallback(
     async (sessionId: string, confirmBranch: string): Promise<boolean> => {
       const result = await callApi(
-        window.ade.sessions.discard({ sessionId, confirmBranch })
+        window.icode.sessions.discard({ sessionId, confirmBranch })
       )
       if (!result.ok) {
         notify(errorNotice(result.error))
@@ -636,7 +636,7 @@ export function useWorkspace(): {
 
   const recoverWorktree = useCallback(
     async (sessionId: string): Promise<void> => {
-      const result = await callApi(window.ade.sessions.recoverWorktree({ sessionId }))
+      const result = await callApi(window.icode.sessions.recoverWorktree({ sessionId }))
       if (!result.ok) {
         notify(errorNotice(result.error))
         return
@@ -661,7 +661,7 @@ export function useWorkspace(): {
       const repoId = state.activeRepoId
       if (repoId === null) return
       const result = await callApi(
-        window.ade.branches.remove({
+        window.icode.branches.remove({
           repoId,
           branch,
           ...(confirmBranch === undefined ? {} : { confirmBranch })
@@ -723,7 +723,7 @@ export function useWorkspace(): {
        */
       const terminalSize = readTerminalSize() ?? { cols: 100, rows: 30 }
       const result = await callApi(
-        window.ade.sessions.create({
+        window.icode.sessions.create({
           repoId: input.repoId,
           harness: input.harness,
           ...(input.title && input.title.trim().length > 0 ? { title: input.title.trim() } : {}),
@@ -757,7 +757,7 @@ export function useWorkspace(): {
     async (sessionId: string): Promise<void> => {
       const session = state.sessions.find((entry) => entry.id === sessionId)
       dispatch({ type: 'pendingSet', sessionId, action: 'stopping' })
-      const result = await callApi(window.ade.sessions.close({ sessionId }))
+      const result = await callApi(window.icode.sessions.close({ sessionId }))
       if (!result.ok) {
         dispatch({ type: 'pendingClear', sessionId })
         notify(errorNotice(result.error))
@@ -775,7 +775,7 @@ export function useWorkspace(): {
         setTimeout(() => {
           stopTimers.current.delete(sessionId)
           void (async () => {
-            const fresh = await callApi(window.ade.sessions.get({ sessionId }))
+            const fresh = await callApi(window.icode.sessions.get({ sessionId }))
             if (!fresh.ok) {
               dispatch({ type: 'pendingClear', sessionId })
               notify(errorNotice(fresh.error))
@@ -809,7 +809,7 @@ export function useWorkspace(): {
         stopTimers.current.delete(sessionId)
       }
       dispatch({ type: 'pendingSet', sessionId, action: 'restarting' })
-      const result = await callApi(window.ade.sessions.restart({ sessionId }))
+      const result = await callApi(window.icode.sessions.restart({ sessionId }))
       dispatch({ type: 'pendingClear', sessionId })
       if (!result.ok) {
         notify(errorNotice(result.error))
@@ -829,7 +829,7 @@ export function useWorkspace(): {
     async (sessionId: string): Promise<void> => {
       const session = state.sessions.find((entry) => entry.id === sessionId)
       dispatch({ type: 'pendingSet', sessionId, action: 'sleeping' })
-      const result = await callApi(window.ade.sessions.sleep({ sessionId }))
+      const result = await callApi(window.icode.sessions.sleep({ sessionId }))
       dispatch({ type: 'pendingClear', sessionId })
       if (!result.ok) {
         notify(errorNotice(result.error))
@@ -853,7 +853,7 @@ export function useWorkspace(): {
     async (sessionId: string): Promise<void> => {
       const session = state.sessions.find((entry) => entry.id === sessionId)
       dispatch({ type: 'pendingSet', sessionId, action: 'waking' })
-      const result = await callApi(window.ade.sessions.wake({ sessionId }))
+      const result = await callApi(window.icode.sessions.wake({ sessionId }))
       dispatch({ type: 'pendingClear', sessionId })
       if (!result.ok) {
         notify(errorNotice(result.error))
@@ -877,7 +877,7 @@ export function useWorkspace(): {
 
   const recheckSession = useCallback(
     async (sessionId: string): Promise<void> => {
-      const result = await callApi(window.ade.sessions.get({ sessionId }))
+      const result = await callApi(window.icode.sessions.get({ sessionId }))
       if (!result.ok) {
         notify(errorNotice(result.error))
         await refreshSessions()

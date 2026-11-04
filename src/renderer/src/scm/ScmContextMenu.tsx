@@ -115,7 +115,7 @@ export default function ScmContextMenu({
   return createPortal(
     <div
       ref={menu}
-      className="fixed z-[120] w-[248px] overflow-hidden rounded-md border border-line-strong bg-overlay p-1 shadow-[var(--ade-shadow-overlay)]"
+      className="fixed z-[120] w-[248px] overflow-hidden rounded-md border border-line-strong bg-overlay p-1 shadow-[var(--icode-shadow-overlay)]"
       style={{ left: position.left, top: position.top }}
       role="menu"
       aria-label={ariaLabel}

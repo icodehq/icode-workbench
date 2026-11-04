@@ -21,7 +21,7 @@ const servers: Server[] = []
 const savedEnv = { ...process.env }
 
 function root(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'ade-supervisor-'))
+  const dir = mkdtempSync(join(tmpdir(), 'icode-supervisor-'))
   roots.push(dir)
   return dir
 }
@@ -86,21 +86,21 @@ describe('profile-scoped socket path', () => {
   it('gives two profiles sharing one runtime directory different sockets', () => {
     const runtime = root()
     process.env.XDG_RUNTIME_DIR = runtime
-    delete process.env.ADE_HOST_SOCKET
+    delete process.env.ICODE_HOST_SOCKET
 
     const first = new HostSupervisor(profile('alpha')).socketPath
     const second = new HostSupervisor(profile('beta')).socketPath
 
     expect(first).not.toBe(second)
-    expect(first.startsWith(join(runtime, 'ade'))).toBe(true)
-    expect(second.startsWith(join(runtime, 'ade'))).toBe(true)
+    expect(first.startsWith(join(runtime, 'icode'))).toBe(true)
+    expect(second.startsWith(join(runtime, 'icode'))).toBe(true)
     // Still a legal Unix socket path (sun_path is 108 bytes).
     expect(Buffer.byteLength(first)).toBeLessThan(107)
   })
 
   it('is deterministic for the same profile and ignores a trailing slash', () => {
     process.env.XDG_RUNTIME_DIR = root()
-    delete process.env.ADE_HOST_SOCKET
+    delete process.env.ICODE_HOST_SOCKET
     const dir = profile('alpha')
     expect(new HostSupervisor(dir).socketPath).toBe(new HostSupervisor(dir).socketPath)
     expect(profileSocketScope(dir)).toBe(profileSocketScope(`${dir}/`))
@@ -108,7 +108,7 @@ describe('profile-scoped socket path', () => {
 
   it('keeps the fallback per-profile when there is no runtime directory', () => {
     delete process.env.XDG_RUNTIME_DIR
-    delete process.env.ADE_HOST_SOCKET
+    delete process.env.ICODE_HOST_SOCKET
     const firstDir = profile('alpha')
     const secondDir = profile('beta')
     const first = new HostSupervisor(firstDir).socketPath
@@ -123,22 +123,22 @@ describe('profile-scoped socket path', () => {
     const dir = profile('alpha')
     const path = hostSocketPath({
       profileDir: dir,
-      env: { XDG_RUNTIME_DIR: long, ADE_HOST_SOCKET: undefined }
+      env: { XDG_RUNTIME_DIR: long, ICODE_HOST_SOCKET: undefined }
     })
     expect(path).toBe(join(dir, 'terminal-host.sock'))
     expect(Buffer.byteLength(path)).toBeLessThan(107)
   })
 
-  it('honours ADE_HOST_SOCKET as an explicit override', () => {
+  it('honours ICODE_HOST_SOCKET as an explicit override', () => {
     process.env.XDG_RUNTIME_DIR = root()
     const explicit = join(root(), 'override', 'terminal-host.sock')
-    process.env.ADE_HOST_SOCKET = explicit
+    process.env.ICODE_HOST_SOCKET = explicit
     expect(new HostSupervisor(profile('alpha')).socketPath).toBe(explicit)
   })
 
   it('keeps override sockets ownership-safe too', async () => {
     const explicit = join(root(), 'override', 'terminal-host.sock')
-    process.env.ADE_HOST_SOCKET = explicit
+    process.env.ICODE_HOST_SOCKET = explicit
     const supervisor = new HostSupervisor(profile('alpha'))
     await listen(explicit)
 
@@ -152,7 +152,7 @@ describe('ownership-safe discovery', () => {
   it('never unlinks a live socket this profile does not own', async () => {
     const runtime = root()
     process.env.XDG_RUNTIME_DIR = runtime
-    delete process.env.ADE_HOST_SOCKET
+    delete process.env.ICODE_HOST_SOCKET
     const dir = profile('alpha')
     const supervisor = new HostSupervisor(dir)
     await listen(supervisor.socketPath)
@@ -166,7 +166,7 @@ describe('ownership-safe discovery', () => {
   it('reports a live recorded pid whose endpoint is gone without touching it', async () => {
     const runtime = root()
     process.env.XDG_RUNTIME_DIR = runtime
-    delete process.env.ADE_HOST_SOCKET
+    delete process.env.ICODE_HOST_SOCKET
     const dir = profile('alpha')
     const supervisor = new HostSupervisor(dir)
     // Our own pid stands in for a live host.
@@ -184,7 +184,7 @@ describe('ownership-safe discovery', () => {
 
   it('describes a legacy endpoint recorded beside a scoped one', async () => {
     process.env.XDG_RUNTIME_DIR = root()
-    delete process.env.ADE_HOST_SOCKET
+    delete process.env.ICODE_HOST_SOCKET
     const dir = profile('alpha')
     const supervisor = new HostSupervisor(dir)
     const legacy = join(roots[0]!, 'legacy', 'terminal-host.sock')
@@ -198,7 +198,7 @@ describe('ownership-safe discovery', () => {
 
   it('leaves an unprobeable endpoint alone instead of guessing', async () => {
     process.env.XDG_RUNTIME_DIR = root()
-    delete process.env.ADE_HOST_SOCKET
+    delete process.env.ICODE_HOST_SOCKET
     const dir = profile('alpha')
     const supervisor = new HostSupervisor(dir)
     // A regular file is not a socket: connecting is inconclusive, not "stale".
@@ -211,7 +211,7 @@ describe('ownership-safe discovery', () => {
 
   it('delegates stale-socket removal to the Host instead of unlinking it', async () => {
     process.env.XDG_RUNTIME_DIR = root()
-    delete process.env.ADE_HOST_SOCKET
+    delete process.env.ICODE_HOST_SOCKET
     const supervisor = new HostSupervisor(profile('alpha'))
     // A killed listener leaves its socket file behind and refuses connections:
     // exactly the case the Host is allowed to clean up.
@@ -244,7 +244,7 @@ describe('ownership-safe discovery', () => {
 
   it('starts a Host only when the endpoint is absent', async () => {
     process.env.XDG_RUNTIME_DIR = root()
-    delete process.env.ADE_HOST_SOCKET
+    delete process.env.ICODE_HOST_SOCKET
     const supervisor = new HostSupervisor(profile('alpha'))
     // No built Host entry in this fixture: spawning is attempted and fails
     // cleanly, which proves ensure() reached the spawn step (absent endpoint).

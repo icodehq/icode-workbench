@@ -1,0 +1,11 @@
+{
+  "name": "iCode",
+  "packageName": "icode",
+  "appId": "dev.icode.app",
+  "executableName": "icode",
+  "envPrefix": "ICODE_",
+  "localProfileDirName": "iCode",
+  "guestDirName": ".icode",
+  "dbFileName": "icode.sqlite",
+  "branchPrefix": "icode/"
+}

@@ -132,7 +132,7 @@ export class HostClient {
             type: 'hello',
             protocolVersion: HOST_PROTOCOL_VERSION,
             token: options.token,
-            clientId: options.clientId ?? `ade-main-${process.pid}`
+            clientId: options.clientId ?? `icode-main-${process.pid}`
           })}\n`
         )
       })

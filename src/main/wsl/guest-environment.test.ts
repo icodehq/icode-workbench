@@ -77,7 +77,7 @@ describe('framed value parsing', () => {
 
 describe('platform parsing', () => {
   it('reads os, arch, glibc and executables', () => {
-    const platform = parseGuestPlatform(framed('__ADE_PLATFORM__', PLATFORM_BODY))
+    const platform = parseGuestPlatform(framed('__ICODE_PLATFORM__', PLATFORM_BODY))
     expect(platform).toEqual({
       osId: 'ubuntu',
       osVersion: '26.04',
@@ -90,13 +90,13 @@ describe('platform parsing', () => {
 
   it('reports a missing executable as null, never as an empty path', () => {
     const body = 'arch=x86_64\nnode_path=\nnode_version=\ngit_path=/usr/bin/git\ngit_version=git version 2.43.0'
-    const platform = parseGuestPlatform(framed('__ADE_PLATFORM__', body))
+    const platform = parseGuestPlatform(framed('__ICODE_PLATFORM__', body))
     expect(platform?.node).toEqual({ path: null, version: null })
   })
 
   it('survives a distro whose /etc/os-release is absent', () => {
     const platform = parseGuestPlatform(
-      framed('__ADE_PLATFORM__', 'os_id=\nos_version=\narch=aarch64\nglibc=')
+      framed('__ICODE_PLATFORM__', 'os_id=\nos_version=\narch=aarch64\nglibc=')
     )
     expect(platform?.arch).toBe('aarch64')
     expect(platform?.osId).toBeNull()
@@ -110,7 +110,7 @@ describe('platform parsing', () => {
 
 describe('login environment parsing', () => {
   it('reads the shell, PATH and executables', () => {
-    const login = parseGuestLoginEnvironment(framed('__ADE_LOGIN__', LOGIN_BODY))
+    const login = parseGuestLoginEnvironment(framed('__ICODE_LOGIN__', LOGIN_BODY))
     expect(login?.shell).toBe('/bin/bash')
     expect(login?.pathVariable).toContain('.nvm')
     expect(login?.node.path).toContain('node')
@@ -118,7 +118,7 @@ describe('login environment parsing', () => {
   })
 
   it('is not corrupted by profile output preceding the marker', () => {
-    const noisy = `motd: 3 updates available\n${framed('__ADE_LOGIN__', LOGIN_BODY)}`
+    const noisy = `motd: 3 updates available\n${framed('__ICODE_LOGIN__', LOGIN_BODY)}`
     expect(parseGuestLoginEnvironment(noisy)?.shell).toBe('/bin/bash')
   })
 
@@ -130,8 +130,8 @@ describe('login environment parsing', () => {
 describe('guest environment probe', () => {
   it('returns platform plus login environment on a healthy distro', async () => {
     const runner = runnerFor([
-      { status: 'ok', stdout: framed('__ADE_PLATFORM__', PLATFORM_BODY), stderr: '' },
-      { status: 'ok', stdout: framed('__ADE_LOGIN__', LOGIN_BODY), stderr: '' }
+      { status: 'ok', stdout: framed('__ICODE_PLATFORM__', PLATFORM_BODY), stderr: '' },
+      { status: 'ok', stdout: framed('__ICODE_LOGIN__', LOGIN_BODY), stderr: '' }
     ])
     const read = await probeGuestEnvironment(runner, 'Ubuntu-26.04')
     expect(read.status).toBe('ok')
@@ -142,7 +142,7 @@ describe('guest environment probe', () => {
 
   it('still succeeds when the login-shell probe fails', async () => {
     const runner = runnerFor([
-      { status: 'ok', stdout: framed('__ADE_PLATFORM__', PLATFORM_BODY), stderr: '' },
+      { status: 'ok', stdout: framed('__ICODE_PLATFORM__', PLATFORM_BODY), stderr: '' },
       { status: 'timed_out' }
     ])
     const read = await probeGuestEnvironment(runner, 'Ubuntu-26.04')
@@ -166,7 +166,7 @@ describe('guest environment probe', () => {
 
   it('uses constant scripts with no interpolated caller data', () => {
     for (const script of [GUEST_PLATFORM_SCRIPT, GUEST_LOGIN_SCRIPT]) {
-      expect(script).toContain('__ADE_')
+      expect(script).toContain('__ICODE_')
       expect(script).not.toContain('$1')
       expect(script).not.toContain('${DISTRO')
     }

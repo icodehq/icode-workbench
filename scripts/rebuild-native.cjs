@@ -20,9 +20,9 @@ rebuild({
   force: true
 })
   .then(() => {
-    process.stdout.write(`[ade] node-pty rebuilt for Electron ${electronVersion}\n`)
+    process.stdout.write(`[icode] node-pty rebuilt for Electron ${electronVersion}\n`)
   })
   .catch((error) => {
-    process.stderr.write(`[ade] native rebuild failed: ${String(error)}\n`)
+    process.stderr.write(`[icode] native rebuild failed: ${String(error)}\n`)
     process.exit(1)
   })

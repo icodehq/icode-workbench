@@ -1,4 +1,4 @@
-# ADE
+# iCode
 
 An agent development environment for local Coding Agent TUIs.
 
@@ -29,22 +29,22 @@ Ownership:
 
 - **Main** owns configuration, IPC validation, host supervision. It does not
   interpret terminal bytes.
-- **Host** owns PTYs, output sequencing, exit truth. It survives ADE exit while
+- **Host** owns PTYs, output sequencing, exit truth. It survives iCode exit while
   alive. It is launched through `ELECTRON_RUN_AS_NODE=1` so `node-pty` loads the
   Electron-ABI native module.
 - **Renderer** owns presentation only and has no Node or raw IPC access.
-- Durable session IDs are allocated by ADE; PTY incarnation IDs are allocated per
+- Durable session IDs are allocated by iCode; PTY incarnation IDs are allocated per
   spawn by the host. Work 1 already tags every data/exit event with both.
 
 ### Local endpoint
 
-The host socket prefers `$XDG_RUNTIME_DIR/ade/<profile-scope>/terminal-host.sock`
-(a digest of the profile directory), with `ADE_HOST_SOCKET` as an explicit
-override and `ADE_HOST_DIR` for token/meta/log files. Scoping keeps two ADE
+The host socket prefers `$XDG_RUNTIME_DIR/icode/<profile-scope>/terminal-host.sock`
+(a digest of the profile directory), with `ICODE_HOST_SOCKET` as an explicit
+override and `ICODE_HOST_DIR` for token/meta/log files. Scoping keeps two iCode
 profiles that share one runtime directory from colliding, so one instance can
 never unlink another's endpoint. This matters on WSL: `/mnt/d` (DrvFs) cannot
 bind Unix sockets and does not honor `0600`. The default `userData` path is on a
-Linux filesystem; the gates use `/tmp/ade-work1/host` for runtime state while
+Linux filesystem; the gates use `/tmp/icode-work1/host` for runtime state while
 keeping evidence in the repo.
 
 Authentication uses a 32-byte token in a `0600` file, a versioned hello, and
@@ -67,7 +67,7 @@ timing-safe comparison. Frames are NDJSON with a 4 MiB limit.
 `src/shared/schemas` validates IPC and domain payloads; `host-protocol.ts`
 derives wire types from Zod schemas and `host-framing.ts` rejects malformed,
 oversized, unknown, and identity-colliding frames. Wire IDs stay opaque so the
-host never depends on ADE's durable ID formats.
+host never depends on iCode's durable ID formats.
 
 ## Terminal host (Work 4)
 
@@ -121,7 +121,7 @@ re-attaches to obtain a fresh snapshot.
 
 ### Endpoint and permissions
 
-Socket: `ADE_HOST_SOCKET`, else `$XDG_RUNTIME_DIR/ade/<profile-scope>/terminal-host.sock`,
+Socket: `ICODE_HOST_SOCKET`, else `$XDG_RUNTIME_DIR/icode/<profile-scope>/terminal-host.sock`,
 else the host directory. Token: 32 random bytes in a `0600` file; hello uses a
 versioned handshake and constant-time comparison. The host verifies effective
 directory and token modes and refuses to start if the filesystem cannot enforce
@@ -130,7 +130,7 @@ socket path is never deleted; a stale socket is removed only when the recorded
 owner is dead and the socket actively refuses connections.
 
 `shutdownIfIdle` refuses while any PTY is live or another client is connected.
-`shutdown` remains available for the compatibility gates. Closing an ADE window
+`shutdown` remains available for the compatibility gates. Closing an iCode window
 never stops the host.
 
 ## Application services (Work 5)
@@ -177,7 +177,7 @@ failure is non-fatal and leaves the app able to list repositories and retry.
 
 ## Persistence (Work 3)
 
-`app.getPath('userData')/ade.sqlite` is owned by the Electron main process via
+`app.getPath('userData')/icode.sqlite` is owned by the Electron main process via
 `node:sqlite`. The single writer opens lazily (`getAppPersistence`) and closes on
 `before-quit` (`closeAppPersistence`).
 
@@ -255,15 +255,15 @@ Every new session in a registered Git repository runs in its own checkout:
 
 - **Location:** `<userData>/worktrees/<repoId>/<sessionId>` on the Linux
   filesystem (never beside a DrvFs repository).
-- **Branch:** `ade/ses_<sessionId>`, created at the commit that was HEAD when
+- **Branch:** `icode/ses_<sessionId>`, created at the commit that was HEAD when
   the session started. The baseline OID is stored per session.
-- **Ownership:** branch records outlive session rows. ADE only deletes a branch
+- **Ownership:** branch records outlive session rows. iCode only deletes a branch
   it created, and only with the exact name typed by the user.
 - **Legacy sessions:** sessions created before this feature have no worktree
   record and keep using the repository's primary checkout, including restart.
-  ADE never silently moves them into a worktree.
+  iCode never silently moves them into a worktree.
 - **Missing worktrees:** presented as a distinct state with a "re-create from
-  branch" action. ADE never falls back to the primary checkout, and never
+  branch" action. iCode never falls back to the primary checkout, and never
   deletes a missing or unverifiable worktree.
 
 Removal rules (all re-checked at the moment of the action):
@@ -303,21 +303,21 @@ scope.
 - **Diffs are area-scoped:** staged compares HEAD to the index, Changes compares
   the index to the worktree, untracked compares an empty file to the file. The
   diff header names its scope.
-- **Read-only reads:** ADE only runs `git diff`, `status`, `ls-files`,
+- **Read-only reads:** iCode only runs `git diff`, `status`, `ls-files`,
   `cat-file` and `rev-parse`, with `GIT_OPTIONAL_LOCKS=0`, `--no-ext-diff` and
   `--no-textconv`. Reviewing never writes the index and never starts a process in
   the worktree.
-- **Missing or unregistered worktrees** show an explanation; ADE never falls
+- **Missing or unregistered worktrees** show an explanation; iCode never falls
   back to the primary checkout.
 - **Symlinks** are shown as their Git entry (mode `120000`), meaning the link
-  target text. ADE never reads the target file.
+  target text. iCode never reads the target file.
 - **Caching:** diff bodies are kept by area/path and Git snapshot, with
   stale-while-revalidate and in-flight dedupe. A refresh does not blank an
   unchanged body.
 - **Refresh** happens when you open the view, when you press Refresh, and when
   the session's lifecycle state changes. There is no polling or file watcher.
 - **Limits:** 2 MiB of captured Git output per file and only the first 1,500 diff
-  lines are mounted; ADE never presents a truncated diff as complete.
+  lines are mounted; iCode never presents a truncated diff as complete.
 
 ```
 pnpm smoke:features   # packaged acceptance: Changes, stage, commit, amend
@@ -337,14 +337,14 @@ is deliberately independent of `SessionLifecycleState`:
 
 ### Hook-derived, never terminal-text inference
 
-ADE writes its own Hook script and a Claude `--settings` overlay under
-`$XDG_CONFIG_HOME/ade/agent-hooks/`. Claude merges that file with the user's
-settings, so **existing user Hooks keep running**. ADE never reads or writes
+iCode writes its own Hook script and a Claude `--settings` overlay under
+`$XDG_CONFIG_HOME/iCode/agent-hooks/`. Claude merges that file with the user's
+settings, so **existing user Hooks keep running**. iCode never reads or writes
 `~/.claude/settings.json`.
 
 The script drains Claude's Hook payload from stdin, forwards one bounded JSON
 object over a Unix socket, writes nothing to stdout, and exits `0` within a
-100 ms deadline even when ADE is down. A broken ADE must never block the agent.
+100 ms deadline even when iCode is down. A broken iCode must never block the agent.
 In a packaged build the script runs through Electron-as-Node; turn-end Hooks are
 detached because Claude terminates that process as it exits.
 
@@ -357,7 +357,7 @@ detached because Claude terminates that process as it exits.
 | `Stop` / `StopFailure` | `idle` with `completed` / `failed` |
 
 `Notification` is intentionally not used: its interactive behaviour was not
-verified, so ADE relies on the events above.
+verified, so iCode relies on the events above.
 
 ### Ordering, unread and notifications
 
@@ -368,7 +368,7 @@ verified, so ADE relies on the events above.
 - Duplicate deliveries are idempotent: one transition, one notification.
 - The selected session's unread marker clears only while the window has focus.
 - OS notifications are raised once per logical transition into `done` or
-  `waiting`, and only while no ADE window is focused. Clicking one reveals the
+  `waiting`, and only while no iCode window is focused. Clicking one reveals the
   session.
 
 Activity is in memory only: after an app relaunch every session is `unknown`
@@ -394,7 +394,7 @@ pnpm build          # typecheck + electron-vite + detached Host bundle
 pnpm package:dir    # electron-builder --dir -> dist/linux-unpacked
 ```
 
-`dist/linux-unpacked/ade` is the application; it needs no repository checkout at
+`dist/linux-unpacked/icode` is the application; it needs no repository checkout at
 runtime. `resources/app.asar.unpacked/` holds the Host bundle and the Electron-ABI
 `node-pty`, both required because the Host runs via `ELECTRON_RUN_AS_NODE`.
 
@@ -406,7 +406,7 @@ filesystem (for example `~/src/icode`) or package there and point the gate at th
 result:
 
 ```bash
-ADE_GATE_PACKAGED_DIR=/path/to/dist/linux-unpacked pnpm gate:packaged
+ICODE_GATE_PACKAGED_DIR=/path/to/dist/linux-unpacked pnpm gate:packaged
 ```
 
 `scripts/compat/packaged-smoke.cjs` verifies the packaged binary from `/tmp`:
@@ -415,15 +415,18 @@ WAL SQLite, the bundled native PTY, and the unpacked Host starting a real sessio
 ### Launch and data locations
 
 ```bash
-./dist/linux-unpacked/ade
+./dist/linux-unpacked/icode
 ```
+
+iCode starts with a fresh profile; it does not import an older profile. Re-add
+your projects and sessions after installing.
 
 Packaged runs use the normal Electron user-data path, not test overrides:
 
-- Profile: `$XDG_CONFIG_HOME/ade` (defaults to `~/.config/ade`)
-- Database: `<profile>/ade.sqlite`
+- Profile: `$XDG_CONFIG_HOME/iCode` (defaults to `~/.config/iCode`)
+- Database: `<profile>/icode.sqlite`
 - Host runtime directory: `<profile>/run` (mode `0700`)
-- Host socket: `$XDG_RUNTIME_DIR/ade/<profile-scope>/terminal-host.sock` when
+- Host socket: `$XDG_RUNTIME_DIR/icode/<profile-scope>/terminal-host.sock` when
   set, otherwise `<profile>/run/terminal-host.sock`. The scope is a 12-hex-digit
   SHA-256 digest of the profile directory.
 
@@ -433,29 +436,29 @@ reattaches to the same session incarnation.
 ### Isolated packaged acceptance
 
 ```bash
-export XDG_CONFIG_HOME=/tmp/ade-work9/profile
-export XDG_RUNTIME_DIR=/tmp/ade-work9/runtime   # chmod 700
-./dist/linux-unpacked/ade
+export XDG_CONFIG_HOME=/tmp/icode-work9/profile
+export XDG_RUNTIME_DIR=/tmp/icode-work9/runtime   # chmod 700
+./dist/linux-unpacked/icode
 ```
 
 This keeps repositories and sessions out of your normal profile. To clean up,
-stop each test session in the UI, quit ADE, then verify the run's Host has exited
-(`<profile>/ade/run/meta.json` records its PID) and delete only the temporary
-XDG directories. Never delete `~/.config/ade` unless you intend to remove your
-real ADE data.
+stop each test session in the UI, quit iCode, then verify the run's Host has exited
+(`<profile>/run/meta.json` records its PID) and delete only the temporary
+XDG directories. Never delete `~/.config/iCode` unless you intend to remove your
+real iCode data.
 
 The packaged acceptance harness is the Work 7 Claude harness in packaged mode:
 
 ```bash
-ADE_SMOKE_TARGET=packaged \
-ADE_SMOKE_EXECUTABLE=$PWD/dist/linux-unpacked/ade \
-ADE_SMOKE_ARTIFACTS=$PWD/artifacts/work9 \
+ICODE_SMOKE_TARGET=packaged \
+ICODE_SMOKE_EXECUTABLE=$PWD/dist/linux-unpacked/icode \
+ICODE_SMOKE_ARTIFACTS=$PWD/artifacts/work9 \
 node scripts/compat/claude-tui-smoke.cjs
 ```
 
 It checks the visible WSLg window, default first-run profile, real Claude Code
 TUI interaction, quit/relaunch with the same incarnation and one PTY spawn,
-stop, and cleanup. `node scripts/compat/wslg-window-probe.cjs --match ADE`
+stop, and cleanup. `node scripts/compat/wslg-window-probe.cjs --match iCode`
 prints the mapped windows on the WSLg display without any X11 utilities.
 
 Only Linux x64 with WSLg has been verified. Native Windows, macOS, other Linux

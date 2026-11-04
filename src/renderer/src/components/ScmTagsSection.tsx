@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ChevronDown, ChevronRight, Loader2 } from 'lucide-react'
-import type { GitCheckoutRefPayload, GitTagsPayload } from '../../../shared/ade-api'
+import type { GitCheckoutRefPayload, GitTagsPayload } from '../../../shared/icode-api'
 import type { GitTag } from '../../../shared/domain/git-workspace'
 import { callApi } from '../lib/api'
 import type { Notice } from '../state/workspace'
@@ -33,7 +33,7 @@ export default function ScmTagsSection({
     setError(null)
     void (async (): Promise<void> => {
       const result = await callApi<GitTagsPayload>(
-        window.ade.git.tags({ sessionId })
+        window.icode.git.tags({ sessionId })
       )
       if (cancelled) return
       if (!result.ok) {
@@ -60,7 +60,7 @@ export default function ScmTagsSection({
     setError(null)
     try {
       const result = await callApi<GitCheckoutRefPayload>(
-        window.ade.git.checkoutRef({ sessionId, ref: tag })
+        window.icode.git.checkoutRef({ sessionId, ref: tag })
       )
       if (!result.ok) {
         notify({ tone: 'error', message: result.error.message })

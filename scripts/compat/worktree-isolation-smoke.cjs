@@ -3,8 +3,8 @@
  * Work 12 acceptance: per-session worktree isolation through the real UI.
  *
  * Runs the current build through the local Electron by default (set
- * ADE_SMOKE_EXECUTABLE to test a packaged app) with an isolated XDG profile
- * (no ADE_GATE_* overrides). It exercises two concurrent sessions, isolation,
+ * ICODE_SMOKE_EXECUTABLE to test a packaged app) with an isolated XDG profile
+ * (no ICODE_GATE_* overrides). It exercises two concurrent sessions, isolation,
  * quit/relaunch, restart, removal protection, discard, branch retention and
  * branch deletion.
  */
@@ -24,14 +24,14 @@ const { connect } = require('./ui-cdp.cjs')
 
 const APP_DIR = resolve(__dirname, '..', '..')
 const ELECTRON = require('electron')
-const EXPLICIT_EXECUTABLE = process.env.ADE_SMOKE_EXECUTABLE ?? null
+const EXPLICIT_EXECUTABLE = process.env.ICODE_SMOKE_EXECUTABLE ?? null
 const APP_EXECUTABLE = EXPLICIT_EXECUTABLE ?? ELECTRON
-const ARTIFACT_DIR = process.env.ADE_SMOKE_ARTIFACTS ?? join(APP_DIR, 'artifacts', 'work12')
-const RUN_DIR = mkdtempSync(join(tmpdir(), 'ade-work12-accept-'))
+const ARTIFACT_DIR = process.env.ICODE_SMOKE_ARTIFACTS ?? join(APP_DIR, 'artifacts', 'work12')
+const RUN_DIR = mkdtempSync(join(tmpdir(), 'icode-work12-accept-'))
 const REPO_DIR = join(RUN_DIR, 'repo')
 const XDG_CONFIG = join(RUN_DIR, 'xdg-config')
 const XDG_RUNTIME = join(RUN_DIR, 'xdg-runtime')
-const USER_DATA = join(XDG_CONFIG, 'ade')
+const USER_DATA = join(XDG_CONFIG, 'iCode')
 const HOST_DIR = join(USER_DATA, 'run')
 
 const RUN = {
@@ -440,14 +440,14 @@ async function main() {
   execFileSync('git', ['add', 'README.md'], { cwd: REPO_DIR })
   execFileSync(
     'git',
-    ['-c', 'user.email=ade@test', '-c', 'user.name=ADE', 'commit', '-qm', 'init'],
+    ['-c', 'user.email=icode@test', '-c', 'user.name=iCode', 'commit', '-qm', 'init'],
     { cwd: REPO_DIR }
   )
   RUN.build = {
     executable: APP_EXECUTABLE,
     userData: USER_DATA,
     worktreeRoot: join(USER_DATA, 'worktrees'),
-    gateOverrides: Object.keys(process.env).filter((key) => key.startsWith('ADE_GATE_'))
+    gateOverrides: Object.keys(process.env).filter((key) => key.startsWith('ICODE_GATE_'))
   }
   persist()
 
@@ -490,7 +490,7 @@ async function main() {
     assert(aEntry.path !== bEntry.path, 'Sessions share a worktree path')
     assert(aEntry.branch !== bEntry.branch, 'Sessions share a branch')
     assert(
-      !entries.find((item) => item.path === REPO_DIR)?.branch?.startsWith('ade/'),
+      !entries.find((item) => item.path === REPO_DIR)?.branch?.startsWith('icode/'),
       'The primary checkout must stay on its own branch'
     )
     state.aEntry = aEntry

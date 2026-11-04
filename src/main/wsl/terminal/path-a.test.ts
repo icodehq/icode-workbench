@@ -17,7 +17,7 @@ const WSL: ExecutionTarget = {
   distroId: 'a5489bf0-2b9e-49bf-940e-0c19a6caef73'
 }
 const GUEST_CWD = '/home/u/src/atlas'
-const PTY_CWD = '/home/u/.config/ADE'
+const PTY_CWD = '/home/u/.config/iCode'
 
 function harness(options: {
   guestIsDirectory?: (distro: string, path: string) => Promise<boolean | null>
@@ -59,7 +59,7 @@ describe('Path A argv', () => {
     expect(script).not.toContain(hostile)
     expect(args.at(-1)).toBe(hostile)
     // `$1` is the only variable the script trusts for a path.
-    expect(script).toContain('__ade_cwd="$1"')
+    expect(script).toContain('__icode_cwd="$1"')
   })
 
   it('names the distro explicitly so the default one can never be used', () => {
@@ -83,10 +83,10 @@ describe('Path A argv', () => {
     // getent → $SHELL → /bin/sh, then exec so the PTY's child is the shell.
     expect(script).toContain('getent passwd')
     expect(script).toContain('SHELL:-/bin/bash')
-    expect(script).toContain('__ade_shell=/bin/sh')
-    expect(script).toContain('exec "$__ade_shell" -il')
+    expect(script).toContain('__icode_shell=/bin/sh')
+    expect(script).toContain('exec "$__icode_shell" -il')
     // sh/dash must not get `-il`, which some builds reject.
-    expect(script).toContain('sh|dash) exec "$__ade_shell" -l ;;')
+    expect(script).toContain('sh|dash) exec "$__icode_shell" -l ;;')
   })
 })
 

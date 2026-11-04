@@ -132,7 +132,7 @@ describe('prelude parsing', () => {
   })
 
   it('waits across chunk boundaries', () => {
-    const first = readBridgePrelude(Buffer.alloc(0), Buffer.from('ADE-STDIO-'))
+    const first = readBridgePrelude(Buffer.alloc(0), Buffer.from('ICODE-STDIO-'))
     expect(first.signal).toBeNull()
     const second = readBridgePrelude(first.pending, Buffer.from('BRIDGE READY\ndata'))
     expect(second.signal).toBe('ready')

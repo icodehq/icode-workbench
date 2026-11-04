@@ -93,7 +93,7 @@ async function main() {
   if (!fs.existsSync(tree)) fail(`no artifact tree at ${tree}; run "node scripts/wsl/host-artifacts.cjs build"`)
 
   // Copy out of the repository: a deployment target does not have one.
-  const work = fs.mkdtempSync(path.join(os.tmpdir(), 'ade-wsl-materialized-'))
+  const work = fs.mkdtempSync(path.join(os.tmpdir(), 'icode-wsl-materialized-'))
   const deploy = path.join(work, 'wsl-host')
   const runDir = path.join(work, 'run')
   fs.cpSync(tree, deploy, { recursive: true })
@@ -125,7 +125,7 @@ async function main() {
     const socketPath = path.join(runDir, 'terminal-host.sock')
     const child = spawn(treeNode, [path.join(deploy, 'host', 'index.js')], {
       cwd: path.join(deploy, 'host'),
-      env: { ...cleanEnv, ADE_HOST_DIR: runDir, ADE_HOST_SOCKET: socketPath },
+      env: { ...cleanEnv, ICODE_HOST_DIR: runDir, ICODE_HOST_SOCKET: socketPath },
       stdio: ['ignore', 'pipe', 'pipe']
     })
     let stderr = ''

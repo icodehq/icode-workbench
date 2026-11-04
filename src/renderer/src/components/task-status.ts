@@ -1,4 +1,4 @@
-import type { TaskRecordPayload } from '../../../shared/ade-api'
+import type { TaskRecordPayload } from '../../../shared/icode-api'
 
 export type TaskAttentionKind = 'Answer' | 'Retry' | 'Review'
 

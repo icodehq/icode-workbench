@@ -135,7 +135,7 @@ describe('harness detection', () => {
 
 describe('findExecutable', () => {
   it('finds an executable on PATH without a shell', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'ade-path-'))
+    const dir = mkdtempSync(join(tmpdir(), 'icode-path-'))
     try {
       const file = join(dir, 'fake-agent')
       writeFileSync(file, '#!/bin/sh\nexit 0\n')
@@ -153,7 +153,7 @@ describe('findExecutable', () => {
   })
 
   it('ignores non-executable files', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'ade-path-'))
+    const dir = mkdtempSync(join(tmpdir(), 'icode-path-'))
     try {
       const file = join(dir, 'not-exec')
       writeFileSync(file, 'data')

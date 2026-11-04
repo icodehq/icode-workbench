@@ -8,7 +8,7 @@
  * than inherited, because the Windows-side cwd is a Windows path that guest Git
  * cannot use.
  *
- * That is also the only option that fits ADE: the Host protocol carries terminal
+ * That is also the only option that fits iCode: the Host protocol carries terminal
  * session methods only (`createOrAttach`, `write`, `resize`, `kill`,
  * `listSessions`, `shutdownIfIdle`, `shutdown`, `ping`) and no exec, so "run Git
  * through the Host protocol" is not a thing that exists. This module reuses the
@@ -95,7 +95,7 @@ export type GuestGitDeps = {
  * Environment that must survive the `wsl.exe` boundary.
  *
  * `wsl.exe --exec` does not forward the caller's environment, so these are set
- * guest-side by `env`. They are the two Git settings the rest of ADE relies on:
+ * guest-side by `env`. They are the two Git settings the rest of iCode relies on:
  * never prompt, and never take an optional lock (a read must not create
  * `.git/index.lock`).
  */
@@ -108,9 +108,9 @@ export const GUEST_GIT_ENV = ['GIT_TERMINAL_PROMPT=0', 'GIT_OPTIONAL_LOCKS=0'] a
  * fence is the only reason a fallback can still be byte-exact: everything outside
  * it is discarded, and the payload inside it is never decoded.
  */
-export const LOGIN_FENCE_START = '__ADE_GIT_OUT_START__'
-export const LOGIN_FENCE_END = '__ADE_GIT_OUT_END__'
-export const LOGIN_FENCE_STATUS = '__ADE_GIT_STATUS__'
+export const LOGIN_FENCE_START = '__ICODE_GIT_OUT_START__'
+export const LOGIN_FENCE_END = '__ICODE_GIT_OUT_END__'
+export const LOGIN_FENCE_STATUS = '__ICODE_GIT_STATUS__'
 
 /** Raised when a guest Git invocation could not run at all. */
 export class GuestGitUnavailableError extends Error {

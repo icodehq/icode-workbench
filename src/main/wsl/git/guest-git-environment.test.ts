@@ -110,7 +110,7 @@ describe('fencing', () => {
     const wrapped = fencedCommand('git status')
     expect(wrapped).toContain(LOGIN_FENCE_START)
     expect(wrapped).toContain(LOGIN_FENCE_END)
-    expect(wrapped).toContain('exit "$__ade_status"')
+    expect(wrapped).toContain('exit "$__icode_status"')
   })
 })
 

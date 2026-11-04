@@ -123,7 +123,7 @@ describe('discovery', () => {
     })
     expect(discovery.status).toBe('ok')
     if (discovery.status !== 'ok') return
-    // Docker Desktop's distro is a real registration but not an ADE target.
+    // Docker Desktop's distro is a real registration but not an iCode target.
     expect(discovery.distros.map((d) => d.name)).toEqual(['Ubuntu 24.04 LTS', 'Ubuntu-26.04'])
     expect(discovery.distros.find((d) => d.name === 'Ubuntu-26.04')?.running).toBe(true)
     expect(discovery.distros.find((d) => d.name === 'Ubuntu 24.04 LTS')?.running).toBe(false)

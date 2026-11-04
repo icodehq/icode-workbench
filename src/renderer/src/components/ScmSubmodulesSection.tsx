@@ -4,7 +4,7 @@ import type {
   GitSubmoduleActionPayload,
   GitSubmoduleInfo,
   GitSubmoduleListPayload
-} from '../../../shared/ade-api'
+} from '../../../shared/icode-api'
 import { callApi } from '../lib/api'
 import type { Notice } from '../state/workspace'
 
@@ -42,7 +42,7 @@ export default function ScmSubmodulesSection({
     setError(null)
     void (async (): Promise<void> => {
       const result = await callApi<GitSubmoduleListPayload>(
-        window.ade.git.submoduleList({ sessionId })
+        window.icode.git.submoduleList({ sessionId })
       )
       if (cancelled) return
       if (!result.ok) {
@@ -77,7 +77,7 @@ export default function ScmSubmodulesSection({
     setError(null)
     try {
       const result = await callApi<GitSubmoduleActionPayload>(
-        window.ade.git.submoduleAction({ sessionId, action, path })
+        window.icode.git.submoduleAction({ sessionId, action, path })
       )
       if (!result.ok) {
         notify({ tone: 'error', message: result.error.message })

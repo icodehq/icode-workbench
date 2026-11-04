@@ -1,9 +1,9 @@
-ADE — third-party notices
+iCode — third-party notices
 =========================
 
 Orca (https://github.com/stablyai/orca)
 --------------------------------------
-ADE's detached terminal-host ownership model, authenticated local protocol,
+iCode's detached terminal-host ownership model, authenticated local protocol,
 durable-session / PTY-incarnation split, and headless-terminal snapshot strategy
 are architectural adaptations informed by Orca. No Orca application components
 were imported into this Work 1 scaffold.

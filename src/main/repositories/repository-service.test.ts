@@ -24,13 +24,13 @@ function initGitRepo(path: string): void {
   execFileSync('git', ['init', '-q', '-b', 'main', path], { stdio: 'pipe' })
   execFileSync(
     'git',
-    ['-C', path, '-c', 'user.name=ADE Test', '-c', 'user.email=ade@example.test', 'commit', '-q', '--allow-empty', '-m', 'init'],
+    ['-C', path, '-c', 'user.name=iCode Test', '-c', 'user.email=icode@example.test', 'commit', '-q', '--allow-empty', '-m', 'init'],
     { stdio: 'pipe' }
   )
 }
 
 function harness(): Harness {
-  const root = makeTempRoot('ade-repo-')
+  const root = makeTempRoot('icode-repo-')
   const db = openTempDatabase(root)
   // WSL targets need a guest resolver. These tests exercise the target model, so
   // the stub answers with the same canonical root a guest would report for the
@@ -456,7 +456,7 @@ describe('WSL target acceptance', () => {
   ].join('\r\n')
 
   function wslHarness(registry: string | null = REGISTRY): Harness {
-    const root = makeTempRoot('ade-repo-wsl-')
+    const root = makeTempRoot('icode-repo-wsl-')
     const db = openTempDatabase(root)
     const stores = makeRepositoryService(db, {
       validateTarget: realValidator(registry),
@@ -596,7 +596,7 @@ describe('legacy WSL rows without a registration id', () => {
 
   /** A harness whose guest resolver reports a fixed common dir for one path. */
   function legacyHarness(commonDir: string) {
-    const root = makeTempRoot('ade-w6-legacy-')
+    const root = makeTempRoot('icode-w6-legacy-')
     const db = openTempDatabase(root)
     const stores = makeRepositoryService(db, {
       resolveRoot: async (path) => ({

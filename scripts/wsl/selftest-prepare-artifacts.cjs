@@ -55,7 +55,7 @@ function snapshotRealTree() {
 
 /** A disposable repository-shaped root with a copy of the scripts and tree. */
 function makeFixtureRoot() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ade-prepare-fixture-'))
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'icode-prepare-fixture-'))
   fs.mkdirSync(path.join(root, 'scripts'), { recursive: true })
   fs.cpSync(SOURCE_SCRIPTS, path.join(root, 'scripts', 'wsl'), { recursive: true })
   fs.mkdirSync(path.join(root, 'artifacts', 'wsl-host'), { recursive: true })

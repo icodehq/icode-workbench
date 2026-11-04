@@ -148,7 +148,7 @@ export default function SessionDetailsDrawer({
         if (event.target === event.currentTarget) onClose()
       }}
     >
-      <aside className="ade-drawer absolute bottom-3 right-3 top-3 flex w-[min(420px,calc(100%-24px))] flex-col overflow-hidden rounded-xl border border-line-strong bg-overlay shadow-[var(--ade-shadow-overlay)]">
+      <aside className="icode-drawer absolute bottom-3 right-3 top-3 flex w-[min(420px,calc(100%-24px))] flex-col overflow-hidden rounded-xl border border-line-strong bg-overlay shadow-[var(--icode-shadow-overlay)]">
         <div className="flex items-start gap-3 border-b border-border px-4 py-3">
           <div className="min-w-0 flex-1">
             <h2 className="text-[15px] font-semibold">Session details</h2>

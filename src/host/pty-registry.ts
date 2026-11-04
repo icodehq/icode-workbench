@@ -104,8 +104,8 @@ function buildEnv(base: Record<string, string>, sessionId: string, incarnationId
     env[key] = value
   }
   env.TERM = 'xterm-256color'
-  env.ADE_SESSION_ID = sessionId
-  env.ADE_SESSION_INCARNATION = incarnationId
+  env.ICODE_SESSION_ID = sessionId
+  env.ICODE_SESSION_INCARNATION = incarnationId
   return env
 }
 

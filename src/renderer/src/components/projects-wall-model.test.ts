@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { TaskRecordPayload } from '../../../shared/ade-api'
+import type { TaskRecordPayload } from '../../../shared/icode-api'
 import type { RepositorySummary, SessionSummary } from '../../../shared/schemas/ipc'
 import {
   attentionEntries,

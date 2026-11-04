@@ -28,7 +28,7 @@ export default function RemoveSessionDialog({
       aria-label="Remove session"
       data-testid="remove-session-dialog"
     >
-      <div className="ade-modal w-full max-w-md rounded-lg border border-border bg-card p-6 shadow-2xl">
+      <div className="icode-modal w-full max-w-md rounded-lg border border-border bg-card p-6 shadow-2xl">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-2">
             <Trash2 size={15} className="text-destructive" />

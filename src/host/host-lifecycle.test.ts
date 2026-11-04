@@ -22,7 +22,7 @@ const hosts: RunningHost[] = []
 const clients: Array<{ close: () => void }> = []
 
 function root(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'ade-life-'))
+  const dir = mkdtempSync(join(tmpdir(), 'icode-life-'))
   roots.push(dir)
   return dir
 }
@@ -100,22 +100,22 @@ describe('startup safety', () => {
     const alpha = join(root(), 'alpha', 'run')
     const beta = join(root(), 'beta', 'run')
 
-    const first = hostPathsFromEnv({ ADE_HOST_DIR: alpha, XDG_RUNTIME_DIR: runtime })
-    const second = hostPathsFromEnv({ ADE_HOST_DIR: beta, XDG_RUNTIME_DIR: runtime })
+    const first = hostPathsFromEnv({ ICODE_HOST_DIR: alpha, XDG_RUNTIME_DIR: runtime })
+    const second = hostPathsFromEnv({ ICODE_HOST_DIR: beta, XDG_RUNTIME_DIR: runtime })
 
     expect(first.socket).not.toBe(second.socket)
-    expect(first.socket.startsWith(join(runtime, 'ade'))).toBe(true)
+    expect(first.socket.startsWith(join(runtime, 'icode'))).toBe(true)
     // The supervisor derives the same path from the same profile directory.
     expect(first.socket).toBe(
       hostSocketPath({ profileDir: alpha, env: { XDG_RUNTIME_DIR: runtime } })
     )
   })
 
-  it('lets ADE_HOST_SOCKET override the profile scope on both sides', () => {
+  it('lets ICODE_HOST_SOCKET override the profile scope on both sides', () => {
     const explicit = join(root(), 'explicit', 'terminal-host.sock')
     const paths = hostPathsFromEnv({
-      ADE_HOST_DIR: join(root(), 'alpha', 'run'),
-      ADE_HOST_SOCKET: explicit,
+      ICODE_HOST_DIR: join(root(), 'alpha', 'run'),
+      ICODE_HOST_SOCKET: explicit,
       XDG_RUNTIME_DIR: root()
     })
     expect(paths.socket).toBe(explicit)
@@ -242,7 +242,7 @@ describe('running host', () => {
       socketMode: '600',
       protocolVersion: 1
     })
-    expect(meta.hostVersion).toContain('work4')
+    expect(meta.hostVersion).toContain('icode1')
     host.stop()
     await host.stopped
     hosts.splice(hosts.indexOf(host), 1)
@@ -274,11 +274,11 @@ describe('Windows endpoint selection', () => {
     expect(first).not.toBe(other)
   })
 
-  it('honours ADE_HOST_SOCKET on Windows', () => {
-    const explicit = '\\\\.\\pipe\\ade-test-pinned'
+  it('honours ICODE_HOST_SOCKET on Windows', () => {
+    const explicit = '\\\\.\\pipe\\icode-test-pinned'
     const socket = hostSocketPath({
       profileDir: join(root(), 'p'),
-      env: { ADE_HOST_SOCKET: explicit },
+      env: { ICODE_HOST_SOCKET: explicit },
       platform: 'win32'
     })
     expect(socket).toBe(explicit)
@@ -286,10 +286,10 @@ describe('Windows endpoint selection', () => {
 
   it('server and client derive the same endpoint from the same profile', () => {
     const dir = join(root(), 'shared-profile')
-    // The host process reads ADE_HOST_DIR; the supervisor uses its directory.
+    // The host process reads ICODE_HOST_DIR; the supervisor uses its directory.
     const hostSide = hostPathsFromEnv({
-      ADE_HOST_DIR: dir,
-      ADE_HOST_SOCKET: hostSocketPath({ profileDir: dir, env: {}, platform: 'win32' })
+      ICODE_HOST_DIR: dir,
+      ICODE_HOST_SOCKET: hostSocketPath({ profileDir: dir, env: {}, platform: 'win32' })
     })
     const clientSide = hostSocketPath({ profileDir: dir, env: {}, platform: 'win32' })
     expect(hostSide.socket).toBe(clientSide)
@@ -299,7 +299,7 @@ describe('Windows endpoint selection', () => {
     const dir = join(root(), 'pipe-dir')
     const paths = {
       dir,
-      socket: '\\\\.\\pipe\\ade-host-test',
+      socket: '\\\\.\\pipe\\icode-host-test',
       token: join(dir, 'token'),
       meta: join(dir, 'meta.json'),
       log: join(dir, 'host.log')

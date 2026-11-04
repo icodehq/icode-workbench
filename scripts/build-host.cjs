@@ -23,6 +23,6 @@ esbuild
     logLevel: 'info'
   })
   .catch((error) => {
-    process.stderr.write(`[ade] host build failed: ${String(error)}\n`)
+    process.stderr.write(`[icode] host build failed: ${String(error)}\n`)
     process.exit(1)
   })

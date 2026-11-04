@@ -21,7 +21,7 @@ const { connect } = require('./ui-cdp.cjs')
 const APP_DIR = resolve(__dirname, '..', '..')
 const ELECTRON = require('electron')
 const ARTIFACT_DIR = join(APP_DIR, 'artifacts', 'feature-smoke')
-const RUN_DIR = mkdtempSync(join(tmpdir(), 'ade-feature-smoke-'))
+const RUN_DIR = mkdtempSync(join(tmpdir(), 'icode-feature-smoke-'))
 const REPO_DIR = join(RUN_DIR, 'repo')
 const REMOTE_DIR = join(RUN_DIR, 'remote.git')
 const USER_DATA = join(RUN_DIR, 'userdata')
@@ -183,8 +183,8 @@ async function launch() {
     cwd: APP_DIR,
     env: {
       ...process.env,
-      ADE_GATE_USER_DATA: USER_DATA,
-      ADE_BACKGROUND_LAUNCH: '0'
+      ICODE_GATE_USER_DATA: USER_DATA,
+      ICODE_BACKGROUND_LAUNCH: '0'
     },
     stdio: ['ignore', 'pipe', 'pipe']
   })
@@ -533,7 +533,7 @@ async function run() {
   let worktreePath = null
   await step('commit and amend a change through Changes', async () => {
     const session = await cdp.evaluate(`(async () => {
-      const result = await window.ade.sessions.list({});
+      const result = await window.icode.sessions.list({});
       return result.ok ? result.value.sessions.find((entry) => entry.title === 'Smoke session') ?? null : null;
     })()`)
     assert(session, 'Could not find the smoke session through the product API')
@@ -541,7 +541,7 @@ async function run() {
     worktreePath = session.worktree?.path ?? null
     assert(worktreePath, 'The smoke session did not expose its worktree path')
     await cdp.evaluate(`(async () => {
-      const result = await window.ade.files.write({ sessionId: ${JSON.stringify(sessionId)}, path: 'README.md', text: 'changed by feature smoke\\n' });
+      const result = await window.icode.files.write({ sessionId: ${JSON.stringify(sessionId)}, path: 'README.md', text: 'changed by feature smoke\\n' });
       if (!result.ok) throw new Error(result.error.message);
       return result.value;
     })()`)
@@ -562,11 +562,11 @@ async function run() {
     const statusBranch = await cdp.evaluate(
       `document.querySelector('[data-testid="statusbar-branch"]')?.textContent ?? ''`
     )
-    assert(statusBranch.includes('ade/ses_'), 'status bar did not show the session branch')
+    assert(statusBranch.includes('icode/ses_'), 'status bar did not show the session branch')
     await sleep(1200)
     const watchStarted = Date.now()
     await cdp.evaluate(`(async () => {
-      const result = await window.ade.files.write({ sessionId: ${JSON.stringify(sessionId)}, path: 'watcher-live.txt', text: 'written while Changes is open\\n' });
+      const result = await window.icode.files.write({ sessionId: ${JSON.stringify(sessionId)}, path: 'watcher-live.txt', text: 'written while Changes is open\\n' });
       if (!result.ok) throw new Error(result.error.message);
       return result.value;
     })()`)
@@ -575,7 +575,7 @@ async function run() {
     assert(watcherLatencyMs < 3000, `watcher took ${String(watcherLatencyMs)} ms`)
 
     await cdp.evaluate(`(async () => {
-      const result = await window.ade.files.write({ sessionId: ${JSON.stringify(sessionId)}, path: 'src/tree-live.txt', text: 'tree view row\\n' });
+      const result = await window.icode.files.write({ sessionId: ${JSON.stringify(sessionId)}, path: 'src/tree-live.txt', text: 'tree view row\\n' });
       if (!result.ok) throw new Error(result.error.message);
       return result.value;
     })()`)
@@ -757,7 +757,7 @@ async function run() {
     await waitForSelector('[data-testid="session-title"]', 20000)
 
     await cdp.evaluate(`(async () => {
-      const result = await window.ade.files.write({ sessionId: ${JSON.stringify(sessionId)}, path: 'README.md', text: 'signed commit by feature smoke\\n' });
+      const result = await window.icode.files.write({ sessionId: ${JSON.stringify(sessionId)}, path: 'README.md', text: 'signed commit by feature smoke\\n' });
       if (!result.ok) throw new Error(result.error.message);
       return result.value;
     })()`)
@@ -941,7 +941,7 @@ async function run() {
       20000
     )
     await cdp.evaluate(
-      `document.querySelector('[data-testid="monaco-editor"]')?.__adeEditor?.focus()`
+      `document.querySelector('[data-testid="monaco-editor"]')?.__icodeEditor?.focus()`
     )
     await cdp.send('Input.insertText', { text: 'unsaved task draft' })
     await waitForSelector('[data-testid="editor-dirty"]', 10000)
@@ -949,7 +949,7 @@ async function run() {
     await sleep(300)
     await click('[data-testid="task-tab-files"]')
     await waitFor(
-      `document.querySelector('[data-testid="monaco-editor"]')?.__adeEditor?.getValue().includes('unsaved task draft') === true`,
+      `document.querySelector('[data-testid="monaco-editor"]')?.__icodeEditor?.getValue().includes('unsaved task draft') === true`,
       'unsaved Monaco text survives a tab switch',
       10000
     )

@@ -74,9 +74,9 @@ describe('local executor', () => {
 /** Answers the login-shell probe as a distro with Git on PATH does. */
 function probeAnswer(): Buffer {
   return Buffer.concat([
-    Buffer.from('__ADE_GIT_OUT_START__'),
+    Buffer.from('__ICODE_GIT_OUT_START__'),
     Buffer.from('/usr/local/bin:/usr/bin:/bin\u0000/usr/bin/git\u0000/home/u'),
-    Buffer.from('__ADE_GIT_OUT_END____ADE_GIT_STATUS__0')
+    Buffer.from('__ICODE_GIT_OUT_END____ICODE_GIT_STATUS__0')
   ])
 }
 
@@ -195,7 +195,7 @@ describe('router', () => {
     })
   })
 
-  function router(guestRoot: string | null = '/home/u/.ade/worktrees/scope') {
+  function router(guestRoot: string | null = '/home/u/.icode/worktrees/scope') {
     return createGitExecutorRouter({
       localWorktreeRoot: '/profile/worktrees',
       runner,
@@ -210,7 +210,7 @@ describe('router', () => {
 
   it('uses the guest root for a WSL target', async () => {
     const resolved = await router().resolve(WSL)
-    expect(resolved.worktreeRoot).toBe('/home/u/.ade/worktrees/scope')
+    expect(resolved.worktreeRoot).toBe('/home/u/.icode/worktrees/scope')
   })
 
   it('refuses a WSL target with no registration id', async () => {
@@ -227,12 +227,12 @@ describe('router', () => {
     const a = await createGitExecutorRouter({
       localWorktreeRoot: '/p/worktrees',
       runner,
-      guestWorktreeRoot: async () => '/home/u/.ade/worktrees/scopeA'
+      guestWorktreeRoot: async () => '/home/u/.icode/worktrees/scopeA'
     }).resolve(WSL)
     const b = await createGitExecutorRouter({
       localWorktreeRoot: '/p/worktrees',
       runner,
-      guestWorktreeRoot: async () => '/home/u/.ade/worktrees/scopeB'
+      guestWorktreeRoot: async () => '/home/u/.icode/worktrees/scopeB'
     }).resolve(WSL)
     expect(a.worktreeRoot).not.toBe(b.worktreeRoot)
   })

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Check, Copy, GitBranch, Loader2, Terminal, X } from 'lucide-react'
 import { callApi, errorNotice } from '../lib/api'
-import type { TaskChangesPayload, TaskRecordPayload } from '../../../shared/ade-api'
+import type { TaskChangesPayload, TaskRecordPayload } from '../../../shared/icode-api'
 import type { SessionSummary } from '../../../shared/schemas/ipc'
 import type { Notice } from '../state/workspace'
 import { sessionStateLabel, stateDotClass } from './status'
@@ -100,7 +100,7 @@ export default function TaskOverview({
 
   const loadChanges = useCallback(async (): Promise<void> => {
     setLoadingChanges(true)
-    const result = await callApi<TaskChangesPayload>(window.ade.tasks.changes({ taskId: task.id }))
+    const result = await callApi<TaskChangesPayload>(window.icode.tasks.changes({ taskId: task.id }))
     if (!result.ok) {
       setChanges({
         taskId: task.id,
@@ -127,7 +127,7 @@ export default function TaskOverview({
     setBusy(true)
     try {
       const result = await callApi<TaskRecordPayload>(
-        window.ade.tasks.decideReview({
+        window.icode.tasks.decideReview({
           taskId: task.id,
           decision,
           note: note.trim() ? note.trim() : null,

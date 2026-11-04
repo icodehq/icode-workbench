@@ -44,7 +44,7 @@ export type WslGuestHostRecord = {
   pid: number
   /** `/proc/<pid>/stat` field 22: distinguishes a reused PID inside one boot. */
   startTicks: string
-  /** ADE_HOST_DIR inside the distro. */
+  /** ICODE_HOST_DIR inside the distro. */
   hostDir: string
   socket: string
   protocolVersion: number

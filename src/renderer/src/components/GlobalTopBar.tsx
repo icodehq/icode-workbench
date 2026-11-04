@@ -16,7 +16,7 @@ import {
   TerminalSquare,
   X
 } from 'lucide-react'
-import type { TaskRecordPayload } from '../../../shared/ade-api'
+import type { TaskRecordPayload } from '../../../shared/icode-api'
 import type { ThemeName, ThemePreference } from '../theme/apply-theme'
 
 export type NeedsYouEntry = {
@@ -67,10 +67,10 @@ export default function GlobalTopBar({
 
   useEffect(() => {
     let disposed = false
-    void window.ade.window.isMaximized().then((result) => {
+    void window.icode.window.isMaximized().then((result) => {
       if (!disposed && result.ok) setMaximized(result.value)
     })
-    const off = window.ade.window.onMaximizedChange((value) => {
+    const off = window.icode.window.onMaximizedChange((value) => {
       if (!disposed) setMaximized(value)
     })
     return () => {
@@ -80,7 +80,7 @@ export default function GlobalTopBar({
   }, [])
 
   const toggleMaximize = (): void => {
-    void window.ade.window.toggleMaximize().then((result) => {
+    void window.icode.window.toggleMaximize().then((result) => {
       if (result.ok) setMaximized(result.value)
     })
   }
@@ -114,7 +114,7 @@ export default function GlobalTopBar({
 
   return (
     <header
-      className="ade-titlebar relative z-0 flex h-[50px] shrink-0 items-center gap-2 border-b border-border bg-card pl-3"
+      className="icode-titlebar relative z-0 flex h-[50px] shrink-0 items-center gap-2 border-b border-border bg-card pl-3"
       data-testid="app-topbar"
       onDoubleClick={onHeaderDoubleClick}
     >
@@ -308,7 +308,7 @@ export default function GlobalTopBar({
         <button
           type="button"
           className="flex w-[42px] items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground min-[900px]:w-[46px]"
-          onClick={() => { void window.ade.window.minimize() }}
+          onClick={() => { void window.icode.window.minimize() }}
           aria-label="Minimize"
           title="Minimize"
           data-testid="window-minimize"
@@ -329,7 +329,7 @@ export default function GlobalTopBar({
         <button
           type="button"
           className="flex w-[42px] items-center justify-center text-muted-foreground hover:bg-destructive hover:text-white min-[900px]:w-[46px]"
-          onClick={() => { void window.ade.window.close() }}
+          onClick={() => { void window.icode.window.close() }}
           aria-label="Close"
           title="Close"
           data-testid="window-close"

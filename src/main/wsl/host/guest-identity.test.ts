@@ -12,15 +12,15 @@ import {
 const BOOT = 'fde34a6a-a6bf-46a0-8563-9a249cd0f8ad'
 const INIT = '1 (systemd) S 0 1 1 0 -1 4194560 518526 430560449 78785 884748 1717 76692 1546580 26640 20 0 1 0 145 25223168 2400 0 0'
 const HOST_STAT = '991 (node) S 1 991 991 0 -1 4194560 100 0 0 0 1 5 0 0 20 0 1 0 52397645 0 0'
-const ENTRY = '/home/u/.ade/host/scope/v24.21.0/host/index.js'
+const ENTRY = '/home/u/.icode/host/scope/v24.21.0/host/index.js'
 const META = JSON.stringify(
   {
     pid: 991,
     startedAt: 1_729_000_001_000,
     protocolVersion: 1,
-    hostVersion: '0.1.0-work4',
-    socket: '/home/u/.ade/host/scope/v24.21.0/run/host.sock',
-    tokenFile: '/home/u/.ade/host/scope/v24.21.0/run/token'
+    hostVersion: '0.1.0-icode1',
+    socket: '/home/u/.icode/host/scope/v24.21.0/run/host.sock',
+    tokenFile: '/home/u/.icode/host/scope/v24.21.0/run/token'
   },
   null,
   2
@@ -42,7 +42,7 @@ function frame(sections: {
     sections.cmdline ?? '',
     sections.meta ?? '',
     ''
-  ].join('__ADE_HOST_ID__')
+  ].join('__ICODE_HOST_ID__')
 }
 
 describe('guest identity parsing', () => {
@@ -50,7 +50,7 @@ describe('guest identity parsing', () => {
     const identity = parseGuestHostIdentity(
       frame({
         hostStat: `host_pid=991\n${HOST_STAT}\n`,
-        cmdline: `/home/u/.ade/host/scope/v24.21.0/node/bin/node ${ENTRY} \n`,
+        cmdline: `/home/u/.icode/host/scope/v24.21.0/node/bin/node ${ENTRY} \n`,
         meta: META
       })
     )
@@ -100,7 +100,7 @@ describe('Host ownership', () => {
       distroInstance: `${BOOT}:145`,
       hostPid: 991,
       hostStartTicks: '52397645',
-      hostCommandLine: `/home/u/.ade/host/.../node/bin/node ${ENTRY}`,
+      hostCommandLine: `/home/u/.icode/host/.../node/bin/node ${ENTRY}`,
       meta: { pid: 991, startedAt: 1, protocolVersion: 1, hostVersion: 'v', socket: '/s' },
       ...overrides
     }
@@ -198,12 +198,12 @@ describe('identity read', () => {
     expect(args[0]).toBe('sh')
     expect(args[1]).toBe('-c')
     expect(args[2]).toBe(GUEST_HOST_IDENTITY_SCRIPT)
-    expect(args.slice(3)).toEqual(['ade-host-identity', '/a/pid', '/b/meta.json'])
+    expect(args.slice(3)).toEqual(['icode-host-identity', '/a/pid', '/b/meta.json'])
   })
 
   it('reads the pid file inside the guest, so no controller-side pid races the read', () => {
     expect(GUEST_HOST_IDENTITY_SCRIPT).toContain('cat "$1"')
-    expect(GUEST_HOST_IDENTITY_SCRIPT).toContain('/proc/$__ade_pid/stat')
+    expect(GUEST_HOST_IDENTITY_SCRIPT).toContain('/proc/$__icode_pid/stat')
     expect(GUEST_HOST_IDENTITY_SCRIPT).not.toMatch(/\$\{?PWD/)
   })
 })

@@ -97,7 +97,7 @@ function setup(options: {
   harness?: HarnessDetectionResult
   workspaceTrust?: WorkspaceTrustService
 } = {}): Fixture {
-  const root = makeTempRoot('ade-session-')
+  const root = makeTempRoot('icode-session-')
   const db = openTempDatabase(root)
   const stores = makeRepositoryService(db, {
     // A WSL target needs a guest resolver. These tests assert routing, so the
@@ -169,7 +169,7 @@ function setup(options: {
   execFileSync('git', ['-C', repoPath, 'add', 'README.md'], { stdio: 'pipe' })
   execFileSync(
     'git',
-    ['-C', repoPath, '-c', 'user.email=ade@test', '-c', 'user.name=ADE', 'commit', '-qm', 'init'],
+    ['-C', repoPath, '-c', 'user.email=icode@test', '-c', 'user.name=iCode', 'commit', '-qm', 'init'],
     { stdio: 'pipe' }
   )
 
@@ -467,7 +467,7 @@ describe('startup reconciliation', () => {
     const created = await f.service.create(createInput(f))
     const workspace = f.stores.repositories.workspaceForRepo(created.repoId as never)
     if (!workspace) throw new Error('missing workspace')
-    // Rewrite the durable observation to model a prior ADE run.
+    // Rewrite the durable observation to model a prior iCode run.
     f.stores.sessions.recordObservation(created.id as never, {
       lastObservedState: options.state,
       lastObservedExitCode: options.state === 'exited' ? 0 : null,
@@ -584,7 +584,7 @@ describe('startup reconciliation', () => {
         status: 'live'
       })
     ])
-    // Orphans are not adopted into ADE metadata.
+    // Orphans are not adopted into iCode metadata.
     expect(f.stores.sessions.listAll()).toHaveLength(0)
   })
 
@@ -905,8 +905,8 @@ describe('Path A terminal routing', () => {
      */
     const f = await withRepo()
     const added = await f.stores.service.addRepository(f.repoPath, WSL_TARGET)
-    const guestPath = '/home/u/.ade/worktrees/scope/repo/ses'
-    vi.spyOn(f.gitWorktrees, 'worktreeRootFor').mockResolvedValue('/home/u/.ade/worktrees/scope')
+    const guestPath = '/home/u/.icode/worktrees/scope/repo/ses'
+    vi.spyOn(f.gitWorktrees, 'worktreeRootFor').mockResolvedValue('/home/u/.icode/worktrees/scope')
     vi.spyOn(f.gitWorktrees, 'worktreePathFor').mockReturnValue(guestPath)
     vi.spyOn(f.gitWorktrees, 'create').mockResolvedValue(undefined)
 

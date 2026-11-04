@@ -33,7 +33,7 @@ try {
 }
 
 function tempRoot(): string {
-  const root = mkdtempSync(join(tmpdir(), 'ade-activity-'))
+  const root = mkdtempSync(join(tmpdir(), 'icode-activity-'))
   roots.push(root)
   return root
 }
@@ -158,16 +158,16 @@ describe.runIf(hasClaude())('shipped hook script with real Claude', () => {
       env: {
         ...process.env,
         CLAUDE_CONFIG_DIR: userConfig,
-        ADE_SESSION_ID: SESSION,
-        ADE_SESSION_INCARNATION: INC,
-        ADE_ACTIVITY_SOCKET: socketPath(root)
+        ICODE_SESSION_ID: SESSION,
+        ICODE_SESSION_INCARNATION: INC,
+        ICODE_ACTIVITY_SOCKET: socketPath(root)
       }
     })
     // The isolated config is unauthenticated; that is expected and does not
     // prevent hook dispatch.
     expect(result.timedOut).toBe(false)
 
-    // ADE saw the events, and its state machine ended at idle/failed because the
+    // iCode saw the events, and its state machine ended at idle/failed because the
     // probe cannot reach a model.
     await new Promise((done) => setTimeout(done, 300))
     const activity = ingress.service.get(SESSION)
@@ -176,7 +176,7 @@ describe.runIf(hasClaude())('shipped hook script with real Claude', () => {
     expect(activity.state).toBe('idle')
     expect(activity.outcome).toBe('failed')
 
-    // The user's own hook still ran under ADE's --settings overlay.
+    // The user's own hook still ran under iCode's --settings overlay.
     const canaryText = readFileSync(canary, 'utf8')
     expect(canaryText).toContain('CANARY')
 
@@ -216,9 +216,9 @@ describe.runIf(hasClaude())('shipped hook script with real Claude', () => {
         timeoutMs: 5_000,
         env: {
           ...process.env,
-          ADE_SESSION_ID: SESSION,
-          ADE_SESSION_INCARNATION: INC,
-          ADE_ACTIVITY_SOCKET: socketPath(root)
+          ICODE_SESSION_ID: SESSION,
+          ICODE_SESSION_INCARNATION: INC,
+          ICODE_ACTIVITY_SOCKET: socketPath(root)
         }
       })
     // Warm the interpreter and page cache so the measured runs are the hook,
@@ -245,7 +245,7 @@ describe.runIf(hasClaude())('shipped hook script with real Claude', () => {
     await ingress.server.stop()
   })
 
-  it('exits 0 without writing stdout when ADE is unreachable', () => {
+  it('exits 0 without writing stdout when iCode is unreachable', () => {
     const root = tempRoot()
     const hooks = installClaudeHooks({
       directory: join(root, 'agent-hooks'),
@@ -258,9 +258,9 @@ describe.runIf(hasClaude())('shipped hook script with real Claude', () => {
       timeout: 5_000,
       env: {
         ...process.env,
-        ADE_SESSION_ID: SESSION,
-        ADE_SESSION_INCARNATION: INC,
-        ADE_ACTIVITY_SOCKET: join(root, 'missing.sock')
+        ICODE_SESSION_ID: SESSION,
+        ICODE_SESSION_INCARNATION: INC,
+        ICODE_ACTIVITY_SOCKET: join(root, 'missing.sock')
       }
     })
     expect(run.status).toBe(0)
@@ -269,15 +269,15 @@ describe.runIf(hasClaude())('shipped hook script with real Claude', () => {
 
   it('runs a packaged Electron binary as Node, and a plain node binary directly', () => {
     const packaged = JSON.parse(
-      buildClaudeSettings('/opt/ade/ade', '/tmp/hook.cjs', true)
+      buildClaudeSettings('/opt/icode/icode', '/tmp/hook.cjs', true)
     ) as { hooks: Record<string, Array<{ hooks: Array<{ command: string }> }>> }
     expect(packaged.hooks.UserPromptSubmit?.[0]?.hooks[0]?.command).toBe(
-      "env ELECTRON_RUN_AS_NODE=1 '/opt/ade/ade' '/tmp/hook.cjs' 'UserPromptSubmit'"
+      "env ELECTRON_RUN_AS_NODE=1 '/opt/icode/icode' '/tmp/hook.cjs' 'UserPromptSubmit'"
     )
     // Claude abandons StopFailure hooks on its way out, so packaged turn-end
     // hooks detach while keeping the payload on fd 3.
     expect(packaged.hooks.StopFailure?.[0]?.hooks[0]?.command).toBe(
-      "sh -c 'exec 3<&0; (setsid env ELECTRON_RUN_AS_NODE=1 '\\''/opt/ade/ade'\\'' '\\''/tmp/hook.cjs'\\'' '\\''StopFailure'\\'' <&3) >/dev/null 2>&1 &'"
+      "sh -c 'exec 3<&0; (setsid env ELECTRON_RUN_AS_NODE=1 '\\''/opt/icode/icode'\\'' '\\''/tmp/hook.cjs'\\'' '\\''StopFailure'\\'' <&3) >/dev/null 2>&1 &'"
     )
     const plain = JSON.parse(
       buildClaudeSettings('/usr/bin/node', '/tmp/hook.cjs', false)
@@ -308,9 +308,9 @@ describe.runIf(hasClaude())('shipped hook script with real Claude', () => {
       timeoutMs: 5_000,
       env: {
         ...process.env,
-        ADE_SESSION_ID: SESSION,
-        ADE_SESSION_INCARNATION: INC,
-        ADE_ACTIVITY_SOCKET: path
+        ICODE_SESSION_ID: SESSION,
+        ICODE_SESSION_INCARNATION: INC,
+        ICODE_ACTIVITY_SOCKET: path
       }
     })
     expect(run.timedOut).toBe(false)

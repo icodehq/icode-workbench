@@ -14,7 +14,7 @@ import {
 import { createPtyRegistry, type PtyLike, type PtySpawnConfig } from './pty-registry'
 import { createProtocolServer, type HostLogger, type ProtocolServer } from './protocol-server'
 
-export const HOST_VERSION = '0.1.0-work4'
+export const HOST_VERSION = '0.1.0-icode1'
 
 export type HostOptions = {
   paths: HostPaths
@@ -175,7 +175,7 @@ export function createTerminalHost(options: HostOptions): void {
       } catch {
         // no log directory
       }
-      process.stderr.write(`[ade-host] ${message}\n`)
+      process.stderr.write(`[icode-host] ${message}\n`)
       process.exit(1)
     })
 }

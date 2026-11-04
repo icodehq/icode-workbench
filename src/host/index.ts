@@ -15,8 +15,8 @@ if (process.env[WSL_HOLDER_READY_ENV]) {
   runWslHolderFromEnv(process.env)
 } else {
   try {
-    if (!process.env.ADE_HOST_DIR) {
-      throw new Error('ADE_HOST_DIR is required')
+    if (!process.env.ICODE_HOST_DIR) {
+      throw new Error('ICODE_HOST_DIR is required')
     }
     const paths = hostPathsFromEnv(process.env)
     // Platform-appropriate default; SHELL is honoured first when a user sets it.
@@ -28,16 +28,16 @@ if (process.env[WSL_HOLDER_READY_ENV]) {
     // A failed host must be diagnosable from its own log directory.
     const message = error instanceof Error ? `${error.stack ?? error.message}` : String(error)
     try {
-      if (process.env.ADE_HOST_DIR) {
+      if (process.env.ICODE_HOST_DIR) {
         const { appendFileSync, mkdirSync } = require('node:fs') as typeof import('node:fs')
         const { join } = require('node:path') as typeof import('node:path')
-        mkdirSync(process.env.ADE_HOST_DIR, { recursive: true, mode: 0o700 })
-        appendFileSync(join(process.env.ADE_HOST_DIR, 'host.log'), `${new Date().toISOString()} ${message}\n`)
+        mkdirSync(process.env.ICODE_HOST_DIR, { recursive: true, mode: 0o700 })
+        appendFileSync(join(process.env.ICODE_HOST_DIR, 'host.log'), `${new Date().toISOString()} ${message}\n`)
       }
     } catch {
       // no log directory available
     }
-    process.stderr.write(`[ade-host] ${message}\n`)
+    process.stderr.write(`[icode-host] ${message}\n`)
     process.exit(1)
   }
 }

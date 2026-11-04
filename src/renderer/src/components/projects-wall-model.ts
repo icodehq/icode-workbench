@@ -1,4 +1,4 @@
-import type { TaskRecordPayload } from '../../../shared/ade-api'
+import type { TaskRecordPayload } from '../../../shared/icode-api'
 import type { RepositorySummary, SessionSummary } from '../../../shared/schemas/ipc'
 import { repositoryPreparationView } from '../lib/repository-preparation'
 import {
@@ -48,7 +48,7 @@ export type StorageLike = {
   setItem: (key: string, value: string) => void
 }
 
-export const PINNED_PROJECTS_KEY = 'ade.pinnedProjectIds'
+export const PINNED_PROJECTS_KEY = 'icode.pinnedProjectIds'
 
 function storageOrNull(storage?: StorageLike): StorageLike | null {
   if (storage) return storage

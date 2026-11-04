@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain, nativeTheme, screen } from 'electron'
+import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { gateHostStart, gateReattach, gateSqlite, runPackagedSmoke } from './gates/compat-gates'
 import { getAppPersistence } from './persistence'
@@ -7,19 +8,32 @@ import { registerAppIpc } from './ipc/register'
 import { IPC_CHANNELS } from '../shared/schemas/ipc'
 import { installApplicationMenu } from './menu'
 import { clampWindowState, loadWindowState, trackWindowState } from './window-state'
+import { APP_LOCAL_PROFILE_DIR_NAME, APP_NAME } from '../shared/domain/app-identity'
 
-const gateFlag = process.argv.find((arg) => arg.startsWith('--ade-gate-'))
-const packagedSmoke = process.argv.includes('--ade-compat-smoke')
+app.setName(APP_NAME)
+
+const gateFlag = process.argv.find((arg) => arg.startsWith('--icode-gate-'))
+const packagedSmoke = process.argv.includes('--icode-compat-smoke')
 
 // Gate smoke runs need an isolated profile; the packaged check passes one in.
-if (process.env.ADE_GATE_USER_DATA) {
-  app.setPath('userData', process.env.ADE_GATE_USER_DATA)
-}
+// Production resolves the canonical iCode profile explicitly instead of relying
+// on Electron's name-derived default. `--user-data-dir` remains an explicit
+// developer override and is never ignored.
+const gateUserData = process.env.ICODE_GATE_USER_DATA
+const userDataArg = process.argv.some((arg) => arg.startsWith('--user-data-dir'))
+const profileDirectory =
+  gateUserData ??
+  (userDataArg
+    ? app.getPath('userData')
+    : join(app.getPath('appData'), APP_LOCAL_PROFILE_DIR_NAME))
+mkdirSync(profileDirectory, { recursive: true })
+app.setPath('userData', profileDirectory)
+app.setPath('sessionData', profileDirectory)
 
 app.disableHardwareAcceleration()
 
 function installRuntimeInfoHandler(): void {
-  ipcMain.handle('ade:runtime-info', () => ({
+  ipcMain.handle('icode:runtime-info', () => ({
     appVersion: app.getVersion(),
     electron: process.versions.electron ?? null,
     node: process.versions.node,
@@ -31,7 +45,7 @@ function installRuntimeInfoHandler(): void {
 /**
  * The window is painted by the compositor before the renderer has resolved an
  * appearance, so its background must match the palette the renderer will use.
- * These two values mirror `--ade-canvas` in `src/renderer/src/assets/main.css`
+ * These two values mirror `--icode-canvas` in `src/renderer/src/assets/main.css`
  * (iCode canvas and paper); keep them in step if the canvas changes.
  */
 const WINDOW_BACKGROUND = { dark: '#0A0E14', light: '#F6F8FA' } as const
@@ -55,7 +69,7 @@ function watchSystemAppearance(): void {
 }
 
 function createWindow(): void {
-  const backgroundLaunch = process.env.ADE_BACKGROUND_LAUNCH === '1'
+  const backgroundLaunch = process.env.ICODE_BACKGROUND_LAUNCH === '1'
   const profileDirectory = app.getPath('userData')
   const saved = loadWindowState(profileDirectory)
   const initial = clampWindowState(saved, screen.getPrimaryDisplay().workAreaSize)
@@ -116,13 +130,13 @@ async function runCompatMode(): Promise<void> {
     return
   }
   switch (gateFlag) {
-    case '--ade-gate-sqlite':
+    case '--icode-gate-sqlite':
       await gateSqlite()
       return
-    case '--ade-gate-host-start':
+    case '--icode-gate-host-start':
       await gateHostStart()
       return
-    case '--ade-gate-reattach':
+    case '--icode-gate-reattach':
       await gateReattach()
       return
     default:
@@ -135,7 +149,7 @@ if (gateFlag || packagedSmoke) {
     .whenReady()
     .then(runCompatMode)
     .catch((error: unknown) => {
-      process.stderr.write(`[ade] compatibility mode failed: ${String(error)}\n`)
+      process.stderr.write(`[icode] compatibility mode failed: ${String(error)}\n`)
       app.exit(1)
     })
 } else {
@@ -168,7 +182,7 @@ if (gateFlag || packagedSmoke) {
       } catch (error) {
         // A corrupt database is intentionally non-destructive: keep the window
         // usable so the failure can be surfaced instead of silently recreating.
-        process.stderr.write(`[ade] application services failed to start: ${String(error)}\n`)
+        process.stderr.write(`[icode] application services failed to start: ${String(error)}\n`)
       }
       createWindow()
       app.on('activate', () => {

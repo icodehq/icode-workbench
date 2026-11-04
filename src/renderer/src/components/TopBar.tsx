@@ -7,7 +7,7 @@ import {
   Server,
   Trash2
 } from 'lucide-react'
-import type { RuntimeInfo } from '../../../shared/ade-api'
+import type { RuntimeInfo } from '../../../shared/icode-api'
 import type { RepositorySummary } from '../../../shared/schemas/ipc'
 import type { WorkspaceState } from '../state/workspace'
 
@@ -106,7 +106,7 @@ export default function TopBar({
   return (
     <header className="flex h-11 shrink-0 items-center gap-3 border-b border-border px-3">
       <div className="flex shrink-0 items-baseline gap-2">
-        <span className="text-[13px] font-semibold tracking-tight">ADE</span>
+        <span className="text-[13px] font-semibold tracking-tight">iCode</span>
         <span className="text-[9px] uppercase tracking-wider text-muted-foreground">
           agent workspace
         </span>

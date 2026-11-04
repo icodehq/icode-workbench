@@ -1,7 +1,7 @@
 /**
  * Identity vocabulary.
  *
- * ADE owns durable repository, workspace, and session IDs. The terminal host
+ * iCode owns durable repository, workspace, and session IDs. The terminal host
  * owns incarnation IDs because only it can name one PTY lifetime. Keeping these
  * as separate brands prevents a durable ID from being passed where a process
  * identity is required.
@@ -57,8 +57,8 @@ export function parseSessionId(value: string): SessionId | null {
 }
 
 /**
- * Incarnations are opaque to ADE, so the only shape requirement is a stable
- * identifier. ADE's durable prefixes are rejected so a durable ID cannot be
+ * Incarnations are opaque to iCode, so the only shape requirement is a stable
+ * identifier. iCode's durable prefixes are rejected so a durable ID cannot be
  * mistaken for a process identity.
  */
 export function parsePtyIncarnationId(value: string): PtyIncarnationId | null {

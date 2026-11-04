@@ -1,5 +1,5 @@
 import { ArrowLeft, FolderGit2, Plus, Trash2 } from 'lucide-react'
-import type { TaskRecordPayload } from '../../../shared/ade-api'
+import type { TaskRecordPayload } from '../../../shared/icode-api'
 import type { RepositorySummary, SessionSummary } from '../../../shared/schemas/ipc'
 import { repositoryPreparationView } from '../lib/repository-preparation'
 import { taskAttention } from './task-status'

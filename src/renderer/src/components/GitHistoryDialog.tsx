@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { Copy, X } from 'lucide-react'
-import type { GitHistoryPayload } from '../../../shared/ade-api'
+import type { GitHistoryPayload } from '../../../shared/icode-api'
 import type { Notice } from '../state/workspace'
 
 type HistoryData = Extract<GitHistoryPayload, { status: 'ok' }>
@@ -41,7 +41,7 @@ export default function GitHistoryDialog({ data, notify, onClose }: Props): Reac
         if (event.target === event.currentTarget) onClose()
       }}
     >
-      <div className="ade-modal flex max-h-[80vh] w-[min(580px,100%)] flex-col overflow-hidden rounded-xl border border-line-strong bg-overlay shadow-[var(--ade-shadow-overlay)]">
+      <div className="icode-modal flex max-h-[80vh] w-[min(580px,100%)] flex-col overflow-hidden rounded-xl border border-line-strong bg-overlay shadow-[var(--icode-shadow-overlay)]">
         <div className="flex items-start gap-3 border-b border-border px-4 py-3">
           <div className="min-w-0 flex-1">
             <h2 className="text-[14px] font-semibold">Recent commits</h2>

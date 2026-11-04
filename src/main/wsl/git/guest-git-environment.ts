@@ -15,7 +15,7 @@
  *   3. **Fall back to the login shell** only when the probe could not resolve, or
  *      when a direct call fails with exit 127 and "not found"/"No such file".
  *
- * That last point is the important one for ADE. A distro where `git` lives on a
+ * That last point is the important one for iCode. A distro where `git` lives on a
  * login-only PATH (nvm, asdf, a custom profile) works in Orca and would fail with
  * a naive `--exec git`, which is exactly what W60 shipped.
  *
@@ -86,10 +86,10 @@ export function fencedCommand(command: string): string {
   return [
     `printf '%s' '${LOGIN_FENCE_START}'`,
     command,
-    `__ade_status=$?`,
+    `__icode_status=$?`,
     `printf '%s' '${LOGIN_FENCE_END}'`,
-    `printf '%s%s' '${LOGIN_FENCE_STATUS}' "$__ade_status"`,
-    'exit "$__ade_status"'
+    `printf '%s%s' '${LOGIN_FENCE_STATUS}' "$__icode_status"`,
+    'exit "$__icode_status"'
   ].join('\n')
 }
 

@@ -1,8 +1,8 @@
 {
-  "name": "ade",
+  "name": "icode",
   "version": "0.1.0",
   "private": true,
-  "description": "ADE — an agent development environment for local Coding Agent TUIs",
+  "description": "iCode — an agent development environment for local Coding Agent TUIs",
   "license": "MIT",
   "main": "./out/main/index.js",
   "packageManager": "pnpm@11.16.0",
@@ -16,12 +16,12 @@
     "build:app": "electron-vite build && node scripts/build-host.cjs",
     "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.web.json --noEmit",
     "build": "pnpm typecheck && pnpm build:app",
-    "gate:sqlite": "pnpm build:app && electron . --ade-gate-sqlite",
+    "gate:sqlite": "pnpm build:app && electron . --icode-gate-sqlite",
     "gate:pty": "ELECTRON_RUN_AS_NODE=1 electron scripts/compat/pty-smoke.cjs",
-    "gate:host:start": "pnpm build:app && ADE_HOST_DIR=/tmp/ade-work1/host ADE_HOST_SOCKET=/tmp/ade-work1/host/terminal-host.sock electron . --ade-gate-host-start",
-    "gate:host:verify": "ADE_HOST_SOCKET=/tmp/ade-work1/host/terminal-host.sock ELECTRON_RUN_AS_NODE=1 electron scripts/compat/host-verify.cjs",
-    "gate:reattach": "pnpm build:app && ADE_HOST_DIR=/tmp/ade-work1/host ADE_HOST_SOCKET=/tmp/ade-work1/host/terminal-host.sock electron . --ade-gate-reattach",
-    "gate:host:stop": "ADE_HOST_SOCKET=/tmp/ade-work1/host/terminal-host.sock ELECTRON_RUN_AS_NODE=1 electron scripts/compat/host-stop.cjs",
+    "gate:host:start": "pnpm build:app && ICODE_HOST_DIR=/tmp/icode-work1/host ICODE_HOST_SOCKET=/tmp/icode-work1/host/terminal-host.sock electron . --icode-gate-host-start",
+    "gate:host:verify": "ICODE_HOST_SOCKET=/tmp/icode-work1/host/terminal-host.sock ELECTRON_RUN_AS_NODE=1 electron scripts/compat/host-verify.cjs",
+    "gate:reattach": "pnpm build:app && ICODE_HOST_DIR=/tmp/icode-work1/host ICODE_HOST_SOCKET=/tmp/icode-work1/host/terminal-host.sock electron . --icode-gate-reattach",
+    "gate:host:stop": "ICODE_HOST_SOCKET=/tmp/icode-work1/host/terminal-host.sock ELECTRON_RUN_AS_NODE=1 electron scripts/compat/host-stop.cjs",
     "package:dir": "pnpm build && node scripts/wsl/prepare-artifacts.cjs && electron-builder --dir --config config/electron-builder.config.cjs",
     "package:win": "pnpm build && node scripts/wsl/prepare-artifacts.cjs && electron-builder --win nsis --x64 --config config/electron-builder.config.cjs",
     "gate:packaged": "node scripts/compat/packaged-smoke.cjs",
@@ -37,7 +37,8 @@
     "smoke:claude": "node scripts/compat/claude-tui-smoke.cjs",
     "smoke:worktree": "node scripts/compat/worktree-isolation-smoke.cjs",
     "test:watch": "vitest --config vitest.config.mts",
-    "perf:scm": "ADE_PERF=1 vitest run --config vitest.config.mts src/main/git/git-workspace-service.test.ts -t \"reads 10k untracked files\"",
+    "check:brand": "node scripts/check-brand.cjs",
+    "perf:scm": "ICODE_PERF=1 vitest run --config vitest.config.mts src/main/git/git-workspace-service.test.ts -t \"reads 10k untracked files\"",
     "smoke:activity": "node scripts/compat/activity-smoke.cjs",
     "package:msi": "pnpm build && node scripts/wsl/prepare-artifacts.cjs && electron-builder --win msi --x64 --config config/electron-builder.config.cjs",
     "smoke:features": "node scripts/compat/feature-smoke.cjs",
@@ -74,5 +75,5 @@
     "vite": "8.3.4",
     "vitest": "5.0.5"
   },
-  "author": "ADE contributors"
+  "author": "iCode contributors"
 }

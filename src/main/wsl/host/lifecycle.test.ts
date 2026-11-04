@@ -27,7 +27,7 @@ const MANIFEST: HostArtifactManifest = {
   files: { 'host/index.js': 'c'.repeat(64) }
 }
 const FINGERPRINT = buildFingerprint(MANIFEST)
-const ENTRY = '/home/u/.ade/host/scope/v-test/host/index.js'
+const ENTRY = '/home/u/.icode/host/scope/v-test/host/index.js'
 
 function identity(overrides: Partial<{
   distroInstance: string
@@ -54,7 +54,7 @@ function identity(overrides: Partial<{
         overrides.pidFileStale === true
           ? null
           : (overrides.hostCommandLine ??
-            (hostPid === null ? null : `/home/u/.ade/host/scope/v-test/node/bin/node ${ENTRY}`)),
+            (hostPid === null ? null : `/home/u/.icode/host/scope/v-test/node/bin/node ${ENTRY}`)),
       meta:
         overrides.meta === undefined
           ? hostPid === null
@@ -63,8 +63,8 @@ function identity(overrides: Partial<{
                 pid: hostPid,
                 startedAt: 1,
                 protocolVersion: 1,
-                hostVersion: '0.1.0-work4',
-                socket: '/home/u/.ade/host/scope/v-test/run/host.sock'
+                hostVersion: '0.1.0-icode1',
+                socket: '/home/u/.icode/host/scope/v-test/run/host.sock'
               }
           : overrides.meta
     }
@@ -124,7 +124,7 @@ function harness(options: HarnessOptions = {}) {
   const launcher: WslProcessLauncher = async (spec): Promise<WslProcessOutcome> => {
     const guest = spec.args.slice(spec.args.indexOf('--exec') + 1)
     launches.push([...guest])
-    if (guest.includes('ade-start') && options.launchExit === 'exit3') {
+    if (guest.includes('icode-start') && options.launchExit === 'exit3') {
       return { code: 3, signal: null, stdout: '', stderr: '', timedOut: false }
     }
     return { code: 0, signal: null, stdout: '', stderr: '', timedOut: false }
@@ -145,7 +145,7 @@ function harness(options: HarnessOptions = {}) {
     store,
     artifactRoot: '/artifacts',
     manifest: MANIFEST,
-    hostRoot: '/home/u/.ade/host/scope',
+    hostRoot: '/home/u/.icode/host/scope',
     now: (() => {
       let t = 1_000
       return () => (t += 500)
@@ -182,10 +182,10 @@ const RECORD: WslGuestHostRecord = {
   distroInstance: `${BOOT}:145`,
   pid: 991,
   startTicks: '52397645',
-  hostDir: '/home/u/.ade/host/scope/v-test',
-  socket: '/home/u/.ade/host/scope/v-test/run/host.sock',
+  hostDir: '/home/u/.icode/host/scope/v-test',
+  socket: '/home/u/.icode/host/scope/v-test/run/host.sock',
   protocolVersion: 1,
-  hostVersion: '0.1.0-work4',
+  hostVersion: '0.1.0-icode1',
   buildFingerprint: FINGERPRINT,
   artifactVersion: 'v-test',
   recordedAtMs: 1
@@ -306,8 +306,8 @@ describe('protocol and build mismatch', () => {
       stored: RECORD,
       identities: [
         identity({ hostPid: 991, meta: { pid: 991, startedAt: 1, protocolVersion: 9, hostVersion: 'old', socket: '/s' } }),
-        identity({ hostPid: 991, meta: { pid: 991, startedAt: 2, protocolVersion: 1, hostVersion: '0.1.0-work4', socket: '/s' } }),
-        identity({ hostPid: 991, meta: { pid: 991, startedAt: 2, protocolVersion: 1, hostVersion: '0.1.0-work4', socket: '/s' } })
+        identity({ hostPid: 991, meta: { pid: 991, startedAt: 2, protocolVersion: 1, hostVersion: '0.1.0-icode1', socket: '/s' } }),
+        identity({ hostPid: 991, meta: { pid: 991, startedAt: 2, protocolVersion: 1, hostVersion: '0.1.0-icode1', socket: '/s' } })
       ],
       aliveResults: [false]
     })
@@ -455,8 +455,8 @@ describe('launch reporting is not liveness (measured on a real distro)', () => {
     const outcome = await h.lifecycle.ensure(WSL_TARGET)
     expect(outcome.status).toBe('ready')
     // A stale file must not block the start, and must be removed first.
-    expect(h.launches.filter((guest) => guest.includes('ade-rm-pid'))).toHaveLength(1)
-    expect(h.launches.filter((guest) => guest.includes('ade-start'))).toHaveLength(1)
+    expect(h.launches.filter((guest) => guest.includes('icode-rm-pid'))).toHaveLength(1)
+    expect(h.launches.filter((guest) => guest.includes('icode-start'))).toHaveLength(1)
   })
 
   it('treats a stale pid file as already stopped and removes it', async () => {
@@ -467,7 +467,7 @@ describe('launch reporting is not liveness (measured on a real distro)', () => {
     const outcome = await h.lifecycle.stop(WSL_TARGET)
     expect(outcome).toEqual({ status: 'stopped', host: 'already_stopped', holder: 'released' })
     expect(h.killed).toEqual([])
-    expect(h.launches[0]!.some((arg) => arg === 'ade-rm-pid')).toBe(true)
+    expect(h.launches[0]!.some((arg) => arg === 'icode-rm-pid')).toBe(true)
   })
 })
 
@@ -485,7 +485,7 @@ describe('guest home', () => {
       store: memoryStore(null),
       artifactRoot: '/a',
       manifest: MANIFEST,
-      hostRoot: '/home/u/.ade/host/scope'
+      hostRoot: '/home/u/.icode/host/scope'
     })
     await expect(lifecycle.guestHome(DISTRO)).resolves.toBe('/home/u')
     stdout = 'not-a-path\n'

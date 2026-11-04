@@ -43,9 +43,9 @@ export const HOST_SOCKET_NAME = 'terminal-host.sock'
 const MAX_SOCKET_PATH_BYTES = 100
 
 /**
- * Stable, filesystem-safe identity for one ADE profile directory.
+ * Stable, filesystem-safe identity for one iCode profile directory.
  *
- * The runtime directory (`XDG_RUNTIME_DIR`) is shared by every ADE instance the
+ * The runtime directory (`XDG_RUNTIME_DIR`) is shared by every iCode instance the
  * user runs, so the socket must be namespaced by profile. A truncated digest
  * keeps the name short, collision-resistant, and valid on any filesystem.
  */
@@ -60,11 +60,11 @@ export function profileSocketScope(profileDir: string): string {
  *
  * Windows has no Unix-domain socket in the filesystem, and `listen()` there
  * only accepts a named pipe, so the endpoint becomes a deterministic pipe name
- * scoped to the profile. `ADE_HOST_SOCKET` still wins on every platform, which
+ * scoped to the profile. `ICODE_HOST_SOCKET` still wins on every platform, which
  * is how the packaging gates pin an endpoint.
  *
  * The last POSIX fallback is still per-profile, so no branch can collide with
- * another ADE profile that shares the same runtime directory.
+ * another iCode profile that shares the same runtime directory.
  */
 export function hostSocketPath(options: {
   profileDir: string
@@ -74,22 +74,22 @@ export function hostSocketPath(options: {
 }): string {
   const { profileDir, env } = options
   const platform = options.platform ?? process.platform
-  const explicit = env.ADE_HOST_SOCKET
+  const explicit = env.ICODE_HOST_SOCKET
   if (explicit && explicit.length > 0) return explicit
   if (platform === 'win32') {
-    return namedPipe('ade-host', profileSocketScope(profileDir))
+    return namedPipe('icode-host', profileSocketScope(profileDir))
   }
   const xdg = env.XDG_RUNTIME_DIR
   if (xdg && xdg.length > 0) {
-    const scoped = join(xdg, 'ade', profileSocketScope(profileDir), HOST_SOCKET_NAME)
+    const scoped = join(xdg, 'icode', profileSocketScope(profileDir), HOST_SOCKET_NAME)
     if (Buffer.byteLength(scoped) <= MAX_SOCKET_PATH_BYTES) return scoped
   }
   return join(profileDir, HOST_SOCKET_NAME)
 }
 
 export function hostPathsFromEnv(env: NodeJS.ProcessEnv): HostPaths {
-  const dir = env.ADE_HOST_DIR
-  if (!dir) throw new Error('ADE_HOST_DIR is required')
+  const dir = env.ICODE_HOST_DIR
+  if (!dir) throw new Error('ICODE_HOST_DIR is required')
   const socket = hostSocketPath({ profileDir: dir, env })
   return {
     dir,
@@ -136,7 +136,7 @@ export function prepareHostDirectory(paths: HostPaths, options: PrepareOptions =
   if (supportsPosixModes && (Number.parseInt(dirMode, 8) & 0o077) !== 0) {
     throw new HostStartupError(
       'PERMISSIONS',
-      `Host directory ${paths.dir} has mode ${dirMode}; expected 700. Move ADE_HOST_DIR to a filesystem that enforces POSIX permissions.`
+      `Host directory ${paths.dir} has mode ${dirMode}; expected 700. Move ICODE_HOST_DIR to a filesystem that enforces POSIX permissions.`
     )
   }
 }

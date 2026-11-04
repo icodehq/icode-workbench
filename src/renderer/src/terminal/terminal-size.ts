@@ -3,7 +3,7 @@ export type TerminalSize = {
   rows: number
 }
 
-const STORAGE_KEY = 'ade.terminalSize'
+const STORAGE_KEY = 'icode.terminalSize'
 const SAVE_DELAY_MS = 250
 
 let cached: TerminalSize | null = null

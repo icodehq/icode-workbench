@@ -49,7 +49,7 @@ type Fixture = {
 }
 
 async function setup(): Promise<Fixture> {
-  const root = makeTempRoot('ade-removal-')
+  const root = makeTempRoot('icode-removal-')
   const db = openTempDatabase(root)
   const stores = makeRepositoryService(db)
   const host = new FakeHostGateway()
@@ -74,7 +74,7 @@ async function setup(): Promise<Fixture> {
   execFileSync('git', ['-C', repoPath, 'add', 'README.md'], { stdio: 'pipe' })
   execFileSync(
     'git',
-    ['-C', repoPath, '-c', 'user.email=ade@test', '-c', 'user.name=ADE', 'commit', '-qm', 'init'],
+    ['-C', repoPath, '-c', 'user.email=icode@test', '-c', 'user.name=iCode', 'commit', '-qm', 'init'],
     { stdio: 'pipe' }
   )
   const added = await stores.service.addRepository(repoPath)

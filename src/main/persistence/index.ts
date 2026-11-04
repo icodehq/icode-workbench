@@ -13,6 +13,7 @@ import {
 import { resolveRepositoryRootFor } from '../repositories/repository-path'
 import { WslCommandRunner } from '../wsl/exec'
 import { createTargetValidator } from '../wsl/repository-target'
+import { APP_DB_FILE_NAME } from '../../shared/domain/app-identity'
 
 export type AppPersistence = {
   database: Database
@@ -35,7 +36,7 @@ function sharedWslRunner(): WslCommandRunner {
 }
 
 export function databasePath(): string {
-  return join(app.getPath('userData'), 'ade.sqlite')
+  return join(app.getPath('userData'), APP_DB_FILE_NAME)
 }
 
 /**

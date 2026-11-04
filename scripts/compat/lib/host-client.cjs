@@ -60,7 +60,7 @@ class HostClient {
           type: 'hello',
           protocolVersion: HOST_PROTOCOL_VERSION,
           token: this.token,
-          clientId: `ade-gate-${process.pid}`
+          clientId: `icode-gate-${process.pid}`
         })}\n`
       )
     })

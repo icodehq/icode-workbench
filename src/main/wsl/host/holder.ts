@@ -170,7 +170,7 @@ function spawnDetachedHolder(deps: {
 
     const cwd = resolveWslInteropCwd(deps.env)
     const wslPath = resolveWslExecutablePath(deps.env, deps.platform)
-    const readyDirectory = deps.readyDirectory ?? join(tmpdir(), 'ade-wsl-holders')
+    const readyDirectory = deps.readyDirectory ?? join(tmpdir(), 'icode-wsl-holders')
     mkdirSync(readyDirectory, { recursive: true, mode: 0o700 })
     const readyFile = join(
       readyDirectory,

@@ -295,7 +295,7 @@ async function fileExists(
     runner,
     target.distro,
     'if [ -f "$1" ]; then printf yes; fi',
-    'ade-ignore-check',
+    'icode-ignore-check',
     path
   )
   return result.stdout === 'yes'
@@ -323,7 +323,7 @@ async function directoryIsEmpty(
     runner,
     target.distro,
     'find "$1" -mindepth 1 -maxdepth 1 ! -name .git -print -quit',
-    'ade-empty-check',
+    'icode-empty-check',
     root
   )
   return result.stdout.trim().length === 0
@@ -359,13 +359,13 @@ async function writeGitignore(
     runner,
     target.distro,
     [
-      'tmp="$1.ade-tmp-$$"',
+      'tmp="$1.icode-tmp-$$"',
       'trap \'rm -f -- "$tmp"\' 0 1 2 15',
       'cat > "$tmp" || exit 1',
       'mv -f -- "$tmp" "$1" || exit 1',
       'trap - 0 1 2 15'
     ].join('\n'),
-    'ade-ignore-write',
+    'icode-ignore-write',
     path,
     content
   )

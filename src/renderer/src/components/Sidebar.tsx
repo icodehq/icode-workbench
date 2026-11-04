@@ -192,7 +192,7 @@ export default function Sidebar({
               Retained branches
             </div>
             <p className="mt-1 text-[9px] leading-relaxed text-muted-foreground">
-              Branches ADE created are kept after a worktree is removed.
+              Branches iCode created are kept after a worktree is removed.
             </p>
             <ul className="mt-1 space-y-0.5">
               {branches.map((branch) => (
@@ -238,7 +238,7 @@ export default function Sidebar({
               {orphans.length} untracked terminal{orphans.length === 1 ? '' : 's'}
             </div>
             <p className="mt-1 text-[10px] leading-relaxed text-signal opacity-80">
-              The terminal host still owns sessions that ADE does not track. They are not attached
+              The terminal host still owns sessions that iCode does not track. They are not attached
               here and are left running.
             </p>
             <ul className="mt-1 space-y-0.5">

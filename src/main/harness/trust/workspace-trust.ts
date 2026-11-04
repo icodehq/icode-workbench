@@ -26,7 +26,7 @@ const CONFIG_TIMEOUT_MS = 10_000
 const READ_GUEST_CONFIG =
   'if [ -f "$1" ]; then cat -- "$1"; fi'
 const WRITE_GUEST_CONFIG = [
-  'tmp="$1.ade-tmp-$$"',
+  'tmp="$1.icode-tmp-$$"',
   'trap \'rm -f -- "$tmp"\' 0 1 2 15',
   'mkdir -p -- "$(dirname -- "$1")" || exit 1',
   'cat > "$tmp" || exit 1',
@@ -129,7 +129,7 @@ function localConfig(path: string): ConfigFile {
     async write(text) {
       const directory = dirname(path)
       await fs.mkdir(directory, { recursive: true, mode: 0o700 })
-      const temporary = `${path}.ade-tmp-${String(process.pid)}-${String(Math.random()).slice(2)}`
+      const temporary = `${path}.icode-tmp-${String(process.pid)}-${String(Math.random()).slice(2)}`
       try {
         await fs.writeFile(temporary, text, { encoding: 'utf8', mode: 0o600 })
         await fs.rename(temporary, path)
@@ -152,7 +152,7 @@ function guestConfig(
       const result = await runner.run({
         scope: 'guest',
         distro,
-        argv: ['sh', '-c', READ_GUEST_CONFIG, 'ade-trust-read', path],
+        argv: ['sh', '-c', READ_GUEST_CONFIG, 'icode-trust-read', path],
         timeoutMs: CONFIG_TIMEOUT_MS
       })
       const text = guestSuccess(result, 'read the harness config')
@@ -165,7 +165,7 @@ function guestConfig(
       const result = await runner.run({
         scope: 'guest',
         distro,
-        argv: ['sh', '-c', WRITE_GUEST_CONFIG, 'ade-trust-write', path],
+        argv: ['sh', '-c', WRITE_GUEST_CONFIG, 'icode-trust-write', path],
         stdin: text,
         timeoutMs: CONFIG_TIMEOUT_MS
       })

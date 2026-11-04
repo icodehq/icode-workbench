@@ -133,7 +133,7 @@ export default function AddRepositoryDialog({
   const loadDistros = useCallback(async (): Promise<void> => {
     requested.current = true
     setDistros({ phase: 'loading' })
-    const result = await callApi(window.ade.wsl.listDistros())
+    const result = await callApi(window.icode.wsl.listDistros())
     if (!result.ok) {
       setDistros({ phase: 'ipc_failed', error: result.error })
       return
@@ -224,8 +224,8 @@ export default function AddRepositoryDialog({
     try {
       const result = await callApi(
         choice.kind === 'wsl'
-          ? window.ade.repos.pickFolder({ target, source: 'windows' })
-          : window.ade.repos.pickFolder({ target })
+          ? window.icode.repos.pickFolder({ target, source: 'windows' })
+          : window.icode.repos.pickFolder({ target })
       )
       if (!result.ok) {
         setError(result.error)
@@ -282,7 +282,7 @@ export default function AddRepositoryDialog({
           onClose()
           return
         }
-        const result = await callApi(window.ade.repos.inspect({ path: trimmed, target }))
+        const result = await callApi(window.icode.repos.inspect({ path: trimmed, target }))
         if (result.ok) {
           setInspection(result.value)
           if (result.value.translatedFrom !== undefined) {
@@ -345,7 +345,7 @@ export default function AddRepositoryDialog({
     setBusy(true)
     try {
       const result = await callApi(
-        window.ade.repos.inspect({ path: candidatePath, target })
+        window.icode.repos.inspect({ path: candidatePath, target })
       )
       if (!result.ok) {
         setError(result.error)
@@ -374,7 +374,7 @@ export default function AddRepositoryDialog({
       aria-label="Add a project"
     >
       <form
-        className="ade-modal max-h-[calc(100vh-3rem)] w-full max-w-lg overflow-y-auto rounded-lg border border-border bg-card p-6 shadow-2xl"
+        className="icode-modal max-h-[calc(100vh-3rem)] w-full max-w-lg overflow-y-auto rounded-lg border border-border bg-card p-6 shadow-2xl"
         onSubmit={(event) => void submit(event)}
         data-testid="add-repo-form"
       >

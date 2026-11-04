@@ -12,7 +12,7 @@ const SHELL = process.env.SHELL && process.env.SHELL.length > 0 ? process.env.SH
 const SHELL_ARGS = ['--noprofile', '--norc']
 
 export function artifactDir(): string {
-  return process.env.ADE_GATE_ARTIFACTS ?? join(process.cwd(), 'artifacts', 'work1')
+  return process.env.ICODE_GATE_ARTIFACTS ?? join(process.cwd(), 'artifacts', 'work1')
 }
 
 function writeEvidence(name: string, value: unknown): string {
@@ -215,7 +215,7 @@ function failed(error: unknown): { error: string; stack?: string } {
 /** Check 1: SQLite inside the Electron main process. */
 export async function gateSqlite(): Promise<void> {
   try {
-    const probe = runSqliteProbe(join(artifactDir(), 'sqlite', 'ade-gate.db'))
+    const probe = runSqliteProbe(join(artifactDir(), 'sqlite', 'icode-gate.db'))
     assert(probe.journalMode.toLowerCase() === 'wal', `Expected WAL, got ${probe.journalMode}`)
     assert(probe.committedRows === 2, `Expected 2 committed rows, got ${probe.committedRows}`)
     assert(probe.rolledBackRows === 0, 'Rolled-back row is visible')
@@ -232,9 +232,9 @@ export async function gateSqlite(): Promise<void> {
 /** Checks 3a: start a detached host session, then exit the Electron app. */
 export async function gateHostStart(): Promise<void> {
   try {
-    const supervisor = new HostSupervisor(process.env.ADE_HOST_DIR)
+    const supervisor = new HostSupervisor(process.env.ICODE_HOST_DIR)
     const sessionId = `gate-host-${Date.now()}`
-    const marker = `ADE_GATE_HOST_MARKER_${randomUUID().slice(0, 8)}`
+    const marker = `ICODE_GATE_HOST_MARKER_${randomUUID().slice(0, 8)}`
     const { client, session } = await startHostSession(supervisor, sessionId, marker)
     writeEvidence('host-start.json', {
       ok: true,
@@ -259,7 +259,7 @@ export async function gateReattach(): Promise<void> {
       join(artifactDir(), 'host-start.json')
     )
     assert(start.ok, 'host-start evidence is not ok')
-    const supervisor = new HostSupervisor(process.env.ADE_HOST_DIR)
+    const supervisor = new HostSupervisor(process.env.ICODE_HOST_DIR)
     const client = await supervisor.ensure()
     assert(client.info, 'No host info after connect')
     const before = await client.listSessions()
@@ -285,7 +285,7 @@ export async function gateReattach(): Promise<void> {
       `PTY pid changed: ${start.session.ptyPid} -> ${attached.ptyPid}`
     )
 
-    const marker = `ADE_GATE_REATTACH_MARKER_${randomUUID().slice(0, 8)}`
+    const marker = `ICODE_GATE_REATTACH_MARKER_${randomUUID().slice(0, 8)}`
     const event = waitForEvent(
       client,
       (item) =>
@@ -329,9 +329,9 @@ export async function gateReattach(): Promise<void> {
 
 /** Check 5: packaged executable runs SQLite, native PTY, and the unpacked host. */
 export async function runPackagedSmoke(): Promise<void> {
-  const evidencePath = process.env.ADE_GATE_EVIDENCE ?? join(artifactDir(), 'packaged-smoke.json')
+  const evidencePath = process.env.ICODE_GATE_EVIDENCE ?? join(artifactDir(), 'packaged-smoke.json')
   try {
-    const sqlite = runSqliteProbe(join(app.getPath('userData'), 'ade-gate.db'))
+    const sqlite = runSqliteProbe(join(app.getPath('userData'), 'icode-gate.db'))
     assert(sqlite.journalMode.toLowerCase() === 'wal', 'Packaged SQLite is not in WAL mode')
     assert(sqlite.committedRows === 2, 'Packaged SQLite committed-row count is wrong')
     assert(sqlite.rolledBackRows === 0, 'Packaged SQLite rollback failed')
@@ -342,7 +342,7 @@ export async function runPackagedSmoke(): Promise<void> {
 
     const supervisor = new HostSupervisor()
     const sessionId = `gate-packaged-${Date.now()}`
-    const marker = `ADE_GATE_PACKAGED_MARKER_${randomUUID().slice(0, 8)}`
+    const marker = `ICODE_GATE_PACKAGED_MARKER_${randomUUID().slice(0, 8)}`
     const { client, session } = await startHostSession(supervisor, sessionId, marker)
     await client.kill(sessionId)
     await client.shutdown()

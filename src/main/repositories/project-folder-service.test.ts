@@ -37,7 +37,7 @@ afterEach(() => {
 })
 
 function tempRoot(): string {
-  const root = mkdtempSync(join(tmpdir(), 'ade-project-folder-'))
+  const root = mkdtempSync(join(tmpdir(), 'icode-project-folder-'))
   roots.push(root)
   return root
 }

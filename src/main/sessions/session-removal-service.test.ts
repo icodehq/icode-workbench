@@ -35,7 +35,7 @@ function git(cwd: string, ...args: string[]): string {
 }
 
 async function setup(): Promise<Fixture> {
-  const root = makeTempRoot('ade-removal-session-')
+  const root = makeTempRoot('icode-removal-session-')
   const db = openTempDatabase(root)
   const stores = makeRepositoryService(db)
   const host = new FakeHostGateway()
@@ -79,9 +79,9 @@ async function setup(): Promise<Fixture> {
     '-C',
     repoPath,
     '-c',
-    'user.email=ade@test',
+    'user.email=icode@test',
     '-c',
-    'user.name=ADE',
+    'user.name=iCode',
     'commit',
     '-qm',
     'init'
@@ -189,9 +189,9 @@ describe('ordinary session removal', () => {
       '-C',
       session.worktree!.path,
       '-c',
-      'user.email=ade@test',
+      'user.email=icode@test',
       '-c',
-      'user.name=ADE',
+      'user.name=iCode',
       'commit',
       '-qm',
       'work'
@@ -288,7 +288,7 @@ describe('explicit discard', () => {
 })
 
 describe('owned branch deletion', () => {
-  it('refuses branches ADE did not create', async () => {
+  it('refuses branches iCode did not create', async () => {
     const f = await setup()
     await expect(f.removals.removeBranch(f.repoId, 'main')).resolves.toEqual({
       status: 'not_owned',
@@ -317,9 +317,9 @@ describe('owned branch deletion', () => {
       '-C',
       session.worktree!.path,
       '-c',
-      'user.email=ade@test',
+      'user.email=icode@test',
       '-c',
-      'user.name=ADE',
+      'user.name=iCode',
       'commit',
       '-qm',
       'work'
@@ -389,7 +389,7 @@ describe('failed creation cleanup', () => {
       sessionId: id,
       repoId: f.repoId as never,
       path: join(f.root.dir, 'worktrees', 'never-created'),
-      branch: `ade/${id}`,
+      branch: `icode/${id}`,
       baseRef: 'main',
       baseOid: 'a'.repeat(40),
       state: 'failed',
@@ -435,7 +435,7 @@ describe('removal probes the repository target', () => {
     const seen: unknown[] = []
     const repoId = 'repo_a5489bf0-0000-4000-8000-000000000001'
     const sessionId = newSessionId()
-    const worktreePath = '/home/you/.ade/worktrees/s/repo/ses'
+    const worktreePath = '/home/you/.icode/worktrees/s/repo/ses'
 
     const removals = new SessionRemovalService({
       database: { transaction: (run: () => void) => run() } as never,
@@ -462,7 +462,7 @@ describe('removal probes the repository target', () => {
           sessionId,
           repoId,
           path: worktreePath,
-          branch: 'ade/ses',
+          branch: 'icode/ses',
           state: 'ready'
         }),
         deleteBySession: () => undefined

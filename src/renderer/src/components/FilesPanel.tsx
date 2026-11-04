@@ -19,7 +19,7 @@ import type {
   FilesWritePayload,
   GitFileAtRevisionPayload,
   WorkspaceUnavailablePayload
-} from '../../../shared/ade-api'
+} from '../../../shared/icode-api'
 import type { FileEntry } from '../../../shared/domain/workspace-files'
 import type { Notice } from '../state/workspace'
 import CodeEditor from './CodeEditor'
@@ -156,7 +156,7 @@ export default function FilesPanel({
     async (path: string): Promise<void> => {
       setTree((current) => ({ ...current, loading: { ...current.loading, [path]: true } }))
       const result = await callApi<FilesListingPayload>(
-        window.ade.files.list({ sessionId, path })
+        window.icode.files.list({ sessionId, path })
       )
       if (!result.ok) {
         notify(errorNotice(result.error))
@@ -219,7 +219,7 @@ export default function FilesPanel({
         setFileNote('Git metadata is managed by Git and is not editable here.')
         return
       }
-      const result = await callApi<FileContentPayload>(window.ade.files.read({ sessionId, path }))
+      const result = await callApi<FileContentPayload>(window.icode.files.read({ sessionId, path }))
       if (!result.ok) {
         notify(errorNotice(result.error))
         return
@@ -245,7 +245,7 @@ export default function FilesPanel({
       setSelected(openedPath)
       setGotoLine(line)
       void callApi<GitFileAtRevisionPayload>(
-        window.ade.git.fileAtRevision({ sessionId, rev: 'HEAD', path: openedPath })
+        window.icode.git.fileAtRevision({ sessionId, rev: 'HEAD', path: openedPath })
       ).then((baseline) => {
         const original =
           baseline.ok &&
@@ -296,7 +296,7 @@ export default function FilesPanel({
 
     if (pending.kind === 'delete') {
       const result = await callApi<FilesMutatePayload>(
-        window.ade.files.remove({ sessionId, path: pending.path })
+        window.icode.files.remove({ sessionId, path: pending.path })
       )
       if (!result.ok) {
         notify(errorNotice(result.error))
@@ -327,7 +327,7 @@ export default function FilesPanel({
       const to = value
       if (to === pending.from) return close()
       const result = await callApi<FilesMutatePayload>(
-        window.ade.files.rename({ sessionId, from: pending.from, to })
+        window.icode.files.rename({ sessionId, from: pending.from, to })
       )
       if (!result.ok) {
         notify(errorNotice(result.error))
@@ -370,7 +370,7 @@ export default function FilesPanel({
     }
     const kind = pending.kind === 'create-directory' ? 'directory' : 'file'
     const result = await callApi<FilesMutatePayload>(
-      window.ade.files.create({ sessionId, path, kind })
+      window.icode.files.create({ sessionId, path, kind })
     )
     if (!result.ok) {
       notify(errorNotice(result.error))
@@ -408,7 +408,7 @@ export default function FilesPanel({
     }
     setSearching(true)
     const result = await callApi<FileSearchPayload>(
-      window.ade.files.search({ sessionId, query: trimmed, caseSensitive: false, limit: 200 })
+      window.icode.files.search({ sessionId, query: trimmed, caseSensitive: false, limit: 200 })
     )
     setSearching(false)
     if (!result.ok) {
@@ -421,7 +421,7 @@ export default function FilesPanel({
   const save = async (): Promise<void> => {
     if (!openFile) return
     const result = await callApi<FilesWritePayload>(
-      window.ade.files.write({ sessionId, path: openFile.path, text: openFile.text })
+      window.icode.files.write({ sessionId, path: openFile.path, text: openFile.text })
     )
     if (!result.ok) {
       notify(errorNotice(result.error))
@@ -461,7 +461,7 @@ export default function FilesPanel({
           key={entry.path}
           type="button"
           className={`flex h-7 w-full items-center gap-1 rounded px-1.5 text-left text-[11.5px] hover:bg-muted/60 ${
-            selected === entry.path ? 'bg-accent/10 text-foreground shadow-[inset_2px_0_0_var(--ade-accent)]' : 'text-muted-foreground'
+            selected === entry.path ? 'bg-accent/10 text-foreground shadow-[inset_2px_0_0_var(--icode-accent)]' : 'text-muted-foreground'
           }`}
           style={{ paddingLeft: `${String(depth * 12 + 4)}px` }}
           onClick={() => void toggle(entry)}

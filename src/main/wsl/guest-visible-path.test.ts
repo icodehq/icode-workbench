@@ -11,8 +11,8 @@ describe('guest-visible paths', () => {
     expect(toGuestVisiblePath('D:\\Development\\WSLProjects\\w71-profile\\agent-hooks\\settings.json')).toBe(
       '/mnt/d/Development/WSLProjects/w71-profile/agent-hooks/settings.json'
     )
-    expect(toGuestVisiblePath('c:/Users/You/AppData/Roaming/ADE/agent-hooks/settings.json')).toBe(
-      '/mnt/c/Users/You/AppData/Roaming/ADE/agent-hooks/settings.json'
+    expect(toGuestVisiblePath('c:/Users/You/AppData/Roaming/iCode/agent-hooks/settings.json')).toBe(
+      '/mnt/c/Users/You/AppData/Roaming/iCode/agent-hooks/settings.json'
     )
   })
 

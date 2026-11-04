@@ -1,9 +1,9 @@
 /**
- * ADE terminal-host protocol, v1.
+ * iCode terminal-host protocol, v1.
  *
- * The host owns PTYs. Session IDs are durable ADE identities; incarnation IDs
+ * The host owns PTYs. Session IDs are durable iCode identities; incarnation IDs
  * name one PTY lifetime. Wire IDs stay opaque so the host does not depend on
- * ADE's ID formats.
+ * iCode's ID formats.
  */
 
 import { z } from 'zod'
@@ -172,7 +172,7 @@ export const hostExitEventSchema = z.strictObject({
   incarnationId: wireIncarnationIdSchema,
   exitCode: z.number().int(),
   signal: z.number().int().optional(),
-  /** True when ADE requested this termination; the exit code is still process truth. */
+  /** True when iCode requested this termination; the exit code is still process truth. */
   requested: z.boolean().optional()
 })
 

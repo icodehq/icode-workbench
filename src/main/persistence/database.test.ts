@@ -78,7 +78,7 @@ describe('database initialization', () => {
 
   it('reopens durable records and keeps the schema version', () => {
     const root = tempRoot()
-    const path = join(root.dir, 'ade.sqlite')
+    const path = join(root.dir, 'icode.sqlite')
     const first = openTempDatabase(root)
     const repositories = new RepositoryStore(first)
     repositories.insert({
@@ -102,7 +102,7 @@ describe('database initialization', () => {
 
   it('round-trips background preparation state without losing the repository', () => {
     const root = tempRoot()
-    const path = join(root.dir, 'ade.sqlite')
+    const path = join(root.dir, 'icode.sqlite')
     const db = openDatabase({ path, migrations: MIGRATIONS })
     const repositories = new RepositoryStore(db)
     const id = newRepoId()
@@ -151,7 +151,7 @@ describe('database initialization', () => {
 
   it('refuses to open a database written by a newer schema', () => {
     const root = tempRoot()
-    const path = join(root.dir, 'ade.sqlite')
+    const path = join(root.dir, 'icode.sqlite')
     const db = openTempDatabase(root)
     db.raw.exec('PRAGMA user_version = 99')
     db.close()
@@ -323,7 +323,7 @@ describe('persisted session state is historical', () => {
 describe('corruption handling', () => {
   it('preserves a non-SQLite file byte-for-byte and reports DB_CORRUPT', () => {
     const root = tempRoot()
-    const path = join(root.dir, 'ade.sqlite')
+    const path = join(root.dir, 'icode.sqlite')
     writeFileSync(path, Buffer.from('this is not a sqlite database'.repeat(64)))
     const before = sha256(path)
 
@@ -343,7 +343,7 @@ describe('corruption handling', () => {
 
   it('preserves a truncated SQLite database byte-for-byte', () => {
     const root = tempRoot()
-    const path = join(root.dir, 'ade.sqlite')
+    const path = join(root.dir, 'icode.sqlite')
     const db = openTempDatabase(root)
     db.close()
     const full = readFileSync(path)
@@ -359,7 +359,7 @@ describe('corruption handling', () => {
 
   it('preserves a zero-byte database file instead of treating it as new', () => {
     const root = tempRoot()
-    const path = join(root.dir, 'ade.sqlite')
+    const path = join(root.dir, 'icode.sqlite')
     writeFileSync(path, Buffer.alloc(0))
     expect(() => openDatabase({ path, migrations: MIGRATIONS })).toThrow(DatabaseError)
     expect(readFileSync(path).length).toBe(0)
@@ -367,7 +367,7 @@ describe('corruption handling', () => {
 
   it('does not recreate the database after a corrupt open', () => {
     const root = tempRoot()
-    const path = join(root.dir, 'ade.sqlite')
+    const path = join(root.dir, 'icode.sqlite')
     writeFileSync(path, Buffer.from('garbage'.repeat(20)))
     const before = sha256(path)
     expect(() => openDatabase({ path, migrations: MIGRATIONS })).toThrow(DatabaseError)
@@ -380,7 +380,7 @@ describe('corruption handling', () => {
 describe('migrations', () => {
   it('rolls back a failing migration without changing user_version or schema', () => {
     const root = tempRoot()
-    const path = join(root.dir, 'ade.sqlite')
+    const path = join(root.dir, 'icode.sqlite')
     const db = new DatabaseSync(path)
     db.exec('PRAGMA journal_mode = WAL')
     const migrations = [
@@ -411,7 +411,7 @@ describe('migrations', () => {
 
   it('reports migration failure through openDatabase without partial schema', () => {
     const root = tempRoot()
-    const path = join(root.dir, 'ade.sqlite')
+    const path = join(root.dir, 'icode.sqlite')
     const migrations = [
       { version: 1, name: 'ok', statements: ['CREATE TABLE ok_table (id INTEGER PRIMARY KEY)'] },
       {
@@ -434,7 +434,7 @@ describe('migrations', () => {
 
   it('upgrades a v1 database without touching existing repository and session rows', () => {
     const root = tempRoot()
-    const path = join(root.dir, 'ade.sqlite')
+    const path = join(root.dir, 'icode.sqlite')
     const v1 = openDatabase({ path, migrations: [MIGRATIONS[0]!] })
     const repoId = newRepoId()
     const workspaceId = newWorkspaceId()
@@ -632,7 +632,7 @@ describe('execution target schema (v3)', () => {
 
   it('rolls a failed rebuild back to v2 with child rows and foreign keys intact', () => {
     const root = tempRoot()
-    const path = join(root.dir, 'ade.sqlite')
+    const path = join(root.dir, 'icode.sqlite')
     const v2 = openDatabase({ path, migrations: [MIGRATIONS[0]!, MIGRATIONS[1]!] })
     const repoId = newRepoId()
     const workspaceId = newWorkspaceId()

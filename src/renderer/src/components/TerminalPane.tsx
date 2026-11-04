@@ -185,7 +185,7 @@ export default function TerminalPane({ session, active, onError, preview = false
 
     const controller = new SessionTerminal({
       sessionId: session.id,
-      api: window.ade,
+      api: window.icode,
       readOnly: preview,
       sink: {
         reset: () => term.reset(),

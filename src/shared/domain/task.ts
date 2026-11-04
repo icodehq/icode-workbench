@@ -4,7 +4,7 @@
  * The distinction is the whole point: a Session is one interactive process you
  * sit in front of, while a Task survives the process. It is created before any
  * terminal exists, kept while a workflow runs unattended, and still readable
- * after that process is gone — including after ADE restarts.
+ * after that process is gone — including after iCode restarts.
  *
  * A Task therefore records two different things and never conflates them:
  *  - what was asked (`prompt`, `harness`, `repoId`)

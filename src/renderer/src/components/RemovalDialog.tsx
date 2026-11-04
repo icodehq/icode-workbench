@@ -21,7 +21,7 @@ export default function RemovalDialog({
       aria-modal="true"
       aria-label="Confirm repository removal"
     >
-      <div className="ade-modal w-full max-w-md rounded-lg border border-border bg-card p-6 shadow-2xl">
+      <div className="icode-modal w-full max-w-md rounded-lg border border-border bg-card p-6 shadow-2xl">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-2">
             <AlertTriangle size={15} className="text-signal" />

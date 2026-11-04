@@ -34,7 +34,7 @@ describe('client frame parsing', () => {
         type: 'hello',
         protocolVersion: HOST_PROTOCOL_VERSION,
         token: 'a'.repeat(64),
-        clientId: 'ade-main-123'
+        clientId: 'icode-main-123'
       })
     )
     expect(result.ok).toBe(true)
@@ -121,7 +121,7 @@ describe('protocol version', () => {
         type: 'hello',
         protocolVersion: 2,
         token: 'b'.repeat(64),
-        clientId: 'ade-main-123'
+        clientId: 'icode-main-123'
       })
     )
     expect(parsed.ok).toBe(true)
@@ -187,7 +187,7 @@ describe('server frame parsing', () => {
           type: 'response',
           id: 'r3',
           ok: false,
-          error: { code: 'MADE_UP', message: 'nope' }
+          error: { code: 'MICODE_UP', message: 'nope' }
         })
       ).ok
     ).toBe(false)

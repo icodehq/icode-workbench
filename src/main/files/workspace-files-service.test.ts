@@ -20,7 +20,7 @@ afterEach(() => {
 })
 
 function home(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'ade-files-'))
+  const dir = mkdtempSync(join(tmpdir(), 'icode-files-'))
   cleanups.push(() => rmSync(dir, { recursive: true, force: true }))
   return dir
 }
@@ -53,7 +53,7 @@ function service(options: {
               sessionId: 'ses_x',
               repoId: 'repo_x',
               path: options.worktreePath ?? '/wt',
-              branch: 'ade/x',
+              branch: 'icode/x',
               baseRef: 'main',
               baseOid: 'a'.repeat(40),
               state: 'ready',

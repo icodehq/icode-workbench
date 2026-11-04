@@ -5,7 +5,7 @@
  * Drives the product UI over CDP and the real Claude Code executable through:
  * renderer/xterm -> preload -> main IPC -> host protocol -> PTY -> Claude TUI.
  *
- * ADE data and the Host runtime live in an isolated temp directory. Claude Code
+ * iCode data and the Host runtime live in an isolated temp directory. Claude Code
  * keeps its own user config (authentication is user-owned and is never read,
  * copied, or logged here). Artifacts contain UI text and screenshots only; no
  * environment dumps, tokens, or credential files.
@@ -32,18 +32,18 @@ const ELECTRON = require('electron')
 
 // Work 7 runs the development Electron binary. Work 9 runs the packaged Linux
 // application with a default (isolated) user-data path.
-const PACKAGED = process.env.ADE_SMOKE_TARGET === 'packaged'
-const PACKAGED_EXE = process.env.ADE_SMOKE_EXECUTABLE ?? join(APP_DIR, 'dist', 'linux-unpacked', 'ade')
+const PACKAGED = process.env.ICODE_SMOKE_TARGET === 'packaged'
+const PACKAGED_EXE = process.env.ICODE_SMOKE_EXECUTABLE ?? join(APP_DIR, 'dist', 'linux-unpacked', 'icode')
 const PACKAGED_RESOURCES = join(resolve(PACKAGED_EXE, '..'), 'resources')
-const ARTIFACT_DIR = process.env.ADE_SMOKE_ARTIFACTS
-  ? resolve(process.env.ADE_SMOKE_ARTIFACTS)
+const ARTIFACT_DIR = process.env.ICODE_SMOKE_ARTIFACTS
+  ? resolve(process.env.ICODE_SMOKE_ARTIFACTS)
   : join(APP_DIR, 'artifacts', PACKAGED ? 'work9' : 'work7')
-const RUN_DIR = mkdtempSync(join(tmpdir(), PACKAGED ? 'ade-work9-claude-' : 'ade-work7-claude-'))
+const RUN_DIR = mkdtempSync(join(tmpdir(), PACKAGED ? 'icode-work9-claude-' : 'icode-work7-claude-'))
 const REPO_DIR = join(RUN_DIR, 'repo')
 const USER_DATA = join(RUN_DIR, 'userdata')
 const XDG_CONFIG_HOME = join(RUN_DIR, 'xdg-config')
 // Electron derives userData from XDG_CONFIG_HOME plus the app name.
-const PACKAGED_USER_DATA = join(XDG_CONFIG_HOME, 'ade')
+const PACKAGED_USER_DATA = join(XDG_CONFIG_HOME, 'iCode')
 const PACKAGED_RUNTIME_DIR = join(RUN_DIR, 'xdg-runtime')
 const HOST_DIR = join(RUN_DIR, 'host')
 const SOCKET = join(HOST_DIR, 'terminal-host.sock')
@@ -291,7 +291,7 @@ async function cursorPosition(sessionId) {
 }
 
 async function attachInfo(sessionId) {
-  return cdp.evaluate(`window.ade.terminal.attach({ sessionId: ${JSON.stringify(sessionId)} }).then((result) => {
+  return cdp.evaluate(`window.icode.terminal.attach({ sessionId: ${JSON.stringify(sessionId)} }).then((result) => {
     if (!result.ok) return { ok: false, error: result.error };
     return {
       ok: true,
@@ -497,7 +497,7 @@ function stripAnsi(input) {
 function wslgWindows() {
   const output = execFileSync(
     process.execPath,
-    [join(__dirname, 'wslg-window-probe.cjs'), '--json', '--match', 'ADE'],
+    [join(__dirname, 'wslg-window-probe.cjs'), '--json', '--match', 'iCode'],
     { encoding: 'utf8' }
   )
   return JSON.parse(output)
@@ -533,11 +533,11 @@ function prepareRunDir() {
   mkdirSync(USER_DATA, { recursive: true })
   mkdirSync(HOST_DIR, { recursive: true, mode: 0o700 })
   execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: REPO_DIR })
-  writeFileSync(join(REPO_DIR, 'README.md'), '# ADE Work 7 Claude TUI acceptance\n')
+  writeFileSync(join(REPO_DIR, 'README.md'), '# iCode Work 7 Claude TUI acceptance\n')
   execFileSync('git', ['add', 'README.md'], { cwd: REPO_DIR })
   execFileSync(
     'git',
-    ['-c', 'user.email=ade@example.test', '-c', 'user.name=ADE', 'commit', '-qm', 'init'],
+    ['-c', 'user.email=icode@example.test', '-c', 'user.name=iCode', 'commit', '-qm', 'init'],
     { cwd: REPO_DIR }
   )
 }
@@ -588,18 +588,18 @@ async function launch(label, environment) {
   const baseEnv = PACKAGED
     ? {
         ...process.env,
-        // Isolation without ADE_GATE_* overrides: the packaged app uses its
+        // Isolation without ICODE_GATE_* overrides: the packaged app uses its
         // normal default userData/host paths under these XDG directories.
         XDG_CONFIG_HOME,
         XDG_RUNTIME_DIR: PACKAGED_RUNTIME_DIR,
         DISPLAY: process.env.DISPLAY ?? ':0'
       }
-    : { ...process.env, ADE_GATE_USER_DATA: USER_DATA }
+    : { ...process.env, ICODE_GATE_USER_DATA: USER_DATA }
   appProcess = spawn(PACKAGED ? PACKAGED_EXE : ELECTRON, args, {
     cwd: APP_DIR,
     env: {
       ...baseEnv,
-      ADE_BACKGROUND_LAUNCH: '0',
+      ICODE_BACKGROUND_LAUNCH: '0',
       ...environment
     },
     stdio: ['ignore', 'pipe', 'pipe']
@@ -619,7 +619,7 @@ async function launch(label, environment) {
       hostDir: activeHostDir,
       xdgConfigHome: XDG_CONFIG_HOME,
       xdgRuntimeDir: PACKAGED_RUNTIME_DIR,
-      gateEnvOverrides: Object.keys(process.env).filter((key) => key.startsWith('ADE_GATE_'))
+      gateEnvOverrides: Object.keys(process.env).filter((key) => key.startsWith('ICODE_GATE_'))
     }
   }
   await waitForSelector('[data-testid="repo-select"]', 30000)
@@ -690,7 +690,7 @@ async function main() {
     repo: REPO_DIR,
     userData: PACKAGED ? PACKAGED_USER_DATA : USER_DATA,
     hostDir: PACKAGED ? join(PACKAGED_USER_DATA, 'run') : HOST_DIR,
-    socket: PACKAGED ? join(PACKAGED_RUNTIME_DIR, 'ade', 'terminal-host.sock') : SOCKET,
+    socket: PACKAGED ? join(PACKAGED_RUNTIME_DIR, 'icode', 'terminal-host.sock') : SOCKET,
     electron: PACKAGED ? PACKAGED_EXE : ELECTRON,
     node: process.version,
     platform: process.platform,
@@ -715,7 +715,7 @@ async function main() {
   await step('register a real local Git repository from the UI', CRITERIA.repo, async () => {
     await launch(
       'initial',
-      PACKAGED ? {} : { ADE_HOST_DIR: HOST_DIR, ADE_HOST_SOCKET: SOCKET }
+      PACKAGED ? {} : { ICODE_HOST_DIR: HOST_DIR, ICODE_HOST_SOCKET: SOCKET }
     )
     const text = await bodyText()
     assert(text.includes('Add your first repository'), 'First-run empty state is missing')
@@ -724,13 +724,13 @@ async function main() {
       // test override, and the profile must be the isolated one.
       const dataDir = join(PACKAGED_USER_DATA)
       assert(existsSync(dataDir), `Default packaged userData is missing: ${dataDir}`)
-      assert(existsSync(join(dataDir, 'ade.sqlite')), 'Packaged SQLite database was not created')
-      const gateKeys = Object.keys(process.env).filter((key) => key.startsWith('ADE_GATE_'))
-      assert(gateKeys.length === 0, `ADE_GATE_* must not be set: ${gateKeys.join(', ')}`)
+      assert(existsSync(join(dataDir, 'icode.sqlite')), 'Packaged SQLite database was not created')
+      const gateKeys = Object.keys(process.env).filter((key) => key.startsWith('ICODE_GATE_'))
+      assert(gateKeys.length === 0, `ICODE_GATE_* must not be set: ${gateKeys.join(', ')}`)
       RUN.firstRun = {
         emptyState: true,
         userDataDir: dataDir,
-        sqlite: 'ade.sqlite',
+        sqlite: 'icode.sqlite',
         gateOverrides: gateKeys
       }
       await screenshot('00-first-run')
@@ -753,12 +753,12 @@ async function main() {
   })
 
   if (PACKAGED) {
-    await step('verify a visible ADE window on the WSLg display', 'AC2', async () => {
+    await step('verify a visible iCode window on the WSLg display', 'AC2', async () => {
       const probe = wslgWindows()
       const mapped = probe.mappedMatches.filter(
         (window) => window.width > 0 && window.height > 0
       )
-      assert(mapped.length >= 1, `No mapped ADE window on ${probe.display}`)
+      assert(mapped.length >= 1, `No mapped iCode window on ${probe.display}`)
       const window = mapped[0]
       await screenshot('02-wslg-window')
       return {
@@ -919,7 +919,7 @@ async function main() {
     assert(maxRowLength <= info.cols, `Rendered row width ${String(maxRowLength)} exceeds ${String(info.cols)} columns`)
     const cursor = await cursorPosition(claude.id)
     assert(cursor && cursor.withinScreen, 'Terminal cursor is outside the terminal screen')
-    const snapshot = await cdp.evaluate(`window.ade.terminal.attach({ sessionId: ${JSON.stringify(claude.id)} }).then((result) => result.ok ? {
+    const snapshot = await cdp.evaluate(`window.icode.terminal.attach({ sessionId: ${JSON.stringify(claude.id)} }).then((result) => result.ok ? {
       seq: result.value.seq,
       alternateScreen: result.value.alternateScreen,
       bytes: result.value.snapshot.length,
@@ -960,7 +960,7 @@ async function main() {
       mobile: false
     })
     await waitFor(
-      `window.ade.terminal.attach({ sessionId: ${JSON.stringify(claude.id)} }).then((r) => r.ok && r.value.cols < ${String(before.cols)})`,
+      `window.icode.terminal.attach({ sessionId: ${JSON.stringify(claude.id)} }).then((r) => r.ok && r.value.cols < ${String(before.cols)})`,
       'PTY width to shrink',
       15000,
       250
@@ -988,7 +988,7 @@ async function main() {
     const restoredBefore = await attachInfo(claude.id)
     await cdp.send('Emulation.clearDeviceMetricsOverride')
     await waitFor(
-      `window.ade.terminal.attach({ sessionId: ${JSON.stringify(claude.id)} }).then((r) => r.ok && r.value.cols === ${String(before.cols)})`,
+      `window.icode.terminal.attach({ sessionId: ${JSON.stringify(claude.id)} }).then((r) => r.ok && r.value.cols === ${String(before.cols)})`,
       'PTY width to return',
       15000,
       250
@@ -1056,7 +1056,7 @@ async function main() {
     }
   })
 
-  await step('relaunch ADE and reattach to the same Claude TUI incarnation', CRITERIA.relaunch, async () => {
+  await step('relaunch iCode and reattach to the same Claude TUI incarnation', CRITERIA.relaunch, async () => {
     const meta = hostMeta()
     assert(meta && pidAlive(meta.pid), 'Detached Host is not alive before relaunch')
     hostPid = meta.pid
@@ -1067,13 +1067,13 @@ async function main() {
 
     await quitApp()
     await sleep(1000)
-    assert(pidAlive(hostPid), 'Detached Host died when ADE quit')
+    assert(pidAlive(hostPid), 'Detached Host died when iCode quit')
     const metaNow = hostMeta()
-    assert(metaNow && existsSync(metaNow.socket), 'Host socket disappeared when ADE quit')
+    assert(metaNow && existsSync(metaNow.socket), 'Host socket disappeared when iCode quit')
 
     await launch(
       'relaunch',
-      PACKAGED ? {} : { ADE_HOST_DIR: HOST_DIR, ADE_HOST_SOCKET: SOCKET }
+      PACKAGED ? {} : { ICODE_HOST_DIR: HOST_DIR, ICODE_HOST_SOCKET: SOCKET }
     )
     await waitFor(
       `Array.from(document.querySelectorAll('[data-session-id]')).length === 2`,

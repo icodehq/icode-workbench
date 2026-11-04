@@ -1,4 +1,4 @@
-import type { FilesListingPayload } from '../../../shared/ade-api'
+import type { FilesListingPayload } from '../../../shared/icode-api'
 import { callApi, errorNotice } from '../lib/api'
 import type { Notice } from '../state/workspace'
 
@@ -44,7 +44,7 @@ export async function getWorktreeFileIndex(
   let note: string | null = null
 
   const walk = async (path: string): Promise<boolean> => {
-    const result = await callApi<FilesListingPayload>(window.ade.files.list({ sessionId, path }))
+    const result = await callApi<FilesListingPayload>(window.icode.files.list({ sessionId, path }))
     if (!result.ok) {
       notify(errorNotice(result.error))
       note = 'The worktree index could not be read.'

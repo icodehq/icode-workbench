@@ -77,7 +77,7 @@ async function runShell(
   const result = await runIdempotentGuest(runner, {
     scope: 'guest',
     distro,
-    argv: ['sh', '-c', script, 'ade-path', argument],
+    argv: ['sh', '-c', script, 'icode-path', argument],
     timeoutMs: GIT_TIMEOUT_MS,
     ...(signal ? { signal } : {})
   })

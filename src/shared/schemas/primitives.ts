@@ -3,7 +3,7 @@ import { INCARNATION_ID_RE, REPO_ID_RE, SESSION_ID_RE, WORKSPACE_ID_RE } from '.
 import { MAX_PATH_LENGTH, isAbsolutePathLike } from '../domain/paths'
 import { MAX_SESSION_TITLE_LENGTH } from '../domain/session'
 
-/** Opaque IDs on the host wire: the host must not depend on ADE ID formats. */
+/** Opaque IDs on the host wire: the host must not depend on iCode ID formats. */
 export const wireIdSchema = z
   .string()
   .min(1)

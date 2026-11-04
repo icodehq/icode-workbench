@@ -11,9 +11,9 @@ import { GuestPathError, resolveGuestRepositoryRoot } from './guest-path'
 /** Answers the login-shell probe the way a distro with Git on PATH does. */
 export function probeAnswer(gitPath = '/usr/bin/git'): Buffer {
   return Buffer.concat([
-    Buffer.from('__ADE_GIT_OUT_START__'),
+    Buffer.from('__ICODE_GIT_OUT_START__'),
     Buffer.from(`/usr/local/bin:/usr/bin:/bin\u0000${gitPath}\u0000/home/u`),
-    Buffer.from('__ADE_GIT_OUT_END____ADE_GIT_STATUS__0')
+    Buffer.from('__ICODE_GIT_OUT_END____ICODE_GIT_STATUS__0')
   ])
 }
 
@@ -48,7 +48,7 @@ function runnerFor(script: Script) {
     const exec = args.indexOf('--exec')
     const guest = args.slice(exec + 1)
 
-    // `sh -c <script> ade-path <path>`
+    // `sh -c <script> icode-path <path>`
     if (guest[0] === 'sh' && guest[1] === '-c') {
       const path = guest[4] ?? ''
       if (guest[2] === 'realpath -e -- "$1"') {
@@ -231,7 +231,7 @@ describe('guest repository resolution', () => {
     for (const call of calls) {
       const exec = call.argv.indexOf('--exec')
       const guest = call.argv.slice(exec + 1)
-      // Where a script runs, it is a constant: `sh -c <script> ade-… <path>`.
+      // Where a script runs, it is a constant: `sh -c <script> icode-… <path>`.
       // The path is the argument, never part of the script string.
       if (guest[0] === 'sh' && guest[1] === '-c') {
         // No script ever embeds a path — of the input or of any derived path.
@@ -260,9 +260,9 @@ describe('guest repository resolution', () => {
   it('handles a linked worktree by reporting the primary root and the common dir', async () => {
     const script: Script = {
       realpath: {
-        '/home/u/.ade/worktrees/r1/s1': '/home/u/.ade/worktrees/r1/s1'
+        '/home/u/.icode/worktrees/r1/s1': '/home/u/.icode/worktrees/r1/s1'
       },
-      kinds: { '/home/u/.ade/worktrees/r1/s1': 'dir' },
+      kinds: { '/home/u/.icode/worktrees/r1/s1': 'dir' },
       git: (_cwd, args) => {
         const joined = args.join(' ')
         if (joined.includes('--git-common-dir')) return { code: 0, stdout: '/home/u/src/atlas/.git\n' }
@@ -270,7 +270,7 @@ describe('guest repository resolution', () => {
           return {
             code: 0,
             stdout:
-              'worktree /home/u/src/atlas\nHEAD aaa\n\nworktree /home/u/.ade/worktrees/r1/s1\nHEAD bbb\n\n'
+              'worktree /home/u/src/atlas\nHEAD aaa\n\nworktree /home/u/.icode/worktrees/r1/s1\nHEAD bbb\n\n'
           }
         }
         if (joined.includes('--abbrev-ref')) return { code: 0, stdout: 'feature/x\n' }
@@ -278,13 +278,13 @@ describe('guest repository resolution', () => {
       }
     }
     const { runner } = runnerFor(script)
-    const resolved = await resolveGuestRepositoryRoot('/home/u/.ade/worktrees/r1/s1', {
+    const resolved = await resolveGuestRepositoryRoot('/home/u/.icode/worktrees/r1/s1', {
       runner,
       distro: 'Ubuntu-26.04'
     })
     expect(resolved.root).toBe('/home/u/src/atlas')
     expect(resolved.commonDir).toBe('/home/u/src/atlas/.git')
-    expect(resolved.registeredVia).toBe('/home/u/.ade/worktrees/r1/s1')
+    expect(resolved.registeredVia).toBe('/home/u/.icode/worktrees/r1/s1')
   })
 
   it('reports a detached HEAD as no branch', async () => {

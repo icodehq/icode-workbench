@@ -18,7 +18,7 @@ import {
   Trash2
 } from 'lucide-react'
 import { callApi } from '../lib/api'
-import type { GitStashEntry } from '../../../shared/ade-api'
+import type { GitStashEntry } from '../../../shared/icode-api'
 import type { Notice } from '../state/workspace'
 import type { GitWorkspaceStatus } from '../../../shared/domain/git-workspace'
 import type { ReviewDiffPayload, ReviewDiffResult } from '../../../shared/schemas/review'
@@ -387,7 +387,7 @@ export default function WorkingTreeView({
   const requestDiff = useCallback(
     (entry: WorkingTreeEntry) =>
       callApi<ReviewDiffResult>(
-        window.ade.review.areaDiff({
+        window.icode.review.areaDiff({
           sessionId,
           path: entry.entry.path,
           oldPath: entry.entry.oldPath,
@@ -940,7 +940,7 @@ export default function WorkingTreeView({
                             <li
                               key={row.id}
                               role="none"
-                              className={`ade-scm-row flex min-h-8 items-center gap-1 border-b border-border/60 px-1.5 ${
+                              className={`icode-scm-row flex min-h-8 items-center gap-1 border-b border-border/60 px-1.5 ${
                                 allSelected ? 'bg-muted/60 text-foreground' : 'text-muted-foreground hover:bg-muted/50'
                               }`}
                               style={{ paddingLeft: `${String(6 + row.depth * 12)}px` }}
@@ -1014,7 +1014,7 @@ export default function WorkingTreeView({
                           <li
                             key={entry.key}
                             role="none"
-                            className={`ade-scm-row flex min-h-9 items-center gap-1 border-b border-border/60 px-1.5 ${
+                            className={`icode-scm-row flex min-h-9 items-center gap-1 border-b border-border/60 px-1.5 ${
                               isSelected
                                 ? 'bg-muted text-foreground'
                                 : isChecked

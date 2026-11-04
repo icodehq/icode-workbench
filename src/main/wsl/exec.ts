@@ -1,5 +1,5 @@
 /**
- * The one place ADE invokes `wsl.exe`.
+ * The one place iCode invokes `wsl.exe`.
  *
  * Two rules hold every caller:
  *
@@ -27,14 +27,14 @@ export const WSL_DEFAULT_TIMEOUT_MS = 20_000
  *
  * Why a knob exists at all: each guest call pays for a `wsl.exe` process start.
  * Normally that is a few hundred milliseconds, but on a heavily loaded or
- * antivirus-scanned Windows machine it is not bounded by ADE — measured here at
+ * antivirus-scanned Windows machine it is not bounded by iCode — measured here at
  * ~370 ms typical with stalls of ~30 s, which no fixed "reasonable" constant can
  * cover without also making a genuinely hung distro take a minute to report.
  *
  * Defaults to 1: production behaviour is unchanged unless someone opts in with
- * `ADE_WSL_TIMEOUT_SCALE` (e.g. `4` on a slow machine).
+ * `ICODE_WSL_TIMEOUT_SCALE` (e.g. `4` on a slow machine).
  */
-export const WSL_TIMEOUT_SCALE_ENV = 'ADE_WSL_TIMEOUT_SCALE'
+export const WSL_TIMEOUT_SCALE_ENV = 'ICODE_WSL_TIMEOUT_SCALE'
 
 /** Reads and validates the scale; anything that is not a positive number is 1. */
 export function resolveWslTimeoutScale(env: NodeJS.ProcessEnv = process.env): number {
@@ -328,7 +328,7 @@ export type WslCommandRunnerOptions = {
   env?: NodeJS.ProcessEnv
   platform?: NodeJS.Platform
   program?: string
-  /** Overrides `ADE_WSL_TIMEOUT_SCALE`; mainly for tests. */
+  /** Overrides `ICODE_WSL_TIMEOUT_SCALE`; mainly for tests. */
   timeoutScale?: number
 }
 

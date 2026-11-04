@@ -34,7 +34,7 @@ import type {
   GitResetPayload,
   GitRevisionFileDiffPayload,
   GitTagPayload
-} from '../../../shared/ade-api'
+} from '../../../shared/icode-api'
 import {
   GIT_EMPTY_TREE_OID,
   type GitCommitDetail,
@@ -81,12 +81,12 @@ type PageState =
   | { status: 'error'; message: string }
 
 const LANE_COLORS = [
-  'var(--ade-lane-1)',
-  'var(--ade-lane-2)',
-  'var(--ade-lane-3)',
-  'var(--ade-lane-4)',
-  'var(--ade-lane-5)',
-  'var(--ade-lane-6)'
+  'var(--icode-lane-1)',
+  'var(--icode-lane-2)',
+  'var(--icode-lane-3)',
+  'var(--icode-lane-4)',
+  'var(--icode-lane-5)',
+  'var(--icode-lane-6)'
 ]
 
 function laneColor(color: number): string {
@@ -177,7 +177,7 @@ function LaneGraph({
         cy={15}
         r={row.merge ? 4 : 3.5}
         fill={laneColor(row.color)}
-        stroke="var(--ade-panel)"
+        stroke="var(--icode-panel)"
         strokeWidth={1.5}
       />
     </svg>
@@ -233,14 +233,14 @@ async function commitFileSides(
     commit.parentOid === null
       ? Promise.resolve(null)
       : callApi<GitFileAtRevisionPayload>(
-          window.ade.git.fileAtRevision({
+          window.icode.git.fileAtRevision({
             sessionId,
             rev: commit.parentOid,
             path: originalPath
           })
         ),
     callApi<GitFileAtRevisionPayload>(
-      window.ade.git.fileAtRevision({
+      window.icode.git.fileAtRevision({
         sessionId,
         rev: commit.oid,
         path: file.path
@@ -298,7 +298,7 @@ function CommitFileDiffSection({
     const from = commit.parentOid ?? GIT_EMPTY_TREE_OID
     const [result, loadedSides] = await Promise.all([
       callApi<GitRevisionFileDiffPayload>(
-        window.ade.git.revisionFileDiff({
+        window.icode.git.revisionFileDiff({
           sessionId,
           from,
           to: commit.oid,
@@ -448,7 +448,7 @@ export default function ScmHistoryView({
       if (append) setLoadingMore(true)
       else setPage({ status: 'loading' })
       const result = await callApi<GitLogPayload>(
-        window.ade.git.log({
+        window.icode.git.log({
           sessionId,
           limit: 50,
           skip,
@@ -522,7 +522,7 @@ export default function ScmHistoryView({
 
   useEffect(() => {
     let cancelled = false
-    void callApi<GitBranchesPayload>(window.ade.git.branches({ sessionId })).then((result) => {
+    void callApi<GitBranchesPayload>(window.icode.git.branches({ sessionId })).then((result) => {
       if (cancelled) return
       if (result.ok && result.value.status === 'ok') setBranches(result.value.names)
     })
@@ -559,10 +559,10 @@ export default function ScmHistoryView({
     const originalPath = target.oldPath ?? target.path
     const [originalRead, modifiedRead] = await Promise.all([
       callApi<GitFileAtRevisionPayload>(
-        window.ade.git.fileAtRevision({ sessionId, rev: fromOid, path: originalPath })
+        window.icode.git.fileAtRevision({ sessionId, rev: fromOid, path: originalPath })
       ),
       callApi<GitFileAtRevisionPayload>(
-        window.ade.git.fileAtRevision({ sessionId, rev: toOid, path: target.path })
+        window.icode.git.fileAtRevision({ sessionId, rev: toOid, path: target.path })
       )
     ])
     const textOf = (
@@ -598,7 +598,7 @@ export default function ScmHistoryView({
       setMultiOpen(false)
       fileGeneration.current += 1
       const result = await callApi<GitCommitDetailPayload>(
-        window.ade.git.commitDetail({
+        window.icode.git.commitDetail({
           sessionId,
           oid: entry.oid,
           ...(parent === undefined ? {} : { parent })
@@ -647,7 +647,7 @@ export default function ScmHistoryView({
       const from = detail.parentOid ?? GIT_EMPTY_TREE_OID
       const [result, sides] = await Promise.all([
         callApi<GitRevisionFileDiffPayload>(
-          window.ade.git.revisionFileDiff({
+          window.icode.git.revisionFileDiff({
             sessionId,
             from,
             to: detail.oid,
@@ -707,7 +707,7 @@ export default function ScmHistoryView({
     setRangeError(null)
     try {
       const result = await callApi<GitRangeDiffPayload>(
-        window.ade.git.rangeDiff({ sessionId, from: from.oid, to: to.oid })
+        window.icode.git.rangeDiff({ sessionId, from: from.oid, to: to.oid })
       )
       if (!result.ok) {
         setRangeError(result.error.message)
@@ -748,7 +748,7 @@ export default function ScmHistoryView({
     setFileLoading(true)
     const [result, sides] = await Promise.all([
       callApi<GitRevisionFileDiffPayload>(
-        window.ade.git.revisionFileDiff({
+        window.icode.git.revisionFileDiff({
           sessionId,
           from: range.from.oid,
           to: range.to.oid,
@@ -872,7 +872,7 @@ export default function ScmHistoryView({
     try {
       if (dialogKind === 'branch') {
         const result = await callApi<GitBranchPayload>(
-          window.ade.git.createBranch({
+          window.icode.git.createBranch({
             sessionId,
             branch: value.name ?? '',
             at: selected.oid
@@ -888,7 +888,7 @@ export default function ScmHistoryView({
         void load(0, false)
       } else if (dialogKind === 'tag') {
         const result = await callApi<GitTagPayload>(
-          window.ade.git.createTag({
+          window.icode.git.createTag({
             sessionId,
             name: value.name ?? '',
             oid: selected.oid
@@ -906,8 +906,8 @@ export default function ScmHistoryView({
         const action = dialogKind
         const result = await callApi<GitCommitActionPayload>(
           action === 'cherry-pick'
-            ? window.ade.git.cherryPick({ sessionId, oid: selected.oid })
-            : window.ade.git.revert({ sessionId, oid: selected.oid })
+            ? window.icode.git.cherryPick({ sessionId, oid: selected.oid })
+            : window.icode.git.revert({ sessionId, oid: selected.oid })
         )
         if (!result.ok) return fail(result.error.message)
         if (result.value.status === 'unavailable') return fail(result.value.detail)
@@ -924,7 +924,7 @@ export default function ScmHistoryView({
       } else {
         const mode = value.mode ?? 'mixed'
         const result = await callApi<GitResetPayload>(
-          window.ade.git.reset({ sessionId, oid: selected.oid, mode })
+          window.icode.git.reset({ sessionId, oid: selected.oid, mode })
         )
         if (!result.ok) return fail(result.error.message)
         if (result.value.status === 'unavailable') return fail(result.value.detail)

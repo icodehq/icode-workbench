@@ -202,8 +202,8 @@ function build(options) {
   const outRoot = options.out ?? DEFAULT_OUT
 
   // --- reproducible native build
-  const firstDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ade-wsl-pty-a-'))
-  const secondDir = options.skipRebuild ? null : fs.mkdtempSync(path.join(os.tmpdir(), 'ade-wsl-pty-b-'))
+  const firstDir = fs.mkdtempSync(path.join(os.tmpdir(), 'icode-wsl-pty-a-'))
+  const secondDir = options.skipRebuild ? null : fs.mkdtempSync(path.join(os.tmpdir(), 'icode-wsl-pty-b-'))
   try {
     log('building node-pty (1/2)')
     const firstHash = buildOnce(firstDir)

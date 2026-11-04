@@ -208,7 +208,7 @@ export default function NewSessionDialog({
       aria-label="New session"
     >
       <form
-        className="ade-modal flex max-h-[86vh] w-full max-w-xl flex-col overflow-hidden rounded-lg border border-border bg-card shadow-2xl"
+        className="icode-modal flex max-h-[86vh] w-full max-w-xl flex-col overflow-hidden rounded-lg border border-border bg-card shadow-2xl"
         onSubmit={(event) => void submit(event)}
       >
         <div className="flex items-start justify-between border-b border-border px-5 py-4">

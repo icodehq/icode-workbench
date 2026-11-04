@@ -20,7 +20,7 @@ import type { WslCommandRunner, WslExecFailureStatus } from './exec'
 import { WSL_DEFAULT_TIMEOUT_MS } from './exec'
 
 /** Framing marker: everything outside a pair of these is guest noise. */
-const SENTINEL = '__ADE_IDENTITY__'
+const SENTINEL = '__ICODE_IDENTITY__'
 
 /**
  * A constant script: no caller value is interpolated, so no shell-quoting

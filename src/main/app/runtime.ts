@@ -157,7 +157,7 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     isKnownSession: (sessionId) => persistence.sessions.findById(sessionId as never) !== null,
     onTransition: (transition) => {
       const row = persistence.sessions.findById(transition.sessionId as never)
-      activityBroadcaster.handle(transition, row?.title ?? 'ADE session')
+      activityBroadcaster.handle(transition, row?.title ?? 'iCode session')
       if (transition.harnessSessionId !== null) {
         persistence.sessions.setResumeToken(
           transition.sessionId as SessionId,
@@ -177,7 +177,7 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     },
     onRejected: (reason, event) => {
       process.stderr.write(
-        `[ade] activity event rejected (${reason}) session=${String(event.sessionId ?? '?')}\n`
+        `[icode] activity event rejected (${reason}) session=${String(event.sessionId ?? '?')}\n`
       )
     }
   })
@@ -185,7 +185,7 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     socketPath: activitySocketPath,
     ingest: (event) => activity.ingest(event),
     onRejected: (reason, detail) => {
-      process.stderr.write(`[ade] activity payload dropped (${reason}) ${detail ?? ''}\n`)
+      process.stderr.write(`[icode] activity payload dropped (${reason}) ${detail ?? ''}\n`)
     }
   })
 
@@ -207,7 +207,7 @@ export async function startAppRuntime(): Promise<AppRuntime> {
   })
   /**
    * Worktree scope for WSL: derived from the profile directory, exactly as the
-   * Host relay scope is, so two ADE profiles on one distro never share checkouts.
+   * Host relay scope is, so two iCode profiles on one distro never share checkouts.
    */
   const wslProfileScope = (): string => profileSocketScope(app.getPath('userData'))
   /**
@@ -220,7 +220,7 @@ export async function startAppRuntime(): Promise<AppRuntime> {
   const wslArtifacts = loadWslArtifacts()
 
   const supervisor = new HostSupervisor(undefined, {
-    ADE_ACTIVITY_SOCKET: activitySocketPath
+    ICODE_ACTIVITY_SOCKET: activitySocketPath
   })
 
   /**
@@ -298,7 +298,7 @@ export async function startAppRuntime(): Promise<AppRuntime> {
       runner: wslRunner,
       guestWorktreeRoot: async (distro) => {
         const home = await readGuestHome(wslRunner, distro)
-        return home === null ? null : `${home}/.ade/worktrees/${wslProfileScope()}`
+        return home === null ? null : `${home}/.icode/worktrees/${wslProfileScope()}`
       }
     })
   })
@@ -450,7 +450,7 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     await activityServer.start()
   } catch (error) {
     // Activity is advisory: a failed listener must not block the workspace.
-    process.stderr.write(`[ade] activity listener failed: ${String(error)}\n`)
+    process.stderr.write(`[icode] activity listener failed: ${String(error)}\n`)
   }
 
   try {
@@ -458,15 +458,15 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     reconcile = await sessions.reconcile()
     if (sessions.getLastHostError()) {
       process.stderr.write(
-        `[ade] host reconciliation incomplete: ${sessions.getLastHostError()?.message}\n`
+        `[icode] host reconciliation incomplete: ${sessions.getLastHostError()?.message}\n`
       )
     }
   } catch (error) {
-    startupError = makeAppError('INTERNAL', 'ADE could not complete startup reconciliation.', {
+    startupError = makeAppError('INTERNAL', 'iCode could not complete startup reconciliation.', {
       detail: error instanceof Error ? error.message : String(error),
       context: { log: supervisor.logPath }
     })
-    process.stderr.write(`[ade] startup reconciliation failed: ${String(error)}\n`)
+    process.stderr.write(`[icode] startup reconciliation failed: ${String(error)}\n`)
   }
   void reconcile
 

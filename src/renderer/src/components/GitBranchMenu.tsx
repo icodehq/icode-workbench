@@ -33,7 +33,7 @@ import type {
   GitPushTagsPayload,
   GitTagPayload,
   GitTagsPayload
-} from '../../../shared/ade-api'
+} from '../../../shared/icode-api'
 import type { GitRemote, GitTag } from '../../../shared/domain/git-workspace'
 import type { GitWorkspaceStatus } from '../../../shared/domain/git-workspace'
 import type { Notice } from '../state/workspace'
@@ -144,11 +144,11 @@ export default function GitBranchMenu({
     setLoading(true)
     const [statusResult, branchResult, remotesResult, tagsResult, remoteBranchesResult] =
       await Promise.all([
-        callApi<GitStatusPayload>(window.ade.git.status({ sessionId })),
-        callApi<GitBranchesPayload>(window.ade.git.branches({ sessionId })),
-        callApi<GitRemotesPayload>(window.ade.git.remotes({ sessionId })),
-        callApi<GitTagsPayload>(window.ade.git.tags({ sessionId })),
-        callApi<GitRemoteBranchesPayload>(window.ade.git.remoteBranches({ sessionId }))
+        callApi<GitStatusPayload>(window.icode.git.status({ sessionId })),
+        callApi<GitBranchesPayload>(window.icode.git.branches({ sessionId })),
+        callApi<GitRemotesPayload>(window.icode.git.remotes({ sessionId })),
+        callApi<GitTagsPayload>(window.icode.git.tags({ sessionId })),
+        callApi<GitRemoteBranchesPayload>(window.icode.git.remoteBranches({ sessionId }))
       ])
     setLoading(false)
     if (!statusResult.ok) {
@@ -193,7 +193,7 @@ export default function GitBranchMenu({
     setBusy('switch')
     try {
       const result = await callApi<GitBranchPayload>(
-        window.ade.git.switchBranch({ sessionId, branch: name })
+        window.icode.git.switchBranch({ sessionId, branch: name })
       )
       if (!result.ok) {
         notify(errorNotice(result.error))
@@ -216,7 +216,7 @@ export default function GitBranchMenu({
     setBusy(verb)
     try {
       const result = await callApi<GitBranchPayload>(
-        verb === 'push' ? window.ade.git.push({ sessionId }) : window.ade.git.pull({ sessionId })
+        verb === 'push' ? window.icode.git.push({ sessionId }) : window.icode.git.pull({ sessionId })
       )
       if (!result.ok) {
         notify(errorNotice(result.error))
@@ -243,7 +243,7 @@ export default function GitBranchMenu({
     setBusy('create')
     try {
       const result = await callApi<GitBranchPayload>(
-        window.ade.git.createBranch({ sessionId, branch: name })
+        window.icode.git.createBranch({ sessionId, branch: name })
       )
       if (!result.ok) {
         notify(errorNotice(result.error))
@@ -268,7 +268,7 @@ export default function GitBranchMenu({
     setBusy('fetch')
     try {
       const result = await callApi<{ status: 'ok'; remote: string } | { status: 'unavailable'; detail: string }>(
-        window.ade.git.fetch({ sessionId })
+        window.icode.git.fetch({ sessionId })
       )
       if (!result.ok) {
         notify(errorNotice(result.error))
@@ -290,7 +290,7 @@ export default function GitBranchMenu({
     if (busy !== null) return
     setBusy('publish')
     try {
-      const result = await callApi<GitBranchPayload>(window.ade.git.publish({ sessionId }))
+      const result = await callApi<GitBranchPayload>(window.icode.git.publish({ sessionId }))
       if (!result.ok) {
         notify(errorNotice(result.error))
         return
@@ -314,7 +314,7 @@ export default function GitBranchMenu({
     if (busy !== null) return
     setBusy('history')
     try {
-      const result = await callApi<GitHistoryPayload>(window.ade.git.history({ sessionId, limit: 20 }))
+      const result = await callApi<GitHistoryPayload>(window.icode.git.history({ sessionId, limit: 20 }))
       if (!result.ok) {
         notify(errorNotice(result.error))
         return
@@ -334,7 +334,7 @@ export default function GitBranchMenu({
     if (busy !== null) return
     setBusy('compare')
     try {
-      const result = await callApi<GitComparePayload>(window.ade.git.compare({ sessionId }))
+      const result = await callApi<GitComparePayload>(window.icode.git.compare({ sessionId }))
       if (!result.ok) {
         notify(errorNotice(result.error))
         return
@@ -369,7 +369,7 @@ export default function GitBranchMenu({
     try {
       if (action === 'rename') {
         const result = await callApi<GitRenameBranchPayload>(
-          window.ade.git.renameBranch({ sessionId, from: renameFrom, to: renameTo })
+          window.icode.git.renameBranch({ sessionId, from: renameFrom, to: renameTo })
         )
         if (!result.ok) {
           notify(errorNotice(result.error))
@@ -387,7 +387,7 @@ export default function GitBranchMenu({
         setRenameTo('')
       } else if (action === 'delete') {
         const result = await callApi<GitBranchPayload>(
-          window.ade.git.deleteBranch({ sessionId, branch: deleteTarget })
+          window.icode.git.deleteBranch({ sessionId, branch: deleteTarget })
         )
         if (!result.ok) {
           notify(errorNotice(result.error))
@@ -401,7 +401,7 @@ export default function GitBranchMenu({
         setDeleteTarget('')
       } else if (action === 'merge') {
         const result = await callApi<GitBranchPayload>(
-          window.ade.git.mergeBranch({ sessionId, branch: mergeTarget })
+          window.icode.git.mergeBranch({ sessionId, branch: mergeTarget })
         )
         if (!result.ok) {
           notify(errorNotice(result.error))
@@ -415,7 +415,7 @@ export default function GitBranchMenu({
         setMergeTarget('')
       } else {
         const result = await callApi<GitBranchPayload>(
-          window.ade.git.rebaseBranch({ sessionId, branch: rebaseTarget })
+          window.icode.git.rebaseBranch({ sessionId, branch: rebaseTarget })
         )
         if (!result.ok) {
           notify(errorNotice(result.error))
@@ -441,7 +441,7 @@ export default function GitBranchMenu({
     setRemoteBusy('add')
     try {
       const result = await callApi<GitRemoteMutationPayload>(
-        window.ade.git.addRemote({ sessionId, name: remoteName, url: remoteUrl })
+        window.icode.git.addRemote({ sessionId, name: remoteName, url: remoteUrl })
       )
       if (!result.ok) {
         notify(errorNotice(result.error))
@@ -465,7 +465,7 @@ export default function GitBranchMenu({
     setRemoteBusy('fetch')
     try {
       const result = await callApi<GitFetchPayload>(
-        window.ade.git.fetchRemote({
+        window.icode.git.fetchRemote({
           sessionId,
           remote: name,
           ...(prune ? { prune: true } : {})
@@ -495,7 +495,7 @@ export default function GitBranchMenu({
     setRemoteBusy('remove')
     try {
       const result = await callApi<GitRemoteMutationPayload>(
-        window.ade.git.removeRemote({ sessionId, name })
+        window.icode.git.removeRemote({ sessionId, name })
       )
       if (!result.ok) {
         notify(errorNotice(result.error))
@@ -517,7 +517,7 @@ export default function GitBranchMenu({
     setTagBusy('checkout')
     try {
       const result = await callApi<GitCheckoutRefPayload>(
-        window.ade.git.checkoutRef({ sessionId, ref: name })
+        window.icode.git.checkoutRef({ sessionId, ref: name })
       )
       if (!result.ok) {
         notify(errorNotice(result.error))
@@ -540,7 +540,7 @@ export default function GitBranchMenu({
     setTagBusy('delete')
     try {
       const result = await callApi<GitTagPayload>(
-        window.ade.git.deleteTag({ sessionId, name })
+        window.icode.git.deleteTag({ sessionId, name })
       )
       if (!result.ok) {
         notify(errorNotice(result.error))
@@ -561,7 +561,7 @@ export default function GitBranchMenu({
     if (remoteBusy !== null) return
     setRemoteBusy('tags')
     try {
-      const result = await callApi<GitPushTagsPayload>(window.ade.git.pushTags({ sessionId }))
+      const result = await callApi<GitPushTagsPayload>(window.icode.git.pushTags({ sessionId }))
       if (!result.ok) {
         notify(errorNotice(result.error))
         return
@@ -580,7 +580,7 @@ export default function GitBranchMenu({
     if (remoteBusy !== null) return
     setRemoteBusy('force')
     try {
-      const result = await callApi<GitBranchPayload>(window.ade.git.forcePush({ sessionId }))
+      const result = await callApi<GitBranchPayload>(window.icode.git.forcePush({ sessionId }))
       if (!result.ok) {
         notify(errorNotice(result.error))
         return
@@ -603,7 +603,7 @@ export default function GitBranchMenu({
     setRemoteBusy('upstream')
     try {
       const result = await callApi<GitBranchPayload>(
-        window.ade.git.setUpstream({ sessionId, upstream: upstreamTarget })
+        window.icode.git.setUpstream({ sessionId, upstream: upstreamTarget })
       )
       if (!result.ok) {
         notify(errorNotice(result.error))
@@ -626,7 +626,7 @@ export default function GitBranchMenu({
     if (remoteBusy !== null) return
     setRemoteBusy('sync')
     try {
-      const pulled = await callApi<GitBranchPayload>(window.ade.git.pull({ sessionId }))
+      const pulled = await callApi<GitBranchPayload>(window.icode.git.pull({ sessionId }))
       if (!pulled.ok) {
         notify(errorNotice(pulled.error))
         return
@@ -635,7 +635,7 @@ export default function GitBranchMenu({
         notify({ tone: 'error', message: pulled.value.detail })
         return
       }
-      const pushed = await callApi<GitBranchPayload>(window.ade.git.push({ sessionId }))
+      const pushed = await callApi<GitBranchPayload>(window.icode.git.push({ sessionId }))
       if (!pushed.ok) {
         notify(errorNotice(pushed.error))
         return

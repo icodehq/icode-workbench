@@ -27,7 +27,7 @@ export default function SleepSessionDialog({
       aria-label="Sleep session"
       data-testid="sleep-session-dialog"
     >
-      <div className="ade-modal w-full max-w-md rounded-lg border border-border bg-card p-6 shadow-2xl">
+      <div className="icode-modal w-full max-w-md rounded-lg border border-border bg-card p-6 shadow-2xl">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-2">
             <Moon size={15} className="text-info" />

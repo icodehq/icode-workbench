@@ -43,7 +43,7 @@ export function makeHostPaths(root: string): HostPaths {
 }
 
 export async function startTestHost(options: TestHostOptions): Promise<TestHost> {
-  const dir = mkdtempSync(join(tmpdir(), 'ade-host-'))
+  const dir = mkdtempSync(join(tmpdir(), 'icode-host-'))
   const paths = makeHostPaths(dir)
   prepareHostDirectory(paths)
   const token = writeToken(paths.token)

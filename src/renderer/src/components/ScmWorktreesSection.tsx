@@ -4,7 +4,7 @@ import type {
   GitWorktreeActionPayload,
   GitWorktreeInfo,
   GitWorktreeListPayload
-} from '../../../shared/ade-api'
+} from '../../../shared/icode-api'
 import { callApi } from '../lib/api'
 import type { Notice } from '../state/workspace'
 
@@ -41,7 +41,7 @@ export default function ScmWorktreesSection({
     setError(null)
     void (async (): Promise<void> => {
       const result = await callApi<GitWorktreeListPayload>(
-        window.ade.git.worktreeList({ sessionId })
+        window.icode.git.worktreeList({ sessionId })
       )
       if (cancelled) return
       if (!result.ok) {
@@ -77,7 +77,7 @@ export default function ScmWorktreesSection({
     setError(null)
     try {
       const result = await callApi<GitWorktreeActionPayload>(
-        window.ade.git.worktreeAction({ sessionId, action, ...(path ? { path } : {}) })
+        window.icode.git.worktreeAction({ sessionId, action, ...(path ? { path } : {}) })
       )
       if (!result.ok) {
         notify({ tone: 'error', message: result.error.message })

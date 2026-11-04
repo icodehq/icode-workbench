@@ -11,7 +11,7 @@ import {
 } from 'lucide-react'
 import type {
   TaskRecordPayload
-} from '../../../shared/ade-api'
+} from '../../../shared/icode-api'
 import type { HarnessDetection } from '../../../shared/domain/harness'
 import type { AppError } from '../../../shared/domain/errors'
 import type { RepositorySummary, SessionSummary } from '../../../shared/schemas/ipc'
@@ -239,7 +239,7 @@ export default function ProjectTasksView({
   useEffect(() => {
     let cancelled = false
     setHarnessLoading(true)
-    void callApi<HarnessDetection[]>(window.ade.harness.list({ repoId: repo.id })).then((result) => {
+    void callApi<HarnessDetection[]>(window.icode.harness.list({ repoId: repo.id })).then((result) => {
       if (cancelled) return
       setHarnessLoading(false)
       if (!result.ok) {
@@ -294,7 +294,7 @@ export default function ProjectTasksView({
       return
     }
     let cancelled = false
-    void callApi<TaskRecordPayload[]>(window.ade.tasks.history({ taskId: id })).then((result) => {
+    void callApi<TaskRecordPayload[]>(window.icode.tasks.history({ taskId: id })).then((result) => {
       if (!cancelled && result.ok) {
         setAttempts(result.value.filter((entry) => entry.id !== id))
       }
@@ -336,7 +336,7 @@ export default function ProjectTasksView({
     setBusyId('create')
     try {
       const result = await callApi<TaskRecordPayload>(
-        window.ade.tasks.create({
+        window.icode.tasks.create({
           repoId: repo.id,
           prompt: prompt.trim(),
           harness: harness as never
@@ -361,7 +361,7 @@ export default function ProjectTasksView({
     async (task: TaskRecordPayload): Promise<void> => {
       setBusyId(task.id)
       try {
-        const result = await callApi<TaskRecordPayload>(window.ade.tasks.cancel({ taskId: task.id }))
+        const result = await callApi<TaskRecordPayload>(window.icode.tasks.cancel({ taskId: task.id }))
         if (!result.ok) notify(errorNotice(result.error))
         else notify({ tone: 'info', message: `Cancelled ${task.title}` })
         await onReload()
@@ -376,7 +376,7 @@ export default function ProjectTasksView({
     async (task: TaskRecordPayload): Promise<void> => {
       setBusyId(task.id)
       try {
-        const result = await callApi<TaskRecordPayload>(window.ade.tasks.retry({ taskId: task.id }))
+        const result = await callApi<TaskRecordPayload>(window.icode.tasks.retry({ taskId: task.id }))
         if (!result.ok) notify(errorNotice(result.error))
         else {
           setSelectedTaskId(result.value.id)

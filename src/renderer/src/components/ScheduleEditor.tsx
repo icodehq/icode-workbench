@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Loader2, Trash2, X } from 'lucide-react'
-import type { TaskSchedulePayload } from '../../../shared/ade-api'
+import type { TaskSchedulePayload } from '../../../shared/icode-api'
 import type { HarnessDetection, HarnessId } from '../../../shared/domain/harness'
 import {
   nextOccurrence,
@@ -112,7 +112,7 @@ export default function ScheduleEditor({
     }
     let cancelled = false
     setHarnessLoading(true)
-    void callApi<HarnessDetection[]>(window.ade.harness.list({ repoId })).then((result) => {
+    void callApi<HarnessDetection[]>(window.icode.harness.list({ repoId })).then((result) => {
       if (cancelled) return
       setHarnessLoading(false)
       if (!result.ok) {
@@ -172,9 +172,9 @@ export default function ScheduleEditor({
       const result =
         mode === 'edit' && schedule !== null
           ? await callApi<TaskSchedulePayload>(
-              window.ade.schedules.update({ scheduleId: schedule.id, ...input })
+              window.icode.schedules.update({ scheduleId: schedule.id, ...input })
             )
-          : await callApi<TaskSchedulePayload>(window.ade.schedules.create(input))
+          : await callApi<TaskSchedulePayload>(window.icode.schedules.create(input))
       if (!result.ok) {
         setError(result.error.message)
         return
@@ -195,7 +195,7 @@ export default function ScheduleEditor({
     setBusy(true)
     setError(null)
     try {
-      const result = await callApi<null>(window.ade.schedules.remove({ scheduleId: schedule.id }))
+      const result = await callApi<null>(window.icode.schedules.remove({ scheduleId: schedule.id }))
       if (!result.ok) {
         setError(result.error.message)
         return
@@ -219,7 +219,7 @@ export default function ScheduleEditor({
         if (event.target === event.currentTarget && !busy) onClose()
       }}
     >
-      <aside className="ade-drawer absolute bottom-3 right-3 top-3 flex w-[min(480px,calc(100%-24px))] flex-col overflow-hidden rounded-xl border border-line-strong bg-overlay shadow-[var(--ade-shadow-overlay)]">
+      <aside className="icode-drawer absolute bottom-3 right-3 top-3 flex w-[min(480px,calc(100%-24px))] flex-col overflow-hidden rounded-xl border border-line-strong bg-overlay shadow-[var(--icode-shadow-overlay)]">
         <div className="flex items-start gap-3 border-b border-border px-4 py-3">
           <div className="min-w-0 flex-1">
             <h2 className="text-[15px] font-semibold">

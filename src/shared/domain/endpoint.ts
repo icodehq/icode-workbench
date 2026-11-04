@@ -1,14 +1,14 @@
 /**
  * Local IPC endpoints.
  *
- * ADE talks to its detached Terminal Host and to the activity-hook ingress over
+ * iCode talks to its detached Terminal Host and to the activity-hook ingress over
  * a local socket. POSIX uses a Unix-domain socket in the filesystem; Windows has
  * no such thing, and `server.listen(path)` there requires a named pipe. Keeping
  * the predicate in one place means the server, the CLI client and the hook
  * script cannot disagree about what a given endpoint string is.
  */
 
-/** Namespace every ADE pipe lives in: `\\.\pipe\<name>`. */
+/** Namespace every iCode pipe lives in: `\\.\pipe\<name>`. */
 export const WINDOWS_PIPE_PREFIX = '\\\\.\\pipe\\'
 
 /**

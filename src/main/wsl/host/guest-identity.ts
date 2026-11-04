@@ -17,7 +17,7 @@ import { procStatStartTicks } from '../identity'
 import type { GuestHostMeta } from './records'
 import { parseGuestHostMeta } from './records'
 
-const SENTINEL = '__ADE_HOST_ID__'
+const SENTINEL = '__ICODE_HOST_ID__'
 
 /**
  * Sections, in order: boot id, PID 1 stat, Host stat, Host command line, `meta.json`.
@@ -32,18 +32,18 @@ export const GUEST_HOST_IDENTITY_SCRIPT = [
   `printf '%s\\n' "$S"`,
   'cat /proc/1/stat 2>/dev/null',
   `printf '%s\\n' "$S"`,
-  `__ade_pid=$(cat "$1" 2>/dev/null | tr -dc '0-9')`,
-  `printf 'host_pid=%s\\n' "$__ade_pid"`,
-  `if [ -n "$__ade_pid" ]; then cat "/proc/$__ade_pid/stat" 2>/dev/null; fi`,
+  `__icode_pid=$(cat "$1" 2>/dev/null | tr -dc '0-9')`,
+  `printf 'host_pid=%s\\n' "$__icode_pid"`,
+  `if [ -n "$__icode_pid" ]; then cat "/proc/$__icode_pid/stat" 2>/dev/null; fi`,
   `printf '%s\\n' "$S"`,
-  `if [ -n "$__ade_pid" ]; then tr '\\0' ' ' < "/proc/$__ade_pid/cmdline" 2>/dev/null; fi`,
+  `if [ -n "$__icode_pid" ]; then tr '\\0' ' ' < "/proc/$__icode_pid/cmdline" 2>/dev/null; fi`,
   `printf '\\n%s\\n' "$S"`,
   'cat "$2" 2>/dev/null',
   `printf '%s\\n' "$S"`
 ].join('; ')
 
 export function buildHostIdentityArgs(pidFile: string, metaPath: string): string[] {
-  return ['sh', '-c', GUEST_HOST_IDENTITY_SCRIPT, 'ade-host-identity', pidFile, metaPath]
+  return ['sh', '-c', GUEST_HOST_IDENTITY_SCRIPT, 'icode-host-identity', pidFile, metaPath]
 }
 
 export type GuestHostIdentity = {

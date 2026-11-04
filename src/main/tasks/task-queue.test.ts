@@ -110,7 +110,7 @@ type Harness = {
 }
 
 async function harness(options: { maxConcurrent?: number } = {}): Promise<Harness> {
-  const root = makeTempRoot('ade-w84-')
+  const root = makeTempRoot('icode-w84-')
   const db = openTempDatabase(root)
   const stores = makeRepositoryService(db)
   // A real repository: registration proves the path is a Git working tree, and
@@ -543,13 +543,13 @@ describe('retry', () => {
 })
 
 describe('restart recovery', () => {
-  it('fails a task whose session died while ADE was closed — never completes it', async () => {
+  it('fails a task whose session died while iCode was closed — never completes it', async () => {
     const h = await harness({ maxConcurrent: 1 })
     const created = createQueued(h, 'Interrupted')
     await settle(h)
     const sessionId = h.store.findById(created.id)!.sessionId!
 
-    // ADE is gone; the host has no such session any more.
+    // iCode is gone; the host has no such session any more.
     h.sessions.behaviour.delete(sessionId)
     const outcome = await h.dispatcher.recover()
 
@@ -565,7 +565,7 @@ describe('restart recovery', () => {
     const created = createQueued(h, 'Clean-looking but unobserved')
     await settle(h)
     const sessionId = h.store.findById(created.id)!.sessionId!
-    // The host reports a clean exit, but it happened after ADE died: nothing
+    // The host reports a clean exit, but it happened after iCode died: nothing
     // in this process ever saw the turn finish.
     h.sessions.behaviour.set(sessionId, { state: 'exited', exitCode: 0 })
 

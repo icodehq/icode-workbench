@@ -80,7 +80,7 @@ export default function MonacoDiffView({
         })
         editor.setModel({ original: originalModel, modified: modifiedModel })
         handle.current = { editor, original: originalModel, modified: modifiedModel, monaco }
-        ;(container.current as HTMLElement & { __adeDiff?: unknown }).__adeDiff = editor
+        ;(container.current as HTMLElement & { __icodeDiff?: unknown }).__icodeDiff = editor
         setState('ready')
       })
       .catch(() => {
@@ -91,7 +91,7 @@ export default function MonacoDiffView({
       const current = handle.current
       handle.current = null
       if (container.current !== null) {
-        delete (container.current as HTMLElement & { __adeDiff?: unknown }).__adeDiff
+        delete (container.current as HTMLElement & { __icodeDiff?: unknown }).__icodeDiff
       }
       current?.editor.dispose()
       current?.original.dispose()

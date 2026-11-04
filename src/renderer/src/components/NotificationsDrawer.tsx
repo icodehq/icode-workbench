@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { Bell, Check, Loader2, X } from 'lucide-react'
-import type { TaskRecordPayload } from '../../../shared/ade-api'
+import type { TaskRecordPayload } from '../../../shared/icode-api'
 import type { SessionSummary } from '../../../shared/schemas/ipc'
 import type { NeedsYouEntry } from './GlobalTopBar'
 import {
@@ -80,7 +80,7 @@ export default function NotificationsDrawer({
         if (event.target === event.currentTarget) onClose()
       }}
     >
-      <aside className="ade-drawer absolute bottom-3 right-3 top-3 flex w-[min(420px,calc(100%-24px))] flex-col overflow-hidden rounded-xl border border-line-strong bg-overlay shadow-[var(--ade-shadow-overlay)]">
+      <aside className="icode-drawer absolute bottom-3 right-3 top-3 flex w-[min(420px,calc(100%-24px))] flex-col overflow-hidden rounded-xl border border-line-strong bg-overlay shadow-[var(--icode-shadow-overlay)]">
         <div className="flex items-start gap-3 border-b border-border px-4 py-3">
           <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border bg-muted text-muted-foreground">
             <Bell size={14} />

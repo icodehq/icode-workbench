@@ -4,7 +4,7 @@ import { quoteForPosixShell, withLaunchArgs } from './launch-command'
 
 /**
  * Work 70 measured the defect: a guest Claude was launched through a login shell
- * whose script `exec`s the harness, and ADE appended `--settings <path>` to argv —
+ * whose script `exec`s the harness, and iCode appended `--settings <path>` to argv —
  * which the shell consumed as `$0`/`$1`. `bash -ilc 'echo argc=$#' --settings x`
  * prints `argc=1`. These tests pin the corrected assembly.
  */
@@ -45,9 +45,9 @@ describe('launch arguments', () => {
 
   it('leaves a plain command appending to argv (the local target)', () => {
     const command = { command: '/usr/local/bin/claude', args: [] as string[] }
-    const result = withLaunchArgs(command, ['--settings', '/home/u/.config/ADE/agent-hooks/settings.json'])
+    const result = withLaunchArgs(command, ['--settings', '/home/u/.config/iCode/agent-hooks/settings.json'])
     expect(result.command).toBe('/usr/local/bin/claude')
-    expect(result.args).toEqual(['--settings', '/home/u/.config/ADE/agent-hooks/settings.json'])
+    expect(result.args).toEqual(['--settings', '/home/u/.config/iCode/agent-hooks/settings.json'])
     // No wrapper marker is invented for a plain executable.
     expect('shellWrapper' in result).toBe(false)
   })

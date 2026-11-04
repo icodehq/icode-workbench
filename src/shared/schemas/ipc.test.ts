@@ -23,7 +23,7 @@ describe('channel map', () => {
   it('is namespaced and unique', () => {
     const values = Object.values(IPC_CHANNELS)
     expect(new Set(values).size).toBe(values.length)
-    for (const channel of values) expect(channel.startsWith('ade:')).toBe(true)
+    for (const channel of values) expect(channel.startsWith('icode:')).toBe(true)
   })
 })
 

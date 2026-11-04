@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createAdeApi } from './api'
+import { createIcodeApi } from './api'
 import { IPC_CHANNELS } from '../shared/schemas/ipc'
 import { newRepoId, newSessionId } from '../shared/domain/ids'
 
@@ -8,7 +8,7 @@ const sessionId = newSessionId()
 const incarnationId = 'abcdef1234567890'
 
 function setup(): {
-  api: ReturnType<typeof createAdeApi>
+  api: ReturnType<typeof createIcodeApi>
   invoke: ReturnType<typeof vi.fn>
   subscribe: ReturnType<typeof vi.fn>
   emit: (payload: unknown) => void
@@ -21,7 +21,7 @@ function setup(): {
     listener = next
     return unsubscribe
   })
-  const api = createAdeApi(
+  const api = createIcodeApi(
     invoke as unknown as (channel: string, input?: unknown) => Promise<unknown>,
     subscribe as unknown as (channel: string, listener: (payload: unknown) => void) => () => void
   )

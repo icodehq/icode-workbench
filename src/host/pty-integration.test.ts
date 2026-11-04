@@ -83,7 +83,7 @@ describe('real PTY sessions', () => {
     expect(created.info.ptyPid).toBeGreaterThan(0)
     expect(created.info.status).toBe('live')
 
-    const marker = `ADE_REAL_${Date.now()}`
+    const marker = `ICODE_REAL_${Date.now()}`
     registry.write('ses_real-echo', created.info.incarnationId, `printf '%s\\n' ${marker}\n`)
     const event = await waitFor(
       (item) => item.event === 'data' && item.data.includes(marker)

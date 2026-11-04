@@ -113,7 +113,7 @@ if (fs.existsSync(path.join(tree, 'manifest.json'))) {
   //
   // One copy, repaired between cases: the tree carries a ~120 MB Node binary and
   // duplicating it three times is both slow and needlessly large.
-  const probe = fs.mkdtempSync(path.join(os.tmpdir(), 'ade-wsl-selftest-'))
+  const probe = fs.mkdtempSync(path.join(os.tmpdir(), 'icode-wsl-selftest-'))
   try {
     const damaged = path.join(probe, 'tree')
     fs.cpSync(tree, damaged, { recursive: true })

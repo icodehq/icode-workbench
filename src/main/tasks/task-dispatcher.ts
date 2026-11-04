@@ -170,7 +170,7 @@ export class TaskDispatcher {
   /**
    * Applies a session event to whatever task owns that session.
    *
-   * The mapping is deliberately narrow: only states ADE can actually observe
+   * The mapping is deliberately narrow: only states iCode can actually observe
    * are written, and an unrecognised event leaves the task alone rather than
    * guessing.
    */
@@ -209,7 +209,7 @@ export class TaskDispatcher {
       return
     }
     if (observed.state === 'exited') {
-      // An unknown code is not a clean one. ADE records the failure and says
+      // An unknown code is not a clean one. iCode records the failure and says
       // why, rather than reporting a finished task it cannot vouch for.
       if (observed.exitCode === null) {
         this.deps.tasks.updateIfStatus(
@@ -353,7 +353,7 @@ export class TaskDispatcher {
   }
 
   /**
-   * Reconciles every task that was mid-flight when ADE last stopped.
+   * Reconciles every task that was mid-flight when iCode last stopped.
    *
    * The rule is the same one Ceza's `reconcileLoadedRun` applies: a task that
    * was live in a process that no longer exists cannot have finished, so it is
@@ -385,7 +385,7 @@ export class TaskDispatcher {
             status: 'failed',
             failureReason: 'interrupted',
             finishedAt: now,
-            error: 'Interrupted — ADE exited before the task started.',
+            error: 'Interrupted — iCode exited before the task started.',
             errorDetail: 'No session was recorded, so nothing was left running.'
           },
           now
@@ -430,8 +430,8 @@ export class TaskDispatcher {
           finishedAt: now,
           error:
             observed?.state === 'exited'
-              ? `Interrupted — the harness exited with code ${String(observed.exitCode ?? 'unknown')} while ADE was not running.`
-              : 'Interrupted — ADE stopped while this task was running.',
+              ? `Interrupted — the harness exited with code ${String(observed.exitCode ?? 'unknown')} while iCode was not running.`
+              : 'Interrupted — iCode stopped while this task was running.',
           errorDetail: 'Open the session or review the worktree to see what was left behind.'
         },
         now

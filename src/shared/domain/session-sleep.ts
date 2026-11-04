@@ -25,7 +25,7 @@ export function wakePlan(harness: HarnessId, resumeToken: string | null): WakePl
       }
     case 'codex':
       // Codex filters --last by the current working directory unless --all is
-      // passed; ADE sessions have their own worktree, so this is the right scope.
+      // passed; iCode sessions have their own worktree, so this is the right scope.
       return { args: ['resume', '--last'], resumesConversation: true }
     case 'opencode':
       return { args: ['--continue'], resumesConversation: true }

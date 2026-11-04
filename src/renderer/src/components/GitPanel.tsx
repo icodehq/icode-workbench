@@ -8,7 +8,7 @@ import type {
   GitOpPayload,
   GitStatusPayload,
   WorkspaceUnavailablePayload
-} from '../../../shared/ade-api'
+} from '../../../shared/icode-api'
 import type { GitStatusEntry, GitWorkspaceStatus } from '../../../shared/domain/git-workspace'
 import type { Notice } from '../state/workspace'
 
@@ -116,7 +116,7 @@ export default function GitPanel({
   const [remoteBusy, setRemoteBusy] = useState<'push' | 'pull' | null>(null)
 
   const load = useCallback(async (): Promise<void> => {
-    const result = await callApi<GitStatusPayload>(window.ade.git.status({ sessionId }))
+    const result = await callApi<GitStatusPayload>(window.icode.git.status({ sessionId }))
     if (!result.ok) {
       notify(errorNotice(result.error))
       return
@@ -156,7 +156,7 @@ export default function GitPanel({
     setBusy(true)
     try {
       const result = await callApi<GitOpPayload>(
-        window.ade.git.setPathStaged({ sessionId, path, staged })
+        window.icode.git.setPathStaged({ sessionId, path, staged })
       )
       if (!result.ok) {
         notify(errorNotice(result.error))
@@ -175,7 +175,7 @@ export default function GitPanel({
   }
 
   const loadBranches = async (): Promise<void> => {
-    const result = await callApi<GitBranchesPayload>(window.ade.git.branches({ sessionId }))
+    const result = await callApi<GitBranchesPayload>(window.icode.git.branches({ sessionId }))
     if (!result.ok) {
       notify(errorNotice(result.error))
       return
@@ -195,7 +195,7 @@ export default function GitPanel({
     if (branchBusy || branch.length === 0) return
     setBranchBusy(true)
     try {
-      const result = await callApi<GitBranchPayload>(window.ade.git.switchBranch({ sessionId, branch }))
+      const result = await callApi<GitBranchPayload>(window.icode.git.switchBranch({ sessionId, branch }))
       if (!result.ok) {
         notify(errorNotice(result.error))
         return
@@ -218,7 +218,7 @@ export default function GitPanel({
     setRemoteBusy(verb)
     try {
       const result = await callApi<GitBranchPayload>(
-        verb === 'push' ? window.ade.git.push({ sessionId }) : window.ade.git.pull({ sessionId })
+        verb === 'push' ? window.icode.git.push({ sessionId }) : window.icode.git.pull({ sessionId })
       )
       if (!result.ok) {
         notify(errorNotice(result.error))
@@ -241,7 +241,7 @@ export default function GitPanel({
 
   const stageAll = (): Promise<void> =>
     act(async () => {
-      const result = await callApi<GitOpPayload>(window.ade.git.stageAll({ sessionId }))
+      const result = await callApi<GitOpPayload>(window.icode.git.stageAll({ sessionId }))
       if (!result.ok) {
         notify(errorNotice(result.error))
         return { ok: false, label: '' }
@@ -255,7 +255,7 @@ export default function GitPanel({
 
   const unstageAll = (): Promise<void> =>
     act(async () => {
-      const result = await callApi<GitOpPayload>(window.ade.git.unstageAll({ sessionId }))
+      const result = await callApi<GitOpPayload>(window.icode.git.unstageAll({ sessionId }))
       if (!result.ok) {
         notify(errorNotice(result.error))
         return { ok: false, label: '' }
@@ -270,7 +270,7 @@ export default function GitPanel({
   const commit = (): Promise<void> =>
     act(async () => {
       const result = await callApi<GitCommitPayload>(
-        window.ade.git.commit({ sessionId, message })
+        window.icode.git.commit({ sessionId, message })
       )
       if (!result.ok) {
         notify(errorNotice(result.error))

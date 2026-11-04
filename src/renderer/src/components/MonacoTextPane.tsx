@@ -81,7 +81,7 @@ export default function MonacoTextPane({
           ariaLabel
         })
         handle.current = { editor, model, monaco }
-        ;(container.current as HTMLElement & { __adeEditor?: unknown }).__adeEditor = editor
+        ;(container.current as HTMLElement & { __icodeEditor?: unknown }).__icodeEditor = editor
         editor.onDidChangeModelContent(() => {
           if (suppress.current) return
           changeRef.current?.(model.getValue())
@@ -96,7 +96,7 @@ export default function MonacoTextPane({
       const current = handle.current
       handle.current = null
       if (container.current !== null) {
-        delete (container.current as HTMLElement & { __adeEditor?: unknown }).__adeEditor
+        delete (container.current as HTMLElement & { __icodeEditor?: unknown }).__icodeEditor
       }
       current?.editor.dispose()
       current?.model.dispose()

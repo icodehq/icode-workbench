@@ -25,7 +25,7 @@ import {
   Trash2,
   type LucideIcon
 } from 'lucide-react'
-import type { TaskRecordPayload } from '../../../shared/ade-api'
+import type { TaskRecordPayload } from '../../../shared/icode-api'
 import type { RepositorySummary, SessionSummary } from '../../../shared/schemas/ipc'
 import { fuzzyScore } from '../files/fuzzy'
 import { getWorktreeFileIndex } from '../files/file-index'
@@ -437,7 +437,7 @@ export default function CommandPalette({
       }}
     >
       <div
-        className="ade-command-palette w-[min(680px,100%)] overflow-hidden rounded-xl border border-line-strong bg-overlay shadow-[var(--ade-shadow-overlay)]"
+        className="icode-command-palette w-[min(680px,100%)] overflow-hidden rounded-xl border border-line-strong bg-overlay shadow-[var(--icode-shadow-overlay)]"
         role="dialog"
         aria-modal="true"
         aria-label="Command palette"

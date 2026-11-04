@@ -5,7 +5,7 @@ import type {
   GitStashEntry,
   GitStashListPayload,
   GitStashPushPayload
-} from '../../../shared/ade-api'
+} from '../../../shared/icode-api'
 import { callApi } from '../lib/api'
 import type { Notice } from '../state/workspace'
 
@@ -44,7 +44,7 @@ export default function ScmStashesSection({
     setError(null)
     void (async (): Promise<void> => {
       const result = await callApi<GitStashListPayload>(
-        window.ade.git.stashList({ sessionId })
+        window.icode.git.stashList({ sessionId })
       )
       if (cancelled) return
       if (!result.ok) {
@@ -76,7 +76,7 @@ export default function ScmStashesSection({
     setError(null)
     try {
       const result = await callApi<GitStashPushPayload>(
-        window.ade.git.stashPush({
+        window.icode.git.stashPush({
           sessionId,
           message,
           includeUntracked,
@@ -112,7 +112,7 @@ export default function ScmStashesSection({
     setError(null)
     try {
       const result = await callApi<GitStashActionPayload>(
-        window.ade.git.stashAction({ sessionId, index, action })
+        window.icode.git.stashAction({ sessionId, index, action })
       )
       if (!result.ok) {
         notify({ tone: 'error', message: result.error.message })

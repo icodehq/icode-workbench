@@ -15,7 +15,7 @@ import {
 let directory: string
 
 beforeEach(() => {
-  directory = mkdtempSync(join(tmpdir(), 'ade-window-state-'))
+  directory = mkdtempSync(join(tmpdir(), 'icode-window-state-'))
 })
 
 afterEach(() => {

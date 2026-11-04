@@ -1,5 +1,5 @@
 'use strict'
-// Exploratory CDP driver: launch/adopt the ADE window, evaluate DOM expressions.
+// Exploratory CDP driver: launch/adopt the iCode window, evaluate DOM expressions.
 const { spawn } = require('node:child_process')
 const { writeFileSync } = require('node:fs')
 const { join } = require('node:path')
@@ -22,7 +22,7 @@ async function waitForPage(port = PORT, timeoutMs = 30000) {
     } catch {}
     await sleep(250)
   }
-  throw new Error('Timed out waiting for the ADE page')
+  throw new Error('Timed out waiting for the iCode page')
 }
 
 class Cdp {

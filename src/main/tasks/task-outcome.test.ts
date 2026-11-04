@@ -30,7 +30,7 @@ type Harness = {
 }
 
 async function harness(): Promise<Harness> {
-  const root = makeTempRoot('ade-w85-')
+  const root = makeTempRoot('icode-w85-')
   const db = openTempDatabase(root)
   const stores = makeRepositoryService(db)
   const repoDir = `${root.dir}/repo`

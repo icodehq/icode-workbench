@@ -1,4 +1,4 @@
-import type { AdeProductApi } from '../../../shared/ade-api'
+import type { IcodeProductApi } from '../../../shared/icode-api'
 import type { AppError } from '../../../shared/domain/errors'
 import { makeAppError } from '../../../shared/domain/errors'
 import type {
@@ -37,7 +37,7 @@ export type TerminalSink = {
   resize: (cols: number, rows: number) => void
 }
 
-export type TerminalApi = Pick<AdeProductApi, 'terminal' | 'onSessionEvent'>
+export type TerminalApi = Pick<IcodeProductApi, 'terminal' | 'onSessionEvent'>
 
 export type SessionTerminalOptions = {
   sessionId: string

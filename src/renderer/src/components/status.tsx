@@ -136,7 +136,7 @@ export function shortId(value: string | null): string {
 
 
 /**
- * Activity wording. `unknown` is deliberately neutral: it means ADE has no
+ * Activity wording. `unknown` is deliberately neutral: it means iCode has no
  * evidence, not that the agent is idle or that the user misconfigured Claude.
  */
 export function activityLabel(activity: ActivitySummary): string {

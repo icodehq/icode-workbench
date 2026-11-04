@@ -37,8 +37,8 @@ import type { WslGuestHostRecord } from '../host/records'
 import { spawnBridgeChild, type BridgeChild, type BridgeChildDeps } from './bridge'
 import { startRelayListener, type RelayListener } from './listener'
 
-/** `<guestHome>/.ade/host/<scope>`: the only place a profile's Host may live. */
-export const WSL_HOST_ROOT_DIRNAME = '.ade/host'
+/** `<guestHome>/.icode/host/<scope>`: the only place a profile's Host may live. */
+export const WSL_HOST_ROOT_DIRNAME = '.icode/host'
 
 export function wslHostRoot(guestHome: string, profileDir: string): string {
   return `${guestHome.replace(/\/+$/u, '')}/${WSL_HOST_ROOT_DIRNAME}/${profileSocketScope(profileDir)}`
@@ -109,7 +109,7 @@ export async function readHostToken(
   const outcome = await runner.run({
     scope: 'guest',
     distro,
-    argv: ['sh', '-c', TOKEN_READ_SCRIPT, 'ade-token', `${hostDir}/token`],
+    argv: ['sh', '-c', TOKEN_READ_SCRIPT, 'icode-token', `${hostDir}/token`],
     ...(options.signal ? { signal: options.signal } : {})
   })
   if (outcome.status !== 'ok') return null
@@ -208,7 +208,7 @@ export class WslHostRelay {
       const error =
         'error' in ensured
           ? ensured.error
-          : makeAppError('WSL_HOST_START_FAILED', 'The ADE Host is not ready.')
+          : makeAppError('WSL_HOST_START_FAILED', 'The iCode Host is not ready.')
       return unavailable(error, detail)
     }
 
@@ -229,7 +229,7 @@ export class WslHostRelay {
       }
     }
 
-    // The token lives in `ADE_HOST_DIR`, which is the run directory — not the
+    // The token lives in `ICODE_HOST_DIR`, which is the run directory — not the
     // deployment root. Reading the wrong one made a healthy Host look unverified.
     const token = await readHostToken(this.deps.runner, distro, paths.runDir, options)
     if (token === null) {

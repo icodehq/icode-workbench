@@ -15,8 +15,8 @@ import { describe, expect, it, vi } from 'vitest'
 vi.mock('electron', () => ({
   app: {
     isPackaged: false,
-    getAppPath: () => '/tmp/ade-app',
-    getPath: () => '/tmp/ade-profile'
+    getAppPath: () => '/tmp/icode-app',
+    getPath: () => '/tmp/icode-profile'
   },
   ipcMain: { handle: vi.fn(), removeHandler: vi.fn() },
   BrowserWindow: { getAllWindows: () => [], getFocusedWindow: () => null },

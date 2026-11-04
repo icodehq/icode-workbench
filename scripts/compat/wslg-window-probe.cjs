@@ -9,7 +9,7 @@
  * GetGeometry) to prove that a mapped top-level window exists on the WSLg
  * display. It never creates, maps, or modifies a window.
  *
- * Usage: node scripts/compat/wslg-window-probe.cjs [--match ADE] [--json]
+ * Usage: node scripts/compat/wslg-window-probe.cjs [--match iCode] [--json]
  */
 
 const net = require('node:net')
@@ -247,11 +247,11 @@ async function snapshot(match) {
 }
 
 function parseArgs(argv) {
-  const options = { match: 'ADE', json: false }
+  const options = { match: 'iCode', json: false }
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
     if (arg === '--json') options.json = true
-    else if (arg === '--match') options.match = argv[++index] ?? 'ADE'
+    else if (arg === '--match') options.match = argv[++index] ?? 'iCode'
   }
   return options
 }

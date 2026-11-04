@@ -40,7 +40,7 @@ export default function AmendDialog({
         if (event.target === event.currentTarget && !busy) onCancel()
       }}
     >
-      <div className="ade-modal w-[min(520px,100%)] overflow-hidden rounded-xl border border-line-strong bg-overlay shadow-[var(--ade-shadow-overlay)]">
+      <div className="icode-modal w-[min(520px,100%)] overflow-hidden rounded-xl border border-line-strong bg-overlay shadow-[var(--icode-shadow-overlay)]">
         <div className="border-b border-border px-4 py-3">
           <h2 className="text-[14px] font-semibold">Amend the last commit?</h2>
           <p className="mt-1 text-[10.5px] leading-relaxed text-muted-foreground">

@@ -1,5 +1,6 @@
 const { existsSync } = require('node:fs')
 const { join } = require('node:path')
+const identity = require('../src/shared/app-identity.json')
 
 /**
  * The guest Host tree must exist before packaging.
@@ -20,8 +21,8 @@ if (!existsSync(WSL_ARTIFACT_MANIFEST)) {
 }
 
 module.exports = {
-  appId: 'dev.ade.app',
-  productName: 'ADE',
+  appId: identity.appId,
+  productName: identity.name,
   directories: {
     output: 'dist'
   },
@@ -59,19 +60,20 @@ module.exports = {
   buildDependenciesFromSource: false,
   linux: {
     target: ['dir'],
-    executableName: 'ade',
+    executableName: identity.executableName,
     category: 'Development'
   },
 
   /**
    * Windows identity and the MSI target.
    *
-   * `author` in package.json ("ADE contributors", the copyright holder in
+   * `author` in package.json ("iCode contributors", the copyright holder in
    * LICENSE) is what the MSI records as manufacturer, so the installer names
    * the same publisher the project's own license does.
    */
   win: {
     target: ['msi'],
+    executableName: identity.executableName,
     /**
      * The shortcut icon is also the MSI's ARPPRODUCTICON, and WiX refuses to
      * link a shortcut that names an Icon element with no file behind it. The
@@ -105,7 +107,7 @@ module.exports = {
     oneClick: false,
     createDesktopShortcut: true,
     createStartMenuShortcut: true,
-    shortcutName: 'ADE',
+    shortcutName: identity.name,
     runAfterFinish: true
   }
 }

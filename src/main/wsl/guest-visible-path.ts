@@ -1,7 +1,7 @@
 /**
  * The same file, spelled so a Guest process can open it.
  *
- * ADE keeps its activity hooks beside its own Windows user data, so the generated
+ * iCode keeps its activity hooks beside its own Windows user data, so the generated
  * `--settings` value is a Windows path like `D:\…\agent-hooks\settings.json`. A
  * distro cannot open that string: as far as Linux is concerned it is a relative
  * file name containing backslashes. WSL exposes Windows drives at `/mnt/<letter>`,

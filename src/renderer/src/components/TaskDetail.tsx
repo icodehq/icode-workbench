@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Check, GitBranch, Loader2, Terminal, X } from 'lucide-react'
 import { callApi, errorNotice } from '../lib/api'
-import type { TaskChangesPayload, TaskRecordPayload } from '../../../shared/ade-api'
+import type { TaskChangesPayload, TaskRecordPayload } from '../../../shared/icode-api'
 import type { Notice } from '../state/workspace'
 
 export type TaskDetailProps = {
@@ -52,7 +52,7 @@ export default function TaskDetail({
 
   const loadChanges = useCallback(async (): Promise<void> => {
     setLoadingChanges(true)
-    const result = await callApi<TaskChangesPayload>(window.ade.tasks.changes({ taskId: task.id }))
+    const result = await callApi<TaskChangesPayload>(window.icode.tasks.changes({ taskId: task.id }))
     if (!result.ok) {
       setChanges({ taskId: task.id, sessionId: task.sessionId, status: 'unavailable', detail: result.error.message })
     } else {
@@ -78,7 +78,7 @@ export default function TaskDetail({
     setBusy(true)
     try {
       const result = await callApi<TaskRecordPayload>(
-        window.ade.tasks.decideReview({
+        window.icode.tasks.decideReview({
           taskId: task.id,
           decision,
           note: note.trim() ? note.trim() : null,

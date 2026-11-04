@@ -18,7 +18,7 @@ function setup(): {
   db: Database
   stores: ReturnType<typeof makeRepositoryService>
 } {
-  const root = makeTempRoot('ade-ui-')
+  const root = makeTempRoot('icode-ui-')
   cleanups.push(root.cleanup)
   const db = openTempDatabase(root)
   cleanups.push(() => db.close())

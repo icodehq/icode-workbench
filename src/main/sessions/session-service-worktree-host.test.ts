@@ -23,7 +23,7 @@ import { toCanonicalRepositoryPath } from '../../shared/domain/paths'
  * at but never restarted.
  */
 
-const GUEST_PATH = '/home/u/.ade/worktrees/scope/repo_x/ses_y'
+const GUEST_PATH = '/home/u/.icode/worktrees/scope/repo_x/ses_y'
 const WSL_TARGET: ExecutionTarget = {
   kind: 'wsl',
   distro: 'Ubuntu-26.04',
@@ -38,7 +38,7 @@ afterEach(() => {
 })
 
 function setup(options: { guestExists: boolean; resolveFails?: boolean; target?: ExecutionTarget }) {
-  const root = makeTempRoot('ade-session-wsl-')
+  const root = makeTempRoot('icode-session-wsl-')
   const db = openTempDatabase(root)
   const repositories = new RepositoryStore(db)
   const sessions = new SessionStore(db)
@@ -54,7 +54,7 @@ function setup(options: { guestExists: boolean; resolveFails?: boolean; target?:
         executor: {
           exec: async () => ({ stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), exitCode: 0, timedOut: false })
         },
-        worktreeRoot: '/home/u/.ade/worktrees',
+        worktreeRoot: '/home/u/.icode/worktrees',
         fs: {
           isDirectory: async (path: string) => {
             asked.push(path)
@@ -143,7 +143,7 @@ function setup(options: { guestExists: boolean; resolveFails?: boolean; target?:
     sessionId,
     repoId,
     path: worktreePath,
-    branch: `ade/${sessionId}`,
+    branch: `icode/${sessionId}`,
     baseRef: 'main',
     baseOid: 'a'.repeat(40),
     state: 'ready',

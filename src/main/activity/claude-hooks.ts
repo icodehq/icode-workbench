@@ -8,10 +8,10 @@ import { ACTIVITY_EVENTS } from '../../shared/domain/activity'
  * The script is written from a string into the app's own userData directory so a
  * packaged app needs no extra unpacked resource, and the overlay is an additive
  * `--settings` file: Claude merges it with the user's own settings, so existing
- * user hooks keep running. ADE never writes `~/.claude/settings.json`.
+ * user hooks keep running. iCode never writes `~/.claude/settings.json`.
  */
 
-export const HOOK_SCRIPT_NAME = 'ade-activity-hook.cjs'
+export const HOOK_SCRIPT_NAME = 'icode-activity-hook.cjs'
 export const SETTINGS_NAME = 'settings.json'
 /**
  * The overlay for WSL Agents.
@@ -29,7 +29,7 @@ export const GUEST_SETTINGS_NAME = 'settings.wsl.json'
  *
  * Rules encoded here on purpose:
  * - writes nothing to stdout (Claude consumes hook stdout),
- * - exits 0 even when ADE is unreachable, so an ADE failure cannot block Claude,
+ * - exits 0 even when iCode is unreachable, so an iCode failure cannot block Claude,
  * - gives up after 100 ms and unrefs the timer so the process cannot linger.
  */
 const HOOK_SCRIPT = `#!/usr/bin/env node
@@ -38,9 +38,9 @@ const net = require('node:net')
 const MAX_BYTES = 8 * 1024
 const DEADLINE_MS = 100
 const eventName = process.argv[2] || ''
-const socketPath = process.env.ADE_ACTIVITY_SOCKET || ''
-const sessionId = process.env.ADE_SESSION_ID || ''
-const incarnationId = process.env.ADE_SESSION_INCARNATION || ''
+const socketPath = process.env.ICODE_ACTIVITY_SOCKET || ''
+const sessionId = process.env.ICODE_SESSION_ID || ''
+const incarnationId = process.env.ICODE_SESSION_INCARNATION || ''
 function done() { process.exit(0) }
 const timer = setTimeout(done, DEADLINE_MS)
 timer.unref()
@@ -91,7 +91,7 @@ process.stdin.on('end', function () {
 `
 
 export type ClaudeHookInstallOptions = {
-  /** ADE's own directory under userData, e.g. `<userData>/agent-hooks`. */
+  /** iCode's own directory under userData, e.g. `<userData>/agent-hooks`. */
   directory: string
   /** Absolute path to the Electron/Node executable used to run the script. */
   execPath: string
@@ -127,7 +127,7 @@ function shellQuote(value: string): string {
 /**
  * One command per event; the event name travels as argv, not as shell text.
  *
- * A packaged ADE is Electron, not Node. Without `ELECTRON_RUN_AS_NODE=1` the
+ * A packaged iCode is Electron, not Node. Without `ELECTRON_RUN_AS_NODE=1` the
  * hook would launch a second application window instead of the script, so the
  * variable is part of the command rather than the (unavailable) Hook env.
  */
@@ -143,7 +143,7 @@ export function hookCommandFor(
 
 /**
  * Claude does not wait for a `StopFailure` hook on its way out; it terminates
- * the process group shortly after starting it. A packaged ADE needs ~90 ms to
+ * the process group shortly after starting it. A packaged iCode needs ~90 ms to
  * boot as Node, so that event would be lost. Turn-end hooks therefore detach:
  * fd 0 is duplicated first (asynchronous shells would otherwise get
  * /dev/null), then the real command runs in the background and survives.
@@ -212,7 +212,7 @@ export type GuestHookAccess = {
  * bridge: listed names are copied across, without path translation (`/p` would
  * rewrite the very values we need verbatim — a pipe name is not a path).
  */
-const GUEST_HOOK_ENV = ['ADE_ACTIVITY_SOCKET', 'ADE_SESSION_ID', 'ADE_SESSION_INCARNATION'] as const
+const GUEST_HOOK_ENV = ['ICODE_ACTIVITY_SOCKET', 'ICODE_SESSION_ID', 'ICODE_SESSION_INCARNATION'] as const
 
 /**
  * One guest hook command: the Windows executable, started from the guest.
@@ -228,7 +228,7 @@ export function guestHookCommandFor(
   const crossed = electronRunAsNode ? [...GUEST_HOOK_ENV, 'ELECTRON_RUN_AS_NODE'] : GUEST_HOOK_ENV
   const env = [
     `WSLENV=${shellQuote(crossed.join(':'))}`,
-    `ADE_ACTIVITY_SOCKET=${shellQuote(access.activitySocket)}`
+    `ICODE_ACTIVITY_SOCKET=${shellQuote(access.activitySocket)}`
   ]
   if (electronRunAsNode) env.push('ELECTRON_RUN_AS_NODE=1')
   return [

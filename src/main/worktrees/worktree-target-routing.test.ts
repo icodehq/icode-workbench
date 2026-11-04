@@ -21,9 +21,9 @@ const WSL: ExecutionTarget = {
 /** Answers the login-shell probe as a distro with Git on PATH does. */
 function probeAnswer(): Buffer {
   return Buffer.concat([
-    Buffer.from('__ADE_GIT_OUT_START__'),
+    Buffer.from('__ICODE_GIT_OUT_START__'),
     Buffer.from('/usr/local/bin:/usr/bin:/bin\u0000/usr/bin/git\u0000/home/u'),
-    Buffer.from('__ADE_GIT_OUT_END____ADE_GIT_STATUS__0')
+    Buffer.from('__ICODE_GIT_OUT_END____ICODE_GIT_STATUS__0')
   ])
 }
 
@@ -87,7 +87,7 @@ function serviceWith(runner: WslCommandRunner, localRoot: string) {
     router: createGitExecutorRouter({
       localWorktreeRoot: localRoot,
       runner,
-      guestWorktreeRoot: async () => '/home/u/.ade/worktrees/scope'
+      guestWorktreeRoot: async () => '/home/u/.icode/worktrees/scope'
     })
   })
 }
@@ -113,13 +113,13 @@ describe('WSL worktree routing', () => {
         const joined = args.join(' ')
         if (joined.startsWith('worktree add')) return { code: 0 }
         if (joined === 'rev-parse --show-toplevel') {
-          return { code: 0, stdout: '/home/u/.ade/worktrees/scope/r1/s1\n' }
+          return { code: 0, stdout: '/home/u/.icode/worktrees/scope/r1/s1\n' }
         }
         if (joined === 'rev-parse HEAD') return { code: 0, stdout: 'base1\n' }
         if (joined === 'worktree list --porcelain') {
           return {
             code: 0,
-            stdout: 'worktree /home/u/src/atlas\n\nworktree /home/u/.ade/worktrees/scope/r1/s1\n'
+            stdout: 'worktree /home/u/src/atlas\n\nworktree /home/u/.icode/worktrees/scope/r1/s1\n'
           }
         }
         return { code: 1 }
@@ -128,14 +128,14 @@ describe('WSL worktree routing', () => {
     const service = serviceWith(runner, '/local/worktrees')
     await service.create({
       primaryRoot: '/home/u/src/atlas',
-      path: '/home/u/.ade/worktrees/scope/r1/s1',
-      branch: 'ade/session-1',
+      path: '/home/u/.icode/worktrees/scope/r1/s1',
+      branch: 'icode/session-1',
       baseOid: 'base1',
       target: WSL
     })
     const add = calls.find((call) => call.kind === 'git' && call.args?.[0] === 'worktree')
     expect(add?.cwd).toBe('/home/u/src/atlas')
-    expect(add?.args).toContain('/home/u/.ade/worktrees/scope/r1/s1')
+    expect(add?.args).toContain('/home/u/.icode/worktrees/scope/r1/s1')
   })
 
   it('refuses a path outside the guest managed root', async () => {
@@ -159,19 +159,19 @@ describe('WSL worktree routing', () => {
       git: (_cwd, args) => {
         const joined = args.join(' ')
         if (joined === 'worktree list --porcelain') {
-          return { code: 0, stdout: 'worktree /home/u/src/atlas\n\nworktree /home/u/.ade/worktrees/scope/r1/s1\n' }
+          return { code: 0, stdout: 'worktree /home/u/src/atlas\n\nworktree /home/u/.icode/worktrees/scope/r1/s1\n' }
         }
         if (joined === 'rev-parse --show-toplevel') {
-          return { code: 0, stdout: '/home/u/.ade/worktrees/scope/r1/s1\n' }
+          return { code: 0, stdout: '/home/u/.icode/worktrees/scope/r1/s1\n' }
         }
         if (joined === 'rev-parse HEAD') return { code: 0, stdout: 'o1\n' }
         return { code: 0 }
       }
     })
     const service = serviceWith(runner, '/local/worktrees')
-    await expect(service.worktreeRootFor(WSL)).resolves.toBe('/home/u/.ade/worktrees/scope')
+    await expect(service.worktreeRootFor(WSL)).resolves.toBe('/home/u/.icode/worktrees/scope')
     expect(() =>
-      service.assertManagedPath('/home/u/.ade/worktrees/scope/r1/s1', '/home/u/.ade/worktrees/scope')
+      service.assertManagedPath('/home/u/.icode/worktrees/scope/r1/s1', '/home/u/.icode/worktrees/scope')
     ).not.toThrow()
   })
 
@@ -214,11 +214,11 @@ describe('WSL worktree routing', () => {
           return { code: 0 }
         }
         if (args.join(' ') === 'rev-parse --show-toplevel') {
-          return { code: 0, stdout: '/home/u/.ade/worktrees/scope/r1/s1\n' }
+          return { code: 0, stdout: '/home/u/.icode/worktrees/scope/r1/s1\n' }
         }
         if (args.join(' ') === 'rev-parse HEAD') return { code: 0, stdout: 'o\n' }
         if (args.join(' ') === 'worktree list --porcelain') {
-          return { code: 0, stdout: 'worktree /home/u/src/atlas\n\nworktree /home/u/.ade/worktrees/scope/r1/s1\n' }
+          return { code: 0, stdout: 'worktree /home/u/src/atlas\n\nworktree /home/u/.icode/worktrees/scope/r1/s1\n' }
         }
         return { code: 0 }
       }
@@ -227,7 +227,7 @@ describe('WSL worktree routing', () => {
     const create = () =>
       service.create({
         primaryRoot: '/home/u/src/atlas',
-        path: '/home/u/.ade/worktrees/scope/r1/s1',
+        path: '/home/u/.icode/worktrees/scope/r1/s1',
         branch: 'b',
         baseOid: 'o',
         target: WSL
@@ -240,7 +240,7 @@ describe('WSL worktree routing', () => {
 
 describe('local worktree behaviour is unchanged', () => {
   it('still runs on the local filesystem and local Git', async () => {
-    const root = makeTempRoot('ade-w6-local-')
+    const root = makeTempRoot('icode-w6-local-')
     try {
       const localRoot = join(root.dir, 'worktrees')
       mkdirSync(localRoot, { recursive: true })
@@ -255,7 +255,7 @@ describe('local worktree behaviour is unchanged', () => {
   })
 
   it('refuses a local path outside the local root, as before', async () => {
-    const root = makeTempRoot('ade-w6-local2-')
+    const root = makeTempRoot('icode-w6-local2-')
     try {
       const service = new GitWorktreeService({ worktreeRoot: join(root.dir, 'worktrees') })
       await expect(
@@ -343,12 +343,12 @@ describe('adversarial: a guest path never reaches the controller', () => {
         runner,
         guestWorktreeRoot: async (distro) => {
           roots.push(distro)
-          return distro === 'Ubuntu-24.04' ? '/home/u/.ade/worktrees/other' : '/home/u/.ade/worktrees/scope'
+          return distro === 'Ubuntu-24.04' ? '/home/u/.icode/worktrees/other' : '/home/u/.icode/worktrees/scope'
         }
       })
     })
-    expect(await service.worktreeRootFor(WSL)).toBe('/home/u/.ade/worktrees/scope')
-    expect(await service.worktreeRootFor(other)).toBe('/home/u/.ade/worktrees/other')
+    expect(await service.worktreeRootFor(WSL)).toBe('/home/u/.icode/worktrees/scope')
+    expect(await service.worktreeRootFor(other)).toBe('/home/u/.icode/worktrees/other')
     expect(roots).toEqual(['Ubuntu-26.04', 'Ubuntu-24.04'])
   })
 })
@@ -376,7 +376,7 @@ describe('guest Git timeouts are unknown, not answers', () => {
       router: createGitExecutorRouter({
         localWorktreeRoot: '/tmp/unused-local-root',
         runner,
-        guestWorktreeRoot: async () => '/home/you/.ade/worktrees/scope'
+        guestWorktreeRoot: async () => '/home/you/.icode/worktrees/scope'
       })
     })
     const error = await service

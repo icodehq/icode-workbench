@@ -25,8 +25,8 @@ import type { WslCommandRunner, WslExecFailureStatus } from '../exec'
 export const MANIFEST_FILENAME = 'manifest.json'
 /** The only executable the tree needs; node-pty is loaded, not executed. */
 const EXECUTABLE_FILES = ['node/bin/node'] as const
-const VERIFY_SCRIPT_FILENAME = '.ade-verify.cjs'
-const MARKER_FILENAME = '.ade-deployed'
+const VERIFY_SCRIPT_FILENAME = '.icode-verify.cjs'
+const MARKER_FILENAME = '.icode-deployed'
 const UPLOAD_TIMEOUT_MS = 120_000
 /**
  * One retry per file. A `wsl.exe` upload can fail transiently (observed once on
@@ -192,7 +192,7 @@ export type DeployPaths = {
   pidFile: string
   metaPath: string
   logPath: string
-  /** `ADE_HOST_DIR/token`; the Host's own `writeToken` location. */
+  /** `ICODE_HOST_DIR/token`; the Host's own `writeToken` location. */
   tokenPath: string
 }
 
@@ -215,7 +215,7 @@ export function deployPathsFor(hostRoot: string, artifactVersion: string): Deplo
     pidFile: `${runDir}/host.pid`,
     metaPath: `${runDir}/meta.json`,
     logPath: `${runDir}/startup.log`,
-    // The Host writes its token to `ADE_HOST_DIR`, which is the run directory.
+    // The Host writes its token to `ICODE_HOST_DIR`, which is the run directory.
     tokenPath: `${runDir}/token`
   }
 }
@@ -268,7 +268,7 @@ export type DeployDeps = {
   runner: WslCommandRunner
   distro: string
   artifactRoot: string
-  /** `<home>/.ade/host/<profileScope>` — caller supplies the scope. */
+  /** `<home>/.icode/host/<profileScope>` — caller supplies the scope. */
   hostRoot: string
   manifest: HostArtifactManifest
   signal?: AbortSignal
@@ -328,7 +328,7 @@ export async function deployHost(deps: DeployDeps): Promise<DeployOutcome> {
     })
 
   // Reuse only when the marker names this exact build.
-  const markerRead = await upload(['sh', '-c', READ_SCRIPT, 'ade-read', paths.marker])
+  const markerRead = await upload(['sh', '-c', READ_SCRIPT, 'icode-read', paths.marker])
   if (markerRead.status === 'ok' && markerRead.stdout.trim() === fingerprint) {
     return { status: 'deployed', paths, fingerprint, uploaded: 0, reused: true }
   }
@@ -339,7 +339,7 @@ export async function deployHost(deps: DeployDeps): Promise<DeployOutcome> {
     const slash = absolute.lastIndexOf('/')
     if (slash > 0) directories.add(absolute.slice(0, slash))
   }
-  const mkdir = await upload(['sh', '-c', MKDIR_SCRIPT, 'ade-mkdir', ...directories])
+  const mkdir = await upload(['sh', '-c', MKDIR_SCRIPT, 'icode-mkdir', ...directories])
   if (mkdir.status !== 'ok') {
     return {
       status: 'unavailable',
@@ -354,12 +354,12 @@ export async function deployHost(deps: DeployDeps): Promise<DeployOutcome> {
 
   const writeFile = async (absolute: string, source: { file: string } | { text: string }) => {
     const options = 'file' in source ? { stdinFile: source.file } : { stdin: source.text }
-    let result = await upload(['sh', '-c', WRITE_SCRIPT, 'ade-write', absolute], options)
+    let result = await upload(['sh', '-c', WRITE_SCRIPT, 'icode-write', absolute], options)
     for (let attempt = 2; attempt <= MAX_UPLOAD_ATTEMPTS; attempt += 1) {
       if (result.status === 'ok') break
       // A missing artifact is not transient, but it is re-verified locally on the
       // next attempt only at the manifest level; a single retry is the cheap case.
-      result = await upload(['sh', '-c', WRITE_SCRIPT, 'ade-write', absolute], options)
+      result = await upload(['sh', '-c', WRITE_SCRIPT, 'icode-write', absolute], options)
     }
     return { absolute, result }
   }
@@ -411,7 +411,7 @@ export async function deployHost(deps: DeployDeps): Promise<DeployOutcome> {
       'sh',
       '-c',
       CHMOD_SCRIPT,
-      'ade-chmod',
+      'icode-chmod',
       `${paths.root}/${executable}`
     ])
     if (chmod.status !== 'ok') {
@@ -434,7 +434,7 @@ export async function deployHost(deps: DeployDeps): Promise<DeployOutcome> {
       'sh',
       '-c',
       RUN_VERIFY_SCRIPT,
-      'ade-verify',
+      'icode-verify',
       paths.node,
       paths.verifyScript,
       paths.root
@@ -496,7 +496,7 @@ export async function deployHost(deps: DeployDeps): Promise<DeployOutcome> {
 
   // Written last: a marker is a promise that the tree verified, so an interrupted
   // deployment must never leave one behind.
-  await upload(['sh', '-c', WRITE_SCRIPT, 'ade-marker', paths.marker], {
+  await upload(['sh', '-c', WRITE_SCRIPT, 'icode-marker', paths.marker], {
     stdin: fingerprint
   })
 

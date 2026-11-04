@@ -263,7 +263,7 @@ export function decideOccurrence(
  * What to do when the previous occurrence's task is still running.
  *
  * Ceza implicitly queues every occurrence and lets the concurrency cap serialize
- * them. ADE makes the choice explicit because the two answers are both
+ * them. iCode makes the choice explicit because the two answers are both
  * defensible and a user should not have to discover which one they got:
  *  - `queue` — every occurrence is its own task, bounded by the concurrency cap.
  *  - `skip`  — a missed tick is skipped instead of stacked behind a long run.

@@ -105,7 +105,7 @@ export default function QuickOpen({
         if (event.target === event.currentTarget) onClose()
       }}
     >
-      <div className="w-[640px] overflow-hidden rounded-xl border border-line-strong bg-card shadow-[var(--ade-shadow-overlay)]">
+      <div className="w-[640px] overflow-hidden rounded-xl border border-line-strong bg-card shadow-[var(--icode-shadow-overlay)]">
         <input
           ref={input}
           value={query}

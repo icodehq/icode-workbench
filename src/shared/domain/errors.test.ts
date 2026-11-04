@@ -83,12 +83,12 @@ describe('app error codes', () => {
 
     const detailed = makeAppError('HOST_UNREACHABLE', 'Terminal host is unreachable', {
       detail: 'connect ECONNREFUSED',
-      context: { socket: '/run/user/1000/ade/terminal-host.sock' }
+      context: { socket: '/run/user/1000/icode/terminal-host.sock' }
     })
     expect(detailed).toMatchObject({
       retryable: true,
       detail: 'connect ECONNREFUSED',
-      context: { socket: '/run/user/1000/ade/terminal-host.sock' }
+      context: { socket: '/run/user/1000/icode/terminal-host.sock' }
     })
   })
 })

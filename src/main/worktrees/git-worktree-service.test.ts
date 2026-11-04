@@ -18,7 +18,7 @@ function makeRepo(): {
   service: GitWorktreeService
   baseOid: string
 } {
-  const root = mkdtempSync(join(tmpdir(), 'ade-worktree-'))
+  const root = mkdtempSync(join(tmpdir(), 'icode-worktree-'))
   roots.push(root)
   const repo = join(root, 'atlas')
   mkdirSync(repo)
@@ -29,9 +29,9 @@ function makeRepo(): {
     '-C',
     repo,
     '-c',
-    'user.email=ade@test',
+    'user.email=icode@test',
     '-c',
-    'user.name=ADE',
+    'user.name=iCode',
     'commit',
     '-qm',
     'init'
@@ -65,7 +65,7 @@ describe('repository inspection', () => {
   })
 
   it('reports an unborn repository instead of guessing a baseline', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'ade-unborn-'))
+    const root = mkdtempSync(join(tmpdir(), 'icode-unborn-'))
     roots.push(root)
     const repo = join(root, 'empty')
     mkdirSync(repo)
@@ -90,13 +90,13 @@ describe('creating isolated worktrees', () => {
   it('creates a registered worktree at the recorded branch and commit', async () => {
     const { service, repo, baseOid, root } = makeRepo()
     const path = join(root, 'worktrees', 'repo_a', 'ses_one')
-    await service.create({ primaryRoot: repo, path, branch: 'ade/ses_one', baseOid })
+    await service.create({ primaryRoot: repo, path, branch: 'icode/ses_one', baseOid })
 
     const registered = await service.listWorktrees(repo)
     expect(registered.map((entry) => entry.path)).toContain(path)
-    expect(registered.find((entry) => entry.path === path)?.branch).toBe('ade/ses_one')
+    expect(registered.find((entry) => entry.path === path)?.branch).toBe('icode/ses_one')
     expect(git(path, 'rev-parse', 'HEAD')).toBe(baseOid)
-    const inspection = await service.inspect({ primaryRoot: repo, path, branch: 'ade/ses_one' })
+    const inspection = await service.inspect({ primaryRoot: repo, path, branch: 'icode/ses_one' })
     expect(inspection).toMatchObject({ pathExists: true, registered: true, dirtyFiles: [] })
   })
 
@@ -104,8 +104,8 @@ describe('creating isolated worktrees', () => {
     const { service, repo, baseOid, root } = makeRepo()
     const first = join(root, 'worktrees', 'repo_a', 'ses_one')
     const second = join(root, 'worktrees', 'repo_a', 'ses_two')
-    await service.create({ primaryRoot: repo, path: first, branch: 'ade/ses_one', baseOid })
-    await service.create({ primaryRoot: repo, path: second, branch: 'ade/ses_two', baseOid })
+    await service.create({ primaryRoot: repo, path: first, branch: 'icode/ses_one', baseOid })
+    await service.create({ primaryRoot: repo, path: second, branch: 'icode/ses_two', baseOid })
 
     writeFileSync(join(first, 'agent.txt'), 'first only\n')
     expect(existsSync(join(second, 'agent.txt'))).toBe(false)
@@ -118,8 +118,8 @@ describe('creating isolated worktrees', () => {
     const { service, repo, baseOid, root } = makeRepo()
     const paths = [join(root, 'worktrees', 'r', 'a'), join(root, 'worktrees', 'r', 'b')]
     await Promise.all([
-      service.create({ primaryRoot: repo, path: paths[0]!, branch: 'ade/a', baseOid }),
-      service.create({ primaryRoot: repo, path: paths[1]!, branch: 'ade/b', baseOid })
+      service.create({ primaryRoot: repo, path: paths[0]!, branch: 'icode/a', baseOid }),
+      service.create({ primaryRoot: repo, path: paths[1]!, branch: 'icode/b', baseOid })
     ])
     const registered = await service.listWorktrees(repo)
     for (const path of paths) {
@@ -133,7 +133,7 @@ describe('creating isolated worktrees', () => {
       service.create({
         primaryRoot: repo,
         path: '/tmp/not-managed/escape',
-        branch: 'ade/escape',
+        branch: 'icode/escape',
         baseOid
       })
     ).rejects.toSatisfy((error: unknown) => errCode(error) === 'WORKTREE_INCONSISTENT')
@@ -144,10 +144,10 @@ describe('removal protection', () => {
   it('reports dirty files and refuses a clean removal until they are gone', async () => {
     const { service, repo, baseOid, root } = makeRepo()
     const path = join(root, 'worktrees', 'r', 's')
-    await service.create({ primaryRoot: repo, path, branch: 'ade/s', baseOid })
+    await service.create({ primaryRoot: repo, path, branch: 'icode/s', baseOid })
     writeFileSync(join(path, 'dirty.txt'), 'work\n')
 
-    const inspection = await service.inspect({ primaryRoot: repo, path, branch: 'ade/s' })
+    const inspection = await service.inspect({ primaryRoot: repo, path, branch: 'icode/s' })
     expect(inspection.dirtyFiles).toContain('dirty.txt')
 
     await expect(service.remove({ primaryRoot: repo, path, force: false })).rejects.toSatisfy(
@@ -158,41 +158,41 @@ describe('removal protection', () => {
     await service.remove({ primaryRoot: repo, path, force: true })
     expect(existsSync(path)).toBe(false)
     // The branch survives a forced worktree removal.
-    expect(git(repo, 'rev-parse', '--verify', 'refs/heads/ade/s')).toBeTruthy()
+    expect(git(repo, 'rev-parse', '--verify', 'refs/heads/icode/s')).toBeTruthy()
   })
 
   it('counts unmerged commits and reports zero after a merge', async () => {
     const { service, repo, baseOid, root } = makeRepo()
     const path = join(root, 'worktrees', 'r', 's')
-    await service.create({ primaryRoot: repo, path, branch: 'ade/s', baseOid })
+    await service.create({ primaryRoot: repo, path, branch: 'icode/s', baseOid })
     writeFileSync(join(path, 'work.txt'), 'x\n')
     git(path, 'add', 'work.txt')
     execFileSync('git', [
       '-C',
       path,
       '-c',
-      'user.email=ade@test',
+      'user.email=icode@test',
       '-c',
-      'user.name=ADE',
+      'user.name=iCode',
       'commit',
       '-qm',
       'work'
     ])
-    await expect(service.countUnmerged(repo, 'ade/s')).resolves.toBe(1)
+    await expect(service.countUnmerged(repo, 'icode/s')).resolves.toBe(1)
 
-    git(repo, 'merge', '--ff-only', 'ade/s')
-    await expect(service.countUnmerged(repo, 'ade/s')).resolves.toBe(0)
+    git(repo, 'merge', '--ff-only', 'icode/s')
+    await expect(service.countUnmerged(repo, 'icode/s')).resolves.toBe(0)
   })
 
   it('re-creates a vanished worktree from its retained branch', async () => {
     const { service, repo, baseOid, root } = makeRepo()
     const path = join(root, 'worktrees', 'r', 's')
-    await service.create({ primaryRoot: repo, path, branch: 'ade/s', baseOid })
+    await service.create({ primaryRoot: repo, path, branch: 'icode/s', baseOid })
     rmSync(path, { recursive: true, force: true })
     // Git still has stale registration for the removed directory.
     expect((await service.listWorktrees(repo)).some((entry) => entry.path === path)).toBe(true)
 
-    await service.recover({ primaryRoot: repo, path, branch: 'ade/s' })
+    await service.recover({ primaryRoot: repo, path, branch: 'icode/s' })
     expect(existsSync(join(path, 'README.md'))).toBe(true)
     expect(git(path, 'rev-parse', 'HEAD')).toBe(baseOid)
   })
@@ -202,14 +202,14 @@ describe('branch helpers', () => {
   it('reports branch existence and refuses to delete while a worktree uses it', async () => {
     const { service, repo, baseOid, root } = makeRepo()
     const path = join(root, 'worktrees', 'r', 's')
-    await service.create({ primaryRoot: repo, path, branch: 'ade/s', baseOid })
-    await expect(service.branchExists(repo, 'ade/s')).resolves.toBe(true)
+    await service.create({ primaryRoot: repo, path, branch: 'icode/s', baseOid })
+    await expect(service.branchExists(repo, 'icode/s')).resolves.toBe(true)
     const registered = await service.listWorktrees(repo)
-    expect(registered.some((entry) => entry.branch === 'ade/s')).toBe(true)
+    expect(registered.some((entry) => entry.branch === 'icode/s')).toBe(true)
 
     await service.remove({ primaryRoot: repo, path, force: false })
-    await service.deleteBranch({ primaryRoot: repo, branch: 'ade/s', force: false })
-    await expect(service.branchExists(repo, 'ade/s')).resolves.toBe(false)
+    await service.deleteBranch({ primaryRoot: repo, branch: 'icode/s', force: false })
+    await expect(service.branchExists(repo, 'icode/s')).resolves.toBe(false)
   })
 })
 
@@ -217,11 +217,11 @@ describe('porcelain parsing', () => {
   it('parses worktree entries', async () => {
     const { parseWorktreeList } = await import('./git-worktree-service')
     const entries = parseWorktreeList(
-      'worktree /a\nHEAD abc\nbranch refs/heads/main\n\nworktree /b\nHEAD def\nbranch refs/heads/ade/x\n'
+      'worktree /a\nHEAD abc\nbranch refs/heads/main\n\nworktree /b\nHEAD def\nbranch refs/heads/icode/x\n'
     )
     expect(entries).toEqual([
       { path: '/a', head: 'abc', branch: 'main' },
-      { path: '/b', head: 'def', branch: 'ade/x' }
+      { path: '/b', head: 'def', branch: 'icode/x' }
     ])
   })
 })
@@ -230,23 +230,23 @@ describe('recovery edge cases', () => {
   it('clears an empty leftover directory from a failed create', async () => {
     const { service, repo, baseOid, root } = makeRepo()
     const path = join(root, 'worktrees', 'r', 'leftover')
-    await service.create({ primaryRoot: repo, path, branch: 'ade/leftover', baseOid })
+    await service.create({ primaryRoot: repo, path, branch: 'icode/leftover', baseOid })
     await service.remove({ primaryRoot: repo, path, force: false })
     mkdirSync(path, { recursive: true })
 
-    await service.recover({ primaryRoot: repo, path, branch: 'ade/leftover' })
+    await service.recover({ primaryRoot: repo, path, branch: 'icode/leftover' })
     expect(existsSync(join(path, 'README.md'))).toBe(true)
   })
 
   it('refuses to recover over a non-empty unregistered directory', async () => {
     const { service, repo, baseOid, root } = makeRepo()
     const path = join(root, 'worktrees', 'r', 'junk')
-    await service.create({ primaryRoot: repo, path, branch: 'ade/junk', baseOid })
+    await service.create({ primaryRoot: repo, path, branch: 'icode/junk', baseOid })
     await service.remove({ primaryRoot: repo, path, force: false })
     mkdirSync(path, { recursive: true })
     writeFileSync(join(path, 'unknown.txt'), 'keep me\n')
 
-    await expect(service.recover({ primaryRoot: repo, path, branch: 'ade/junk' })).rejects.toSatisfy(
+    await expect(service.recover({ primaryRoot: repo, path, branch: 'icode/junk' })).rejects.toSatisfy(
       (error: unknown) => errCode(error) === 'WORKTREE_INCONSISTENT'
     )
     expect(existsSync(join(path, 'unknown.txt'))).toBe(true)

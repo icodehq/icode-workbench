@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import { createAdeApi } from './api'
+import { createIcodeApi } from './api'
 
-const api = createAdeApi(
+const api = createIcodeApi(
   (channel, input) => ipcRenderer.invoke(channel, input),
   (channel, listener) => {
     const handler = (_event: Electron.IpcRendererEvent, payload: unknown): void => listener(payload)
@@ -10,4 +10,4 @@ const api = createAdeApi(
   }
 )
 
-contextBridge.exposeInMainWorld('ade', api)
+contextBridge.exposeInMainWorld('icode', api)

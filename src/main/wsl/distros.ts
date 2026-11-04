@@ -31,7 +31,7 @@ const REGISTRATION_SUBKEY =
 /** `    DistributionName    REG_SZ    Ubuntu-26.04` — value names have no spaces. */
 const REGISTRY_VALUE_LINE = /^\s+([A-Za-z_][\w]*)\s+REG_\w+\s+(.*?)\s*$/
 
-/** Distros Docker Desktop owns: real registrations, but never an ADE target. */
+/** Distros Docker Desktop owns: real registrations, but never an iCode target. */
 const INTERNAL_DISTRO_PREFIXES = ['docker-desktop'] as const
 
 export type WslDistroRegistration = {
@@ -141,7 +141,7 @@ export function parseDistroNames(output: string): string[] {
 
 /**
  * `reg.exe` is addressed absolutely: a shadowing `reg.bat` on PATH would
- * otherwise receive a registry query from ADE.
+ * otherwise receive a registry query from iCode.
  */
 function resolveRegExecutable(env: NodeJS.ProcessEnv): string {
   const root = env.SystemRoot ?? env.SYSTEMROOT ?? 'C:\\Windows'

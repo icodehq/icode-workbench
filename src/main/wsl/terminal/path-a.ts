@@ -1,7 +1,7 @@
 /**
  * Path A: the local WSL terminal.
  *
- * Two WSL paths exist in ADE on purpose and must not collapse into one:
+ * Two WSL paths exist in iCode on purpose and must not collapse into one:
  *
  *   - **Path A (this module).** A terminal runs on the *desktop* PTY Host, whose
  *     child process is `wsl.exe`. The guest shell is inside that process, so
@@ -45,7 +45,7 @@ import {
 } from '../repository-target'
 
 /** Marks the shell this script execs, so a test can see which branch ran. */
-const SCRIPT_TAG = 'ade-wsl-terminal'
+const SCRIPT_TAG = 'icode-wsl-terminal'
 
 /**
  * Resolves the distro's login shell and replaces this process with it.
@@ -56,24 +56,24 @@ const SCRIPT_TAG = 'ade-wsl-terminal'
  * shell itself, so `exit` reaches the host with the shell's own status.
  */
 export const WSL_INTERACTIVE_LOGIN_SHELL_SCRIPT = [
-  `__ade_cwd="$1"`,
-  `cd "$__ade_cwd" || { printf '%s\\n' "ADE: cannot enter $__ade_cwd" >&2; exit 1; }`,
+  `__icode_cwd="$1"`,
+  `cd "$__icode_cwd" || { printf '%s\\n' "iCode: cannot enter $__icode_cwd" >&2; exit 1; }`,
   // Orca prepends this so a user-local install is reachable from the pane.
   'export PATH="$HOME/.local/bin:$PATH"',
-  '__ade_shell=$(getent passwd "$(id -un)" 2>/dev/null | cut -d: -f7)',
-  'if [ -z "$__ade_shell" ] || [ ! -x "$__ade_shell" ]; then',
-  '  __ade_shell="${SHELL:-/bin/bash}"',
+  '__icode_shell=$(getent passwd "$(id -un)" 2>/dev/null | cut -d: -f7)',
+  'if [ -z "$__icode_shell" ] || [ ! -x "$__icode_shell" ]; then',
+  '  __icode_shell="${SHELL:-/bin/bash}"',
   'fi',
-  'if [ -z "$__ade_shell" ] || [ ! -x "$__ade_shell" ]; then',
-  '  __ade_shell=/bin/sh',
+  'if [ -z "$__icode_shell" ] || [ ! -x "$__icode_shell" ]; then',
+  '  __icode_shell=/bin/sh',
   'fi',
-  '__ade_name=$(basename "$__ade_shell" | tr "[:upper:]" "[:lower:]")',
-  'case "$__ade_name" in',
+  '__icode_name=$(basename "$__icode_shell" | tr "[:upper:]" "[:lower:]")',
+  'case "$__icode_name" in',
   // bash/zsh/ksh read their PATH additions from interactive rc files.
-  '  bash|zsh|ksh|mksh|ash) exec "$__ade_shell" -il ;;',
+  '  bash|zsh|ksh|mksh|ash) exec "$__icode_shell" -il ;;',
   // fish has no `-i` with `-l` combination in the same way; `-l` is its login mode.
-  '  fish) exec "$__ade_shell" -l ;;',
-  '  sh|dash) exec "$__ade_shell" -l ;;',
+  '  fish) exec "$__icode_shell" -l ;;',
+  '  sh|dash) exec "$__icode_shell" -l ;;',
   '  *) exec /bin/sh -l ;;',
   'esac'
 ].join('\n')
@@ -237,7 +237,7 @@ function defaultGuestIsDirectory(
     const result = await runIdempotentGuest(runner, {
       scope: 'guest',
       distro,
-      argv: ['sh', '-c', 'test -d "$1"', 'ade-path-a', path],
+      argv: ['sh', '-c', 'test -d "$1"', 'icode-path-a', path],
       timeoutMs: 10_000
     })
     if ('status' in result) return null

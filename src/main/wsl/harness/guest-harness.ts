@@ -26,7 +26,7 @@ import { quoteForShell } from '../git/guest-git'
 import { PROBE_TIMEOUT_MS, type ProbeResult } from '../../harness/harness-detector'
 
 /** Marks the resolved path so a shell banner cannot be mistaken for it. */
-export const AGENT_PATH_PREFIX = '__ADE_AGENT_PATH__'
+export const AGENT_PATH_PREFIX = '__ICODE_AGENT_PATH__'
 
 const LOOKUP_TIMEOUT_MS = 10_000
 /** Shells whose startup files a package-manager install commonly relies on. */
@@ -48,19 +48,19 @@ const SUPPORTED_SHELLS = new Set(['bash', 'zsh', 'fish', 'sh', 'dash'])
  * on this machine, where `command -v claude` answers with a Windows shim.
  */
 export const GUEST_PATH_LOOKUP_BATCH_SCRIPT = [
-  '__ade_old_ifs=$IFS',
-  'for __ade_name in "$@"; do',
-  '  __ade_found=""',
+  '__icode_old_ifs=$IFS',
+  'for __icode_name in "$@"; do',
+  '  __icode_found=""',
   '  IFS=:',
-  '  for __ade_dir in $PATH; do',
-  '    case "$__ade_dir" in /mnt/*|/mnt) continue ;; esac',
-  '    if [ -f "$__ade_dir/$__ade_name" ] && [ -x "$__ade_dir/$__ade_name" ]; then',
-  '      __ade_found="$__ade_dir/$__ade_name"',
+  '  for __icode_dir in $PATH; do',
+  '    case "$__icode_dir" in /mnt/*|/mnt) continue ;; esac',
+  '    if [ -f "$__icode_dir/$__icode_name" ] && [ -x "$__icode_dir/$__icode_name" ]; then',
+  '      __icode_found="$__icode_dir/$__icode_name"',
   '      break',
   '    fi',
   '  done',
-  '  IFS=$__ade_old_ifs',
-  `  if [ -n "$__ade_found" ]; then printf '${AGENT_PATH_PREFIX}%s=%s\\n' "$__ade_name" "$__ade_found"; fi`,
+  '  IFS=$__icode_old_ifs',
+  `  if [ -n "$__icode_found" ]; then printf '${AGENT_PATH_PREFIX}%s=%s\\n' "$__icode_name" "$__icode_found"; fi`,
   'done'
 ].join('\n')
 
@@ -126,7 +126,7 @@ async function runShell(
       shell,
       mode,
       script,
-      'ade-lookup',
+      'icode-lookup',
       ...(argument === null ? [] : [argument])
     ],
     timeoutMs: LOOKUP_TIMEOUT_MS,
@@ -189,7 +189,7 @@ async function runShellBatch(
   const result = await deps.runner.runBytes({
     scope: 'guest',
     distro: deps.distro,
-    argv: [shell, mode, GUEST_PATH_LOOKUP_BATCH_SCRIPT, 'ade-lookup', ...names],
+    argv: [shell, mode, GUEST_PATH_LOOKUP_BATCH_SCRIPT, 'icode-lookup', ...names],
     timeoutMs: LOOKUP_TIMEOUT_MS,
     ...(deps.signal ? { signal: deps.signal } : {})
   })

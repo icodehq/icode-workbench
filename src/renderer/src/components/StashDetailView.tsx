@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Loader2, X } from 'lucide-react'
-import type { GitStashDiffPayload, GitStashEntry } from '../../../shared/ade-api'
+import type { GitStashDiffPayload, GitStashEntry } from '../../../shared/icode-api'
 import type { ReviewDiffPayload } from '../../../shared/schemas/review'
 import { callApi } from '../lib/api'
 import { splitStashPatch, type StashPatchFile } from '../review/stash-patch'
@@ -44,7 +44,7 @@ export default function StashDetailView({
     setSelected(0)
     void (async (): Promise<void> => {
       const result = await callApi<GitStashDiffPayload>(
-        window.ade.git.stashDiff({ sessionId, index: stash.index })
+        window.icode.git.stashDiff({ sessionId, index: stash.index })
       )
       if (cancelled) return
       if (!result.ok) {

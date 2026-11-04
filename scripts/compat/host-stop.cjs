@@ -4,8 +4,8 @@ const fs = require('node:fs')
 const path = require('node:path')
 const { HostClient } = require('./lib/host-client.cjs')
 
-const artifacts = process.env.ADE_GATE_ARTIFACTS
-  ? path.resolve(process.env.ADE_GATE_ARTIFACTS)
+const artifacts = process.env.ICODE_GATE_ARTIFACTS
+  ? path.resolve(process.env.ICODE_GATE_ARTIFACTS)
   : path.resolve('artifacts/work1')
 const startPath = path.join(artifacts, 'host-start.json')
 const evidencePath = path.join(artifacts, 'host-stop.json')
@@ -39,7 +39,7 @@ async function main() {
   await client.request('shutdown')
   client.close()
   writeEvidence({ ok: true, hostPid: session.hostPid, stopped: true })
-  process.stdout.write(`ADE_GATE_HOST_STOPPED ${session.hostPid}\n`)
+  process.stdout.write(`ICODE_GATE_HOST_STOPPED ${session.hostPid}\n`)
 }
 
 main().catch((error) => {
