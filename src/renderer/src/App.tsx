@@ -21,6 +21,7 @@ import SessionWorkspace from './components/SessionWorkspace'
 import SettingsView from './components/SettingsView'
 import StatusBar from './components/StatusBar'
 import WorktreeCleanupDialog from './components/WorktreeCleanupDialog'
+import AppLayout from './layouts/AppLayout'
 import { taskAttention, taskAttentionCounts } from './components/task-status'
 import { useWorkspace } from './state/use-workspace'
 import { useTaskQueue } from './state/use-task-queue'
@@ -896,11 +897,9 @@ export default function App(): React.JSX.Element {
             : 'Settings'
 
   return (
-    <div
-      className="flex h-screen flex-col overflow-hidden bg-background text-foreground"
-      data-terminal-focus={focusActive ? 'true' : 'false'}
-    >
-      {!focusActive ? (
+    <AppLayout
+      focusActive={focusActive}
+      topBar={
         <GlobalTopBar
           needsTasks={needsTasks}
           hostUnreachable={hostUnreachable}
@@ -923,49 +922,25 @@ export default function App(): React.JSX.Element {
           resolvedTheme={theme.resolved}
           onSetTheme={theme.setPreference}
         />
-      ) : null}
-
-      <div className="flex min-h-0 flex-1 flex-col min-[900px]:flex-row">
-        {!focusActive ? (
-          <AppRail
-            surface={displaySurface}
-            onProjects={() => {
-              clearProjectView()
-              setSurface('projects')
-            }}
-            onSchedules={() => {
-              clearProjectView()
-              setSurface('schedules')
-            }}
-            onSettings={() => {
-              clearProjectView()
-              setSurface('settings')
-            }}
-          />
-        ) : null}
-        <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-          {!focusActive &&
-          (displaySurface === 'sessions' || displaySurface === 'tasks') &&
-          repo !== null ? (
-            <ProjectHeader
-              repos={state.repos}
-              repo={repo}
-              mode={displaySurface === 'tasks' ? 'tasks' : 'sessions'}
-              stats={projectStats}
-              onBack={() => {
-                clearProjectView()
-                setSurface('projects')
-              }}
-              onSwitch={switchProject}
-              onMode={changeMode}
-              onRetryPreparation={(repoId) => void workspace.retryPreparation(repoId)}
-            />
-          ) : null}
-          {renderContent()}
-        </main>
-      </div>
-
-      {!focusActive ? (
+      }
+      rail={
+        <AppRail
+          surface={displaySurface}
+          onProjects={() => {
+            clearProjectView()
+            setSurface('projects')
+          }}
+          onSchedules={() => {
+            clearProjectView()
+            setSurface('schedules')
+          }}
+          onSettings={() => {
+            clearProjectView()
+            setSurface('settings')
+          }}
+        />
+      }
+      statusBar={
         <StatusBar
           state={state}
           tasks={tasks.tasks}
@@ -981,131 +956,155 @@ export default function App(): React.JSX.Element {
             setViewRequest({ view: 'changes', nonce: Date.now() })
           }
         />
-      ) : null}
+      }
+      overlays={
+        <>
+          <NotificationsDrawer
+            open={notificationsOpen}
+            needsTasks={needsTasks}
+            activity={activityEntries}
+            markingRead={markingActivity}
+            onClose={() => setNotificationsOpen(false)}
+            onOpenTask={openTask}
+            onOpenSession={openDirectSession}
+            onMarkRead={() => void markActivityRead()}
+          />
 
-      <NotificationsDrawer
-        open={notificationsOpen}
-        needsTasks={needsTasks}
-        activity={activityEntries}
-        markingRead={markingActivity}
-        onClose={() => setNotificationsOpen(false)}
-        onOpenTask={openTask}
-        onOpenSession={openDirectSession}
-        onMarkRead={() => void markActivityRead()}
-      />
+          <CommandPalette
+            open={paletteOpen}
+            repos={state.repos}
+            sessions={state.sessions}
+            tasks={tasks.tasks}
+            fileSession={quickOpenSession}
+            canStartSession={!hostUnreachable}
+            resolvedTheme={theme.resolved}
+            notify={workspace.notify}
+            onClose={() => setPaletteOpen(false)}
+            onNewSession={openNewSession}
+            onQueueTask={openQueueTask}
+            onProjects={() => {
+              clearProjectView()
+              setSurface('projects')
+            }}
+            onSchedules={() => {
+              clearProjectView()
+              setSurface('schedules')
+            }}
+            onRepositories={() => {
+              clearProjectView()
+              setSurface('repositories')
+            }}
+            onSettings={() => {
+              clearProjectView()
+              setSurface('settings')
+            }}
+            onSourceControl={() =>
+              setViewRequest({ view: 'changes', nonce: Date.now() })
+            }
+            onToggleTheme={() =>
+              theme.setPreference(theme.resolved === 'dark' ? 'light' : 'dark')
+            }
+            onOpenProject={openProject}
+            onOpenSession={openDirectSession}
+            onOpenTask={openTask}
+            onOpenFile={openFileFromPalette}
+          />
 
-      <CommandPalette
-        open={paletteOpen}
-        repos={state.repos}
-        sessions={state.sessions}
-        tasks={tasks.tasks}
-        fileSession={quickOpenSession}
-        canStartSession={!hostUnreachable}
-        resolvedTheme={theme.resolved}
-        notify={workspace.notify}
-        onClose={() => setPaletteOpen(false)}
-        onNewSession={openNewSession}
-        onQueueTask={openQueueTask}
-        onProjects={() => {
-          clearProjectView()
-          setSurface('projects')
-        }}
-        onSchedules={() => {
-          clearProjectView()
-          setSurface('schedules')
-        }}
-        onRepositories={() => {
-          clearProjectView()
-          setSurface('repositories')
-        }}
-        onSettings={() => {
-          clearProjectView()
-          setSurface('settings')
-        }}
-        onSourceControl={() =>
-          setViewRequest({ view: 'changes', nonce: Date.now() })
-        }
-        onToggleTheme={() => theme.setPreference(theme.resolved === 'dark' ? 'light' : 'dark')}
-        onOpenProject={openProject}
-        onOpenSession={openDirectSession}
-        onOpenTask={openTask}
-        onOpenFile={openFileFromPalette}
-      />
+          {quickOpenSession !== null ? (
+            <QuickOpen
+              open={quickOpenOpen}
+              sessionId={quickOpenSession.id}
+              notify={workspace.notify}
+              onClose={() => setQuickOpenOpen(false)}
+              onOpen={(path, line) => {
+                openFileFromPalette(path, line)
+                setQuickOpenOpen(false)
+              }}
+            />
+          ) : null}
 
-      {quickOpenSession !== null ? (
-        <QuickOpen
-          open={quickOpenOpen}
-          sessionId={quickOpenSession.id}
-          notify={workspace.notify}
-          onClose={() => setQuickOpenOpen(false)}
-          onOpen={(path, line) => {
-            openFileFromPalette(path, line)
-            setQuickOpenOpen(false)
-          }}
-        />
-      ) : null}
+          {addOpen ? (
+            <AddRepositoryDialog
+              onClose={() => setAddOpen(false)}
+              onSubmit={addRepository}
+              onInitialize={initializeRepository}
+            />
+          ) : null}
 
-      {addOpen ? (
-        <AddRepositoryDialog
-          onClose={() => setAddOpen(false)}
-          onSubmit={addRepository}
-          onInitialize={initializeRepository}
-        />
-      ) : null}
+          {newSessionOpen ? (
+            <NewSessionDialog
+              repos={state.repos}
+              activeRepoId={state.activeRepoId}
+              harnesses={state.harnesses}
+              harnessLoading={state.harnessLoading}
+              harnessError={state.harnessError}
+              creating={workspace.creating}
+              onClose={() => setNewSessionOpen(false)}
+              onCreate={createSession}
+              onRefreshHarnesses={workspace.refreshHarnesses}
+            />
+          ) : null}
 
-      {newSessionOpen ? (
-        <NewSessionDialog
+          {state.removal ? (
+            <RemovalDialog
+              prompt={state.removal}
+              busy={removalBusy}
+              onCancel={workspace.dismissRemoval}
+              onConfirm={() => void confirmRemoval()}
+            />
+          ) : null}
+
+          {state.sessionCleanup ? (
+            <WorktreeCleanupDialog
+              prompt={state.sessionCleanup}
+              busy={cleanupBusy}
+              onClose={workspace.dismissSessionCleanup}
+              onRecover={() => void workspace.recoverWorktree(state.sessionCleanup!.sessionId)}
+              onDiscard={async (confirmBranch) => {
+                setCleanupBusy(true)
+                const removed = await workspace.discardSession(
+                  state.sessionCleanup!.sessionId,
+                  confirmBranch
+                )
+                setCleanupBusy(false)
+                return removed
+              }}
+            />
+          ) : null}
+
+          {state.branchCleanup ? (
+            <BranchCleanupDialog
+              prompt={state.branchCleanup}
+              busy={cleanupBusy}
+              onClose={workspace.dismissBranchCleanup}
+              onConfirm={async (confirmBranch) => {
+                setCleanupBusy(true)
+                await workspace.requestRemoveBranch(state.branchCleanup!.branch, confirmBranch)
+                setCleanupBusy(false)
+              }}
+            />
+          ) : null}
+        </>
+      }
+    >
+      {!focusActive &&
+      (displaySurface === 'sessions' || displaySurface === 'tasks') &&
+      repo !== null ? (
+        <ProjectHeader
           repos={state.repos}
-          activeRepoId={state.activeRepoId}
-          harnesses={state.harnesses}
-          harnessLoading={state.harnessLoading}
-          harnessError={state.harnessError}
-          creating={workspace.creating}
-          onClose={() => setNewSessionOpen(false)}
-          onCreate={createSession}
-          onRefreshHarnesses={workspace.refreshHarnesses}
-        />
-      ) : null}
-
-      {state.removal ? (
-        <RemovalDialog
-          prompt={state.removal}
-          busy={removalBusy}
-          onCancel={workspace.dismissRemoval}
-          onConfirm={() => void confirmRemoval()}
-        />
-      ) : null}
-
-      {state.sessionCleanup ? (
-        <WorktreeCleanupDialog
-          prompt={state.sessionCleanup}
-          busy={cleanupBusy}
-          onClose={workspace.dismissSessionCleanup}
-          onRecover={() => void workspace.recoverWorktree(state.sessionCleanup!.sessionId)}
-          onDiscard={async (confirmBranch) => {
-            setCleanupBusy(true)
-            const removed = await workspace.discardSession(
-              state.sessionCleanup!.sessionId,
-              confirmBranch
-            )
-            setCleanupBusy(false)
-            return removed
+          repo={repo}
+          mode={displaySurface === 'tasks' ? 'tasks' : 'sessions'}
+          stats={projectStats}
+          onBack={() => {
+            clearProjectView()
+            setSurface('projects')
           }}
+          onSwitch={switchProject}
+          onMode={changeMode}
+          onRetryPreparation={(repoId) => void workspace.retryPreparation(repoId)}
         />
       ) : null}
-
-      {state.branchCleanup ? (
-        <BranchCleanupDialog
-          prompt={state.branchCleanup}
-          busy={cleanupBusy}
-          onClose={workspace.dismissBranchCleanup}
-          onConfirm={async (confirmBranch) => {
-            setCleanupBusy(true)
-            await workspace.requestRemoveBranch(state.branchCleanup!.branch, confirmBranch)
-            setCleanupBusy(false)
-          }}
-        />
-      ) : null}
-    </div>
+      {renderContent()}
+    </AppLayout>
   )
 }
