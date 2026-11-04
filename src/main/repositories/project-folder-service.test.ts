@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { newRepoId } from '../../shared/domain/ids'
+import { samePathResolved } from '../worktrees/worktree-status'
 import { toCanonicalRepositoryPath } from '../../shared/domain/paths'
 import type {
   ExecutionTarget,
@@ -191,7 +192,9 @@ describe('project folder inspection', () => {
     const inspection = await service.inspect({ path: root, target: LOCAL })
     expect(inspection.kind).toBe('parent')
     expect(inspection.canInitialize).toBe(false)
-    expect(inspection.repositories).toEqual([{ path: child, displayName: 'child' }])
+    expect(inspection.repositories).toHaveLength(1)
+    expect(inspection.repositories[0]!.displayName).toBe('child')
+    expect(samePathResolved(inspection.repositories[0]!.path, child)).toBe(true)
   })
 
   it('recognizes an unborn repository separately from a plain folder', async () => {
@@ -215,7 +218,7 @@ describe('project folder inspection', () => {
     const inspection = await service.inspect({ path: nested, target: LOCAL })
     expect(inspection.kind).toBe('repository')
     expect(inspection.hasCommit).toBe(true)
-    expect(inspection.root).toBe(root)
+    expect(samePathResolved(inspection.root!, root)).toBe(true)
   })
 
   it('refuses to initialize a home directory', async () => {
@@ -303,7 +306,9 @@ describe('project folder initialization', () => {
     expect(outcome.repository.preparation?.state).toBe('preparing')
     // The expensive Git work is owned by the preparation service.
     expect(() => git(root, 'rev-parse', '--verify', 'HEAD')).toThrow()
-    expect(added).toEqual([{ path: root, target: LOCAL }])
+    expect(added).toHaveLength(1)
+    expect(added[0]!.target).toEqual(LOCAL)
+    expect(samePathResolved(added[0]!.path, root)).toBe(true)
     expect(started).toHaveLength(1)
   })
 

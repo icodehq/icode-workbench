@@ -1,6 +1,7 @@
 import type { RepositoryStore } from '../persistence/repository-store'
 import type { WorktreeStore } from '../persistence/worktree-store'
 import type { GitWorktreeService } from '../worktrees/git-worktree-service'
+import { samePathResolved } from '../worktrees/worktree-status'
 import {
   parseAheadBehind,
   type GitCommitDetail,
@@ -439,22 +440,16 @@ export class GitWorkspaceService {
     const { git, repositoryPath, repoId, worktreePath } = resolved
     try {
       const output = await git(worktreePath, ['worktree', 'list', '--porcelain'])
-      const sessions = new Map(
-        this.deps.worktrees.listByRepo(repoId).map((record) => [
-          normalizeWorktreePath(record.path),
-          record.sessionId
-        ])
-      )
-      const primary = normalizeWorktreePath(repositoryPath)
+      const records = this.deps.worktrees.listByRepo(repoId)
       return {
         status: 'ok',
         worktrees: parseWorktreeList(output).map((entry) => {
-          const owner = sessions.get(normalizeWorktreePath(entry.path)) ?? null
+          const owner = records.find((record) => samePathResolved(record.path, entry.path))
           return {
             ...entry,
-            sessionId: owner,
-            active: owner !== null,
-            primary: normalizeWorktreePath(entry.path) === primary
+            sessionId: owner?.sessionId ?? null,
+            active: owner !== undefined,
+            primary: samePathResolved(entry.path, repositoryPath)
           }
         })
       }
@@ -500,9 +495,7 @@ export class GitWorkspaceService {
     }
     const listing = await this.worktreeList(sessionId)
     if (listing.status !== 'ok') return listing
-    const entry = listing.worktrees.find(
-      (candidate) => normalizeWorktreePath(candidate.path) === normalizeWorktreePath(path)
-    )
+    const entry = listing.worktrees.find((candidate) => samePathResolved(candidate.path, path))
     if (entry === undefined) {
       return {
         status: 'unavailable',
@@ -3484,10 +3477,6 @@ export class GitWorkspaceService {
  * over-identifying a session checkout can only make a lock/remove refuse, never
  * delete a live session's worktree.
  */
-function normalizeWorktreePath(path: string): string {
-  return path.trim().replace(/\\/gu, '/').replace(/\/+$/u, '').toLowerCase()
-}
-
 /**
  * Accepts exactly one plain-file patch whose paths match the selected file.
  *

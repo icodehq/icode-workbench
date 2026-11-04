@@ -4,6 +4,7 @@ import { mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { makeRepositoryService, makeTempRoot, openTempDatabase } from '../persistence/persistence-test-fixtures'
+import { samePathResolved } from '../worktrees/worktree-status'
 import { resolveRepositoryRoot } from './repository-path'
 import type { TempRoot } from '../persistence/persistence-test-fixtures'
 import { newRepoId, newSessionId, newWorkspaceId } from '../../shared/domain/ids'
@@ -68,7 +69,7 @@ describe('repository registration', () => {
 
     const result = await h.service.addRepository(repoPath)
     expect(result.created).toBe(true)
-    expect(result.repository.path).toBe(real)
+    expect(samePathResolved(result.repository.path, real)).toBe(true)
     expect(result.repository.displayName).toBe('atlas')
     expect(result.repository.currentBranch).toBe('main')
     expect(result.repository.availability).toBe('present')
@@ -77,7 +78,7 @@ describe('repository registration', () => {
     expect(listed).toHaveLength(1)
     expect(listed[0]!.workspace.repoId).toBe(result.repository.id)
     expect(listed[0]!.workspace.kind).toBe('primary-checkout')
-    expect(listed[0]!.workspace.path).toBe(real)
+    expect(samePathResolved(listed[0]!.workspace.path, real)).toBe(true)
 
     const detail = h.service.getRepository(result.repository.id)
     expect(detail?.workspace.id).toBe(listed[0]!.workspace.id)
@@ -91,7 +92,7 @@ describe('repository registration', () => {
 
     const first = await h.service.addInitializedRepository(repoPath)
     expect(first.created).toBe(true)
-    expect(first.repository.path).toBe(real)
+    expect(samePathResolved(first.repository.path, real)).toBe(true)
     expect(first.repository.currentBranch).toBeNull()
     expect(first.repository.gitCommonDir).toBe(join(real, '.git'))
     expect(h.service.getRepository(first.repository.id)?.workspace.repoId).toBe(

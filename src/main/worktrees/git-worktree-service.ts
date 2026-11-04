@@ -74,6 +74,12 @@ export type GitWorktreeServiceDeps = {
 type WorktreeContext = {
   target: ExecutionTarget
   worktreeRoot: string
+  /**
+   * The filesystem semantics of the paths in this context: the controller's
+   * platform for a local target, POSIX for a WSL target even when the
+   * controller is Windows.
+   */
+  comparisonPlatform: NodeJS.Platform
   git(cwd: string, args: string[], timeoutMs: number): Promise<string>
   isDirectory(path: string): Promise<boolean>
   ensureParentDirectory(path: string): Promise<void>
@@ -130,6 +136,8 @@ export class GitWorktreeService {
     return {
       target: target.kind === 'local' || !this.deps.router ? LOCAL_TARGET : target,
       worktreeRoot: resolved.worktreeRoot,
+      comparisonPlatform:
+        target.kind === 'local' || !this.deps.router ? process.platform : 'linux',
       git: (cwd, args, timeoutMs) => this.trimmed(resolved.executor, cwd, args, timeoutMs),
       isDirectory: resolved.fs.isDirectory,
       ensureParentDirectory: resolved.fs.ensureParentDirectory,
@@ -421,7 +429,7 @@ export class GitWorktreeService {
     await this.runExclusive(`${this.queueKey(ctx)}${input.primaryRoot}`, async () => {
       if (await ctx.isDirectory(input.path)) {
         const registered = await this.listWorktrees(input.primaryRoot, ctx.target).catch(() => [])
-        if (registered.some((entry) => samePathResolved(entry.path, input.path))) {
+        if (registered.some((entry) => samePathResolved(entry.path, input.path, ctx.comparisonPlatform))) {
           throw new SessionServiceError(
             makeAppError('WORKTREE_INCONSISTENT', 'The worktree already exists; nothing to recover.', {
               detail: input.path
@@ -489,7 +497,9 @@ export class GitWorktreeService {
     const ctx = await this.contextFor(input.target)
     const pathExists = await ctx.isDirectory(input.path)
     const registeredWorktrees = await this.listWorktrees(input.primaryRoot, ctx.target).catch(() => [])
-    const registered = registeredWorktrees.some((entry) => samePathResolved(entry.path, input.path))
+    const registered = registeredWorktrees.some((entry) =>
+      samePathResolved(entry.path, input.path, ctx.comparisonPlatform)
+    )
     if (!pathExists) {
       return { pathExists, registered, headOid: null, dirtyFiles: [], unmergedCommits: null }
     }
@@ -590,7 +600,13 @@ export class GitWorktreeService {
   ): Promise<RegisteredWorktree[]> {
     const ctx = await this.contextFor(target)
     const output = await ctx.git(primaryRoot, ['worktree', 'list', '--porcelain'], READ_TIMEOUT_MS)
-    return parseWorktreeList(output)
+    const entries = parseWorktreeList(output)
+    // Git prints forward slashes on Windows. Return the controller's spelling
+    // for local worktrees; guest paths are always POSIX.
+    if (process.platform === 'win32' && ctx.target.kind === 'local') {
+      for (const entry of entries) entry.path = win32.normalize(entry.path)
+    }
+    return entries
   }
 
   private async assertMatches(
@@ -604,7 +620,7 @@ export class GitWorktreeService {
   ): Promise<void> {
     const git = ctx.git
     const topLevel = await git(input.path, ['rev-parse', '--show-toplevel'], READ_TIMEOUT_MS)
-    if (!samePathResolved(topLevel, input.path)) {
+    if (!samePathResolved(topLevel, input.path, ctx.comparisonPlatform)) {
       throw new SessionServiceError(
         makeAppError('WORKTREE_INCONSISTENT', 'The created worktree does not resolve to its recorded path.', {
           detail: topLevel
@@ -620,7 +636,7 @@ export class GitWorktreeService {
       )
     }
     const registered = await this.listWorktrees(input.registerRoot, ctx.target).catch(() => [])
-    if (!registered.some((entry) => samePathResolved(entry.path, input.path))) {
+    if (!registered.some((entry) => samePathResolved(entry.path, input.path, ctx.comparisonPlatform))) {
       throw new SessionServiceError(
         makeAppError('WORKTREE_INCONSISTENT', 'Git did not register the created worktree.', {
           detail: input.path
@@ -666,8 +682,17 @@ export class GitWorktreeService {
 
   private resolveGitPath(cwd: string, value: string): string {
     const trimmed = value.trim()
-    if (trimmed.startsWith('/')) return trimmed
-    return `${cwd.replace(/\/+$/u, '')}/${trimmed}`
+    // Absolute POSIX guest path, Windows drive path, or UNC path.
+    if (
+      trimmed.startsWith('/') ||
+      /^[A-Za-z]:[\\/]/u.test(trimmed) ||
+      trimmed.startsWith('\\\\')
+    ) {
+      return trimmed
+    }
+    return isWindowsStylePath(cwd)
+      ? win32.join(cwd, trimmed)
+      : `${cwd.replace(/\/+$/u, '')}/${trimmed}`
   }
 
   /**

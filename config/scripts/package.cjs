@@ -103,6 +103,11 @@ function main(argv) {
   const args = [electronBuilderCli(), '--config', CONFIGS[platform], `--${platform}`]
   if (platform === 'win' && !hasArch) args.push('--x64')
   if (dirOnly) args.push('--dir')
+  // CI detection makes electron-builder publish implicitly, which fails without
+  // GH_TOKEN. Release publishing is a separate workflow step.
+  if (!passthrough.some((arg) => arg === '--publish' || arg.startsWith('--publish='))) {
+    args.push('--publish', 'never')
+  }
   args.push(...passthrough)
 
   run(process.execPath, args)

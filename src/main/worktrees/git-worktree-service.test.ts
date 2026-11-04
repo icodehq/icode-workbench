@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { GitWorktreeService } from './git-worktree-service'
+import { samePathResolved } from './worktree-status'
 import { SessionServiceError } from '../sessions/session-errors'
 
 const roots: string[] = []
@@ -93,8 +94,8 @@ describe('creating isolated worktrees', () => {
     await service.create({ primaryRoot: repo, path, branch: 'icode/ses_one', baseOid })
 
     const registered = await service.listWorktrees(repo)
-    expect(registered.map((entry) => entry.path)).toContain(path)
-    expect(registered.find((entry) => entry.path === path)?.branch).toBe('icode/ses_one')
+    expect(registered.some((entry) => samePathResolved(entry.path, path))).toBe(true)
+    expect(registered.find((entry) => samePathResolved(entry.path, path))?.branch).toBe('icode/ses_one')
     expect(git(path, 'rev-parse', 'HEAD')).toBe(baseOid)
     const inspection = await service.inspect({ primaryRoot: repo, path, branch: 'icode/ses_one' })
     expect(inspection).toMatchObject({ pathExists: true, registered: true, dirtyFiles: [] })
@@ -123,7 +124,7 @@ describe('creating isolated worktrees', () => {
     ])
     const registered = await service.listWorktrees(repo)
     for (const path of paths) {
-      expect(registered.some((entry) => entry.path === path)).toBe(true)
+      expect(registered.some((entry) => samePathResolved(entry.path, path))).toBe(true)
     }
   })
 
@@ -190,7 +191,9 @@ describe('removal protection', () => {
     await service.create({ primaryRoot: repo, path, branch: 'icode/s', baseOid })
     rmSync(path, { recursive: true, force: true })
     // Git still has stale registration for the removed directory.
-    expect((await service.listWorktrees(repo)).some((entry) => entry.path === path)).toBe(true)
+    expect(
+      (await service.listWorktrees(repo)).some((entry) => samePathResolved(entry.path, path))
+    ).toBe(true)
 
     await service.recover({ primaryRoot: repo, path, branch: 'icode/s' })
     expect(existsSync(join(path, 'README.md'))).toBe(true)

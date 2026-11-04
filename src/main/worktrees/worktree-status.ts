@@ -96,10 +96,24 @@ export function samePathResolved(
   right: string,
   platform: NodeJS.Platform = process.platform
 ): boolean {
+  // File identity is the strongest comparison: it treats Windows 8.3 short
+  // names, drive-letter case, separators, and symlinks as the same object. It
+  // also avoids relying on realpath spelling, which differs between the JS and
+  // native resolvers. Non-existent paths fall back to normalized spelling.
+  const identity = (value: string): string | null => {
+    try {
+      const stats = statSync(value)
+      return stats.ino === 0 ? null : `${String(stats.dev)}:${String(stats.ino)}`
+    } catch {
+      return null
+    }
+  }
+  const leftIdentity = identity(left)
+  const rightIdentity = identity(right)
+  if (leftIdentity !== null && rightIdentity !== null) return leftIdentity === rightIdentity
+
   const resolve = (value: string): string => {
     try {
-      // The native resolver expands Windows 8.3 short names (RUNNER~1), so a
-      // Git-reported short path and a Node-composed long path compare equal.
       return realpathSync.native(value)
     } catch {
       return value

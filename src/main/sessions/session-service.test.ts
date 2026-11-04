@@ -10,6 +10,7 @@ import { buildWslTerminalArgs } from '../wsl/terminal/path-a'
 import { makeAppError } from '../../shared/domain/errors'
 import { WorktreeStore } from '../persistence/worktree-store'
 import { GitWorktreeService } from '../worktrees/git-worktree-service'
+import { samePathResolved } from '../worktrees/worktree-status'
 import { rmSync as rmTree, writeFileSync } from 'node:fs'
 import { newSessionId } from '../../shared/domain/ids'
 import type { TempRoot } from '../persistence/persistence-test-fixtures'
@@ -619,14 +620,13 @@ describe('worktree isolation', () => {
     expect(first.worktree!.path).not.toBe(second.worktree!.path)
     expect(first.worktree!.branch).not.toBe(second.worktree!.branch)
     expect(first.worktree!.status).toBe('active')
-    expect(f.host.sessions.get(first.id)!.info.cwd).toBe(first.worktree!.path)
-    expect(f.host.sessions.get(second.id)!.info.cwd).toBe(second.worktree!.path)
+    expect(samePathResolved(f.host.sessions.get(first.id)!.info.cwd, first.worktree!.path)).toBe(true)
+    expect(samePathResolved(f.host.sessions.get(second.id)!.info.cwd, second.worktree!.path)).toBe(true)
 
     const registered = await f.gitWorktrees.listWorktrees(f.repoPath)
     const paths = registered.map((entry) => entry.path)
-    expect(paths).toEqual(
-      expect.arrayContaining([first.worktree!.path, second.worktree!.path])
-    )
+    expect(paths.some((candidate) => samePathResolved(candidate, first.worktree!.path))).toBe(true)
+    expect(paths.some((candidate) => samePathResolved(candidate, second.worktree!.path))).toBe(true)
   })
 
   it('refuses a repository without a baseline commit', async () => {
@@ -650,10 +650,10 @@ describe('worktree isolation', () => {
     const created = await f.service.create(createInput(f))
     const restarted = await f.service.restart(created.id)
 
-    expect(restarted.worktree!.path).toBe(created.worktree!.path)
+    expect(samePathResolved(restarted.worktree!.path, created.worktree!.path)).toBe(true)
     expect(restarted.worktree!.branch).toBe(created.worktree!.branch)
     expect(restarted.incarnationId).not.toBe(created.incarnationId)
-    expect(f.host.sessions.get(created.id)!.info.cwd).toBe(created.worktree!.path)
+    expect(samePathResolved(f.host.sessions.get(created.id)!.info.cwd, created.worktree!.path)).toBe(true)
   })
 
   it('sleeps durably and wakes with the harness resume command', async () => {
@@ -733,7 +733,7 @@ describe('worktree isolation', () => {
 
     const restarted = await f.service.restart(legacyId)
     expect(restarted.worktree).toBeNull()
-    expect(f.host.sessions.get(legacyId)!.info.cwd).toBe(f.repoPath)
+    expect(samePathResolved(f.host.sessions.get(legacyId)!.info.cwd, f.repoPath)).toBe(true)
     expect(f.worktrees.findBySession(legacyId)).toBeNull()
   })
 
