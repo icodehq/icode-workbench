@@ -4,10 +4,8 @@ import {
   ArrowUpRight,
   CheckCircle2,
   ChevronRight,
-  FolderGit2,
   LayoutGrid,
   Pin,
-  Plus,
   RotateCcw,
   Search,
   Settings
@@ -40,7 +38,6 @@ type Props = {
   onOpenProject: (repoId: string, mode?: ProjectMode) => void
   onOpenTask: (task: TaskRecordPayload) => void
   onManageRepositories: () => void
-  onAddRepository: () => void
   onRetryPreparation: (repoId: string) => void
 }
 
@@ -277,7 +274,6 @@ export default function ProjectsWall({
   onOpenProject,
   onOpenTask,
   onManageRepositories,
-  onAddRepository,
   onRetryPreparation
 }: Props): React.JSX.Element {
   const [query, setQuery] = useState('')
@@ -333,32 +329,6 @@ export default function ProjectsWall({
     window.requestAnimationFrame(() => {
       directoryRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' })
     })
-  }
-
-  if (repos.length === 0) {
-    return (
-      <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto p-8" data-testid="projects-wall-empty">
-        <div className="w-full max-w-md rounded-lg border border-border bg-card p-6">
-          <div className="flex items-center gap-2.5">
-            <FolderGit2 size={15} className="text-muted-foreground" />
-            <h1 className="text-[14px] font-semibold">Add a project</h1>
-          </div>
-          <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-            iCode runs coding agents in isolated worktrees on this machine or in a WSL distro.
-            Add an existing Git checkout, or initialize a folder once to make it usable.
-          </p>
-          <button
-            type="button"
-            className="mt-4 inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-[11px] font-medium text-accent-ink hover:opacity-90"
-            onClick={onAddRepository}
-            data-testid="empty-add-repo"
-          >
-            <Plus size={12} />
-            Add project
-          </button>
-        </div>
-      </div>
-    )
   }
 
   return (

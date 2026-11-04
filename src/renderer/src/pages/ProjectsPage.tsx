@@ -62,7 +62,6 @@ export default function ProjectsPage({
       onOpenProject={onOpenProject}
       onOpenTask={onOpenTask}
       onManageRepositories={onManageRepositories}
-      onAddRepository={onAddRepository}
       onRetryPreparation={onRetryPreparation}
     />
   )
