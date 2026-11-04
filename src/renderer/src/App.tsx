@@ -19,6 +19,7 @@ import GlobalOverlays from './layouts/GlobalOverlays'
 import AppRoutes from './router/AppRoutes'
 import { useAppNavigation } from './router/use-app-navigation'
 import { useGlobalShortcuts } from './router/use-global-shortcuts'
+import { useSessionPanes } from './features/sessions/use-session-panes'
 import { taskAttention, taskAttentionCounts } from './components/task-status'
 import { useWorkspace } from './state/use-workspace'
 import { useTaskQueue } from './state/use-task-queue'
@@ -30,10 +31,6 @@ import { callApi } from './lib/api'
 import { sendAgentText, type AgentSendResult } from './lib/agent-send'
 import { harnessLabel, isAgentHarness } from '../../shared/domain/harness'
 import { WorkbenchDraftStore } from './review/drafts'
-
-function paneKey(sessionId: string, incarnationId: string | null): string {
-  return `${sessionId}:${incarnationId ?? 'pending'}`
-}
 
 const NEEDS_ORDER = { Answer: 0, Retry: 1, Review: 2 } as const
 const SESSIONS_LIST_KEY = 'icode.sessionsListOpen'
@@ -86,7 +83,6 @@ export default function App(): React.JSX.Element {
   const [newSessionOpen, setNewSessionOpen] = useState(false)
   const [removalBusy, setRemovalBusy] = useState(false)
   const [cleanupBusy, setCleanupBusy] = useState(false)
-  const [mounted, setMounted] = useState<Set<string>>(new Set())
   /** Line notes and commit messages survive panel and task switches. */
   const drafts = useMemo(() => new WorkbenchDraftStore(), [])
 
@@ -322,42 +318,7 @@ export default function App(): React.JSX.Element {
     setRemovalBusy(false)
   }
 
-  useEffect(() => {
-    setMounted((previous) => {
-      const next = new Set<string>()
-      const byId = new Map(state.sessions.map((entry) => [entry.id, entry]))
-      for (const key of previous) {
-        const separator = key.lastIndexOf(':')
-        const id = key.slice(0, separator)
-        const incarnation = key.slice(separator + 1)
-        const current = byId.get(id)
-        if (!current) continue
-        if (
-          current.incarnationId !== null &&
-          current.incarnationId !== incarnation &&
-          (current.state === 'live' || current.state === 'starting')
-        ) {
-          continue
-        }
-        next.add(key)
-      }
-      for (const entry of state.sessions) {
-        if (entry.state === 'live' || entry.state === 'starting') {
-          next.add(paneKey(entry.id, entry.incarnationId))
-        }
-      }
-      if (next.size === previous.size && [...next].every((key) => previous.has(key))) {
-        return previous
-      }
-      return next
-    })
-  }, [state.sessions])
-
-  const paneSessions = useMemo(
-    () =>
-      state.sessions.filter((entry) => mounted.has(paneKey(entry.id, entry.incarnationId))),
-    [mounted, state.sessions]
-  )
+  const paneSessions = useSessionPanes(state.sessions)
 
   const renderSession = (
     session: NonNullable<typeof projectSession>,
