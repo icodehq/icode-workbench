@@ -153,7 +153,10 @@ describe('request validation', () => {
     await client.waitFor(
       (message) =>
         message.type === 'response' &&
-        (message.error as { code?: string } | undefined)?.code === 'FRAME_TOO_LARGE'
+        (message.error as { code?: string } | undefined)?.code === 'FRAME_TOO_LARGE',
+      // The x64 macOS runner can starve this socket for several seconds while
+      // 100+ Vitest workers start; the protocol behavior is still immediate.
+      15_000
     )
     await new Promise((resolve) => setTimeout(resolve, 50))
     expect(client.socket.destroyed).toBe(true)
