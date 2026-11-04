@@ -228,7 +228,7 @@ describe('running host', () => {
     hosts.splice(hosts.indexOf(host), 1)
   })
 
-  it('records effective permissions in metadata', async () => {
+  it.skipIf(isWindows)('records effective permissions in metadata', async () => {
     const { host } = await startHost()
     const meta = JSON.parse(require('node:fs').readFileSync(host.paths.meta, 'utf8')) as {
       dirMode: string

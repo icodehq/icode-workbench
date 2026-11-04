@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readdirSync, rmdirSync, statSync } from 'node:fs'
-import { dirname } from 'node:path'
+import { dirname, posix, win32 } from 'node:path'
 import type { ExecutionTarget } from '../../shared/domain/repository'
 import {
   createLocalGitExecutor,
@@ -18,6 +18,30 @@ import { samePathResolved } from './worktree-status'
 
 const READ_TIMEOUT_MS = 10_000
 const MUTATE_TIMEOUT_MS = 30_000
+
+function isWindowsStylePath(value: string): boolean {
+  return /^[A-Za-z]:[\\/]/u.test(value) || value.startsWith('\\\\')
+}
+
+/**
+ * Platform-aware containment.
+ *
+ * The service handles both local paths and POSIX guest paths, so the separator
+ * and case rules must follow the path's own shape, not the host OS. A Windows
+ * drive/UNC path uses win32 semantics (case-insensitive, backslashes); anything
+ * else uses POSIX semantics.
+ */
+function isPathInside(root: string, candidate: string): boolean {
+  const windows = isWindowsStylePath(root) || isWindowsStylePath(candidate)
+  const api = windows ? win32 : posix
+  const normalizedRoot = windows ? root.toLowerCase() : root
+  const normalizedCandidate = windows ? candidate.toLowerCase() : candidate
+  const relative = api.relative(api.resolve(normalizedRoot), api.resolve(normalizedCandidate))
+  return (
+    relative === '' ||
+    (relative !== '..' && !relative.startsWith(`..${api.sep}`) && !api.isAbsolute(relative))
+  )
+}
 
 const IN_PROGRESS_MARKERS = [
   'MERGE_HEAD',
@@ -290,8 +314,7 @@ export class GitWorktreeService {
 
   /** Refuses paths outside the managed root so a corrupted row cannot target arbitrary directories. */
   assertManagedPath(path: string, worktreeRoot = this.deps.worktreeRoot): void {
-    const root = worktreeRoot.replace(/\/+$/u, '')
-    if (!(path === root || path.startsWith(`${root}/`))) {
+    if (!isPathInside(worktreeRoot, path)) {
       throw new SessionServiceError(
         makeAppError('WORKTREE_INCONSISTENT', 'That path is outside the managed worktree directory.', {
           detail: path

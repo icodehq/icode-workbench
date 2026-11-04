@@ -89,7 +89,9 @@ describe('guest Claude settings', () => {
   })
 
   it('still matches the local overlay event-for-event (no semantic drift)', () => {
-    const local = commands(buildClaudeSettings('/usr/bin/node', '/tmp/hook.cjs', false))
+    // Compare against the POSIX local overlay explicitly; on Windows the local
+    // overlay uses a cmd.exe wrapper, which is a different command shape.
+    const local = commands(buildClaudeSettings('/usr/bin/node', '/tmp/hook.cjs', false, 'linux'))
     const guest = commands(buildGuestClaudeSettings(ACCESS, false))
     expect(guest).toHaveLength(local.length)
     // The event name is the last word of both, so neither invents a new event.

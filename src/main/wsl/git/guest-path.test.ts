@@ -98,7 +98,20 @@ describe('byte-exact guest capture', () => {
   it('returns bytes, never a decoded string', async () => {
     // Measured regression: `execFile` defaults to utf8, so an omitted `encoding`
     // silently returned a String with 0xFF replaced by U+FFFD.
-    const runner = new WslCommandRunner({ platform: 'win32' })
+    //
+    // A fake launcher, not the real wsl.exe: on a Windows runner a missing
+    // distro produces a UTF-16 error message, which is not the property under
+    // test and would make the result platform-dependent.
+    const runner = new WslCommandRunner({
+      platform: 'win32',
+      byteLauncher: async () => ({
+        code: 0,
+        signal: null,
+        stdout: Buffer.from([0x61, 0x00, 0x62, 0xff, 0x63]),
+        stderr: Buffer.alloc(0),
+        timedOut: false
+      })
+    })
     const result = await runner.runBytes({
       scope: 'guest',
       distro: 'Ubuntu-26.04',

@@ -8,7 +8,8 @@
  * of input packaging actually sees:
  *
  *   - a too-new glibc requirement: the repository's own Electron-built pty.node
- *     (GLIBC_2.42) must be rejected against the 2.35 baseline;
+ *     when the host is newer than the baseline, or a generated shared object
+ *     with a GLIBC_2.42 version node when the host is the 2.35 baseline itself;
  *   - an undeclared shared library: the pinned Node binary links libdl/libm/
  *     libpthread, none of which are in the allow-list;
  *   - a missing file and a hash mismatch: a copy of a verified tree, damaged.
@@ -16,6 +17,7 @@
  * Usage: node tests/wsl/selftest-verifier.cjs [--tree <dir>]
  */
 
+const { execFileSync } = require('node:child_process')
 const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
@@ -83,12 +85,63 @@ check('parses NEEDED entries', () => {
 })
 
 // --- real-binary rejections ------------------------------------------------
-if (fs.existsSync(ELECTRON_PTY)) {
+
+/**
+ * A shared object that genuinely references a version above the baseline.
+ *
+ * CI builds on Ubuntu 22.04, whose own pty.node is at the 2.35 baseline, so the
+ * repository binary cannot exercise the rejection there. A linker version node
+ * produces the same `objdump -T` evidence without depending on the host glibc.
+ */
+function buildTooNewBinary() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'icode-too-new-'))
+  const source = path.join(dir, 'too-new.c')
+  const map = path.join(dir, 'too-new.map')
+  const library = path.join(dir, 'libtoo-new.so')
+  fs.writeFileSync(source, 'void icode_too_new(void) {}\n')
+  fs.writeFileSync(map, 'GLIBC_2.42 { global: icode_too_new; };\n')
+  execFileSync('gcc', ['-shared', '-fPIC', '-o', library, source, `-Wl,--version-script=${map}`], {
+    stdio: 'ignore'
+  })
+  return { dir, library }
+}
+
+function repositoryPtyExceedsBaseline() {
+  if (!fs.existsSync(ELECTRON_PTY)) return false
+  try {
+    const max = verify.maxGlibcVersion(
+      execFileSync('objdump', ['-T', ELECTRON_PTY], { encoding: 'utf8' })
+    )
+    return max !== null && verify.compareVersions(max, verify.GLIBC_BASELINE) > 0
+  } catch {
+    return false
+  }
+}
+
+if (repositoryPtyExceedsBaseline()) {
   expectRejection(
     'rejects a binary whose GLIBC requirement exceeds the baseline',
     () => verify.inspectNativeArtifact(ELECTRON_PTY),
     /above the declared baseline 2\.35/
   )
+} else {
+  let fixture = null
+  try {
+    fixture = buildTooNewBinary()
+  } catch {
+    process.stdout.write('SKIP no C compiler to build a too-new GLIBC fixture\n')
+  }
+  if (fixture) {
+    try {
+      expectRejection(
+        'rejects a binary whose GLIBC requirement exceeds the baseline',
+        () => verify.inspectNativeArtifact(fixture.library),
+        /above the declared baseline 2\.35/
+      )
+    } finally {
+      fs.rmSync(fixture.dir, { recursive: true, force: true })
+    }
+  }
 }
 
 const treeArg = process.argv.indexOf('--tree')
