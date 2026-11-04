@@ -14,8 +14,8 @@
  * re-derive.
  *
  * Usage:
- *   node scripts/wsl/host-artifacts.cjs build [--out <dir>] [--skip-rebuild]
- *   node scripts/wsl/host-artifacts.cjs verify [<dir>]
+ *   node config/scripts/wsl/host-artifacts.cjs build [--out <dir>] [--skip-rebuild]
+ *   node config/scripts/wsl/host-artifacts.cjs verify [<dir>]
  */
 
 const { execFileSync } = require('node:child_process')
@@ -26,7 +26,7 @@ const path = require('node:path')
 
 const verifier = require('./verify-artifacts.cjs')
 
-const REPO_ROOT = path.resolve(__dirname, '..', '..')
+const REPO_ROOT = path.resolve(__dirname, '..', '..', '..')
 const DEFAULT_OUT = path.join(REPO_ROOT, 'artifacts', 'wsl-host', 'linux-x64')
 const BUILD_SCRIPT = path.join(__dirname, 'build-node-pty.sh')
 

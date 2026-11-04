@@ -9,7 +9,7 @@
  * GetGeometry) to prove that a mapped top-level window exists on the WSLg
  * display. It never creates, maps, or modifies a window.
  *
- * Usage: node scripts/compat/wslg-window-probe.cjs [--match iCode] [--json]
+ * Usage: node tests/compat/wslg-window-probe.cjs [--match iCode] [--json]
  */
 
 const net = require('node:net')

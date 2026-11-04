@@ -40,7 +40,7 @@ const { execFileSync } = require('node:child_process')
 
 const verifier = require('./verify-artifacts.cjs')
 
-const REPO_ROOT = path.resolve(__dirname, '..', '..')
+const REPO_ROOT = path.resolve(__dirname, '..', '..', '..')
 const ARTIFACT_ROOT = path.join(REPO_ROOT, 'artifacts', 'wsl-host', 'linux-x64')
 const MANIFEST = path.join(ARTIFACT_ROOT, 'manifest.json')
 

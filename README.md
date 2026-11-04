@@ -2,27 +2,33 @@
 
 An agent development environment for local Coding Agent TUIs.
 
-**Status:** Works 1-5 complete — scaffold, domain contracts, SQLite persistence,
-the detached terminal host, and main-process orchestration with a typed preload
-API. The product UI (terminal workspace) is Work 6.
+**Status:** The terminal workspace, detached Host, SQLite persistence, packaged
+WSL2/WSLg support, session worktrees, changes review, agent activity, and full
+Source Control parity are implemented. Only Linux x64 under WSL2/WSLg is verified;
+native Windows, macOS, other Linux distributions/architectures, code signing, and
+auto-updates are not supported by this build.
 
 ## Stack
 
 - Electron 43.7.8 (Node 24.21.0, ABI 148)
 - TypeScript 5.9.3, electron-vite 6, React 19, Tailwind 4
-- `node:sqlite` for durable state (Work 3)
+- `node:sqlite` for durable state
 - `node-pty` + xterm.js for real terminal sessions
 - pnpm 11.16.0 via Corepack, Node 24.15.x
 
-## Architecture (Work 1 slice)
+## Architecture
 
 ```
-src/main      Electron main: window, compatibility gates, host supervisor/client
-src/host      Detached terminal host (PTY owner, NDJSON protocol, token auth)
-src/preload   Frozen typed bridge; contextIsolation on, Node off, sandbox on
-src/renderer  Minimal Work 1 runtime surface
-src/shared    Domain model, Zod boundary contracts, host protocol/framing
-scripts       Native rebuild and executable compatibility gates
+src/main        Electron main: window, compatibility gates, host supervisor/client
+src/host        Detached terminal host (PTY owner, NDJSON protocol, token auth)
+src/preload     Frozen typed bridge; contextIsolation on, Node off, sandbox on
+src/renderer    Terminal workspace and product UI
+src/shared      Domain model, Zod boundary contracts, host protocol/framing
+config          Tooling config: TypeScript, Vitest, electron-builder
+config/scripts  Native rebuild, host bundle, brand guard, WSL Host artifacts
+resources/build Packaging assets (application icons)
+tests/compat    Compatibility gates and UI/feature smoke tests
+tests/wsl       WSL Host artifact selftests and smokes
 ```
 
 Ownership:
@@ -34,7 +40,7 @@ Ownership:
   Electron-ABI native module.
 - **Renderer** owns presentation only and has no Node or raw IPC access.
 - Durable session IDs are allocated by iCode; PTY incarnation IDs are allocated per
-  spawn by the host. Work 1 already tags every data/exit event with both.
+  spawn by the host. Every data/exit event is tagged with both.
 
 ### Local endpoint
 
@@ -69,7 +75,7 @@ derives wire types from Zod schemas and `host-framing.ts` rejects malformed,
 oversized, unknown, and identity-colliding frames. Wire IDs stay opaque so the
 host never depends on iCode's durable ID formats.
 
-## Terminal host (Work 4)
+## Terminal host
 
 The detached host (`src/host`) owns PTYs and terminal state. It has no database,
 repository, renderer, or Electron-app imports.
@@ -133,7 +139,7 @@ owner is dead and the socket actively refuses connections.
 `shutdown` remains available for the compatibility gates. Closing an iCode window
 never stops the host.
 
-## Application services (Work 5)
+## Application services
 
 `src/main/app/runtime.ts` is the main-process composition root: it opens
 persistence, starts the session service and host gateway, authenticates to or
@@ -160,22 +166,22 @@ failure is non-fatal and leaves the app able to list repositories and retry.
 - **Repository removal.** `RepositoryRemovalService` asks the host before
   deleting: live affected PTYs block removal; an unreachable host blocks
   removal (`host_unavailable`); terminal/unknown sessions require explicit
-  acknowledgement; only then does Work 3 cascade the rows. Unknown repository
+  acknowledgement; only then are the rows cascaded. Unknown repository
   IDs are `INVALID_ARGUMENT`.
 - **Harness detection.** `HarnessDetector` resolves commands on PATH without a
   shell (absolute paths only from trusted inputs such as `$SHELL`), runs a real
-  bounded `--version` probe, and classifies via the Work 2 tri-state model.
+  bounded `--version` probe, and classifies via the tri-state model.
   `harness.list()` re-resolves and re-probes every call, so retry is real.
   `findExecutable` rejects separators in registry names; the renderer can never
   supply a command.
 - **IPC/preload.** Main registers only the fixed channel table, validates each
-  payload with Work 2 schemas, checks the calling frame, and maps failures to
+  payload with the boundary schemas, checks the calling frame, and maps failures to
   stable `AppError`s. The preload factory (`src/preload/api.ts`) exposes named
   operations only; subscriptions are reference-counted, dispose individually,
   and remove the underlying channel listener when the last listener leaves.
   `zod` is bundled into the sandboxed preload rather than required at runtime.
 
-## Persistence (Work 3)
+## Persistence
 
 `app.getPath('userData')/icode.sqlite` is owned by the Electron main process via
 `node:sqlite`. The single writer opens lazily (`getAppPersistence`) and closes on
@@ -197,7 +203,7 @@ failure is non-fatal and leaves the app able to list repositories and retry.
 - Deletion is a narrow persistence contract: `describeDeletion` reports stored
   sessions as historical observations and sets `requiresHostLivenessCheck`.
   `removeRepository` refuses to cascade unless the caller acknowledges
-  dependent sessions. Work 5 must check host liveness before calling it.
+  dependent sessions. The app must check host liveness before calling it.
 
 ### Corruption safety
 
@@ -208,37 +214,13 @@ path and recovery guidance and never deletes, renames, overwrites, or recreates
 the file. Byte-for-byte preservation is covered by tests for non-SQLite,
 truncated, and zero-byte files.
 
-## Commands
+## Development
 
-```bash
-pnpm install          # also rebuilds node-pty for Electron ABI 148
-pnpm typecheck
-pnpm test             # Vitest domain/contract tests
-pnpm build
-pnpm dev
-pnpm gate:sqlite
-pnpm gate:pty
-pnpm gate:host:start
-pnpm gate:host:verify
-pnpm gate:reattach
-pnpm gate:host:stop   # cleanup after evidence
-pnpm package:dir
-pnpm gate:packaged
-```
+Build, test, packaging, and acceptance-gate instructions live in
+[.github/CONTRIBUTING.md](.github/CONTRIBUTING.md).
 
-Evidence is written to `artifacts/work1/` (ignored by Git).
-
-## Work 1 gate results
-
-See `artifacts/work1/*.json`. The five required checks are:
-
-1. SQLite transaction/rollback/WAL in Electron main.
-2. Real `node-pty` shell under Electron-as-Node, ABI 148, echo + exit 7.
-3. Host and original PTY alive after the Electron app exits.
-4. Fresh Electron app reattaches with the same session, incarnation, and PTY;
-   no duplicate process.
-5. Packaged directory app runs from `/tmp` and exercises SQLite, native PTY, and
-   the unpacked host.
+Verification covers SQLite, a real PTY, host survival and reattach, and packaged
+startup. Evidence is machine-local under `artifacts/`, which is ignored by Git.
 
 ## Reference and attribution
 
@@ -249,7 +231,7 @@ were copied; see `NOTICE` for the MIT attribution. SSH, remote execution,
 checkpoints, telemetry, worktrees, and task orchestration are deliberately
 excluded.
 
-## Session worktrees (Work 12)
+## Session worktrees
 
 Every new session in a registered Git repository runs in its own checkout:
 
@@ -286,11 +268,9 @@ Session creation is refused for a repository with no commit (`UNBORN_REPOSITORY`
 or with a merge/rebase/cherry-pick/revert/bisect in progress
 (`GIT_OPERATION_IN_PROGRESS`), because no trustworthy baseline exists.
 
-```
-pnpm smoke:worktree   # packaged acceptance: two sessions, isolation, relaunch, discard
-```
+Acceptance harness: see [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md).
 
-## Reviewing uncommitted changes (Work 13)
+## Reviewing uncommitted changes
 
 Each isolated session has a **Changes** view alongside **Terminal**. It opens
 directly on the uncommitted working tree; there is no separate session-review
@@ -319,11 +299,9 @@ scope.
 - **Limits:** 2 MiB of captured Git output per file and only the first 1,500 diff
   lines are mounted; iCode never presents a truncated diff as complete.
 
-```
-pnpm smoke:features   # packaged acceptance: Changes, stage, commit, amend
-```
+Acceptance harness: see [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md).
 
-## Agent activity and attention (Work 14)
+## Agent activity and attention
 
 The session sidebar and header answer a question the lifecycle cannot: **what is
 the agent doing?** Activity is `unknown`, `idle`, `working` or `waiting`, and it
@@ -376,41 +354,13 @@ rather than showing a stale `working`. The sidebar shows `Working · <tool>`,
 `Needs you` or `Done`/`Done · failed`; the header chip shows the same state and
 `Activity unknown` when no evidence exists.
 
-```
-pnpm smoke:activity   # packaged acceptance: Hook overlay, real Claude, ordering, unread
-```
+Acceptance harness: see [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md).
 
 ## Packaged Linux application (WSL2 + WSLg)
 
-Work 9 verified the packaged Linux x64 application end to end. The GUI is an X11
+The packaged Linux x64 application is verified end to end. The GUI is an X11
 window on WSLg's display, so it appears on the Windows desktop while the Electron
 main process, the detached terminal Host, and every PTY run inside WSL2 Ubuntu.
-
-### Build
-
-```bash
-pnpm install
-pnpm build          # typecheck + electron-vite + detached Host bundle
-pnpm package:dir    # electron-builder --dir -> dist/linux-unpacked
-```
-
-`dist/linux-unpacked/icode` is the application; it needs no repository checkout at
-runtime. `resources/app.asar.unpacked/` holds the Host bundle and the Electron-ABI
-`node-pty`, both required because the Host runs via `ELECTRON_RUN_AS_NODE`.
-
-**Packaging on DrvFs.** `electron-builder` scans pnpm's module tree while
-packaging. On a `/mnt/d` checkout that scan did not complete in 20+ minutes;
-the same source tree packages in about one minute on ext4. If `pnpm package:dir`
-stalls after `searching for node modules`, stage the checkout on a Linux
-filesystem (for example `~/src/icode`) or package there and point the gate at the
-result:
-
-```bash
-ICODE_GATE_PACKAGED_DIR=/path/to/dist/linux-unpacked pnpm gate:packaged
-```
-
-`scripts/compat/packaged-smoke.cjs` verifies the packaged binary from `/tmp`:
-WAL SQLite, the bundled native PTY, and the unpacked Host starting a real session.
 
 ### Launch and data locations
 
@@ -432,34 +382,6 @@ Packaged runs use the normal Electron user-data path, not test overrides:
 
 Quitting the window leaves the detached Host and its PTYs alive; relaunching
 reattaches to the same session incarnation.
-
-### Isolated packaged acceptance
-
-```bash
-export XDG_CONFIG_HOME=/tmp/icode-work9/profile
-export XDG_RUNTIME_DIR=/tmp/icode-work9/runtime   # chmod 700
-./dist/linux-unpacked/icode
-```
-
-This keeps repositories and sessions out of your normal profile. To clean up,
-stop each test session in the UI, quit iCode, then verify the run's Host has exited
-(`<profile>/run/meta.json` records its PID) and delete only the temporary
-XDG directories. Never delete `~/.config/iCode` unless you intend to remove your
-real iCode data.
-
-The packaged acceptance harness is the Work 7 Claude harness in packaged mode:
-
-```bash
-ICODE_SMOKE_TARGET=packaged \
-ICODE_SMOKE_EXECUTABLE=$PWD/dist/linux-unpacked/icode \
-ICODE_SMOKE_ARTIFACTS=$PWD/artifacts/work9 \
-node scripts/compat/claude-tui-smoke.cjs
-```
-
-It checks the visible WSLg window, default first-run profile, real Claude Code
-TUI interaction, quit/relaunch with the same incarnation and one PTY spawn,
-stop, and cleanup. `node scripts/compat/wslg-window-probe.cjs --match iCode`
-prints the mapped windows on the WSLg display without any X11 utilities.
 
 Only Linux x64 with WSLg has been verified. Native Windows, macOS, other Linux
 distributions/architectures, code signing, and auto-updates are not supported by

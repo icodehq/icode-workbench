@@ -5,7 +5,7 @@ const { writeFileSync } = require('node:fs')
 const { join } = require('node:path')
 
 const PORT = Number(process.env.CDP_PORT || 9333)
-const APP_DIR = join(__dirname, '..')
+const APP_DIR = join(__dirname, '..', '..')
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))

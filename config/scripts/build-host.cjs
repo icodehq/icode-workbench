@@ -8,7 +8,7 @@
 const path = require('node:path')
 const esbuild = require('esbuild')
 
-const root = path.resolve(__dirname, '..')
+const root = path.resolve(__dirname, '..', '..')
 
 esbuild
   .build({

@@ -8,8 +8,8 @@
  * the only verified tree on this machine, and a negative test that destroys it
  * would trade a test result for a broken release.
  *
- * The copy is laid out exactly as the repository is — `<root>/scripts/wsl` plus
- * `<root>/artifacts/...` plus `<root>/out/host/index.js` — because the script
+ * The copy is laid out exactly as the repository is — `<root>/config/scripts/wsl`
+ * plus `<root>/artifacts/...` plus `<root>/out/host/index.js` — because the script
  * resolves those paths relative to its own location. That is also what proves the
  * real layout logic, rather than a stubbed one.
  */
@@ -22,7 +22,7 @@ const path = require('node:path')
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..')
 const REAL_TREE = path.join(REPO_ROOT, 'artifacts', 'wsl-host', 'linux-x64')
-const SOURCE_SCRIPTS = __dirname
+const SOURCE_SCRIPTS = path.join(REPO_ROOT, 'config', 'scripts', 'wsl')
 
 let failures = 0
 function check(name, ok, detail) {
@@ -56,8 +56,8 @@ function snapshotRealTree() {
 /** A disposable repository-shaped root with a copy of the scripts and tree. */
 function makeFixtureRoot() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'icode-prepare-fixture-'))
-  fs.mkdirSync(path.join(root, 'scripts'), { recursive: true })
-  fs.cpSync(SOURCE_SCRIPTS, path.join(root, 'scripts', 'wsl'), { recursive: true })
+  fs.mkdirSync(path.join(root, 'config', 'scripts'), { recursive: true })
+  fs.cpSync(SOURCE_SCRIPTS, path.join(root, 'config', 'scripts', 'wsl'), { recursive: true })
   fs.mkdirSync(path.join(root, 'artifacts', 'wsl-host'), { recursive: true })
   fs.cpSync(REAL_TREE, path.join(root, 'artifacts', 'wsl-host', 'linux-x64'), {
     recursive: true
@@ -72,7 +72,7 @@ function makeFixtureRoot() {
 
 /** Runs the fixture's prepare script; returns `{ status, stdout, stderr }`. */
 function runPrepare(root, env = process.env) {
-  const script = path.join(root, 'scripts', 'wsl', 'prepare-artifacts.cjs')
+  const script = path.join(root, 'config', 'scripts', 'wsl', 'prepare-artifacts.cjs')
   try {
     const stdout = execFileSync(process.execPath, [script], {
       encoding: 'utf8',

@@ -9,7 +9,7 @@
 const path = require('node:path')
 const { rebuild } = require('@electron/rebuild')
 
-const projectDir = path.resolve(__dirname, '..')
+const projectDir = path.resolve(__dirname, '..', '..')
 const electronVersion = require(path.join(projectDir, 'node_modules/electron/package.json')).version
 
 rebuild({
