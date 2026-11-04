@@ -64,7 +64,14 @@ export const createOrAttachParamsSchema = z.strictObject({
   sessionId: wireSessionIdSchema,
   cwd: absolutePathSchema,
   command: z.string().min(1).max(4096),
-  args: z.array(z.string().max(4096)).max(128).optional(),
+  /**
+   * An argv array for ordinary spawns, or one raw command line for a Windows
+   * `.cmd`/`.bat` shim started through cmd.exe. node-pty treats a string as a
+   * verbatim command line, which is the only quoting that survives cmd /c.
+   */
+  args: z
+    .union([z.array(z.string().max(4096)).max(128), z.string().max(65_536)])
+    .optional(),
   cols: dimensionSchema,
   rows: dimensionSchema,
   attachOnly: z.boolean().optional()

@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { guestLaunchSpec } from '../wsl/harness/guest-harness'
-import { quoteForPosixShell, withLaunchArgs } from './launch-command'
+import {
+  quoteForPosixShell,
+  windowsShimCommandLine,
+  withLaunchArgs
+} from './launch-command'
 
 /**
  * Work 70 measured the defect: a guest Claude was launched through a login shell
@@ -70,5 +74,22 @@ describe('launch arguments', () => {
     const spec = guestLaunchSpec({ shell: '/bin/zsh', mode: '-ilc' }, '/opt/claude')
     expect(spec.command).toBe('/bin/zsh')
     expect(spec.shellWrapper).toEqual({ scriptIndex: 1 })
+  })
+
+  it('quotes extra arguments into a Windows shim command line', () => {
+    const shim = 'C:\\Program Files\\nodejs\\claude.cmd'
+    const settings = 'C:\\Users\\A B\\settings.json'
+    const command = {
+      command: 'C:\\Windows\\System32\\cmd.exe',
+      args: windowsShimCommandLine(shim),
+      cmdShim: { shim }
+    }
+    expect(command.args).toBe('/d /s /c ""C:\\Program Files\\nodejs\\claude.cmd""')
+
+    const result = withLaunchArgs(command, ['--settings', settings])
+    expect(result.command).toBe(command.command)
+    expect(result.args).toBe(
+      '/d /s /c ""C:\\Program Files\\nodejs\\claude.cmd" --settings "C:\\Users\\A B\\settings.json""'
+    )
   })
 })

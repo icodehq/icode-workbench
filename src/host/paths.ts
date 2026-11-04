@@ -205,7 +205,9 @@ function isAlive(pid: number): boolean {
   }
 }
 
-export function canConnect(socketPath: string): Promise<'connected' | 'refused' | 'unknown'> {
+export function canConnect(
+  socketPath: string
+): Promise<'connected' | 'refused' | 'absent' | 'unknown'> {
   return new Promise((resolve) => {
     const socket = connect(socketPath)
     const timer = setTimeout(() => {
@@ -220,6 +222,7 @@ export function canConnect(socketPath: string): Promise<'connected' | 'refused' 
     socket.once('error', (error: NodeJS.ErrnoException) => {
       clearTimeout(timer)
       if (error.code === 'ECONNREFUSED') resolve('refused')
+      else if (error.code === 'ENOENT') resolve('absent')
       else resolve('unknown')
     })
   })

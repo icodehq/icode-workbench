@@ -689,10 +689,11 @@ describe('worktree isolation', () => {
     const woken = await f.service.wake(created.id)
     expect(woken.state).toBe('live')
     const args = f.host.calls.createOrAttach.at(-1)!.args
+    const argv = Array.isArray(args) ? args : [args]
     if (resumeArgs.length === 0) {
-      expect(args.some((arg) => arg === '--continue' || arg === 'resume')).toBe(false)
+      expect(argv.some((arg) => arg === '--continue' || arg === 'resume')).toBe(false)
     } else {
-      expect(args.slice(-resumeArgs.length)).toEqual([...resumeArgs])
+      expect(argv.slice(-resumeArgs.length)).toEqual([...resumeArgs])
     }
   })
 

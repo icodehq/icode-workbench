@@ -1,5 +1,5 @@
 import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { ACTIVITY_EVENTS } from '../../shared/domain/activity'
 
 /**
@@ -12,6 +12,7 @@ import { ACTIVITY_EVENTS } from '../../shared/domain/activity'
  */
 
 export const HOOK_SCRIPT_NAME = 'icode-activity-hook.cjs'
+export const HOOK_WRAPPER_NAME = 'icode-activity-hook.cmd'
 export const SETTINGS_NAME = 'settings.json'
 /**
  * The overlay for WSL Agents.
@@ -107,6 +108,8 @@ export type ClaudeHookInstallOptions = {
     guestExecutablePath: string
     activitySocket: string
   }
+  /** Host platform; a test seam so Windows/macOS commands are testable on Linux. */
+  platform?: NodeJS.Platform
 }
 
 export type ClaudeHookInstall = {
@@ -135,11 +138,20 @@ export function hookCommandFor(
   execPath: string,
   scriptPath: string,
   event: string,
-  electronRunAsNode = false
+  electronRunAsNode = false,
+  platform: NodeJS.Platform = process.platform
 ): string {
+  if (platform === 'win32') {
+    // cmd.exe cannot execute the POSIX `env VAR=...` form, and a .cmd wrapper
+    // keeps the event name as argv instead of shell text.
+    const wrapper = join(dirname(scriptPath), HOOK_WRAPPER_NAME)
+    return `"${wrapper}" "${event}"`
+  }
   const prefix = electronRunAsNode ? 'env ELECTRON_RUN_AS_NODE=1 ' : ''
   return `${prefix}${shellQuote(execPath)} ${shellQuote(scriptPath)} ${shellQuote(event)}`
 }
+
+type HookDetachMode = 'setsid' | 'nohup' | 'none'
 
 /**
  * Claude does not wait for a `StopFailure` hook on its way out; it terminates
@@ -147,14 +159,22 @@ export function hookCommandFor(
  * boot as Node, so that event would be lost. Turn-end hooks therefore detach:
  * fd 0 is duplicated first (asynchronous shells would otherwise get
  * /dev/null), then the real command runs in the background and survives.
+ *
+ * `setsid` is Linux-only; macOS has no such binary, so it uses `nohup` and a
+ * background subshell. Windows runs the hook synchronously: `start` cannot
+ * forward the JSON payload on stdin.
  */
-function detachedHookCommand(command: string): string {
+function detachedHookCommand(command: string, mode: HookDetachMode): string {
+  if (mode === 'none') return command
+  if (mode === 'nohup') {
+    return `sh -c ${shellQuote(`exec 3<&0; nohup ${command} <&3 >/dev/null 2>&1 &`)}`
+  }
   return `sh -c ${shellQuote(`exec 3<&0; (setsid ${command} <&3) >/dev/null 2>&1 &`)}`
 }
 
 function buildSettings(
   commandFor: (event: string) => string,
-  detachTurnEnd: boolean
+  detachTurnEnd: HookDetachMode
 ): string {
   const hooks: Record<string, unknown> = {}
   for (const event of ACTIVITY_EVENTS) {
@@ -164,7 +184,7 @@ function buildSettings(
       hooks: [
         {
           type: 'command',
-          command: detachTurnEnd && turnEnd ? detachedHookCommand(command) : command
+          command: turnEnd ? detachedHookCommand(command, detachTurnEnd) : command
         }
       ]
     }
@@ -180,11 +200,14 @@ function buildSettings(
 export function buildClaudeSettings(
   execPath: string,
   scriptPath: string,
-  electronRunAsNode = false
+  electronRunAsNode = false,
+  platform: NodeJS.Platform = process.platform
 ): string {
+  const detach: HookDetachMode =
+    !electronRunAsNode ? 'none' : platform === 'darwin' ? 'nohup' : platform === 'win32' ? 'none' : 'setsid'
   return buildSettings(
-    (event) => hookCommandFor(execPath, scriptPath, event, electronRunAsNode),
-    electronRunAsNode
+    (event) => hookCommandFor(execPath, scriptPath, event, electronRunAsNode, platform),
+    detach
   )
 }
 
@@ -245,9 +268,10 @@ export function buildGuestClaudeSettings(
   access: GuestHookAccess,
   electronRunAsNode = false
 ): string {
+  // The guest overlay runs inside Linux regardless of the host platform.
   return buildSettings(
     (event) => guestHookCommandFor(access, event, electronRunAsNode),
-    electronRunAsNode
+    electronRunAsNode ? 'setsid' : 'none'
   )
 }
 
@@ -256,16 +280,31 @@ export function buildGuestClaudeSettings(
  * Idempotent: the same paths and content are produced on every call.
  */
 export function installClaudeHooks(options: ClaudeHookInstallOptions): ClaudeHookInstall {
+  const platform = options.platform ?? process.platform
   const directory = options.directory
   mkdirSync(directory, { recursive: true, mode: 0o700 })
   const scriptPath = join(directory, HOOK_SCRIPT_NAME)
   const settingsPath = join(directory, SETTINGS_NAME)
 
   writeFileSync(scriptPath, HOOK_SCRIPT, { mode: 0o700 })
-  chmodSync(scriptPath, 0o700)
+  try {
+    chmodSync(scriptPath, 0o700)
+  } catch {
+    // Windows ignores POSIX modes; the file is still readable by its owner.
+  }
+
+  if (platform === 'win32') {
+    const lines = ['@echo off']
+    if (options.electronRunAsNode) lines.push('set "ELECTRON_RUN_AS_NODE=1"')
+    lines.push(`"${options.execPath}" "${scriptPath}" %*`)
+    writeFileSync(join(directory, HOOK_WRAPPER_NAME), `${lines.join('\r\n')}\r\n`, {
+      mode: 0o700
+    })
+  }
+
   writeFileSync(
     settingsPath,
-    buildClaudeSettings(options.execPath, scriptPath, options.electronRunAsNode),
+    buildClaudeSettings(options.execPath, scriptPath, options.electronRunAsNode, platform),
     { mode: 0o600 }
   )
 

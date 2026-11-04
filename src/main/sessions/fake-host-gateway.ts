@@ -39,7 +39,7 @@ export class FakeHostGateway implements HostGateway {
       attachOnly: boolean
       command: string
       cwd: string
-      args: string[]
+      args: string[] | string
       /** Which host served the call: `local` or the distro's registration. */
       host: string
     }>,
@@ -106,7 +106,7 @@ export class FakeHostGateway implements HostGateway {
     sessionId: string
     cwd: string
     command: string
-    args?: string[]
+    args?: string[] | string
     cols: number
     rows: number
     attachOnly?: boolean

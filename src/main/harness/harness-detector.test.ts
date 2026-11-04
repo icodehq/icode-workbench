@@ -276,4 +276,20 @@ describe('starting Windows command shims', () => {
       args: ['--version']
     })
   })
+
+  it('builds a raw cmd.exe command line for a .cmd launch', async () => {
+    const { detector: d } = detector({
+      platform: 'win32',
+      resolve: (name) =>
+        name === 'claude' ? 'C:\\nvm4w\\nodejs\\claude.cmd' : 'C:\\Windows\\System32\\cmd.exe'
+    })
+    const result = await d.detect('claude')
+    expect(result.state).toBe('available')
+    if (result.state !== 'available' || result.command === null) {
+      throw new Error('expected an available command')
+    }
+    expect(result.command.command).toBe(process.env.ComSpec ?? 'cmd.exe')
+    expect(result.command.args).toBe('/d /s /c "C:\\nvm4w\\nodejs\\claude.cmd"')
+    expect(result.command.cmdShim).toEqual({ shim: 'C:\\nvm4w\\nodejs\\claude.cmd' })
+  })
 })

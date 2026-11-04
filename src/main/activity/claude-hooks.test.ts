@@ -8,11 +8,11 @@ import {
   writeFileSync
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { ActivityHookServer } from './hook-server'
 import { ActivityService } from './activity-service'
-import { buildClaudeSettings, installClaudeHooks } from './claude-hooks'
+import { buildClaudeSettings, HOOK_WRAPPER_NAME, installClaudeHooks } from './claude-hooks'
 import type { ActivityHookEvent } from '../../shared/domain/activity'
 
 /**
@@ -288,6 +288,46 @@ describe.runIf(hasClaude())('shipped hook script with real Claude', () => {
     expect(plain.hooks.StopFailure?.[0]?.hooks[0]?.command).toBe(
       "'/usr/bin/node' '/tmp/hook.cjs' 'StopFailure'"
     )
+  })
+
+  it('uses platform-appropriate lifecycle commands', () => {
+    type Settings = { hooks: Record<string, Array<{ hooks: Array<{ command: string }> }>> }
+    const mac = JSON.parse(
+      buildClaudeSettings('/Applications/iCode.app/Contents/MacOS/iCode', '/tmp/hook.cjs', true, 'darwin')
+    ) as Settings
+    expect(mac.hooks.StopFailure?.[0]?.hooks[0]?.command).toContain('nohup')
+    expect(mac.hooks.StopFailure?.[0]?.hooks[0]?.command).not.toContain('setsid')
+
+    // The wrapper is derived from the script path with the host's path
+    // semantics; this test runs on Linux and only asserts the command shape.
+    const scriptPath = '/hooks/icode-activity-hook.cjs'
+    const wrapper = join(dirname(scriptPath), HOOK_WRAPPER_NAME)
+    const win = JSON.parse(
+      buildClaudeSettings('C:\\iCode\\iCode.exe', scriptPath, true, 'win32')
+    ) as Settings
+    expect(win.hooks.UserPromptSubmit?.[0]?.hooks[0]?.command).toBe(
+      `"${wrapper}" "UserPromptSubmit"`
+    )
+    expect(win.hooks.StopFailure?.[0]?.hooks[0]?.command).toBe(
+      `"${wrapper}" "StopFailure"`
+    )
+  })
+
+  it('writes a cmd wrapper on Windows', () => {
+    const root = tempRoot()
+    const hooks = installClaudeHooks({
+      directory: join(root, 'agent-hooks'),
+      execPath: 'C:\\iCode\\iCode.exe',
+      electronRunAsNode: true,
+      platform: 'win32'
+    })
+    const wrapper = readFileSync(join(dirname(hooks.scriptPath), HOOK_WRAPPER_NAME), 'utf8')
+    expect(wrapper).toContain('set "ELECTRON_RUN_AS_NODE=1"')
+    expect(wrapper).toContain('"C:\\iCode\\iCode.exe"')
+    const settings = JSON.parse(readFileSync(hooks.settingsPath, 'utf8')) as {
+      hooks: Record<string, Array<{ hooks: Array<{ command: string }> }>>
+    }
+    expect(settings.hooks.Stop?.[0]?.hooks[0]?.command).toContain('icode-activity-hook.cmd')
   })
 
   it('never lingers when the socket accepts but never replies', async () => {

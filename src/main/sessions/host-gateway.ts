@@ -30,7 +30,7 @@ export type HostGateway = {
       sessionId: string
       cwd: string
       command: string
-      args?: string[]
+      args?: string[] | string
       cols: number
       rows: number
       attachOnly?: boolean

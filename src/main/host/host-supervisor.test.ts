@@ -252,3 +252,32 @@ describe('ownership-safe discovery', () => {
     expect(existsSync(supervisor.socketPath)).toBe(false)
   })
 })
+
+describe('named-pipe endpoints', () => {
+  it('treats an absent named pipe as startable', async () => {
+    process.env.ICODE_HOST_SOCKET = `\\\\.\\pipe\\icode-supervisor-absent-${process.pid}-${Date.now()}`
+    const supervisor = new HostSupervisor(profile('pipe-absent'))
+    // A pipe is not a filesystem object. The supervisor must reach the spawn
+    // step (and fail on the missing fixture entry), not refuse ownership.
+    await expect(supervisor.ensure()).rejects.toThrow(/Terminal host entry is missing/)
+  })
+
+  it.skipIf(process.platform !== 'win32')(
+    'refuses a live pipe without matching credentials',
+    async () => {
+      const pipe = `\\\\.\\pipe\\icode-supervisor-live-${process.pid}-${Date.now()}`
+      const server = createServer((socket) => socket.end())
+      servers.push(server)
+      await new Promise<void>((resolve, reject) => {
+        server.once('error', reject)
+        server.listen(pipe, resolve)
+      })
+
+      process.env.ICODE_HOST_SOCKET = pipe
+      const supervisor = new HostSupervisor(profile('pipe-live'))
+      // Before the named-pipe branch, existsSync was always false here and the
+      // supervisor would try to start a second Host instead of refusing.
+      await expect(supervisor.ensure()).rejects.toThrow(/no matching credentials/)
+    }
+  )
+})

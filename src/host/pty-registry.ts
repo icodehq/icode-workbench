@@ -23,7 +23,8 @@ export type PtyLike = {
 
 export type PtySpawnConfig = {
   command: string
-  args: string[]
+  /** argv for ordinary spawns, or a raw command line for a Windows shim. */
+  args: string[] | string
   cwd: string
   cols: number
   rows: number
@@ -37,7 +38,7 @@ export type CreateOrAttachParams = {
   sessionId: string
   cwd: string
   command: string
-  args?: string[]
+  args?: string[] | string
   cols: number
   rows: number
   attachOnly?: boolean

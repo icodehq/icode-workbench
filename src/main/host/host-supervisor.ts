@@ -3,6 +3,7 @@ import { existsSync, lstatSync, mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
 import { canConnect, hostSocketPath } from '../../host/paths'
+import { isNamedPipe } from '../../shared/domain/endpoint'
 import { HostClient, HostRequestError } from './host-client'
 
 export type HostMeta = {
@@ -109,28 +110,49 @@ export class HostSupervisor {
     // a socket this profile cannot prove it owns is never removed. A genuinely
     // stale socket is removed by the Host itself, which re-checks the same rules
     // (refused connection plus a dead or absent recorded owner).
-    const present = existsSync(this.socketPath)
-    if (present && !lstatSync(this.socketPath).isSocket()) {
-      throw new HostRequestError(
-        'HOST_UNREACHABLE',
-        `${this.socketPath} exists but is not a Unix socket. Refusing to remove it.`,
-        this.logPath
-      )
-    }
-    const probe = present ? await canConnect(this.socketPath) : 'absent'
-    if (probe === 'connected') {
-      throw new HostRequestError(
-        'HOST_UNREACHABLE',
-        `Another terminal host is listening on ${this.socketPath}, but this profile has no matching credentials. Refusing to replace it.`,
-        this.logPath
-      )
-    }
-    if (probe === 'unknown') {
-      throw new HostRequestError(
-        'HOST_UNREACHABLE',
-        `Cannot prove ${this.socketPath} is stale (the connection attempt was inconclusive). Refusing to remove it.`,
-        this.logPath
-      )
+    if (isNamedPipe(this.socketPath)) {
+      // A named pipe is not a filesystem object: there is nothing to stat and
+      // nothing to unlink, and `existsSync` is always false for `\\.\pipe\...`.
+      // The connect probe is the only source of truth.
+      const probe = await canConnect(this.socketPath)
+      if (probe === 'connected') {
+        throw new HostRequestError(
+          'HOST_UNREACHABLE',
+          `Another terminal host is listening on ${this.socketPath}, but this profile has no matching credentials. Refusing to replace it.`,
+          this.logPath
+        )
+      }
+      if (probe === 'unknown') {
+        throw new HostRequestError(
+          'HOST_UNREACHABLE',
+          `Cannot prove ${this.socketPath} is stale (the connection attempt was inconclusive). Refusing to remove it.`,
+          this.logPath
+        )
+      }
+    } else {
+      const present = existsSync(this.socketPath)
+      if (present && !lstatSync(this.socketPath).isSocket()) {
+        throw new HostRequestError(
+          'HOST_UNREACHABLE',
+          `${this.socketPath} exists but is not a Unix socket. Refusing to remove it.`,
+          this.logPath
+        )
+      }
+      const probe = present ? await canConnect(this.socketPath) : 'absent'
+      if (probe === 'connected') {
+        throw new HostRequestError(
+          'HOST_UNREACHABLE',
+          `Another terminal host is listening on ${this.socketPath}, but this profile has no matching credentials. Refusing to replace it.`,
+          this.logPath
+        )
+      }
+      if (probe === 'unknown') {
+        throw new HostRequestError(
+          'HOST_UNREACHABLE',
+          `Cannot prove ${this.socketPath} is stale (the connection attempt was inconclusive). Refusing to remove it.`,
+          this.logPath
+        )
+      }
     }
 
     await this.spawnHost()
@@ -141,7 +163,7 @@ export class HostSupervisor {
 
   private async tryConnect(): Promise<HostClient | null> {
     const token = this.readToken()
-    if (!token || !existsSync(this.socketPath)) return null
+    if (!token) return null
     try {
       return await HostClient.connect({ socketPath: this.socketPath, token })
     } catch {
@@ -166,6 +188,7 @@ export class HostSupervisor {
         cwd: this.directory,
         detached: true,
         stdio: 'ignore',
+        windowsHide: true,
         env: {
           ...process.env,
           ELECTRON_RUN_AS_NODE: '1',
@@ -196,7 +219,7 @@ export class HostSupervisor {
     while (Date.now() < deadline) {
       const token = this.readToken()
       const meta = this.readMeta()
-      if (token && meta && existsSync(this.socketPath)) {
+      if (token && meta) {
         try {
           const client = await HostClient.connect({ socketPath: this.socketPath, token })
           await client.ping()

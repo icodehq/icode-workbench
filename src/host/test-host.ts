@@ -21,7 +21,7 @@ export type TestHost = {
 export type TestHostOptions = {
   ptyFactory: (config: {
     command: string
-    args: string[]
+    args: string[] | string
     cwd: string
     cols: number
     rows: number

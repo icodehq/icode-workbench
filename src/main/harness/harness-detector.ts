@@ -8,7 +8,7 @@ import {
   type HarnessId,
   type HarnessProbeEvidence
 } from '../../shared/domain/harness'
-import type { LaunchCommand } from './launch-command'
+import { windowsShimCommandLine, type LaunchCommand } from './launch-command'
 import { chooseShellCommand } from './default-shell'
 import { findExecutable } from './find-executable'
 
@@ -48,6 +48,24 @@ export function spawnSpec(
     file: comspec && comspec.length > 0 ? comspec : 'cmd.exe',
     args: ['/d', '/s', '/c', `"${command}"`],
     windowsVerbatimArguments: true
+  }
+}
+
+/**
+ * The real launch command for a resolved harness.
+ *
+ * A `.cmd`/`.bat` shim cannot be spawned directly (EINVAL since the
+ * CVE-2024-27980 fix), and node-pty cannot pass Node's `windowsVerbatimArguments`.
+ * The shim therefore becomes one raw cmd.exe command line, which node-pty hands
+ * to cmd.exe verbatim; `withLaunchArgs` knows how to extend it.
+ */
+function launchCommandFor(file: string, platform: NodeJS.Platform): LaunchCommand {
+  if (platform !== 'win32' || !WINDOWS_CMD_SHIM.test(file)) return { command: file, args: [] }
+  const comspec = process.env.ComSpec
+  return {
+    command: comspec && comspec.length > 0 ? comspec : 'cmd.exe',
+    args: windowsShimCommandLine(file),
+    cmdShim: { shim: file }
   }
 }
 
@@ -152,7 +170,7 @@ export class HarnessDetector {
         version: null,
         resolvedPath: winShell,
         diagnostics,
-        command: { command: winShell, args: [] }
+        command: launchCommandFor(winShell, platform)
       }
     }
 
@@ -190,7 +208,7 @@ export class HarnessDetector {
     if (classification.state === 'available') {
       return {
         ...classification,
-        command: { command: resolvedPath ?? executableName, args: [] }
+        command: launchCommandFor(resolvedPath ?? executableName, platform)
       }
     }
     return { ...classification, command: null }

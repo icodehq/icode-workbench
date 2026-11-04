@@ -45,7 +45,7 @@ import { createWindowsProcessQuery } from '../wsl/host/windows-process'
 import { createGuestHostStore } from '../wsl/host/guest-store'
 import { WslHostRelay } from '../wsl/relay/endpoint'
 import { createTargetValidator } from '../wsl/repository-target'
-import { loadWslArtifacts } from '../wsl/host/artifact-locating'
+import { loadWslArtifacts, type WslArtifactLoad } from '../wsl/host/artifact-locating'
 import type { HostArtifactManifest } from '../wsl/host/deploy'
 import { createGuestHarnessDetector, withGuestLaunchCommand } from '../wsl/harness/guest-harness-detector'
 import { resolvePathATerminal } from '../wsl/terminal/path-a'
@@ -193,6 +193,7 @@ export async function startAppRuntime(): Promise<AppRuntime> {
    * One guest command runner for the process. It holds no per-distro state, so a
    * distro restart needs no invalidation.
    */
+  const isWindowsHost = process.platform === 'win32'
   const wslRunner = new WslCommandRunner()
 
   /**
@@ -217,7 +218,16 @@ export async function startAppRuntime(): Promise<AppRuntime> {
    * startup: the relay is built on first use and reports a typed failure if the
    * tree is missing.
    */
-  const wslArtifacts = loadWslArtifacts()
+  const wslArtifacts: WslArtifactLoad = isWindowsHost
+    ? loadWslArtifacts()
+    : {
+        ok: false,
+        root: '',
+        error: makeAppError(
+          'WSL_HOST_DEPLOY_FAILED',
+          'WSL is only available on Windows.'
+        )
+      }
 
   const supervisor = new HostSupervisor(undefined, {
     ICODE_ACTIVITY_SOCKET: activitySocketPath

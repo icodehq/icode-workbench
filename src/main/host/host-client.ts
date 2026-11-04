@@ -241,7 +241,7 @@ export class HostClient {
     sessionId: string
     cwd: string
     command: string
-    args?: string[]
+    args?: string[] | string
     cols: number
     rows: number
     attachOnly?: boolean
