@@ -72,6 +72,26 @@ function readJson(file) {
   }
 }
 
+function readText(file) {
+  try {
+    return fs.readFileSync(file, 'utf8')
+  } catch {
+    return ''
+  }
+}
+
+function dumpFailure(label, result, details) {
+  process.stderr.write(
+    `[gate:packaged:mac] ${label}: exit=${String(result.status)} ` +
+      `signal=${String(result.signal)} error=${result.error ? result.error.message : 'none'}\n`
+  )
+  if (result.stdout) process.stderr.write(`stdout:\n${result.stdout}\n`)
+  if (result.stderr) process.stderr.write(`stderr:\n${result.stderr}\n`)
+  for (const [name, value] of Object.entries(details)) {
+    process.stderr.write(`${name}: ${typeof value === 'string' ? value : JSON.stringify(value)}\n`)
+  }
+}
+
 function writeFakeHarness(bin) {
   const harness = path.join(bin, 'claude')
   fs.writeFileSync(
@@ -142,7 +162,10 @@ function main() {
 
   const start = run(['--icode-gate-host-start'])
   if (start.status !== 0) {
-    process.stderr.write(`${start.stdout ?? ''}${start.stderr ?? ''}\n`)
+    dumpFailure('host-start gate failed', start, {
+      'host-start.json': readJson(path.join(artifacts, 'host-start.json')),
+      'host.log': readText(path.join(hostDir, 'host.log'))
+    })
     fail(`host-start gate failed (exit ${String(start.status)})`)
   }
   const startEvidence = readJson(path.join(artifacts, 'host-start.json'))
@@ -150,7 +173,10 @@ function main() {
 
   const reattach = run(['--icode-gate-reattach'])
   if (reattach.status !== 0) {
-    process.stderr.write(`${reattach.stdout ?? ''}${reattach.stderr ?? ''}\n`)
+    dumpFailure('reattach gate failed', reattach, {
+      'reattach.json': readJson(path.join(artifacts, 'reattach.json')),
+      'host.log': readText(path.join(hostDir, 'host.log'))
+    })
     fail(`reattach gate failed (exit ${String(reattach.status)})`)
   }
   const reattachEvidence = readJson(path.join(artifacts, 'reattach.json'))
@@ -164,7 +190,10 @@ function main() {
   const smoke = run(['--icode-compat-smoke'])
   const evidence = readJson(evidencePath)
   if (smoke.status !== 0 || evidence === null || evidence.ok !== true) {
-    process.stderr.write(`exit=${String(smoke.status)} evidence=${JSON.stringify(evidence)}\n`)
+    dumpFailure('the packaged smoke did not pass', smoke, {
+      evidence,
+      'host.log': readText(path.join(hostDir, 'host.log'))
+    })
     fail('the packaged smoke did not pass')
   }
 

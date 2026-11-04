@@ -219,6 +219,13 @@ jobs:
         run: node config/scripts/package.cjs mac --${{ matrix.arch }}
       - name: Verify packaged payload
         run: node config/scripts/verify-package.cjs --platform mac --arch ${{ matrix.arch }} --dir ${{ matrix.unpacked }}
+      - name: Inspect packaged app
+        run: |
+          ls -leO@ "${{ matrix.unpacked }}/iCode.app/Contents/MacOS" || true
+          file "${{ matrix.unpacked }}/iCode.app/Contents/MacOS/iCode" || true
+          codesign -dv --verbose=4 "${{ matrix.unpacked }}/iCode.app" 2>&1 || true
+          codesign -dv --verbose=4 "${{ matrix.unpacked }}/iCode.app/Contents/Resources/app.asar.unpacked/node_modules/node-pty/prebuilds/darwin-${{ matrix.arch }}/spawn-helper" 2>&1 || true
+          spctl -a -vv "${{ matrix.unpacked }}/iCode.app" 2>&1 || true
       - name: Packaged smoke
         run: node tests/compat/packaged-smoke-mac.cjs --app ${{ matrix.unpacked }}/iCode.app
       - uses: actions/upload-artifact@v4
