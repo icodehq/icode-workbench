@@ -6,6 +6,7 @@ import {
   attentionLabel,
   filterAndSortProjects,
   PINNED_PROJECTS_KEY,
+  projectHeaderStats,
   projectStats,
   readPinnedProjectIds,
   relativeTimeLabel,
@@ -116,7 +117,14 @@ describe('project directory model', () => {
     )
 
     expect(stats.liveSessions).toBe(2)
+    expect(stats.sessions.map((entry) => entry.id)).toEqual(['direct', 'task-session'])
     expect(stats.directSessions.map((entry) => entry.id)).toEqual(['direct'])
+    expect(projectHeaderStats(stats)).toEqual({
+      sessions: 1,
+      live: 2,
+      tasks: 2,
+      needs: 2
+    })
     expect(stats.attention).toEqual({ answer: 1, retry: 0, review: 1, total: 2 })
     expect(stats.lastActivityAt).toBe(90)
     expect(stats.openMode).toBe('sessions')

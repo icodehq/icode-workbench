@@ -5,6 +5,10 @@ import AppRail from './components/AppRail'
 import GlobalTopBar from './components/GlobalTopBar'
 import type { ActivityEntry } from './components/NotificationsDrawer'
 import ProjectHeader, { type ProjectStat } from './components/ProjectHeader'
+import {
+  projectHeaderStats,
+  projectStats as computeProjectStats
+} from './components/projects-wall-model'
 import RepositoriesView from './components/RepositoriesView'
 import SchedulesView from './components/SchedulesView'
 import ProjectsPage from './pages/ProjectsPage'
@@ -18,7 +22,7 @@ import AppRoutes from './router/AppRoutes'
 import { useAppNavigation } from './router/use-app-navigation'
 import { useGlobalShortcuts } from './router/use-global-shortcuts'
 import { useSessionPanes } from './features/sessions/use-session-panes'
-import { taskAttention, taskAttentionCounts } from './components/task-status'
+import { taskAttention } from './components/task-status'
 import { useWorkspace } from './state/use-workspace'
 import { useTaskQueue } from './state/use-task-queue'
 import { useThemePreference } from './theme/use-theme'
@@ -61,7 +65,6 @@ export default function App(): React.JSX.Element {
     focusTaskId,
     focusComposerNonce,
     taskSelectionByRepo,
-    taskSessionIds,
     projectDirectSessions,
     projectSession,
     quickOpenSession,
@@ -100,23 +103,12 @@ export default function App(): React.JSX.Element {
   const projectStats = useMemo(() => {
     const byRepo: Record<string, ProjectStat> = {}
     for (const entry of state.repos) {
-      const repoTasks = tasks.tasks.filter((task) => task.repoId === entry.id)
-      const sessions = state.sessions.filter(
-        (session) => session.repoId === entry.id && !taskSessionIds.has(session.id)
+      byRepo[entry.id] = projectHeaderStats(
+        computeProjectStats(entry, state.sessions, tasks.tasks)
       )
-      byRepo[entry.id] = {
-        sessions: sessions.length,
-        live: state.sessions.filter(
-          (session) =>
-            session.repoId === entry.id &&
-            (session.state === 'live' || session.state === 'starting')
-        ).length,
-        tasks: repoTasks.length,
-        needs: taskAttentionCounts(repoTasks).total
-      }
     }
     return byRepo
-  }, [state.repos, state.sessions, taskSessionIds, tasks.tasks])
+  }, [state.repos, state.sessions, tasks.tasks])
 
   const needsTasks = useMemo(
     () =>

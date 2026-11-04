@@ -96,6 +96,21 @@ export function projectStats(
   }
 }
 
+/** The header counts direct sessions; `ProjectStats.sessions` is repository-wide. */
+export function projectHeaderStats(stats: ProjectStats): {
+  sessions: number
+  live: number
+  tasks: number
+  needs: number
+} {
+  return {
+    sessions: stats.directSessions.length,
+    live: stats.liveSessions,
+    tasks: stats.tasks.length,
+    needs: stats.attention.total
+  }
+}
+
 function attentionSince(task: TaskRecordPayload): number {
   if (task.status === 'completed') return task.finishedAt ?? task.updatedAt
   return task.updatedAt
