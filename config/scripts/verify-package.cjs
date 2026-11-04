@@ -19,6 +19,7 @@ const {
   openSync,
   readFileSync,
   readSync,
+  readdirSync,
   statSync
 } = require('node:fs')
 const { execFileSync } = require('node:child_process')
@@ -147,7 +148,16 @@ function main(argv) {
   const dir = packageDirectory(options)
   check(existsSync(dir), `package directory not found: ${dir}`)
 
-  const resources = join(dir, 'resources')
+  // macOS keeps the payload inside the .app bundle; Linux/Windows unpack a
+  // plain directory with a top-level resources folder.
+  let resources = join(dir, 'resources')
+  if (options.platform === 'mac') {
+    const app = readdirSync(dir, { withFileTypes: true }).find(
+      (entry) => entry.isDirectory() && entry.name.endsWith('.app')
+    )
+    check(app !== undefined, `no .app bundle found in ${dir}`)
+    resources = join(dir, app.name, 'Contents', 'Resources')
+  }
   const asar = join(resources, 'app.asar')
   check(existsSync(asar), `app.asar is missing from ${dir}`)
   check(statSync(asar).size > 0, `app.asar is empty in ${dir}`)
