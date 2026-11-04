@@ -1547,7 +1547,9 @@ describe('git workspace: inspection and history operations', () => {
       expect(
         worktrees.worktrees.some((entry) => samePathResolved(entry.path, f.worktree))
       ).toBe(true)
-      expect(worktrees.worktrees.find((entry) => entry.branch === f.branch)?.path).toBe(f.worktree)
+      const entry = worktrees.worktrees.find((candidate) => candidate.branch === f.branch)
+      expect(entry).toBeDefined()
+      expect(samePathResolved(entry!.path, f.worktree)).toBe(true)
     }
   })
 

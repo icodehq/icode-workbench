@@ -412,7 +412,13 @@ export class GitWorkspaceService {
     const { git, worktreePath } = resolved
     try {
       const output = await git(worktreePath, ['worktree', 'list', '--porcelain'])
-      return { status: 'ok', worktrees: parseWorktreeList(output) }
+      const entries = parseWorktreeList(output)
+      for (const entry of entries) {
+        if (process.platform === 'win32' && /^[A-Za-z]:[\\/]/u.test(entry.path)) {
+          entry.path = win32.normalize(entry.path)
+        }
+      }
+      return { status: 'ok', worktrees: entries }
     } catch (error) {
       return {
         status: 'unavailable',

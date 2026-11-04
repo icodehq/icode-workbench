@@ -286,7 +286,13 @@ export class HostClient {
   }
 
   async shutdown(): Promise<void> {
-    await this.request({ type: 'request', method: 'shutdown', params: {} })
+    try {
+      await this.request({ type: 'request', method: 'shutdown', params: {} })
+    } catch (error) {
+      // A Windows named pipe may close before the response frame is flushed.
+      // The host exiting is the success signal for an explicit shutdown.
+      if (!(error instanceof Error) || !/connection closed/iu.test(error.message)) throw error
+    }
     this.close()
   }
 
