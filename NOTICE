@@ -33,5 +33,5 @@ SOFTWARE.
 Libraries
 ---------
 Electron (MIT), electron-vite (MIT), Vite (MIT), React (MIT), TypeScript
-(Apache-2.0), xterm.js (MIT), node-pty (MIT), zod (MIT), Zustand (MIT),
+(Apache-2.0), xterm.js (MIT), node-pty (MIT), zod (MIT),
 Tailwind CSS (MIT), lucide-react (ISC), electron-builder (MIT).
