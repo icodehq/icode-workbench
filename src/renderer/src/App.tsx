@@ -6,25 +6,24 @@ import AppRail from './components/AppRail'
 import GlobalTopBar from './components/GlobalTopBar'
 import type { ActivityEntry } from './components/NotificationsDrawer'
 import ProjectHeader, { type ProjectStat } from './components/ProjectHeader'
-import ProjectTasksView from './components/ProjectTasksView'
 import ProjectsWall from './components/ProjectsWall'
 import RepositoriesView from './components/RepositoriesView'
 import SchedulesView from './components/SchedulesView'
 import SessionsPage from './pages/SessionsPage'
 import SettingsPage from './pages/SettingsPage'
+import TasksPage from './pages/TasksPage'
 import StatusBar from './components/StatusBar'
 import AppLayout from './layouts/AppLayout'
 import GlobalOverlays from './layouts/GlobalOverlays'
 import AppRoutes from './router/AppRoutes'
 import { useAppNavigation } from './router/use-app-navigation'
 import { useGlobalShortcuts } from './router/use-global-shortcuts'
-import SessionHost from './features/sessions/SessionHost'
 import { useSessionPanes } from './features/sessions/use-session-panes'
 import { taskAttention, taskAttentionCounts } from './components/task-status'
 import { useWorkspace } from './state/use-workspace'
 import { useTaskQueue } from './state/use-task-queue'
 import { useThemePreference } from './theme/use-theme'
-import { activeRepo, activeSession, pendingAction } from './state/workspace'
+import { activeRepo, activeSession } from './state/workspace'
 import { hostStatus } from './state/host-status'
 import type { Surface } from './router/routes'
 import { callApi } from './lib/api'
@@ -320,75 +319,6 @@ export default function App(): React.JSX.Element {
 
   const paneSessions = useSessionPanes(state.sessions)
 
-  const renderProjectTasks = (): React.JSX.Element => {
-    if (repo === null) return <></>
-    if (taskSession !== null && taskSessionTask !== null && taskSessionLive !== null) {
-      return (
-        <div className="flex min-h-0 flex-1 flex-col" data-testid="task-session-view">
-          <div className="flex h-8 shrink-0 items-center gap-2 border-b border-border px-3 text-[10px] text-muted-foreground">
-            <button
-              type="button"
-              className="rounded px-1 py-0.5 hover:bg-muted hover:text-foreground"
-              onClick={commands.backToTasks}
-              data-testid="task-session-back"
-            >
-              ← Tasks
-            </button>
-            <span className="min-w-0 truncate text-foreground">{taskSessionTask.title}</span>
-            <span className="shrink-0">attempt {taskSessionTask.attempt}</span>
-          </div>
-          <SessionHost
-            session={taskSessionLive}
-            repo={repo}
-            pending={pendingAction(state, taskSessionLive.id)}
-            panes={paneSessions}
-            allowSleep={false}
-            refreshToken={refreshToken}
-            openRequest={openRequest}
-            viewRequest={viewRequest}
-            drafts={drafts}
-            onRestart={(sessionId) => void workspace.restartSession(sessionId)}
-            onSleep={(sessionId) => void workspace.sleepSession(sessionId)}
-            onWake={(sessionId) => void workspace.wakeSession(sessionId)}
-            onRecheck={(sessionId) => void workspace.recheckSession(sessionId)}
-            onRemove={(sessionId) => void workspace.requestRemoveSession(sessionId)}
-            onRecoverWorktree={(sessionId) => void workspace.recoverWorktree(sessionId)}
-            onError={workspace.reportError}
-            notify={workspace.notify}
-            onSendToAgent={(text) => sendToAgent(text, taskSessionLive)}
-            onClearOpenRequest={commands.clearOpenRequest}
-            onRequestOpenInFiles={commands.requestOpenInFiles}
-            onClearViewRequest={commands.clearViewRequest}
-          />
-        </div>
-      )
-    }
-    return (
-      <ProjectTasksView
-        repo={repo}
-        tasks={tasks.tasks}
-        sessions={state.sessions}
-        loading={tasks.loading}
-        focusTaskId={focusTaskId}
-        focusComposerNonce={focusComposerNonce}
-        rememberedTaskId={taskSelectionByRepo[repo.id] ?? null}
-        notify={workspace.notify}
-        refreshToken={refreshToken}
-        drafts={drafts}
-        openRequest={openRequest}
-        onOpenRequestHandled={commands.clearOpenRequest}
-        onReload={() => tasks.reload()}
-        onTaskSelected={commands.rememberTaskSelection}
-        onOpenSession={commands.openTaskSession}
-        onStopSession={(sessionId) => void workspace.stopSession(sessionId)}
-        onRestartSession={(sessionId) => void workspace.restartSession(sessionId)}
-        onRecheckSession={(sessionId) => void workspace.recheckSession(sessionId)}
-        onError={workspace.reportError}
-        onSendToAgent={(text, session) => sendToAgent(text, session)}
-      />
-    )
-  }
-
   const pages: Record<Surface, ReactNode> = {
     projects:
       state.repos.length === 0 && displaySurface === 'projects' ? (
@@ -460,7 +390,43 @@ export default function App(): React.JSX.Element {
         onClearViewRequest={commands.clearViewRequest}
       />
     ),
-    tasks: renderProjectTasks(),
+    tasks: (
+      <TasksPage
+        repo={repo}
+        tasks={tasks.tasks}
+        sessions={state.sessions}
+        loading={tasks.loading}
+        focusTaskId={focusTaskId}
+        focusComposerNonce={focusComposerNonce}
+        rememberedTaskId={repo === null ? null : taskSelectionByRepo[repo.id] ?? null}
+        taskSession={taskSession}
+        taskSessionTask={taskSessionTask}
+        taskSessionLive={taskSessionLive}
+        pending={state.pending}
+        paneSessions={paneSessions}
+        refreshToken={refreshToken}
+        openRequest={openRequest}
+        viewRequest={viewRequest}
+        drafts={drafts}
+        sendToAgent={sendToAgent}
+        onBackToTasks={commands.backToTasks}
+        onReload={() => tasks.reload()}
+        onTaskSelected={commands.rememberTaskSelection}
+        onOpenSession={commands.openTaskSession}
+        onStopSession={(sessionId) => void workspace.stopSession(sessionId)}
+        onRestartSession={(sessionId) => void workspace.restartSession(sessionId)}
+        onSleepSession={(sessionId) => void workspace.sleepSession(sessionId)}
+        onWakeSession={(sessionId) => void workspace.wakeSession(sessionId)}
+        onRecheckSession={(sessionId) => void workspace.recheckSession(sessionId)}
+        onRemoveSession={(sessionId) => void workspace.requestRemoveSession(sessionId)}
+        onRecoverWorktree={(sessionId) => void workspace.recoverWorktree(sessionId)}
+        onError={workspace.reportError}
+        notify={workspace.notify}
+        onClearOpenRequest={commands.clearOpenRequest}
+        onRequestOpenInFiles={commands.requestOpenInFiles}
+        onClearViewRequest={commands.clearViewRequest}
+      />
+    ),
     schedules: (
       <SchedulesView
         repos={state.repos}
