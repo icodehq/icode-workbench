@@ -11,7 +11,6 @@ import ProjectTasksView from './components/ProjectTasksView'
 import ProjectsWall from './components/ProjectsWall'
 import RepositoriesView from './components/RepositoriesView'
 import SchedulesView from './components/SchedulesView'
-import SessionWorkspace from './components/SessionWorkspace'
 import SettingsPage from './pages/SettingsPage'
 import StatusBar from './components/StatusBar'
 import AppLayout from './layouts/AppLayout'
@@ -19,6 +18,7 @@ import GlobalOverlays from './layouts/GlobalOverlays'
 import AppRoutes from './router/AppRoutes'
 import { useAppNavigation } from './router/use-app-navigation'
 import { useGlobalShortcuts } from './router/use-global-shortcuts'
+import SessionHost from './features/sessions/SessionHost'
 import { useSessionPanes } from './features/sessions/use-session-panes'
 import { taskAttention, taskAttentionCounts } from './components/task-status'
 import { useWorkspace } from './state/use-workspace'
@@ -320,38 +320,6 @@ export default function App(): React.JSX.Element {
 
   const paneSessions = useSessionPanes(state.sessions)
 
-  const renderSession = (
-    session: NonNullable<typeof projectSession>,
-    sessionsListHidden = false,
-    allowSleep = true
-  ): React.JSX.Element => (
-    <SessionWorkspace
-      session={session}
-      repo={repo}
-      pending={pendingAction(state, session.id)}
-      panes={paneSessions}
-      onRestart={(sessionId) => void workspace.restartSession(sessionId)}
-      onSleep={(sessionId) => void workspace.sleepSession(sessionId)}
-      onWake={(sessionId) => void workspace.wakeSession(sessionId)}
-      allowSleep={allowSleep}
-      onRecheck={(sessionId) => void workspace.recheckSession(sessionId)}
-      onRemove={(sessionId) => void workspace.requestRemoveSession(sessionId)}
-      onRecoverWorktree={(sessionId) => void workspace.recoverWorktree(sessionId)}
-      onError={workspace.reportError}
-      notify={workspace.notify}
-      refreshToken={refreshToken}
-      openRequest={openRequest}
-      onOpenRequestHandled={commands.clearOpenRequest}
-      onSendToAgent={(text) => sendToAgent(text, session)}
-      drafts={drafts}
-      onRequestOpenInFiles={commands.requestOpenInFiles}
-      viewRequest={viewRequest}
-      onViewRequestHandled={commands.clearViewRequest}
-      sessionsListHidden={sessionsListHidden}
-      onShowSessionsList={sessionsListHidden ? () => setSessionsListOpen(true) : undefined}
-    />
-  )
-
   const renderProjectSessions = (): React.JSX.Element => {
     if (repo === null) return <></>
     const showSessionsList =
@@ -374,7 +342,35 @@ export default function App(): React.JSX.Element {
         ) : null}
         <div className="flex min-w-0 flex-1">
           {projectSession !== null ? (
-            renderSession(projectSession, !sessionsListOpen && !focusActive)
+            <SessionHost
+              session={projectSession}
+              repo={repo}
+              pending={pendingAction(state, projectSession.id)}
+              panes={paneSessions}
+              allowSleep
+              refreshToken={refreshToken}
+              openRequest={openRequest}
+              viewRequest={viewRequest}
+              drafts={drafts}
+              sessionsListHidden={!sessionsListOpen && !focusActive}
+              onShowSessionsList={
+                !sessionsListOpen && !focusActive
+                  ? () => setSessionsListOpen(true)
+                  : undefined
+              }
+              onRestart={(sessionId) => void workspace.restartSession(sessionId)}
+              onSleep={(sessionId) => void workspace.sleepSession(sessionId)}
+              onWake={(sessionId) => void workspace.wakeSession(sessionId)}
+              onRecheck={(sessionId) => void workspace.recheckSession(sessionId)}
+              onRemove={(sessionId) => void workspace.requestRemoveSession(sessionId)}
+              onRecoverWorktree={(sessionId) => void workspace.recoverWorktree(sessionId)}
+              onError={workspace.reportError}
+              notify={workspace.notify}
+              onSendToAgent={(text) => sendToAgent(text, projectSession)}
+              onClearOpenRequest={commands.clearOpenRequest}
+              onRequestOpenInFiles={commands.requestOpenInFiles}
+              onClearViewRequest={commands.clearViewRequest}
+            />
           ) : (
             <div className="flex flex-1 items-center justify-center p-8">
               <div className="w-full max-w-md rounded-lg border border-border bg-card p-6">
@@ -417,7 +413,29 @@ export default function App(): React.JSX.Element {
             <span className="min-w-0 truncate text-foreground">{taskSessionTask.title}</span>
             <span className="shrink-0">attempt {taskSessionTask.attempt}</span>
           </div>
-          {renderSession(taskSessionLive, false, false)}
+          <SessionHost
+            session={taskSessionLive}
+            repo={repo}
+            pending={pendingAction(state, taskSessionLive.id)}
+            panes={paneSessions}
+            allowSleep={false}
+            refreshToken={refreshToken}
+            openRequest={openRequest}
+            viewRequest={viewRequest}
+            drafts={drafts}
+            onRestart={(sessionId) => void workspace.restartSession(sessionId)}
+            onSleep={(sessionId) => void workspace.sleepSession(sessionId)}
+            onWake={(sessionId) => void workspace.wakeSession(sessionId)}
+            onRecheck={(sessionId) => void workspace.recheckSession(sessionId)}
+            onRemove={(sessionId) => void workspace.requestRemoveSession(sessionId)}
+            onRecoverWorktree={(sessionId) => void workspace.recoverWorktree(sessionId)}
+            onError={workspace.reportError}
+            notify={workspace.notify}
+            onSendToAgent={(text) => sendToAgent(text, taskSessionLive)}
+            onClearOpenRequest={commands.clearOpenRequest}
+            onRequestOpenInFiles={commands.requestOpenInFiles}
+            onClearViewRequest={commands.clearViewRequest}
+          />
         </div>
       )
     }
