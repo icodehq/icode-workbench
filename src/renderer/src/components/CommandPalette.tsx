@@ -29,6 +29,7 @@ import type { TaskRecordPayload } from '../../../shared/icode-api'
 import type { RepositorySummary, SessionSummary } from '../../../shared/schemas/ipc'
 import { fuzzyScore } from '../files/fuzzy'
 import { getWorktreeFileIndex } from '../files/file-index'
+import { shortcutHint } from '../lib/platform'
 import type { Notice } from '../state/workspace'
 import {
   filterAndSortProjects,
@@ -460,7 +461,7 @@ export default function CommandPalette({
             spellCheck={false}
           />
           <kbd className="hidden shrink-0 rounded border border-border bg-muted/50 px-1.5 py-0.5 font-mono text-[9.5px] text-muted-foreground sm:block">
-            Ctrl K
+            {shortcutHint('K')}
           </kbd>
         </div>
 

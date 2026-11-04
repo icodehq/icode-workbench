@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, chmodSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { createServer } from 'node:net'
 import { spawn } from 'node:child_process'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -110,6 +110,41 @@ describe('startup safety', () => {
     expect(first.socket).toBe(
       hostSocketPath({ profileDir: alpha, env: { XDG_RUNTIME_DIR: runtime } })
     )
+  })
+
+  it.skipIf(isWindows)(
+    'falls back to a short per-profile temp socket when the profile path is too long',
+    () => {
+      const profile = join(root(), 'p'.repeat(120))
+      const socket = hostSocketPath({ profileDir: profile, env: {}, platform: 'linux' })
+      expect(Buffer.byteLength(socket)).toBeLessThanOrEqual(100)
+      expect(socket.startsWith(tmpdir())).toBe(true)
+      expect(dirname(socket)).not.toBe(tmpdir())
+    }
+  )
+
+  it.skipIf(isWindows)('never chmods the shared temp root for a fallback endpoint', () => {
+    const profile = join(root(), 'p'.repeat(120))
+    const socket = hostSocketPath({ profileDir: profile, env: {}, platform: 'linux' })
+    const dir = join(root(), 'host')
+    const paths = {
+      dir,
+      socket,
+      token: join(dir, 'token'),
+      meta: join(dir, 'meta.json'),
+      log: join(dir, 'host.log')
+    }
+    const calls: Array<[string, number]> = []
+    try {
+      prepareHostDirectory(paths, {
+        chmod: (path, mode) => {
+          calls.push([path, mode])
+        }
+      })
+      expect(calls.some(([path]) => path === tmpdir())).toBe(false)
+    } finally {
+      rmSync(dirname(socket), { recursive: true, force: true })
+    }
   })
 
   it('lets ICODE_HOST_SOCKET override the profile scope on both sides', () => {

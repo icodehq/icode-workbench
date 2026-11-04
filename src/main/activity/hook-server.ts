@@ -1,5 +1,5 @@
 import { createServer, type Server, type Socket } from 'node:net'
-import { existsSync, mkdirSync, rmSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, rmSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { activityHookPayloadSchema, type ActivityHookPayload } from '../../shared/schemas/activity'
 import { ACTIVITY_MAX_PAYLOAD_BYTES, type ActivityHookEvent } from '../../shared/domain/activity'
@@ -49,6 +49,14 @@ export class ActivityHookServer {
       server.once('error', reject)
       server.listen(this.options.socketPath, () => {
         server.removeListener('error', reject)
+        // The parent is owner-only, but the socket may live directly in a
+        // shared temp root after the long-path fallback. A 0600 socket keeps
+        // hook delivery private without relying on the directory.
+        try {
+          chmodSync(this.options.socketPath, 0o600)
+        } catch {
+          // Non-POSIX filesystems decide their own permissions.
+        }
         resolve()
       })
     })

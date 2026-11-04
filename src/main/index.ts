@@ -8,6 +8,7 @@ import { registerAppIpc } from './ipc/register'
 import { IPC_CHANNELS } from '../shared/schemas/ipc'
 import { installApplicationMenu } from './menu'
 import { clampWindowState, loadWindowState, trackWindowState } from './window-state'
+import { applyLoginEnvironment } from './app/login-environment'
 import { APP_LOCAL_PROFILE_DIR_NAME, APP_NAME } from '../shared/domain/app-identity'
 
 app.setName(APP_NAME)
@@ -30,7 +31,11 @@ mkdirSync(profileDirectory, { recursive: true })
 app.setPath('userData', profileDirectory)
 app.setPath('sessionData', profileDirectory)
 
-app.disableHardwareAcceleration()
+// WSLg needs software rendering; Windows and macOS keep hardware acceleration.
+const disableGpu =
+  process.env.ICODE_DISABLE_GPU === '1' ||
+  (process.platform === 'linux' && process.env.ICODE_ENABLE_GPU !== '1')
+if (disableGpu) app.disableHardwareAcceleration()
 
 function installRuntimeInfoHandler(): void {
   ipcMain.handle('icode:runtime-info', () => ({
@@ -82,11 +87,16 @@ function createWindow(): void {
     backgroundColor: windowBackground(nativeTheme.shouldUseDarkColors),
     title: 'iCode Workbench',
     /**
-     * The renderer owns the title bar and window controls. Keeping the default
-     * thick frame preserves Windows resizing and the drop shadow without the
-     * native caption or min/max/close buttons.
+     * Windows/Linux: the renderer owns the title bar and custom controls; the
+     * default thick frame preserves resizing and the drop shadow.
+     * macOS: keep the native traffic lights and reserve space for them.
      */
-    frame: false,
+    ...(process.platform === 'darwin'
+      ? {
+          titleBarStyle: 'hiddenInset' as const,
+          trafficLightPosition: { x: 12, y: 12 }
+        }
+      : { frame: false }),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -147,7 +157,10 @@ async function runCompatMode(): Promise<void> {
 if (gateFlag || packagedSmoke) {
   app
     .whenReady()
-    .then(runCompatMode)
+    .then(async () => {
+      await applyLoginEnvironment()
+      await runCompatMode()
+    })
     .catch((error: unknown) => {
       process.stderr.write(`[icode] compatibility mode failed: ${String(error)}\n`)
       app.exit(1)
@@ -165,6 +178,9 @@ if (gateFlag || packagedSmoke) {
       }
     })
     app.whenReady().then(async () => {
+      // Resolve the login environment before the Host, harness detection, Git,
+      // or any PTY reads process.env.
+      await applyLoginEnvironment()
       // Registered before the window exists so a live appearance change also
       // reaches the first window.
       watchSystemAppearance()

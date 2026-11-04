@@ -1,6 +1,10 @@
 import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { namedPipe } from '../../shared/domain/endpoint'
 import { profileSocketScope } from '../../host/paths'
+
+/** macOS sun_path is 104 bytes; stay below it with room for a trailing suffix. */
+const MAX_SOCKET_PATH_BYTES = 100
 
 /**
  * Endpoint the Claude hooks connect to, and the server listens on.
@@ -22,5 +26,12 @@ export function activitySocketPath(options: {
   if (platform === 'win32') {
     return namedPipe('icode-activity', profileSocketScope(options.userDataDir))
   }
-  return join(options.userDataDir, 'run', 'activity.sock')
+  const fallback = join(options.userDataDir, 'run', 'activity.sock')
+  if (Buffer.byteLength(fallback) <= MAX_SOCKET_PATH_BYTES) return fallback
+  // Keep the socket in a per-profile directory so its parent can stay owner-
+  // only; the flat name is the last resort for an unusually long temp root.
+  const scope = profileSocketScope(options.userDataDir)
+  const scopedTemp = join(tmpdir(), 'icode', scope, 'activity.sock')
+  if (Buffer.byteLength(scopedTemp) <= MAX_SOCKET_PATH_BYTES) return scopedTemp
+  return join(tmpdir(), `icode-activity-${scope}.sock`)
 }

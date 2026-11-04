@@ -17,6 +17,7 @@ import {
   X
 } from 'lucide-react'
 import type { TaskRecordPayload } from '../../../shared/icode-api'
+import { isMacPlatform, modifierLabel } from '../lib/platform'
 import type { ThemeName, ThemePreference } from '../theme/apply-theme'
 
 export type NeedsYouEntry = {
@@ -36,6 +37,8 @@ type Props = {
   themePreference: ThemePreference
   resolvedTheme: ThemeName
   onSetTheme: (preference: ThemePreference) => void
+  /** Host platform; macOS keeps native traffic lights and hides custom controls. */
+  platform: string | null
 }
 
 /**
@@ -57,8 +60,12 @@ export default function GlobalTopBar({
   onProjects,
   themePreference,
   resolvedTheme,
-  onSetTheme
+  onSetTheme,
+  platform
 }: Props): React.JSX.Element {
+  // The UA identifies macOS before the runtime IPC resolves, so native traffic
+  // lights never share the window with the custom Windows/Linux controls.
+  const isMac = isMacPlatform(platform)
   const [newMenuOpen, setNewMenuOpen] = useState(false)
   const [themeOpen, setThemeOpen] = useState(false)
   const [maximized, setMaximized] = useState(false)
@@ -114,9 +121,9 @@ export default function GlobalTopBar({
 
   return (
     <header
-      className="icode-titlebar relative z-0 flex h-[50px] shrink-0 items-center gap-2 border-b border-border bg-card pl-3"
+      className={`icode-titlebar relative z-0 flex h-[50px] shrink-0 items-center gap-2 border-b border-border bg-card ${isMac ? 'pl-[78px]' : 'pl-3'}`}
       data-testid="app-topbar"
-      onDoubleClick={onHeaderDoubleClick}
+      onDoubleClick={isMac ? undefined : onHeaderDoubleClick}
     >
       <button
         type="button"
@@ -142,13 +149,13 @@ export default function GlobalTopBar({
         type="button"
         className="ml-3 inline-flex h-8 min-w-0 max-w-[520px] flex-1 items-center gap-2 rounded-md border border-border bg-muted/60 px-2.5 text-left text-[11.5px] text-muted-foreground hover:border-line-strong hover:bg-muted hover:text-foreground"
         onClick={onSearch}
-        title="Search projects, work, files and commands (Ctrl/Cmd+K)"
+        title={`Search projects, work, files and commands (${modifierLabel(platform)}+K)`}
         data-testid="global-search"
       >
         <Search size={13} className="shrink-0" />
         <span className="min-w-0 flex-1 truncate">Search projects, work, files and commands</span>
         <span className="hidden shrink-0 rounded border border-border bg-card px-1.5 py-0.5 font-mono text-[10px] sm:inline">
-          Ctrl K
+          {modifierLabel(platform)} K
         </span>
       </button>
 
@@ -299,6 +306,7 @@ export default function GlobalTopBar({
         </button>
       </div>
 
+      {isMac ? null : (
       <div
         className="ml-2 flex h-full shrink-0 items-stretch"
         role="group"
@@ -337,6 +345,7 @@ export default function GlobalTopBar({
           <X size={13} />
         </button>
       </div>
+      )}
     </header>
   )
 }

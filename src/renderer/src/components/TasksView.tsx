@@ -14,6 +14,7 @@ import {
   XCircle
 } from 'lucide-react'
 import { callApi, errorNotice } from '../lib/api'
+import { shortcutLabel } from '../lib/platform'
 import type { TaskRecordPayload, TaskSchedulePayload } from '../../../shared/icode-api'
 import type { RepositorySummary } from '../../../shared/schemas/ipc'
 import type { HarnessDetection } from '../../../shared/domain/harness'
@@ -480,7 +481,7 @@ export default function TasksView({
                   <Plus size={11} />
                   Queue task
                 </button>
-                <span className="text-[9px] text-muted-foreground">Ctrl+Enter</span>
+                <span className="text-[9px] text-muted-foreground">{shortcutLabel('Enter')}</span>
               </div>
             </div>
 

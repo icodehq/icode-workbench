@@ -72,8 +72,10 @@ export function isDirectory(path: string): boolean {
  */
 function normalizeForComparison(value: string, platform: NodeJS.Platform): string {
   const trimmed = value.replace(/[\\/]+$/u, '')
-  if (platform !== 'win32') return trimmed
-  return trimmed.replace(/\\/gu, '/').toLowerCase()
+  if (platform === 'win32') return trimmed.replace(/\\/gu, '/').toLowerCase()
+  // Default APFS is case-insensitive and case-preserving.
+  if (platform === 'darwin') return trimmed.toLowerCase()
+  return trimmed
 }
 
 export function samePath(

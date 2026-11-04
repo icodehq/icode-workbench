@@ -30,6 +30,7 @@ import { hostStatus } from './state/host-status'
 import { type ProjectMode, type Surface } from './state/navigation'
 import { callApi } from './lib/api'
 import { sendAgentText, type AgentSendResult } from './lib/agent-send'
+import { isFocusTerminalShortcut, setRendererPlatform } from './lib/platform'
 import { harnessLabel, isAgentHarness } from '../../shared/domain/harness'
 import { WorkbenchDraftStore } from './review/drafts'
 
@@ -241,9 +242,19 @@ export default function App(): React.JSX.Element {
   )
 
   useEffect(() => {
+    setRendererPlatform(workspace.runtime?.platform ?? null)
+  }, [workspace.runtime?.platform])
+
+  useEffect(() => {
     if (focusableSessionId === null) return
     const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key !== 'F11') return
+      // Cmd+J / Ctrl+J is the primary shortcut; F11 stays as the always-captured
+      // fallback. Inside the terminal, the chord belongs to the shell, so only
+      // F11 is intercepted there.
+      const inTerminal =
+        event.target instanceof Element && event.target.closest('.xterm') !== null
+      const focusShortcut = !inTerminal && isFocusTerminalShortcut(event)
+      if (event.key !== 'F11' && !focusShortcut) return
       // Capture before xterm: the terminal should not receive a function key
       // whose whole purpose here is to give the terminal more room.
       event.preventDefault()
@@ -252,7 +263,7 @@ export default function App(): React.JSX.Element {
     }
     window.addEventListener('keydown', onKeyDown, true)
     return () => window.removeEventListener('keydown', onKeyDown, true)
-  }, [focusableSessionId])
+  }, [focusableSessionId, workspace.runtime?.platform])
 
   useEffect(() => {
     if (taskSession === null) return
@@ -922,6 +933,7 @@ export default function App(): React.JSX.Element {
           themePreference={theme.preference}
           resolvedTheme={theme.resolved}
           onSetTheme={theme.setPreference}
+          platform={workspace.runtime?.platform ?? null}
         />
       ) : null}
 
@@ -1050,6 +1062,7 @@ export default function App(): React.JSX.Element {
           onClose={() => setAddOpen(false)}
           onSubmit={addRepository}
           onInitialize={initializeRepository}
+          platform={workspace.runtime?.platform ?? null}
         />
       ) : null}
 

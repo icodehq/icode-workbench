@@ -44,7 +44,7 @@ export function installApplicationMenu(): void {
         { role: 'toggleDevTools' },
         { type: 'separator' },
         {
-          label: 'Focus Terminal (F11)',
+          label: `Focus Terminal (${isMac ? 'Cmd' : 'Ctrl'}+J / F11)`,
           click: (): void => sendViewCommand('focus')
         },
         {

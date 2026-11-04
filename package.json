@@ -38,6 +38,7 @@
     "verify:package": "node config/scripts/verify-package.cjs",
     "gate:packaged": "node config/scripts/gates.cjs packaged",
     "smoke:packaged:win": "node tests/compat/packaged-smoke-win.cjs",
+    "smoke:packaged:mac": "node tests/compat/packaged-smoke-mac.cjs",
     "build:host": "node config/scripts/build-host.cjs",
     "build:wsl-host": "node config/scripts/wsl/host-artifacts.cjs build",
     "verify:wsl-host": "node config/scripts/wsl/verify-artifacts.cjs artifacts/wsl-host/linux-x64",

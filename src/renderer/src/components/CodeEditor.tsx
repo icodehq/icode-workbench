@@ -9,6 +9,7 @@ import type {
 } from '../../../shared/icode-api'
 import type { ReviewDiffResult } from '../../../shared/schemas/review'
 import { callApi } from '../lib/api'
+import { shortcutLabel } from '../lib/platform'
 import type { MonacoApi } from '../editor/monaco'
 import { lineDiff, quickDiffCounts, type LineChange } from '../editor/line-diff'
 import { quickChangeForLine, quickDiffPatch } from '../editor/quick-diff-actions'
@@ -670,7 +671,7 @@ export default function CodeEditor({
             className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground hover:text-foreground"
             onClick={onSave}
             data-testid="editor-save"
-            title="Save (Ctrl/Cmd+S)"
+            title={`Save (${shortcutLabel('S')})`}
           >
             Save
           </button>

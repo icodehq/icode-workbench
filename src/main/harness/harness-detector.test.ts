@@ -106,6 +106,13 @@ describe('harness detection', () => {
     expect(result.command).toEqual({ command: '/bin/bash', args: [] })
   })
 
+  it('launches the macOS shell harness as a login shell', async () => {
+    const { detector: d } = detector({ shell: '/bin/zsh', platform: 'darwin' })
+    const result = await d.detect('shell')
+    expect(result.state).toBe('available')
+    expect(result.command).toEqual({ command: '/bin/zsh', args: ['-l'] })
+  })
+
   it('re-resolves and re-probes on every call (retry is real)', async () => {
     let calls = 0
     const d = new HarnessDetector({
