@@ -2,26 +2,20 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, FolderGit2, Loader2, Plus, RefreshCw } from 'lucide-react'
 import type { TaskRecordPayload } from '../../shared/icode-api'
 import type { SessionSummary } from '../../shared/schemas/ipc'
-import AddRepositoryDialog from './components/AddRepositoryDialog'
 import AppRail from './components/AppRail'
-import BranchCleanupDialog from './components/BranchCleanupDialog'
-import CommandPalette from './components/CommandPalette'
 import GlobalTopBar from './components/GlobalTopBar'
-import NewSessionDialog from './components/NewSessionDialog'
-import NotificationsDrawer, { type ActivityEntry } from './components/NotificationsDrawer'
+import type { ActivityEntry } from './components/NotificationsDrawer'
 import ProjectHeader, { type ProjectStat } from './components/ProjectHeader'
 import ProjectSessionsList from './components/ProjectSessionsList'
 import ProjectTasksView from './components/ProjectTasksView'
 import ProjectsWall from './components/ProjectsWall'
-import QuickOpen from './components/QuickOpen'
-import RemovalDialog from './components/RemovalDialog'
 import RepositoriesView from './components/RepositoriesView'
 import SchedulesView from './components/SchedulesView'
 import SessionWorkspace from './components/SessionWorkspace'
 import SettingsView from './components/SettingsView'
 import StatusBar from './components/StatusBar'
-import WorktreeCleanupDialog from './components/WorktreeCleanupDialog'
 import AppLayout from './layouts/AppLayout'
+import GlobalOverlays from './layouts/GlobalOverlays'
 import { taskAttention, taskAttentionCounts } from './components/task-status'
 import { useWorkspace } from './state/use-workspace'
 import { useTaskQueue } from './state/use-task-queue'
@@ -958,133 +952,140 @@ export default function App(): React.JSX.Element {
         />
       }
       overlays={
-        <>
-          <NotificationsDrawer
-            open={notificationsOpen}
-            needsTasks={needsTasks}
-            activity={activityEntries}
-            markingRead={markingActivity}
-            onClose={() => setNotificationsOpen(false)}
-            onOpenTask={openTask}
-            onOpenSession={openDirectSession}
-            onMarkRead={() => void markActivityRead()}
-          />
-
-          <CommandPalette
-            open={paletteOpen}
-            repos={state.repos}
-            sessions={state.sessions}
-            tasks={tasks.tasks}
-            fileSession={quickOpenSession}
-            canStartSession={!hostUnreachable}
-            resolvedTheme={theme.resolved}
-            notify={workspace.notify}
-            onClose={() => setPaletteOpen(false)}
-            onNewSession={openNewSession}
-            onQueueTask={openQueueTask}
-            onProjects={() => {
+        <GlobalOverlays
+          notifications={{
+            open: notificationsOpen,
+            needsTasks,
+            activity: activityEntries,
+            markingRead: markingActivity,
+            onClose: () => setNotificationsOpen(false),
+            onOpenTask: openTask,
+            onOpenSession: openDirectSession,
+            onMarkRead: () => void markActivityRead()
+          }}
+          palette={{
+            open: paletteOpen,
+            repos: state.repos,
+            sessions: state.sessions,
+            tasks: tasks.tasks,
+            fileSession: quickOpenSession,
+            canStartSession: !hostUnreachable,
+            resolvedTheme: theme.resolved,
+            notify: workspace.notify,
+            onClose: () => setPaletteOpen(false),
+            onNewSession: openNewSession,
+            onQueueTask: openQueueTask,
+            onProjects: () => {
               clearProjectView()
               setSurface('projects')
-            }}
-            onSchedules={() => {
+            },
+            onSchedules: () => {
               clearProjectView()
               setSurface('schedules')
-            }}
-            onRepositories={() => {
+            },
+            onRepositories: () => {
               clearProjectView()
               setSurface('repositories')
-            }}
-            onSettings={() => {
+            },
+            onSettings: () => {
               clearProjectView()
               setSurface('settings')
-            }}
-            onSourceControl={() =>
-              setViewRequest({ view: 'changes', nonce: Date.now() })
-            }
-            onToggleTheme={() =>
-              theme.setPreference(theme.resolved === 'dark' ? 'light' : 'dark')
-            }
-            onOpenProject={openProject}
-            onOpenSession={openDirectSession}
-            onOpenTask={openTask}
-            onOpenFile={openFileFromPalette}
-          />
-
-          {quickOpenSession !== null ? (
-            <QuickOpen
-              open={quickOpenOpen}
-              sessionId={quickOpenSession.id}
-              notify={workspace.notify}
-              onClose={() => setQuickOpenOpen(false)}
-              onOpen={(path, line) => {
-                openFileFromPalette(path, line)
-                setQuickOpenOpen(false)
-              }}
-            />
-          ) : null}
-
-          {addOpen ? (
-            <AddRepositoryDialog
-              onClose={() => setAddOpen(false)}
-              onSubmit={addRepository}
-              onInitialize={initializeRepository}
-            />
-          ) : null}
-
-          {newSessionOpen ? (
-            <NewSessionDialog
-              repos={state.repos}
-              activeRepoId={state.activeRepoId}
-              harnesses={state.harnesses}
-              harnessLoading={state.harnessLoading}
-              harnessError={state.harnessError}
-              creating={workspace.creating}
-              onClose={() => setNewSessionOpen(false)}
-              onCreate={createSession}
-              onRefreshHarnesses={workspace.refreshHarnesses}
-            />
-          ) : null}
-
-          {state.removal ? (
-            <RemovalDialog
-              prompt={state.removal}
-              busy={removalBusy}
-              onCancel={workspace.dismissRemoval}
-              onConfirm={() => void confirmRemoval()}
-            />
-          ) : null}
-
-          {state.sessionCleanup ? (
-            <WorktreeCleanupDialog
-              prompt={state.sessionCleanup}
-              busy={cleanupBusy}
-              onClose={workspace.dismissSessionCleanup}
-              onRecover={() => void workspace.recoverWorktree(state.sessionCleanup!.sessionId)}
-              onDiscard={async (confirmBranch) => {
-                setCleanupBusy(true)
-                const removed = await workspace.discardSession(
-                  state.sessionCleanup!.sessionId,
-                  confirmBranch
-                )
-                setCleanupBusy(false)
-                return removed
-              }}
-            />
-          ) : null}
-
-          {state.branchCleanup ? (
-            <BranchCleanupDialog
-              prompt={state.branchCleanup}
-              busy={cleanupBusy}
-              onClose={workspace.dismissBranchCleanup}
-              onConfirm={async (confirmBranch) => {
-                setCleanupBusy(true)
-                await workspace.requestRemoveBranch(state.branchCleanup!.branch, confirmBranch)
-                setCleanupBusy(false)
-              }}
-            />
-          ) : null}
-        </>
+            },
+            onSourceControl: () =>
+              setViewRequest({ view: 'changes', nonce: Date.now() }),
+            onToggleTheme: () =>
+              theme.setPreference(theme.resolved === 'dark' ? 'light' : 'dark'),
+            onOpenProject: openProject,
+            onOpenSession: openDirectSession,
+            onOpenTask: openTask,
+            onOpenFile: openFileFromPalette
+          }}
+          quickOpen={
+            quickOpenSession !== null
+              ? {
+                  open: quickOpenOpen,
+                  sessionId: quickOpenSession.id,
+                  notify: workspace.notify,
+                  onClose: () => setQuickOpenOpen(false),
+                  onOpen: (path, line) => {
+                    openFileFromPalette(path, line)
+                    setQuickOpenOpen(false)
+                  }
+                }
+              : null
+          }
+          addRepository={
+            addOpen
+              ? {
+                  onClose: () => setAddOpen(false),
+                  onSubmit: addRepository,
+                  onInitialize: initializeRepository
+                }
+              : null
+          }
+          newSession={
+            newSessionOpen
+              ? {
+                  repos: state.repos,
+                  activeRepoId: state.activeRepoId,
+                  harnesses: state.harnesses,
+                  harnessLoading: state.harnessLoading,
+                  harnessError: state.harnessError,
+                  creating: workspace.creating,
+                  onClose: () => setNewSessionOpen(false),
+                  onCreate: createSession,
+                  onRefreshHarnesses: workspace.refreshHarnesses
+                }
+              : null
+          }
+          removal={
+            state.removal
+              ? {
+                  prompt: state.removal,
+                  busy: removalBusy,
+                  onCancel: workspace.dismissRemoval,
+                  onConfirm: () => void confirmRemoval()
+                }
+              : null
+          }
+          sessionCleanup={
+            state.sessionCleanup
+              ? {
+                  prompt: state.sessionCleanup,
+                  busy: cleanupBusy,
+                  onClose: workspace.dismissSessionCleanup,
+                  onRecover: () =>
+                    void workspace.recoverWorktree(state.sessionCleanup!.sessionId),
+                  onDiscard: async (confirmBranch) => {
+                    setCleanupBusy(true)
+                    const removed = await workspace.discardSession(
+                      state.sessionCleanup!.sessionId,
+                      confirmBranch
+                    )
+                    setCleanupBusy(false)
+                    return removed
+                  }
+                }
+              : null
+          }
+          branchCleanup={
+            state.branchCleanup
+              ? {
+                  prompt: state.branchCleanup,
+                  busy: cleanupBusy,
+                  onClose: workspace.dismissBranchCleanup,
+                  onConfirm: async (confirmBranch) => {
+                    setCleanupBusy(true)
+                    await workspace.requestRemoveBranch(
+                      state.branchCleanup!.branch,
+                      confirmBranch
+                    )
+                    setCleanupBusy(false)
+                  }
+                }
+              : null
+          }
+        />
       }
     >
       {!focusActive &&
