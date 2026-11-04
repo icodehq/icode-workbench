@@ -79,7 +79,8 @@ async function main() {
       clearTimeout(timer)
       resolve({ data, exitCode, signal, pid: term.pid })
     })
-    term.write('echo GOT:hello; exit 7\n')
+    // PowerShell's line editor treats \n as a continuation; a PTY Enter is \r.
+    term.write(`echo GOT:hello; exit 7${process.platform === 'win32' ? '\r' : '\n'}`)
   })
 
   if (!output.data.includes('GOT:hello')) {

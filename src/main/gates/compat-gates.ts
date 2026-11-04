@@ -132,7 +132,8 @@ export async function runPtyProbe(cwd: string): Promise<PtyProbe> {
         ...(signal ? { signal } : {})
       })
     })
-    term.write('echo GOT:hello; exit 7\n')
+    // PowerShell's line editor treats \n as a continuation; a PTY Enter is \r.
+    term.write(`echo GOT:hello; exit 7${process.platform === 'win32' ? '\r' : '\n'}`)
   })
 }
 

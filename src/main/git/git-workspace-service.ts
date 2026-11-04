@@ -1,3 +1,4 @@
+import { win32 } from 'node:path'
 import type { RepositoryStore } from '../persistence/repository-store'
 import type { WorktreeStore } from '../persistence/worktree-store'
 import type { GitWorktreeService } from '../worktrees/git-worktree-service'
@@ -441,9 +442,16 @@ export class GitWorkspaceService {
     try {
       const output = await git(worktreePath, ['worktree', 'list', '--porcelain'])
       const records = this.deps.worktrees.listByRepo(repoId)
+      const entries = parseWorktreeList(output)
+      for (const entry of entries) {
+        // Git prints forward slashes on Windows; guest POSIX paths start with /.
+        if (process.platform === 'win32' && /^[A-Za-z]:[\\/]/u.test(entry.path)) {
+          entry.path = win32.normalize(entry.path)
+        }
+      }
       return {
         status: 'ok',
-        worktrees: parseWorktreeList(output).map((entry) => {
+        worktrees: entries.map((entry) => {
           const owner = records.find((record) => samePathResolved(record.path, entry.path))
           return {
             ...entry,

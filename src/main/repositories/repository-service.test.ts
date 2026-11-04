@@ -94,7 +94,7 @@ describe('repository registration', () => {
     expect(first.created).toBe(true)
     expect(samePathResolved(first.repository.path, real)).toBe(true)
     expect(first.repository.currentBranch).toBeNull()
-    expect(first.repository.gitCommonDir).toBe(join(real, '.git'))
+    expect(samePathResolved(first.repository.gitCommonDir!, join(real, '.git'))).toBe(true)
     expect(h.service.getRepository(first.repository.id)?.workspace.repoId).toBe(
       first.repository.id
     )

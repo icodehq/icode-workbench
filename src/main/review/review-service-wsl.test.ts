@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, realpathSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { makeRepositoryService, makeTempRoot, openTempDatabase } from '../persistence/persistence-test-fixtures'
@@ -100,9 +100,21 @@ async function setup(options: { resolveTargetFails?: boolean } = {}): Promise<Fi
       ? join(guestHome, candidate.slice(GUEST_HOST_ROOT.length).replace(/^\/+/u, ''))
       : candidate
   // Git prints the real location; the controller would only ever see the guest one.
+  // Windows adds two spellings (8.3 short name and long name) and may vary case,
+  // so replace every known spelling rather than only the mkdtemp one.
   const toGuest = (text: string): string => {
-    const real = toSlash(guestHome)
-    return text.split(real).join(GUEST_HOST_ROOT).split(toSlash(root.dir)).join(GUEST_HOST_ROOT)
+    const variants = new Set([
+      toSlash(guestHome),
+      toSlash(realpathSync.native(guestHome)),
+      toSlash(root.dir),
+      toSlash(realpathSync.native(root.dir))
+    ])
+    let out = text
+    for (const variant of [...variants].sort((left, right) => right.length - left.length)) {
+      const pattern = new RegExp(variant.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'giu')
+      out = out.replace(pattern, GUEST_HOST_ROOT)
+    }
+    return out
   }
 
   const guestGit = async (request: { cwd: string; args: readonly string[] }) => {

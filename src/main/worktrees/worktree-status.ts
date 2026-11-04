@@ -1,4 +1,5 @@
 import { realpathSync, statSync } from 'node:fs'
+import { posix, win32 } from 'node:path'
 import type { SessionLifecycleState } from '../../shared/domain/session'
 import type {
   SessionWorktreeRecord,
@@ -112,11 +113,24 @@ export function samePathResolved(
   const rightIdentity = identity(right)
   if (leftIdentity !== null && rightIdentity !== null) return leftIdentity === rightIdentity
 
+  /**
+   * Resolves the nearest existing ancestor so a missing leaf still gets the
+   * canonical spelling of its parent. A removed worktree is exactly that case:
+   * the directory is gone, but its 8.3/case variants must still compare equal.
+   */
+  const api = platform === 'win32' ? win32 : posix
   const resolve = (value: string): string => {
-    try {
-      return realpathSync.native(value)
-    } catch {
-      return value
+    const suffix: string[] = []
+    let current = value
+    for (;;) {
+      try {
+        return api.join(realpathSync.native(current), ...[...suffix].reverse())
+      } catch {
+        const parent = api.dirname(current)
+        if (parent === current) return value
+        suffix.push(api.basename(current))
+        current = parent
+      }
     }
   }
   return (

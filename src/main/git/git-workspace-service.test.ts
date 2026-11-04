@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { GitWorkspaceService } from './git-workspace-service'
 import { GitWorktreeService } from '../worktrees/git-worktree-service'
+import { samePathResolved } from '../worktrees/worktree-status'
 import { SessionService } from '../sessions/session-service'
 import { FakeHostGateway } from '../sessions/fake-host-gateway'
 import { makeRepositoryService, makeTempRoot, openTempDatabase } from '../persistence/persistence-test-fixtures'
@@ -1543,9 +1544,9 @@ describe('git workspace: inspection and history operations', () => {
     const worktrees = await f.service.worktrees(f.sessionId)
     expect(worktrees.status).toBe('ok')
     if (worktrees.status === 'ok') {
-      expect(worktrees.worktrees.map((entry) => entry.path)).toEqual(
-        expect.arrayContaining([f.worktree])
-      )
+      expect(
+        worktrees.worktrees.some((entry) => samePathResolved(entry.path, f.worktree))
+      ).toBe(true)
       expect(worktrees.worktrees.find((entry) => entry.branch === f.branch)?.path).toBe(f.worktree)
     }
   })

@@ -6,6 +6,7 @@ import { openTempDatabase, makeRepositoryService, makeTempRoot } from '../persis
 import type { TempRoot } from '../persistence/persistence-test-fixtures'
 import { WorktreeStore } from '../persistence/worktree-store'
 import { GitWorktreeService } from '../worktrees/git-worktree-service'
+import { samePathResolved } from '../worktrees/worktree-status'
 import { SessionService } from './session-service'
 import { SessionRemovalService } from './session-removal-service'
 import { SessionServiceError } from './session-errors'
@@ -300,11 +301,13 @@ describe('owned branch deletion', () => {
     const f = await setup()
     const session = await f.createSession()
     const result = await f.removals.removeBranch(f.repoId, session.worktree!.branch)
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       status: 'blocked_worktree',
-      branch: session.worktree!.branch,
-      path: session.worktree!.path
+      branch: session.worktree!.branch
     })
+    if (result.status === 'blocked_worktree') {
+      expect(samePathResolved(result.path, session.worktree!.path)).toBe(true)
+    }
   })
 
   it('requires the exact branch name when commits are unmerged', async () => {
