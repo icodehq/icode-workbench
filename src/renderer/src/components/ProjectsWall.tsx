@@ -14,7 +14,7 @@ import {
 } from 'lucide-react'
 import type { TaskRecordPayload } from '../../../shared/icode-api'
 import type { RepositorySummary, SessionSummary } from '../../../shared/schemas/ipc'
-import type { ProjectMode } from '../state/navigation'
+import type { ProjectMode } from '../router/routes'
 import { repositoryPreparationView } from '../lib/repository-preparation'
 import {
   attentionEntries,
