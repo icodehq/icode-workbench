@@ -425,6 +425,25 @@ export const guestContainment: ContainmentResolution = {
 }
 
 /**
+ * Whether a path is a symlink, answered by the host that owns the checkout.
+ *
+ * `null` = the question could not be answered (unreachable distro, vanished
+ * file). Reporting `false` there would turn "unknown" into a fact about the
+ * user's tree, which is the misreport Work 82 recorded.
+ */
+export type SymlinkProbe = (worktreePath: string, relativePath: string) => Promise<boolean | null>
+
+/** The controller's own filesystem. A missing path is unknown, not "not a link". */
+export const localSymlinkProbe: SymlinkProbe = async (worktreePath, relativePath) => {
+  try {
+    // lstat never follows the link, so this cannot expose a target's content.
+    return lstatSync(join(worktreePath, relativePath)).isSymbolicLink()
+  } catch {
+    return null
+  }
+}
+
+/**
  * Confirms the requested path resolves inside the worktree, following
  * intermediate symlinks. A file that is itself a symlink is allowed: Git prints
  * the link target as content and never reads through it.
@@ -475,6 +494,13 @@ export function assertContained(
  * Failing loudly is the point: the alternative is a local Git invocation against
  * a guest path, which reports a misleading "not a repository".
  */
+/**
+ * A guest checkout's symlink state without a probe that can run in the distro.
+ *
+ * Refusing to guess is the point: the answer travels to the UI as unknown.
+ */
+const guestSymlinkUnknown: SymlinkProbe = async () => null
+
 const guestReadUnavailable: typeof runGitRead = async () => {
   throw readError(
     'GIT_READ_FAILED',
@@ -496,6 +522,13 @@ export type ReviewReaderDeps = {
    * the controller's own filesystem; a distro checkout supplies the POSIX one.
    */
   containment?: ContainmentResolution
+  /**
+   * Symlink probe for this checkout's host. Absent means the controller's own
+   * filesystem; a distro checkout supplies a probe that runs in the distro.
+   */
+  symlinkProbe?: SymlinkProbe
+  /** Selects a probe per execution target, mirroring `readForTarget`. */
+  symlinkProbeForTarget?: (target: ExecutionTarget) => SymlinkProbe | null
 }
 
 const SYMLINK_MODE = '120000'
@@ -521,9 +554,19 @@ export class GitReviewReader {
     if (read === null || read === undefined) {
       // No guest reader wired. Returning `this` would silently read a guest path
       // with Windows Git, so the caller gets a reader that refuses instead.
-      return new GitReviewReader({ ...this.deps, read: guestReadUnavailable, containment: guestContainment })
+      return new GitReviewReader({
+        ...this.deps,
+        read: guestReadUnavailable,
+        containment: guestContainment,
+        symlinkProbe: this.deps.symlinkProbeForTarget?.(target) ?? guestSymlinkUnknown
+      })
     }
-    return new GitReviewReader({ ...this.deps, read, containment: guestContainment })
+    return new GitReviewReader({
+      ...this.deps,
+      read,
+      containment: guestContainment,
+      symlinkProbe: this.deps.symlinkProbeForTarget?.(target) ?? guestSymlinkUnknown
+    })
   }
 
   private get read(): typeof runGitRead {
@@ -612,14 +655,10 @@ export class GitReviewReader {
 
     const untrackedPaths = parseOthersZ(others.stdout)
     const counted = await this.countUntracked(input.worktreePath, untrackedPaths)
+    const probeSymlink = this.deps.symlinkProbe ?? localSymlinkProbe
     for (const path of untrackedPaths) {
-      let symlink = false
-      try {
-        // lstat never follows the link, so this cannot expose a target's content.
-        symlink = lstatSync(join(input.worktreePath, path)).isSymbolicLink()
-      } catch {
-        symlink = false
-      }
+      // Asked of the host that owns the checkout; `null` stays unknown.
+      const symlink = await probeSymlink(input.worktreePath, path)
       const count = counted.get(path)
       files.push({
         path,
@@ -688,20 +727,25 @@ export class GitReviewReader {
     return result
   }
 
-  async diff(input: {
+  /**
+   * One side of the working tree. Staged compares HEAD to the index; unstaged
+   * compares the index to the working tree; untracked compares /dev/null to
+   * the file. This is deliberately separate from the baseline review above:
+   * the baseline includes commits, while these scopes describe what the next
+   * commit and the working tree actually contain.
+   */
+  async diffArea(input: {
     worktreePath: string
-    baseOid: string
     sessionId: string
     path: string
     oldPath: string | null
+    scope: 'staged' | 'unstaged' | 'untracked' | 'conflict'
     status: ReviewFileStatus
-    origin: 'tracked' | 'untracked'
     binary: boolean
-    symlink: boolean
+    symlink: boolean | null
     additions: number | null
     deletions: number | null
   }): Promise<ReviewDiff> {
-    assertSafeOid(input.baseOid)
     const containment = this.deps.containment ?? localContainment
     assertContained(input.worktreePath, input.path, containment)
     if (input.oldPath !== null) assertContained(input.worktreePath, input.oldPath, containment)
@@ -722,33 +766,28 @@ export class GitReviewReader {
       }
     }
 
-    // Untracked files have no index entry, so `git diff <base>` cannot see them;
-    // comparing against /dev/null is the only read-only way to get their patch.
+    const paths = input.oldPath === null ? [input.path] : [input.oldPath, input.path]
     const args =
-      input.origin === 'untracked'
+      input.scope === 'untracked'
         ? ['diff', '--no-index', '--no-color', '--', '/dev/null', input.path]
-        : [
-            'diff',
-            '--no-color',
-            '-M',
-            input.baseOid,
-            '--',
-            ...(input.oldPath === null ? [] : [input.oldPath]),
-            input.path
-          ]
+        : input.scope === 'staged'
+          ? ['diff', '--cached', '--no-color', '-M', '--', ...paths]
+          : input.scope === 'conflict'
+            // `git diff` on an unmerged path emits a combined `diff --cc` that
+            // the unified parser cannot read. HEAD..worktree is a normal patch
+            // and still contains the conflict markers for the user to inspect.
+            ? ['diff', 'HEAD', '--no-color', '-M', '--', ...paths]
+            : ['diff', '--no-color', '-M', '--', ...paths]
 
     const result = await this.read({
       cwd: input.worktreePath,
       args,
       byteBudget: REVIEW_MAX_FILE_BYTES
     })
-
-    // `git diff --no-index` exits 1 when files differ; that is success here.
-    const noIndex = args[1] === '--no-index'
+    const noIndex = input.scope === 'untracked'
     if (!result.truncated && result.exitCode !== 0 && !(noIndex && result.exitCode === 1)) {
       throw readError('GIT_READ_FAILED', 'That file diff could not be read.', result.stderrTail)
     }
-
     return {
       sessionId: input.sessionId,
       path: input.path,
@@ -763,6 +802,8 @@ export class GitReviewReader {
       deletions: input.deletions
     }
   }
+
+
 }
 
 function assertSafeOid(oid: string): void {

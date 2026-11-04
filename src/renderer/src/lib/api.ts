@@ -13,7 +13,7 @@ export async function callApi<T>(call: Promise<IpcResult<T>>): Promise<IpcResult
   } catch (error) {
     return {
       ok: false,
-      error: makeAppError('INTERNAL', 'The ADE service did not respond.', {
+      error: makeAppError('INTERNAL', 'The iCode service did not respond.', {
         detail: error instanceof Error ? error.message : String(error)
       })
     }

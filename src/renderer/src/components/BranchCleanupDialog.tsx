@@ -33,11 +33,11 @@ export default function BranchCleanupDialog({
       aria-label="Delete branch"
       data-testid="branch-cleanup-dialog"
     >
-      <div className="w-full max-w-md rounded-lg border border-border bg-card p-5 shadow-2xl">
+      <div className="ade-modal w-full max-w-md rounded-lg border border-border bg-card p-6 shadow-2xl">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-2">
-            <AlertTriangle size={15} className="text-amber-400" />
-            <h2 className="text-[14px] font-semibold">Delete branch with unmerged commits</h2>
+            <AlertTriangle size={15} className="text-signal" />
+            <h2 className="text-[16px] font-semibold">Delete branch with unmerged commits</h2>
           </div>
           <button
             type="button"
@@ -48,13 +48,13 @@ export default function BranchCleanupDialog({
             <X size={14} />
           </button>
         </div>
-        <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+        <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground">
           <span className="font-mono text-foreground">{prompt.branch}</span> has{' '}
           {prompt.commits} commit{prompt.commits === 1 ? '' : 's'} that are not reachable from the
           primary checkout. Deleting the branch discards them.
         </p>
         <input
-          className="mt-3 w-full rounded-md border border-border bg-background px-2.5 py-1.5 font-mono text-[11px] outline-none focus:border-destructive"
+          className="mt-3 w-full rounded-md border border-border bg-background px-3 py-2 font-mono text-[12px] outline-none focus:border-destructive"
           value={typed}
           onChange={(event) => setTyped(event.target.value)}
           placeholder={prompt.branch}
@@ -64,14 +64,14 @@ export default function BranchCleanupDialog({
         <div className="mt-4 flex justify-end gap-2">
           <button
             type="button"
-            className="rounded-md border border-border px-3 py-1.5 text-[11px] hover:bg-muted"
+            className="h-9 rounded-md border border-border px-3 text-[12px] hover:bg-muted"
             onClick={onClose}
           >
             Keep branch
           </button>
           <button
             type="button"
-            className="inline-flex items-center gap-1.5 rounded-md bg-destructive px-3 py-1.5 text-[11px] font-medium text-black hover:opacity-90 disabled:opacity-40"
+            className="inline-flex items-center gap-1.5 h-9 rounded-md bg-destructive px-3.5 text-[12px] font-medium text-black hover:opacity-90 disabled:opacity-40"
             disabled={typed.trim() !== prompt.branch || busy}
             onClick={() => void onConfirm(prompt.branch)}
             data-testid="branch-confirm-delete"

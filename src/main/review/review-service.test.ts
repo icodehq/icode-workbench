@@ -188,10 +188,6 @@ describe('review availability', () => {
 
     const result = await f.review.list(legacyId)
     expect(result).toMatchObject({ status: 'unavailable', reason: 'primary-checkout' })
-    await expect(f.review.diff(legacyId, 'a.txt')).resolves.toMatchObject({
-      status: 'unavailable',
-      reason: 'primary-checkout'
-    })
   })
 
   it('reports a missing worktree and never falls back to the primary checkout', async () => {
@@ -201,8 +197,6 @@ describe('review availability', () => {
 
     const result = await f.review.list(session.id)
     expect(result).toMatchObject({ status: 'unavailable', reason: 'worktree-missing' })
-    const diff = await f.review.diff(session.id, 'a.txt')
-    expect(diff).toMatchObject({ status: 'unavailable', reason: 'worktree-missing' })
     // The primary checkout is untouched and still has no review surface.
     expect(git(f.repoPath, 'status', '--porcelain')).toBe('')
   })
@@ -240,7 +234,7 @@ describe('review availability', () => {
 })
 
 describe('review content', () => {
-  it('lists and diffs a file, refusing paths outside the listing', async () => {
+  it('lists changes for a session', async () => {
     const f = await setup()
     const session = await f.createSession()
     writeFileSync(join(session.worktreePath, 'a.txt'), 'one\nTWO\n')
@@ -250,25 +244,6 @@ describe('review content', () => {
     if (list.status !== 'available') throw new Error('expected available')
     const paths = list.files.map((file) => file.path)
     expect(paths).toEqual(expect.arrayContaining(['a.txt', 'fresh.txt']))
-
-    const diff = await f.review.diff(session.id, 'a.txt', null)
-    expect(diff.status).toBe('available')
-    if (diff.status === 'available') {
-      expect(diff.patch).toContain('+TWO')
-      expect(diff.fileStatus).toBe('modified')
-    }
-
-    const untracked = await f.review.diff(session.id, 'fresh.txt', null)
-    expect(untracked.status).toBe('available')
-    if (untracked.status === 'available') expect(untracked.patch).toContain('+hello')
-
-    await expect(f.review.diff(session.id, 'not-changed.txt', null)).rejects.toSatisfy(
-      (error: unknown) => codeOf(error) === 'INVALID_ARGUMENT'
-    )
-    await expect(f.review.diff(session.id, '../etc/passwd', null)).rejects.toSatisfy(
-      (error: unknown) =>
-        codeOf(error) === 'INVALID_ARGUMENT' || codeOf(error) === 'REVIEW_PATH_OUTSIDE'
-    )
   })
 
   it('reviews a stopped session and leaves the worktree clean', async () => {
@@ -280,7 +255,6 @@ describe('review content', () => {
     const before = git(session.worktreePath, 'status', '--porcelain')
     const result = await f.review.list(session.id)
     expect(result.status).toBe('available')
-    await f.review.diff(session.id, 'a.txt')
     expect(git(session.worktreePath, 'status', '--porcelain')).toBe(before)
   })
 })

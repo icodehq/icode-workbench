@@ -151,5 +151,157 @@ export const MIGRATIONS: readonly Migration[] = [
          WHERE host_kind = 'wsl' AND wsl_distro_id IS NULL`,
       `CREATE INDEX repos_host_kind_idx ON repos (host_kind)`
     ]
+  },
+  {
+    version: 4,
+    name: 'tasks-and-schedules',
+    /**
+     * Durable work, not conversation.
+     *
+     * `tasks` is deliberately a separate table from `sessions`: a task exists
+     * before any terminal does and outlives it. Two constraints carry the
+     * reliability guarantees rather than convention:
+     *  - `tasks.dedupe_key` unique — a schedule occurrence (or a retried
+     *    duplicate submit) cannot create a second task row.
+     *  - `task_occurrences (schedule_id, occurrence_at)` unique — the durable
+     *    receipt Ceza keeps per occurrence, so a re-armed timer, a restart, or a
+     *    second window cannot launch the same occurrence twice.
+     *
+     * `next_run_at` is stored rather than recomputed so a restart resumes the
+     * same cadence instead of drifting forward from boot time.
+     */
+    statements: [
+      `CREATE TABLE tasks (
+         id TEXT PRIMARY KEY NOT NULL,
+         workspace_id TEXT NOT NULL,
+         repo_id TEXT NOT NULL,
+         title TEXT NOT NULL,
+         prompt TEXT NOT NULL,
+         harness TEXT NOT NULL,
+         status TEXT NOT NULL CHECK (
+           status IN ('queued', 'dispatching', 'running', 'waiting', 'completed', 'failed', 'cancelled')
+         ),
+         session_id TEXT,
+         worktree_path TEXT,
+         attempt INTEGER NOT NULL DEFAULT 1 CHECK (attempt >= 1),
+         previous_task_id TEXT,
+         schedule_id TEXT,
+         occurrence_at INTEGER,
+         -- NULLs are distinct in SQLite, so only real keys deduplicate.
+         dedupe_key TEXT UNIQUE,
+         created_at INTEGER NOT NULL,
+         updated_at INTEGER NOT NULL,
+         started_at INTEGER,
+         finished_at INTEGER,
+         result_summary TEXT,
+         error TEXT,
+         error_detail TEXT,
+         failure_reason TEXT,
+         last_observed_state TEXT,
+         exit_code INTEGER,
+         CHECK (length(title) > 0),
+         CHECK (length(prompt) > 0)
+       )`,
+      // Dispatch reads "the oldest queued task" on every tick.
+      `CREATE INDEX tasks_status_created_idx ON tasks (status, created_at)`,
+      `CREATE INDEX tasks_repo_created_idx ON tasks (repo_id, created_at)`,
+      `CREATE INDEX tasks_previous_idx ON tasks (previous_task_id)`,
+      `CREATE INDEX tasks_schedule_idx ON tasks (schedule_id, occurrence_at)`,
+
+      `CREATE TABLE task_schedules (
+         id TEXT PRIMARY KEY NOT NULL,
+         repo_id TEXT NOT NULL,
+         title TEXT NOT NULL,
+         prompt TEXT NOT NULL,
+         harness TEXT NOT NULL,
+         shape_json TEXT NOT NULL,
+         overlap TEXT NOT NULL DEFAULT 'queue' CHECK (overlap IN ('queue', 'skip')),
+         enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+         created_at INTEGER NOT NULL,
+         updated_at INTEGER NOT NULL,
+         next_run_at INTEGER,
+         last_run_at INTEGER,
+         consecutive_failures INTEGER NOT NULL DEFAULT 0,
+         last_note TEXT,
+         CHECK (length(title) > 0),
+         CHECK (length(prompt) > 0)
+       )`,
+      `CREATE INDEX task_schedules_enabled_idx ON task_schedules (enabled, next_run_at)`,
+
+      `CREATE TABLE task_occurrences (
+         id TEXT PRIMARY KEY NOT NULL,
+         schedule_id TEXT NOT NULL,
+         occurrence_at INTEGER NOT NULL,
+         task_id TEXT,
+         status TEXT NOT NULL CHECK (status IN ('reserved', 'created', 'skipped', 'error')),
+         note TEXT,
+         created_at INTEGER NOT NULL,
+         updated_at INTEGER NOT NULL,
+         UNIQUE (schedule_id, occurrence_at)
+       )`,
+      `CREATE INDEX task_occurrences_schedule_idx ON task_occurrences (schedule_id, occurrence_at)`,
+
+      // One row: the queue is a property of this installation, not of a repo.
+      `CREATE TABLE task_settings (
+         id INTEGER PRIMARY KEY CHECK (id = 1),
+         max_concurrent INTEGER NOT NULL DEFAULT 1 CHECK (max_concurrent BETWEEN 1 AND 4)
+       )`,
+      `INSERT INTO task_settings (id, max_concurrent) VALUES (1, 1)`
+    ]
+  },
+  {
+    version: 5,
+    name: 'task-review-decision',
+    /**
+     * The review decision is a *product* fact about a task's result, deliberately
+     * separate from its execution status.
+     *
+     * A process exiting 0 says the harness stopped; it says nothing about whether
+     * the work is wanted. Keeping the decision in its own columns is what stops
+     * the UI from implying "completed = accepted", and it is why acceptance here
+     * records a judgement rather than performing a merge: nothing in this schema
+     * can move code between branches.
+     *
+     * `pending` is the default so every pre-existing task reads honestly as
+     * unreviewed rather than being silently accepted by the migration.
+     */
+    statements: [
+      `ALTER TABLE tasks ADD COLUMN review_decision TEXT NOT NULL DEFAULT 'pending'
+         CHECK (review_decision IN ('pending', 'accepted', 'rejected'))`,
+      `ALTER TABLE tasks ADD COLUMN reviewed_at INTEGER`,
+      `ALTER TABLE tasks ADD COLUMN review_note TEXT`,
+      // Review state is read per queue view and per retry chain.
+      `CREATE INDEX tasks_review_idx ON tasks (review_decision, reviewed_at)`
+    ]
+  },
+  {
+    version: 6,
+    name: 'repository-preparation',
+    /**
+     * Add project registers the folder before its first commit exists. This
+     * column is the durable state of that background work: the dialog must not
+     * wait for it, but a restart must not lose it or leave a project stuck in
+     * "preparing" forever.
+     *
+     * Null means "no preparation was ever needed" (the ordinary existing
+     * checkout), not "ready". The JSON shape is validated by the row parser.
+     */
+    statements: [`ALTER TABLE repos ADD COLUMN preparation_json TEXT`]
+  },
+  {
+    version: 7,
+    name: 'session-sleep',
+    /**
+     * Sleep is a durable intent, not a lifecycle state: the process is stopped,
+     * but the session and worktree stay. `sleeping_at` survives an app restart;
+     * `resume_token` is the harness conversation identity captured while the
+     * process was alive (Claude hooks today; a wake adapter may add others).
+     *
+     * Both nullable: an awake pre-v7 session is exactly the old row.
+     */
+    statements: [
+      `ALTER TABLE sessions ADD COLUMN sleeping_at INTEGER`,
+      `ALTER TABLE sessions ADD COLUMN resume_token TEXT`
+    ]
   }
 ]

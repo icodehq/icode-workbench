@@ -1139,10 +1139,9 @@ async function main() {
     }
   })
 
-  await step('stop the Claude session and confirm the Host-owned final state', CRITERIA.stop, async () => {
-    await click('[data-testid="stop-session"]')
-    const immediate = await activeState()
-    assert(immediate.text.includes('Stopping') || immediate.state === 'exited', 'Stop did not show pending state')
+  await step('exit the Claude session and confirm the Host-owned final state', CRITERIA.stop, async () => {
+    await typeText(claude.id, '/exit')
+    await pressEnter()
     await waitFor(
       `document.querySelector('[data-testid="session-state"]')?.getAttribute('data-state') === 'exited'`,
       'Claude session exited',
@@ -1151,15 +1150,16 @@ async function main() {
     const final = await activeState()
     assert(final.reason === 'host_exited', `Unexpected Claude exit reason: ${final.reason}`)
     await screenshot('12-claude-stopped')
-    return { immediate, final }
+    return { final }
   })
 
-  await step('stop the control session and clean up the isolated Host', CRITERIA.cleanup, async () => {
+  await step('exit the control session and clean up the isolated Host', CRITERIA.cleanup, async () => {
     await click(`[data-testid="session-item-${shell.id}"]`)
     await sleep(400)
     const shellState = await activeState()
     if (shellState.state === 'live' || shellState.state === 'starting') {
-      await click('[data-testid="stop-session"]')
+      await typeText(shell.id, 'exit')
+      await pressEnter()
       await waitFor(
         `document.querySelector('[data-testid="session-state"]')?.getAttribute('data-state') === 'exited'`,
         'control session exited',

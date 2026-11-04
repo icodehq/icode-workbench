@@ -61,8 +61,7 @@ function stripPrefix(value: string): string {
   return value.startsWith('a/') || value.startsWith('b/') ? value.slice(2) : value
 }
 
-export function parseUnifiedDiff(patch: string): ParsedDiff {
-  const result: ParsedDiff = {
+export function parseUnifiedDiff(patch: string): ParsedDiff {  const result: ParsedDiff = {
     hunks: [],
     binary: false,
     noNewlineAtEof: false,
@@ -159,6 +158,28 @@ export function parseUnifiedDiff(patch: string): ParsedDiff {
   }
 
   return result
+}
+
+/**
+ * Count changed lines in the patch itself.
+ *
+ * `git status` supplies the row stats, but a quiet selected-diff refresh can
+ * land before the status poll. Counting the new patch keeps the diff header
+ * from showing the previous edit's numbers in that gap.
+ */
+export function countUnifiedDiffChanges(patch: string): {
+  additions: number
+  deletions: number
+} {
+  let additions = 0
+  let deletions = 0
+  for (const hunk of parseUnifiedDiff(patch).hunks) {
+    for (const line of hunk.lines) {
+      if (line.kind === 'add') additions += 1
+      else if (line.kind === 'remove') deletions += 1
+    }
+  }
+  return { additions, deletions }
 }
 
 export type DiffRow =

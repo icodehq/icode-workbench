@@ -1,5 +1,6 @@
 import {
   FolderGit2,
+  ListTodo,
   Loader2,
   Plus,
   RefreshCw,
@@ -44,7 +45,7 @@ function TargetBadge({ repo }: { repo: RepositorySummary }): React.JSX.Element {
   if (repo.target.kind === 'wsl') {
     return (
       <span
-        className="inline-flex h-5 shrink-0 items-center gap-1 rounded border border-sky-500/40 bg-sky-500/10 px-1.5 text-[9px] font-medium text-sky-300"
+        className="inline-flex h-5 shrink-0 items-center gap-1 rounded border border-info/40 bg-info-weak px-1.5 text-[9px] font-medium text-info"
         title={`Execution target: WSL distro ${repo.target.distro}${
           repo.target.distroId === null ? '' : ` (registration ${repo.target.distroId})`
         }. Agent sessions run inside the distro; WSL terminals run on this desktop.`}
@@ -78,6 +79,11 @@ type Props = {
   onRemoveRepository: () => void
   onRefresh: () => void
   onNewSession: () => void
+  /** Opens the durable task queue, which lives outside any session. */
+  onOpenTasks: () => void
+  /** How many tasks are queued or running, for the badge. */
+  activeTaskCount: number
+  tasksOpen: boolean
 }
 
 export default function TopBar({
@@ -87,7 +93,10 @@ export default function TopBar({
   onAddRepository,
   onRemoveRepository,
   onRefresh,
-  onNewSession
+  onNewSession,
+  onOpenTasks,
+  activeTaskCount,
+  tasksOpen
 }: Props): React.JSX.Element {
   const host = deriveHostStatus(state)
   const available = state.harnesses.filter((entry) => entry.state === 'available').length
@@ -158,7 +167,7 @@ export default function TopBar({
         <span
           className={`inline-flex h-6 items-center gap-1 rounded-full border px-2 text-[9px] ${
             host === 'unreachable'
-              ? 'border-amber-500/40 text-amber-400'
+              ? 'border-signal-line text-signal'
               : 'border-border text-muted-foreground'
           }`}
           title="Derived from host reconciliation of session state"
@@ -180,6 +189,28 @@ export default function TopBar({
         >
           {state.harnessLoading ? <Loader2 size={10} className="animate-spin" /> : null}
           {available}/{state.harnesses.length || 4} Harnesses
+        </button>
+        <button
+          type="button"
+          className={`inline-flex h-6 items-center gap-1 rounded-md border px-2 text-[10px] ${
+            tasksOpen
+              ? 'border-accent bg-accent/15 text-foreground'
+              : 'border-border text-muted-foreground hover:bg-muted hover:text-foreground'
+          }`}
+          onClick={onOpenTasks}
+          title="Tasks: the durable queue"
+          data-testid="open-tasks"
+        >
+          <ListTodo size={11} />
+          Tasks
+          {activeTaskCount > 0 ? (
+            <span
+              className="rounded-full bg-accent px-1 text-[9px] font-medium text-white"
+              data-testid="tasks-active-badge"
+            >
+              {activeTaskCount}
+            </span>
+          ) : null}
         </button>
         <button
           type="button"

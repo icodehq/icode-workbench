@@ -1,9 +1,24 @@
-import { useCallback, useRef, useState } from 'react'
-import { AlertTriangle, Check, HardDrive, Loader2, RefreshCw, Server, X } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  AlertTriangle,
+  Check,
+  FolderGit2,
+  FolderOpen,
+  HardDrive,
+  Loader2,
+  RefreshCw,
+  Server,
+  X
+} from 'lucide-react'
 import type { AppError } from '../../../shared/domain/errors'
 import type { ExecutionTarget } from '../../../shared/domain/repository'
-import type { WslDistroListPayload, WslDistroSummary } from '../../../shared/schemas/ipc'
+import type {
+  ProjectFolderInspection,
+  WslDistroListPayload,
+  WslDistroSummary
+} from '../../../shared/schemas/ipc'
 import { callApi, isAbsolutePathLike } from '../lib/api'
+import { makeAppError } from '../../../shared/domain/errors'
 
 type Dirs = { kind: 'local' } | { kind: 'wsl'; distro: WslDistroSummary | null }
 
@@ -11,6 +26,12 @@ type Props = {
   onClose: () => void
   /** Resolves `null` on success, or the failure to show inside the dialog. */
   onSubmit: (input: { path: string; target: ExecutionTarget }) => Promise<AppError | null>
+  /** Explicitly creates the Git baseline, then registers the project. */
+  onInitialize: (input: {
+    path: string
+    target: ExecutionTarget
+    identity?: { name: string; email: string }
+  }) => Promise<AppError | null>
 }
 
 type DistroState =
@@ -29,12 +50,69 @@ function reasonText(reason: 'not_windows' | 'registry_unreadable' | 'undecodable
   return 'The WSL registration list could not be read.'
 }
 
-export default function AddRepositoryDialog({ onClose, onSubmit }: Props): React.JSX.Element {
+export default function AddRepositoryDialog({
+  onClose,
+  onSubmit,
+  onInitialize
+}: Props): React.JSX.Element {
   const [choice, setChoice] = useState<Dirs>({ kind: 'local' })
   const [path, setPath] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<AppError | null>(null)
+  /**
+   * Whether the folder was chosen with the picker or typed by hand.
+   *
+   * The distinction is shown to the user, not just remembered: a browsed path is
+   * one they can see and confirm, while a typed one is a claim the service still
+   * has to verify.
+   */
+  const [source, setSource] = useState<'none' | 'browse' | 'typed'>('none')
+  const [picking, setPicking] = useState(false)
+  /** Manual entry is the fallback, never the default. */
+  const [manualEntry, setManualEntry] = useState(false)
   const [distros, setDistros] = useState<DistroState>({ phase: 'idle' })
+  const [inspection, setInspection] = useState<ProjectFolderInspection | null>(null)
+  const [identityName, setIdentityName] = useState('')
+  const [identityEmail, setIdentityEmail] = useState('')
+  /**
+   * The Windows spelling behind a translated WSL path.
+   *
+   * Kept separately from `path` because the field shows the path the target can
+   * use while the source remains useful for explaining where the project lives.
+   */
+  const [pickedFrom, setPickedFrom] = useState<string | null>(null)
+
+  /**
+   * A path belongs to exactly one filesystem.
+   *
+   * Switching from this machine to a distro (or to a different distro) leaves the
+   * previous spelling meaningless, so it is cleared together with the error. The
+   * alternative — keeping it — shows `D:\…` under a dialog that says the path is a
+   * Linux path, and leaves Submit disabled for a reason the user cannot see.
+   */
+  const targetKey = choice.kind === 'local' ? 'local' : `wsl:${choice.distro?.registrationId ?? ''}`
+  const previousTargetKey = useRef(targetKey)
+  useEffect(() => {
+    const previous = previousTargetKey.current
+    previousTargetKey.current = targetKey
+    if (previous === targetKey) return
+    /*
+     * Discovery auto-selects the default distro after WSL is chosen. That is a
+     * completion of the same choice, not a new environment: a path typed while
+     * discovery was still running must survive. A real distro change still
+     * clears the path because a Linux path may not exist in the next distro.
+     */
+    if (previous === 'wsl:' && targetKey.startsWith('wsl:')) {
+      return
+    }
+    setPath('')
+    setSource('none')
+    setError(null)
+    setInspection(null)
+    setPickedFrom(null)
+    setIdentityName('')
+    setIdentityEmail('')
+  }, [targetKey])
   /**
    * Discovery is asked once per dialog, and only when WSL is chosen.
    *
@@ -101,15 +179,86 @@ export default function AddRepositoryDialog({ onClose, onSubmit }: Props): React
 
   const trimmed = path.trim()
   /**
-   * A guest path is POSIX. On Windows a local path may be a drive path, but a
-   * WSL path never is — the distro cannot see `C:\`. Rejecting it here keeps the
-   * backend's validation from being the first thing to complain.
+   * A WSL target can run against either its own filesystem or a Windows drive
+   * mounted into it. Both `D:\project` and `/mnt/d/project` are therefore valid
+   * spellings; the backend owns the translation and the mount check.
    */
-  const pathLooksRight =
-    trimmed.length > 0 &&
-    isAbsolutePathLike(trimmed) &&
-    (choice.kind === 'local' || trimmed.startsWith('/'))
-  const canSubmit = !busy && target !== null && pathLooksRight
+  const pathLooksRight = trimmed.length > 0 && isAbsolutePathLike(trimmed)
+  const needsIdentity =
+    inspection !== null &&
+    inspection.kind !== 'repository' &&
+    inspection.kind !== 'parent' &&
+    inspection.canInitialize &&
+    !inspection.identity.configured
+  const identityLooksValid =
+    !needsIdentity || (identityName.trim().length > 0 && identityEmail.trim().length > 0)
+  const inspectionReady =
+    inspection === null ||
+    inspection.kind === 'repository' ||
+    ((inspection.kind === 'unborn' || inspection.kind === 'gitless') && inspection.canInitialize)
+  const canSubmit =
+    !busy && target !== null && pathLooksRight && inspectionReady && identityLooksValid
+  const submitLabel =
+    inspection === null
+      ? 'Add project'
+      : inspection.kind === 'repository'
+        ? 'Register'
+        : inspection.kind === 'unborn'
+          ? 'Create first commit & add'
+          : inspection.kind === 'gitless'
+            ? 'Initialize Git & add'
+            : 'Choose a repository'
+
+  /**
+   * Opens one platform folder dialog for the chosen target.
+   *
+   * For WSL this is the native Windows dialog. It can reach Windows drives and,
+   * when Windows exposes it, the distro namespace; the backend translates a
+   * Windows spelling with the selected distro. The previous two-button design
+   * exposed that implementation split to the user.
+   */
+  const browse = async (): Promise<void> => {
+    if (picking || busy || target === null) return
+    setPicking(true)
+    setError(null)
+    try {
+      const result = await callApi(
+        choice.kind === 'wsl'
+          ? window.ade.repos.pickFolder({ target, source: 'windows' })
+          : window.ade.repos.pickFolder({ target })
+      )
+      if (!result.ok) {
+        setError(result.error)
+        return
+      }
+      if (result.value.status === 'cancelled') return
+      if (result.value.status === 'unavailable') {
+        setError(
+          makeAppError('INVALID_ARGUMENT', 'This folder could not be chosen.', {
+            detail: result.value.detail
+          })
+        )
+        /*
+         * The refused folder is not adopted, and neither is whatever was chosen
+         * before it: leaving the old path on screen after a refusal reads as
+         * though the refused pick had been accepted.
+         */
+        setPath('')
+        setSource('none')
+        setInspection(null)
+        setPickedFrom(null)
+        setManualEntry(true)
+        return
+      }
+      setPath(result.value.path)
+      setSource('browse')
+      setInspection(null)
+      setPickedFrom(result.value.translatedFrom ?? null)
+      setError(null)
+    } finally {
+      setPicking(false)
+    }
+  }
 
   const submit = async (event: React.FormEvent): Promise<void> => {
     event.preventDefault()
@@ -117,15 +266,104 @@ export default function AddRepositoryDialog({ onClose, onSubmit }: Props): React
     inFlight.current = true
     setBusy(true)
     setError(null)
-    const failure = await onSubmit({ path: trimmed, target })
-    inFlight.current = false
-    setBusy(false)
-    if (failure === null) {
-      onClose()
-      return
+    try {
+      if (inspection === null) {
+        /*
+         * Do the whole operation in one backend call. `initialize` already
+         * classifies an existing checkout, an unborn repository and a plain
+         * folder, so asking `inspect` first duplicated every Git and WSL probe
+         * before the real call. That duplication was several seconds on a
+         * DrvFs folder. If the backend needs a user decision it fails before
+         * mutating anything; only then do we ask for the inspection that
+         * explains the identity/container/blocked state.
+         */
+        const failure = await onInitialize({ path: trimmed, target })
+        if (failure === null) {
+          onClose()
+          return
+        }
+        const result = await callApi(window.ade.repos.inspect({ path: trimmed, target }))
+        if (result.ok) {
+          setInspection(result.value)
+          if (result.value.translatedFrom !== undefined) {
+            setPickedFrom(result.value.translatedFrom)
+          }
+        }
+        setError(failure)
+        return
+      }
+
+      if (inspection.kind === 'repository') {
+        const failure = await onSubmit({ path: inspection.path, target })
+        if (failure === null) {
+          onClose()
+          return
+        }
+        setError(failure)
+        return
+      }
+
+      if (inspection.kind === 'unborn' || inspection.kind === 'gitless') {
+        if (!inspection.canInitialize) return
+        const identity = inspection.identity.configured
+          ? undefined
+          : { name: identityName.trim(), email: identityEmail.trim() }
+        if (identity !== undefined && (identity.name.length === 0 || identity.email.length === 0)) {
+          return
+        }
+        const failure = await onInitialize({
+          path: inspection.path,
+          target,
+          ...(identity === undefined ? {} : { identity })
+        })
+        if (failure === null) {
+          onClose()
+          return
+        }
+        setError(failure)
+      }
+    } finally {
+      inFlight.current = false
+      setBusy(false)
     }
-    // The dialog stays open with the typed path so the user can correct it.
-    setError(failure)
+  }
+
+  /**
+   * A nested-repository suggestion is a shortcut, not another form step: inspect
+   * the candidate and register it immediately when it already has a commit.
+   */
+  const chooseCandidate = async (candidatePath: string): Promise<void> => {
+    if (inFlight.current || target === null) return
+    setPath(candidatePath)
+    setSource('browse')
+    setInspection(null)
+    setPickedFrom(null)
+    setError(null)
+    setIdentityName('')
+    setIdentityEmail('')
+    inFlight.current = true
+    setBusy(true)
+    try {
+      const result = await callApi(
+        window.ade.repos.inspect({ path: candidatePath, target })
+      )
+      if (!result.ok) {
+        setError(result.error)
+        return
+      }
+      setInspection(result.value)
+      if (result.value.kind === 'repository') {
+        const failure = await onSubmit({ path: result.value.path, target })
+        if (failure === null) {
+          onClose()
+          return
+        }
+        setError(failure)
+      }
+    } finally {
+      inFlight.current = false
+      setBusy(false)
+    }
   }
 
   return (
@@ -133,18 +371,22 @@ export default function AddRepositoryDialog({ onClose, onSubmit }: Props): React
       className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-6"
       role="dialog"
       aria-modal="true"
-      aria-label="Register repository"
+      aria-label="Add a project"
     >
       <form
-        className="w-full max-w-md rounded-lg border border-border bg-card p-5 shadow-2xl"
+        className="ade-modal max-h-[calc(100vh-3rem)] w-full max-w-lg overflow-y-auto rounded-lg border border-border bg-card p-6 shadow-2xl"
         onSubmit={(event) => void submit(event)}
         data-testid="add-repo-form"
       >
         <div className="flex items-start justify-between">
           <div>
-            <h2 className="text-[14px] font-semibold">Register a repository</h2>
-            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-              ADE only registers the path. Your files and Git checkout are not modified.
+            <h2 className="text-[16px] font-semibold">Add a project</h2>
+            <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
+              Register an existing Git checkout, or initialize a folder once so iCode can create
+              isolated session worktrees.
+            </p>
+            <p className="mt-1 text-[10.5px] leading-relaxed text-muted-foreground">
+              Sessions may load this project&apos;s harness hooks and MCP configuration.
             </p>
           </div>
           <button
@@ -158,8 +400,8 @@ export default function AddRepositoryDialog({ onClose, onSubmit }: Props): React
         </div>
 
         <fieldset className="mt-4" disabled={busy}>
-          <legend className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-            Where it lives
+          <legend className="text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
+            Environment
           </legend>
           <div className="mt-1.5 grid grid-cols-2 gap-2" role="radiogroup" aria-label="Execution target">
             <button
@@ -174,9 +416,9 @@ export default function AddRepositoryDialog({ onClose, onSubmit }: Props): React
             >
               <HardDrive size={13} className="mt-0.5 shrink-0 text-muted-foreground" />
               <span>
-                <span className="block text-[12px] font-medium">This machine</span>
-                <span className="mt-0.5 block text-[10px] text-muted-foreground">
-                  A path on this computer
+                <span className="block text-[12.5px] font-medium">This machine</span>
+                <span className="mt-0.5 block text-[10.5px] text-muted-foreground">
+                  Run sessions in Windows
                 </span>
               </span>
             </button>
@@ -192,9 +434,9 @@ export default function AddRepositoryDialog({ onClose, onSubmit }: Props): React
             >
               <Server size={13} className="mt-0.5 shrink-0 text-muted-foreground" />
               <span>
-                <span className="block text-[12px] font-medium">WSL distro</span>
-                <span className="mt-0.5 block text-[10px] text-muted-foreground">
-                  A path inside Linux
+                <span className="block text-[12.5px] font-medium">WSL distro</span>
+                <span className="mt-0.5 block text-[10.5px] text-muted-foreground">
+                  Run sessions in Linux; use a folder in the distro or on a Windows drive
                 </span>
               </span>
             </button>
@@ -205,14 +447,14 @@ export default function AddRepositoryDialog({ onClose, onSubmit }: Props): React
           <div className="mt-4" data-testid="wsl-distro-section">
             <div className="flex items-center justify-between">
               <label
-                className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground"
+                className="text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground"
                 htmlFor="wsl-distro"
               >
                 Distro
               </label>
               <button
                 type="button"
-                className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+                className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10.5px] text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
                 onClick={() => void loadDistros()}
                 disabled={busy || distros.phase === 'loading'}
                 data-testid="wsl-distro-retry"
@@ -236,7 +478,7 @@ export default function AddRepositoryDialog({ onClose, onSubmit }: Props): React
                 </span>
               </div>
             ) : distros.payload.distros.length === 0 ? (
-              <div className="mt-1.5 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-300">
+              <div className="mt-1.5 rounded-md border border-signal-line bg-signal-weak px-3 py-2 text-[11px] text-signal">
                 No WSL distro is installed. Install one with <code>wsl --install</code>, then
                 refresh.
               </div>
@@ -244,7 +486,7 @@ export default function AddRepositoryDialog({ onClose, onSubmit }: Props): React
               <>
                 <select
                   id="wsl-distro"
-                  className="mt-1.5 w-full rounded-md border border-border bg-background px-2.5 py-2 text-[12px] outline-none focus:border-accent"
+                  className="mt-1.5 w-full rounded-md border border-border bg-background px-3 py-2.5 text-[12.5px] outline-none focus:border-accent"
                   value={choice.distro?.registrationId ?? ''}
                   onChange={(event) => {
                     const next =
@@ -267,7 +509,7 @@ export default function AddRepositoryDialog({ onClose, onSubmit }: Props): React
                 </select>
                 {choice.distro !== null && choice.distro.running === null ? (
                   // Unknown is not "stopped": saying either would be a guess.
-                  <p className="mt-1 text-[10px] text-muted-foreground">
+                  <p className="mt-1 text-[10.5px] text-muted-foreground">
                     Running state unknown. Opening a terminal starts it if needed.
                   </p>
                 ) : null}
@@ -276,31 +518,218 @@ export default function AddRepositoryDialog({ onClose, onSubmit }: Props): React
           </div>
         ) : null}
 
-        <label
-          className="mt-4 block text-[10px] font-medium uppercase tracking-wider text-muted-foreground"
-          htmlFor="repo-path"
-        >
-          {choice.kind === 'local' ? 'Local Git repository path' : `Git repository path in ${choice.distro?.name ?? 'the distro'}`}
-        </label>
-        <input
-          id="repo-path"
-          autoFocus
-          className="mt-1.5 w-full rounded-md border border-border bg-background px-2.5 py-2 font-mono text-[12px] outline-none focus:border-accent"
-          placeholder="/home/you/projects/my-repo"
-          value={path}
-          onChange={(event) => {
-            setPath(event.target.value)
-            setError(null)
-          }}
-          spellCheck={false}
-          disabled={busy}
-          data-testid="add-repo-input"
-        />
-        <p className="mt-1.5 text-[10px] text-muted-foreground">
-          {choice.kind === 'local'
-            ? 'The path must be an existing Git working tree visible to this machine.'
-            : 'A Linux path, absolute, as the distro sees it. Win32 paths are not visible to the distro.'}
-        </p>
+        <div className="mt-4">
+          <span className="block text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
+            Project folder
+          </span>
+
+          {/* One primary action; typing is the fallback below. */}
+          <div className="mt-1.5 flex items-center gap-2">
+            <button
+              type="button"
+              className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-2 text-[11px] font-medium text-accent-ink hover:opacity-90 disabled:opacity-40"
+              onClick={() => void browse()}
+              disabled={busy || picking || target === null}
+              data-testid="add-repo-browse"
+            >
+              {picking ? <Loader2 size={12} className="animate-spin" /> : <FolderOpen size={12} />}
+              {picking ? 'Choosing…' : 'Browse…'}
+            </button>
+            {source === 'browse' && path.length > 0 ? (
+              <button
+                type="button"
+                className="text-[10.5px] text-muted-foreground underline hover:text-foreground"
+                onClick={() => setManualEntry((open) => !open)}
+                data-testid="add-repo-edit-path"
+              >
+                {manualEntry ? 'Hide path' : 'Edit path'}
+              </button>
+            ) : path.length === 0 ? (
+              <button
+                type="button"
+                className="text-[10.5px] text-muted-foreground underline hover:text-foreground"
+                onClick={() => setManualEntry((open) => !open)}
+                data-testid="add-repo-manual-toggle"
+              >
+                {manualEntry ? 'Hide path entry' : 'Enter path manually'}
+              </button>
+            ) : null}
+          </div>
+
+          {path.length > 0 && source === 'browse' && !manualEntry ? (
+            <div
+              className="mt-1.5 flex items-start gap-2 rounded-md border border-border bg-background px-2.5 py-2"
+              data-testid="add-repo-selection"
+            >
+              <Check size={12} className="mt-0.5 shrink-0 text-add" />
+              <span className="min-w-0 flex-1">
+                <span className="block break-all font-mono text-[11px] text-foreground">
+                  {path}
+                </span>
+                {pickedFrom !== null && pickedFrom !== path ? (
+                  <span
+                    className="mt-1 block break-all font-mono text-[9.5px] text-muted-foreground"
+                    data-testid="add-repo-translated-from"
+                  >
+                    from {pickedFrom}
+                  </span>
+                ) : null}
+              </span>
+            </div>
+          ) : null}
+
+          {manualEntry || source !== 'browse' || path.length === 0 ? (
+            <>
+              <label className="sr-only" htmlFor="repo-path">
+                {choice.kind === 'local' ? 'Local project path' : 'Project path in the distro'}
+              </label>
+              <input
+                id="repo-path"
+                autoFocus={manualEntry}
+                className="mt-1.5 w-full rounded-md border border-border bg-background px-3 py-2.5 font-mono text-[12.5px] outline-none focus:border-accent"
+                placeholder={
+                  choice.kind === 'local'
+                    ? 'D:\\projects\\my-repo'
+                    : '/home/you/projects/my-repo or D:\\projects\\my-repo'
+                }
+                value={path}
+                onChange={(event) => {
+                  setPath(event.target.value)
+                  setSource('typed')
+                  setError(null)
+                  setInspection(null)
+                  setPickedFrom(null)
+                  setIdentityName('')
+                  setIdentityEmail('')
+                }}
+                spellCheck={false}
+                disabled={busy}
+                data-testid="add-repo-input"
+              />
+            </>
+          ) : null}
+
+          <p className="mt-1.5 text-[10.5px] leading-relaxed text-muted-foreground">
+            {choice.kind === 'local'
+              ? 'Choose a folder. Existing Git checkouts are registered immediately; a folder without Git is initialized when you add it.'
+              : 'Choose a folder on a Windows drive or in the distro. A Windows path such as D:\\project is used inside the distro as /mnt/d/project; you can also type a Linux path.'}
+          </p>
+          <p className="mt-1 text-[10.5px] leading-relaxed text-muted-foreground">
+            If this folder needs a first commit, iCode prepares it in the background. Dependency
+            and cache folders such as node_modules are left out; review any secrets in the folder
+            before adding it.
+          </p>
+          {pickedFrom !== null &&
+          (source !== 'browse' || manualEntry) &&
+          pickedFrom !== (inspection?.path ?? path) &&
+          choice.kind === 'wsl' ? (
+            <p
+              className="mt-1 rounded border border-border bg-background px-2 py-1.5 text-[10px] text-muted-foreground"
+              data-testid="add-repo-mapping"
+            >
+              Using {pickedFrom} as {inspection?.path ?? path} in{' '}
+              {choice.distro?.name ?? 'the distro'}.
+            </p>
+          ) : null}
+        </div>
+
+        {inspection !== null && inspection.kind !== 'repository' ? (
+          <section
+            className="mt-4 rounded-md border border-border bg-muted/30 p-3"
+            data-testid="add-repo-adoption"
+          >
+            {inspection.kind === 'parent' ? (
+              <>
+                <p className="text-[12px] font-medium">Choose a repository</p>
+                <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                  This folder is not itself a Git repository. These child folders are:
+                </p>
+                <div className="mt-2 grid gap-1.5">
+                  {inspection.repositories.map((candidate, index) => (
+                    <button
+                      key={candidate.path}
+                      type="button"
+                      className="flex min-w-0 items-start gap-2 rounded-md border border-border bg-background px-2.5 py-2 text-left hover:border-accent/60 hover:bg-accent/5 disabled:opacity-50"
+                      onClick={() => void chooseCandidate(candidate.path)}
+                      disabled={busy}
+                      data-testid={`add-repo-candidate-${String(index)}`}
+                    >
+                      <FolderGit2 size={13} className="mt-0.5 shrink-0 text-muted-foreground" />
+                      <span className="min-w-0">
+                        <span className="block text-[11.5px] font-medium">
+                          {candidate.displayName}
+                        </span>
+                        <span className="mt-0.5 block break-all font-mono text-[9.5px] text-muted-foreground">
+                          {candidate.path}
+                        </span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex items-start gap-2">
+                  <AlertTriangle size={13} className="mt-0.5 shrink-0 text-signal" />
+                  <div className="min-w-0">
+                    <p className="text-[12px] font-medium">
+                      {inspection.kind === 'unborn'
+                        ? 'Create the first commit'
+                        : 'Initialize Git for this folder'}
+                    </p>
+                    <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                      {inspection.kind === 'unborn'
+                        ? 'This repository has no commits yet. iCode needs a baseline before it can create an isolated worktree for each session.'
+                        : 'iCode needs a Git baseline before it can create an isolated worktree for each session.'}{' '}
+                      The first commit runs in the background, so you can close this dialog and keep
+                      working. Dependency and cache folders such as node_modules are left out; an
+                      existing .gitignore is respected.
+                    </p>
+                  </div>
+                </div>
+
+                {inspection.blockedReason !== null ? (
+                  <p className="mt-2 rounded border border-destructive/30 bg-destructive/10 px-2 py-1.5 text-[10.5px] text-destructive">
+                    {inspection.blockedReason}
+                  </p>
+                ) : null}
+
+                {needsIdentity ? (
+                  <div className="mt-3 grid gap-2" data-testid="add-repo-identity">
+                    <p className="text-[10.5px] text-muted-foreground">
+                      Git has no author configured for this environment. iCode uses this name and
+                      email for the initial commit and saves them in this repository's local Git
+                      config.
+                    </p>
+                    <label className="grid gap-1 text-[10.5px] text-muted-foreground">
+                      Author name
+                      <input
+                        className="rounded-md border border-border bg-background px-2.5 py-2 text-[11.5px] text-foreground outline-none focus:border-accent"
+                        value={identityName}
+                        onChange={(event) => setIdentityName(event.target.value)}
+                        disabled={busy}
+                        autoComplete="name"
+                        data-testid="add-repo-identity-name"
+                      />
+                    </label>
+                    <label className="grid gap-1 text-[10.5px] text-muted-foreground">
+                      Email
+                      <input
+                        className="rounded-md border border-border bg-background px-2.5 py-2 text-[11.5px] text-foreground outline-none focus:border-accent"
+                        value={identityEmail}
+                        onChange={(event) => setIdentityEmail(event.target.value)}
+                        disabled={busy}
+                        autoComplete="email"
+                        inputMode="email"
+                        data-testid="add-repo-identity-email"
+                      />
+                    </label>
+                  </div>
+                ) : null}
+              </>
+            )}
+          </section>
+        ) : null}
 
         {error ? (
           <div
@@ -320,20 +749,21 @@ export default function AddRepositoryDialog({ onClose, onSubmit }: Props): React
         <div className="mt-5 flex justify-end gap-2">
           <button
             type="button"
-            className="rounded-md border border-border px-3 py-1.5 text-[11px] hover:bg-muted disabled:opacity-50"
+            className="rounded-md border border-border h-9 px-3 text-[12px] hover:bg-muted disabled:opacity-50"
             onClick={onClose}
             disabled={busy}
+            data-testid="add-repo-cancel"
           >
             Cancel
           </button>
           <button
             type="submit"
-            className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-[11px] font-medium text-white hover:opacity-90 disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-md bg-accent h-9 px-3.5 text-[12.5px] font-medium text-accent-ink hover:opacity-90 disabled:opacity-50"
             disabled={!canSubmit}
             data-testid="add-repo-submit"
           >
             {busy ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
-            {choice.kind === 'wsl' ? 'Register in distro' : 'Register'}
+            {submitLabel}
           </button>
         </div>
       </form>

@@ -1,9 +1,12 @@
-import { app, BrowserWindow, ipcMain, nativeTheme } from 'electron'
+import { app, BrowserWindow, ipcMain, nativeTheme, screen } from 'electron'
 import { join } from 'node:path'
 import { gateHostStart, gateReattach, gateSqlite, runPackagedSmoke } from './gates/compat-gates'
 import { getAppPersistence } from './persistence'
 import { startAppRuntime } from './app/runtime'
 import { registerAppIpc } from './ipc/register'
+import { IPC_CHANNELS } from '../shared/schemas/ipc'
+import { installApplicationMenu } from './menu'
+import { clampWindowState, loadWindowState, trackWindowState } from './window-state'
 
 const gateFlag = process.argv.find((arg) => arg.startsWith('--ade-gate-'))
 const packagedSmoke = process.argv.includes('--ade-compat-smoke')
@@ -29,9 +32,9 @@ function installRuntimeInfoHandler(): void {
  * The window is painted by the compositor before the renderer has resolved an
  * appearance, so its background must match the palette the renderer will use.
  * These two values mirror `--ade-canvas` in `src/renderer/src/assets/main.css`
- * (A2 Graphite and A2 Paper); keep them in step if the canvas changes.
+ * (iCode canvas and paper); keep them in step if the canvas changes.
  */
-const WINDOW_BACKGROUND = { dark: '#0C0D0F', light: '#F6F5F2' } as const
+const WINDOW_BACKGROUND = { dark: '#0A0E14', light: '#F6F8FA' } as const
 
 function windowBackground(useDark: boolean): string {
   return useDark ? WINDOW_BACKGROUND.dark : WINDOW_BACKGROUND.light
@@ -52,14 +55,24 @@ function watchSystemAppearance(): void {
 }
 
 function createWindow(): void {
+  const backgroundLaunch = process.env.ADE_BACKGROUND_LAUNCH === '1'
+  const profileDirectory = app.getPath('userData')
+  const saved = loadWindowState(profileDirectory)
+  const initial = clampWindowState(saved, screen.getPrimaryDisplay().workAreaSize)
   const window = new BrowserWindow({
-    width: 1180,
-    height: 760,
+    width: initial.width,
+    height: initial.height,
     minWidth: 760,
     minHeight: 480,
-    show: process.env.ADE_BACKGROUND_LAUNCH !== '1',
+    show: !backgroundLaunch,
     backgroundColor: windowBackground(nativeTheme.shouldUseDarkColors),
-    title: 'ADE',
+    title: 'iCode Workbench',
+    /**
+     * The renderer owns the title bar and window controls. Keeping the default
+     * thick frame preserves Windows resizing and the drop shadow without the
+     * native caption or min/max/close buttons.
+     */
+    frame: false,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -67,6 +80,23 @@ function createWindow(): void {
       sandbox: true
     }
   })
+
+  // The session workbench is terminal-first: a fresh profile opens maximized.
+  // A hidden Host holder is infrastructure, not a user window, so it keeps its
+  // offscreen bounds and never writes a window preference.
+  const sendMaximizedState = (): void => {
+    if (window.isDestroyed() || window.webContents.isDestroyed()) return
+    window.webContents.send(IPC_CHANNELS.windowMaximizedEvent, window.isMaximized())
+  }
+  window.on('maximize', sendMaximizedState)
+  window.on('unmaximize', sendMaximizedState)
+
+  if (!backgroundLaunch) {
+    // Track before maximizing so the startup state is persisted even if the
+    // process is terminated without a normal close.
+    trackWindowState(window, profileDirectory)
+    if (saved.maximized) window.maximize()
+  }
 
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   window.webContents.on('will-navigate', (event) => event.preventDefault())
@@ -124,6 +154,7 @@ if (gateFlag || packagedSmoke) {
       // Registered before the window exists so a live appearance change also
       // reaches the first window.
       watchSystemAppearance()
+      installApplicationMenu()
       // Diagnostics stay available even if persistence cannot open, so the
       // renderer can show an actionable error instead of a blank window.
       installRuntimeInfoHandler()

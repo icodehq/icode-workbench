@@ -9,6 +9,7 @@ import {
   type HarnessId
 } from '../../../shared/domain/harness'
 import type { RepositorySummary } from '../../../shared/schemas/ipc'
+import { repositoryPreparationView } from '../lib/repository-preparation'
 import type { CreateSessionRequest } from '../state/use-workspace'
 
 type Props = {
@@ -25,8 +26,8 @@ type Props = {
 }
 
 function detectionTone(state: HarnessDetection['state']): string {
-  if (state === 'available') return 'text-emerald-400'
-  if (state === 'detection_failed') return 'text-amber-400'
+  if (state === 'available') return 'text-add'
+  if (state === 'detection_failed') return 'text-signal'
   return 'text-muted-foreground'
 }
 
@@ -51,7 +52,7 @@ function SectionHeading({
       <p className="text-[10px] font-semibold uppercase tracking-wider text-foreground/80">
         {title}
       </p>
-      <p className="mt-0.5 text-[10px] text-muted-foreground">{hint}</p>
+      <p className="mt-0.5 text-[10.5px] text-muted-foreground">{hint}</p>
     </div>
   )
 }
@@ -98,12 +99,12 @@ function HarnessRow({
         <span className="flex items-center gap-2">
           <span
             className={`flex h-4 w-4 items-center justify-center rounded-full border ${
-              isSelected ? 'border-accent bg-accent text-white' : 'border-border'
+              isSelected ? 'border-accent bg-accent text-accent-ink' : 'border-border'
             }`}
           >
             {isSelected ? <Check size={10} /> : null}
           </span>
-          <span className="text-[12px] font-medium">
+          <span className="text-[12.5px] font-medium">
             {labelOverride ?? HARNESS_DEFINITIONS[entry.harness].label}
           </span>
         </span>
@@ -113,10 +114,10 @@ function HarnessRow({
         </span>
       </button>
       {entry.state !== 'available' ? (
-        <p className="mt-1 pl-6 text-[10px] text-muted-foreground">{entry.message}</p>
+        <p className="mt-1 pl-6 text-[10.5px] text-muted-foreground">{entry.message}</p>
       ) : null}
       <details className="mt-1 pl-6">
-        <summary className="cursor-pointer text-[10px] text-muted-foreground hover:text-foreground">
+        <summary className="cursor-pointer text-[10.5px] text-muted-foreground hover:text-foreground">
           Diagnostics
         </summary>
         <dl className="mt-1 space-y-0.5 font-mono text-[9px] leading-relaxed text-muted-foreground">
@@ -154,7 +155,9 @@ export default function NewSessionDialog({
   const [harness, setHarness] = useState<HarnessId | null>(available[0]?.harness ?? null)
   const [title, setTitle] = useState('')
 
-  const repoTarget = repos.find((repo) => repo.id === repoId)?.target ?? null
+  const selectedRepo = repos.find((repo) => repo.id === repoId) ?? null
+  const preparation = selectedRepo === null ? null : repositoryPreparationView(selectedRepo)
+  const repoTarget = selectedRepo?.target ?? null
   const targetLabel =
     repoTarget === null
       ? 'this machine'
@@ -205,12 +208,12 @@ export default function NewSessionDialog({
       aria-label="New session"
     >
       <form
-        className="flex max-h-[86vh] w-full max-w-lg flex-col overflow-hidden rounded-lg border border-border bg-card shadow-2xl"
+        className="ade-modal flex max-h-[86vh] w-full max-w-xl flex-col overflow-hidden rounded-lg border border-border bg-card shadow-2xl"
         onSubmit={(event) => void submit(event)}
       >
         <div className="flex items-start justify-between border-b border-border px-5 py-4">
           <div>
-            <h2 className="text-[14px] font-semibold">New session</h2>
+            <h2 className="text-[16px] font-semibold">New session</h2>
             <p className="mt-1 text-[11px] text-muted-foreground">
               A Harness runs in the selected repository through a real terminal.
             </p>
@@ -226,35 +229,56 @@ export default function NewSessionDialog({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-          <label className="block text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+          <label className="block text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
             Repository
           </label>
           <select
-            className="mt-1.5 w-full rounded-md border border-border bg-background px-2.5 py-2 text-[12px] outline-none focus:border-accent"
+            className="mt-1.5 w-full rounded-md border border-border bg-background px-3 py-2.5 text-[12.5px] outline-none focus:border-accent"
             value={repoId}
             onChange={(event) => setRepoId(event.target.value)}
             data-testid="new-session-repo"
           >
-            {repos.map((repo) => (
-              <option key={repo.id} value={repo.id}>
-                {repo.displayName}
-                {repo.target.kind === 'wsl' ? ` [WSL ${repo.target.distro}]` : ''} — {repo.path}
-              </option>
-            ))}
+            {repos.map((repo) => {
+              const blocked = repositoryPreparationView(repo)
+              return (
+                <option key={repo.id} value={repo.id} disabled={blocked !== null}>
+                  {repo.displayName}
+                  {repo.target.kind === 'wsl' ? ` [WSL ${repo.target.distro}]` : ''} — {repo.path}
+                  {blocked === null ? '' : ` — ${blocked.label}`}
+                </option>
+              )
+            })}
           </select>
-          <p className="mt-1.5 text-[10px] text-muted-foreground" data-testid="new-session-target">
+          <p className="mt-1.5 text-[10.5px] text-muted-foreground" data-testid="new-session-target">
             {repoTarget?.kind === 'wsl'
               ? `Agents run inside ${repoTarget.distro}; a terminal opens on this desktop in that distro.`
               : 'Everything runs on this machine.'}
           </p>
+          {preparation !== null ? (
+            <div
+              className={`mt-2 rounded-md border px-3 py-2 text-[11px] ${
+                preparation.kind === 'failed'
+                  ? 'border-destructive/40 bg-destructive/10 text-destructive'
+                  : 'border-signal-line bg-signal-weak text-signal'
+              }`}
+              data-testid="new-session-preparation"
+            >
+              <span className="font-medium">{preparation.label}</span>
+              <span className="mt-0.5 block text-[10.5px] opacity-80">
+                {preparation.kind === 'failed'
+                  ? `${preparation.detail ?? 'The first commit failed.'} Retry it from Projects.`
+                  : 'An isolated worktree needs a baseline commit. This project will become available as soon as preparation finishes.'}
+              </span>
+            </div>
+          ) : null}
 
           <div className="mt-4 flex items-center justify-between">
-            <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            <span className="text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
               Action
             </span>
             <button
               type="button"
-              className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+              className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10.5px] text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
               onClick={() => void onRefreshHarnesses(true)}
               disabled={harnessLoading}
               data-testid="harness-redetect"
@@ -318,7 +342,7 @@ export default function NewSessionDialog({
                       />
                     ))}
                     {agents.length === 0 && !harnessLoading ? (
-                      <p className="px-1 text-[10px] text-muted-foreground">
+                      <p className="px-1 text-[10.5px] text-muted-foreground">
                         No Coding Agent was detected for {targetLabel}.
                       </p>
                     ) : null}
@@ -340,7 +364,7 @@ export default function NewSessionDialog({
                         labelOverride={repoTarget?.kind === 'wsl' ? 'WSL terminal' : undefined}
                       />
                     ) : (
-                      <p className="px-1 text-[10px] text-muted-foreground">
+                      <p className="px-1 text-[10.5px] text-muted-foreground">
                         {harnessLoading ? 'Checking the terminal…' : 'No terminal is available.'}
                       </p>
                     )}
@@ -349,7 +373,7 @@ export default function NewSessionDialog({
           </div>
 
           {!harnessLoading && !agents.some((entry) => entry.state === 'available') ? (
-            <div className="mt-2 flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-300">
+            <div className="mt-2 flex items-start gap-2 rounded-md border border-signal-line bg-signal-weak px-3 py-2 text-[11px] text-signal">
               <AlertTriangle size={13} className="mt-0.5 shrink-0" />
               <span>
                 No Coding Agent is available {repoTarget?.kind === 'wsl' ? `in ${repoTarget.distro}` : 'on this machine'}.
@@ -359,11 +383,11 @@ export default function NewSessionDialog({
             </div>
           ) : null}
 
-          <label className="mt-4 block text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+          <label className="mt-4 block text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
             Title <span className="normal-case tracking-normal">(optional)</span>
           </label>
           <input
-            className="mt-1.5 w-full rounded-md border border-border bg-background px-2.5 py-2 text-[12px] outline-none focus:border-accent"
+            className="mt-1.5 w-full rounded-md border border-border bg-background px-3 py-2.5 text-[12.5px] outline-none focus:border-accent"
             placeholder={
               harness === null
                 ? 'Choose a Harness'
@@ -377,21 +401,26 @@ export default function NewSessionDialog({
         </div>
 
         <div className="flex items-center justify-between gap-2 border-t border-border px-5 py-3">
-          <span className="text-[10px] text-muted-foreground">
+          <span className="text-[10.5px] text-muted-foreground">
             {available.length} of {harnesses.length || HARNESS_IDS.length} Harnesses available
           </span>
           <div className="flex gap-2">
             <button
               type="button"
-              className="rounded-md border border-border px-3 py-1.5 text-[11px] hover:bg-muted"
+              className="rounded-md border border-border h-9 px-3 text-[12px] hover:bg-muted"
               onClick={onClose}
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-[11px] font-medium text-white hover:opacity-90 disabled:opacity-50"
-              disabled={creating || harness === null || repoId.length === 0}
+              className="inline-flex items-center gap-1.5 rounded-md bg-accent h-9 px-3.5 text-[12.5px] font-medium text-accent-ink hover:opacity-90 disabled:opacity-50"
+              disabled={
+                creating ||
+                harness === null ||
+                repoId.length === 0 ||
+                preparation !== null
+              }
               data-testid="create-session-submit"
             >
               {creating ? <Loader2 size={12} className="animate-spin" /> : null}

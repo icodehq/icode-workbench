@@ -1,10 +1,16 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
-import type { RuntimeInfo } from '../../../shared/ade-api'
+import type {
+  AddRepositoryResultPayload,
+  InitializeRepositoryResultPayload,
+  RuntimeInfo
+} from '../../../shared/ade-api'
 import { makeAppError, type AppError } from '../../../shared/domain/errors'
 import type { HarnessId } from '../../../shared/domain/harness'
 import type { ExecutionTarget } from '../../../shared/domain/repository'
 import { isActiveSessionState, isTerminalSessionState } from '../../../shared/domain/session'
+import { wakeDescription, wakePlan } from '../../../shared/domain/session-sleep'
 import { callApi, errorNotice, isAbsolutePathLike } from '../lib/api'
+import { readTerminalSize } from '../terminal/terminal-size'
 import {
   createInitialState,
   workspaceReducer,
@@ -45,11 +51,8 @@ export type AddRepositoryRequest = {
   target: ExecutionTarget
 }
 
-/** Two targets are the same when their identity is: kind, distro, registration. */
-function sameTarget(left: ExecutionTarget, right: ExecutionTarget): boolean {
-  if (left.kind !== right.kind) return false
-  if (left.kind === 'local' || right.kind === 'local') return true
-  return left.distro === right.distro && left.distroId === right.distroId
+export type InitializeRepositoryRequest = AddRepositoryRequest & {
+  identity?: { name: string; email: string }
 }
 
 export function useWorkspace(): {
@@ -63,12 +66,18 @@ export function useWorkspace(): {
    * and leaving only a toast makes the user retype an absolute path.
    */
   addRepository: (input: AddRepositoryRequest) => Promise<AppError | null>
+  /** Registers a project and starts any needed first-commit preparation. */
+  initializeRepository: (input: InitializeRepositoryRequest) => Promise<AppError | null>
+  /** Retries a failed or interrupted background first commit. */
+  retryPreparation: (repoId: string) => Promise<void>
   removeRepository: (repoId: string) => Promise<void>
   confirmRemoval: () => Promise<void>
   dismissRemoval: () => void
   createSession: (input: CreateSessionRequest) => Promise<boolean>
   stopSession: (sessionId: string) => Promise<void>
   restartSession: (sessionId: string) => Promise<void>
+  sleepSession: (sessionId: string) => Promise<void>
+  wakeSession: (sessionId: string) => Promise<void>
   recheckSession: (sessionId: string) => Promise<void>
   requestRemoveSession: (sessionId: string) => Promise<void>
   discardSession: (sessionId: string, confirmBranch: string) => Promise<boolean>
@@ -253,6 +262,16 @@ export function useWorkspace(): {
     [clearUnreadIfFocused]
   )
 
+  // Repository preparation is main-process work. Re-read the rows when it
+  // changes; the renderer never guesses progress from elapsed time.
+  useEffect(
+    () =>
+      window.ade.onRepoEvent(() => {
+        void refreshRepos()
+      }),
+    [refreshRepos]
+  )
+
   // The selected session is on screen, so its unread marker is consumed as soon
   // as the window has focus: on selection, on new activity, and on window focus.
   const activeActivityUnread =
@@ -294,15 +313,14 @@ export function useWorkspace(): {
     dispatch({ type: 'selectSession', sessionId })
   }, [])
 
-  const addRepository = useCallback(
-    async (input: AddRepositoryRequest): Promise<AppError | null> => {
+  const validateAddPath = useCallback(
+    (input: AddRepositoryRequest): AppError | null => {
       const candidate = input.path.trim()
-      const target = input.target
       if (candidate.length === 0) {
         return makeAppError('INVALID_ARGUMENT', 'Enter the absolute path of a Git repository.', {
           detail:
-            target.kind === 'wsl'
-              ? `That is a path inside ${target.distro}.`
+            input.target.kind === 'wsl'
+              ? `That is a path inside ${input.target.distro}.`
               : 'That is a path on this machine.'
         })
       }
@@ -313,40 +331,101 @@ export function useWorkspace(): {
           detail: candidate
         })
       }
+      return null
+    },
+    []
+  )
 
-      /**
-       * A path string alone does not identify a repository.
-       *
-       * `/home/you/app` can be this machine's home *and* the distro's home, and
-       * those are different checkouts. Comparing the target too is what stops the
-       * dialog from claiming a WSL repository "was already registered" because a
-       * local one happens to share the spelling.
-       */
-      const existing = state.repos.find(
-        (repo) => repo.path === candidate && sameTarget(repo.target, target)
-      )
-      const result = await callApi(window.ade.repos.add({ path: candidate, target }))
+  const finishRepositoryAdd = useCallback(
+    async (value: AddRepositoryResultPayload, message: string): Promise<AppError | null> => {
+      const reposOk = await refreshRepos()
+      if (!reposOk) {
+        return makeAppError('INTERNAL', 'The repository was registered but the list could not be refreshed.')
+      }
+      dispatch({ type: 'selectRepo', repoId: value.id })
+      await refreshSessions()
+      notify({
+        tone: value.alreadyRegistered ? 'info' : 'success',
+        message
+      })
+      return null
+    },
+    [notify, refreshRepos, refreshSessions]
+  )
+
+  const addRepository = useCallback(
+    async (input: AddRepositoryRequest): Promise<AppError | null> => {
+      const validation = validateAddPath(input)
+      if (validation !== null) return validation
+      const candidate = input.path.trim()
+      const result = await callApi(window.ade.repos.add({ path: candidate, target: input.target }))
       if (!result.ok) {
         // Reported to the dialog *and* as a notice: the dialog stays open with the
         // typed path, and the workspace log keeps the failure.
         notify(errorNotice(result.error))
         return result.error
       }
-      const reposOk = await refreshRepos()
-      if (!reposOk) {
-        return makeAppError('INTERNAL', 'The repository was registered but the list could not be refreshed.')
-      }
-      dispatch({ type: 'selectRepo', repoId: result.value.id })
-      await refreshSessions()
-      notify({
-        tone: 'success',
-        message: existing
-          ? `${result.value.displayName} was already registered.`
+      /*
+       * The service answers whether this row already existed, and that answer is
+       * authoritative: it de-duplicates by canonical path, by Git common
+       * directory, and within one execution target. A client-side path compare
+       * cannot see the last two, so reporting from the response is what makes the
+       * message true for a linked worktree or a differently-spelled path.
+       */
+      return finishRepositoryAdd(
+        result.value,
+        result.value.alreadyRegistered
+          ? `${result.value.displayName} was already registered — selected it instead.`
           : `Registered ${result.value.displayName}.`
-      })
-      return null
+      )
     },
-    [notify, refreshRepos, refreshSessions, state.repos]
+    [finishRepositoryAdd, notify, validateAddPath]
+  )
+
+  const initializeRepository = useCallback(
+    async (input: InitializeRepositoryRequest): Promise<AppError | null> => {
+      const validation = validateAddPath(input)
+      if (validation !== null) return validation
+      const candidate = input.path.trim()
+      const result = await callApi(
+        window.ade.repos.initialize({
+          path: candidate,
+          target: input.target,
+          ...(input.identity === undefined ? {} : { identity: input.identity })
+        })
+      )
+      if (!result.ok) {
+        notify(errorNotice(result.error))
+        return result.error
+      }
+      const value: InitializeRepositoryResultPayload = result.value
+      const preparing = value.initialized && value.preparation?.state === 'preparing'
+      const message = value.alreadyRegistered
+        ? preparing
+          ? `${value.displayName} was already registered — preparing its first commit.`
+          : `${value.displayName} was already registered — selected it instead.`
+        : preparing
+          ? `Preparing ${value.displayName}. The first commit is running in the background.`
+          : `Registered ${value.displayName}.`
+      return finishRepositoryAdd(value, message)
+    },
+    [finishRepositoryAdd, notify, validateAddPath]
+  )
+
+  const retryPreparation = useCallback(
+    async (repoId: string): Promise<void> => {
+      const result = await callApi(window.ade.repos.retryPreparation({ repoId }))
+      if (!result.ok) {
+        notify(errorNotice(result.error))
+        return
+      }
+      await refreshRepos()
+      notify({
+        tone: 'info',
+        message: `Retrying the first commit for ${result.value.displayName}.`
+      })
+    },
+    [notify, refreshRepos]
   )
 
   const removeRepository = useCallback(
@@ -458,40 +537,40 @@ export function useWorkspace(): {
   const requestRemoveSession = useCallback(
     async (sessionId: string): Promise<void> => {
       const session = state.sessions.find((entry) => entry.id === sessionId)
-      const result = await callApi(window.ade.sessions.remove({ sessionId }))
+      dispatch({ type: 'pendingSet', sessionId, action: 'removing' })
+      const result = await callApi(window.ade.sessions.remove({ sessionId, stopIfLive: true }))
       if (!result.ok) {
+        dispatch({ type: 'pendingClear', sessionId })
         notify(errorNotice(result.error))
         return
       }
       const outcome = result.value
       if (outcome.status === 'removed') {
-        dispatch({ type: 'sessionCleanup', prompt: null })
-        notify({
-          tone: 'success',
-          message: outcome.branch
-            ? `Session removed. Branch ${outcome.branch} was retained.`
-            : 'Session removed.'
-        })
-        await Promise.all([refreshSessions(), refreshBranches()])
+        // The backend has deleted the row. Drop it from this window immediately
+        // instead of making the user wait for a full Host/Git refresh first.
+        dispatch({ type: 'sessionRemoved', sessionId })
+        notify({ tone: 'success', message: 'Session removed.' })
+        void Promise.all([refreshSessions(), refreshBranches()])
         return
       }
+      dispatch({ type: 'pendingClear', sessionId })
       if (outcome.status === 'blocked_live_sessions') {
         notify({
           tone: 'error',
-          message: 'A live terminal blocks removal. Stop the session first.'
+          message: 'This session is still running. Try again in a moment.'
         })
         return
       }
       if (outcome.status === 'host_unavailable') {
         notify({
           tone: 'error',
-          message: 'The terminal host is unreachable, so the worktree was preserved.',
+          message: 'The session could not be removed because the terminal service is unavailable.',
           detail: outcome.error.message
         })
         return
       }
-      // Dirty/unmerged/missing/inconsistent: surface exactly what blocks it and
-      // offer only the applicable recovery.
+      // Dirty/unmerged/missing/inconsistent: only now surface the exceptional
+      // state. The normal removal path never explains worktrees or Git internals.
       dispatch({
         type: 'sessionCleanup',
         prompt: {
@@ -616,7 +695,7 @@ export function useWorkspace(): {
       }
       notify({
         tone: 'error',
-        message: 'ADE does not own this branch, so it will not delete it.'
+        message: 'iCode does not own this branch, so it will not delete it.'
       })
     },
     [notify, refreshBranches, state.activeRepoId]
@@ -637,13 +716,19 @@ export function useWorkspace(): {
         return false
       }
       setCreating(true)
+      /*
+       * Start the PTY at the grid the terminal last occupied. A hardcoded
+       * 100x30 was always wrong at least once and forced a visible reflow on
+       * every first attach; the fit still corrects changes in window size.
+       */
+      const terminalSize = readTerminalSize() ?? { cols: 100, rows: 30 }
       const result = await callApi(
         window.ade.sessions.create({
           repoId: input.repoId,
           harness: input.harness,
           ...(input.title && input.title.trim().length > 0 ? { title: input.title.trim() } : {}),
-          cols: 100,
-          rows: 30
+          cols: terminalSize.cols,
+          rows: terminalSize.rows
         })
       )
       setCreating(false)
@@ -740,6 +825,56 @@ export function useWorkspace(): {
     [notify, refreshSessions, state.sessions]
   )
 
+  const sleepSession = useCallback(
+    async (sessionId: string): Promise<void> => {
+      const session = state.sessions.find((entry) => entry.id === sessionId)
+      dispatch({ type: 'pendingSet', sessionId, action: 'sleeping' })
+      const result = await callApi(window.ade.sessions.sleep({ sessionId }))
+      dispatch({ type: 'pendingClear', sessionId })
+      if (!result.ok) {
+        notify(errorNotice(result.error))
+        await refreshSessions()
+        return
+      }
+      dispatch({ type: 'sessionUpserted', session: result.value })
+      notify({
+        tone: 'info',
+        message: `Slept ${session?.title ?? 'the session'}.`,
+        detail:
+          session === undefined
+            ? undefined
+            : wakeDescription(session.harness)
+      })
+    },
+    [notify, refreshSessions, state.sessions]
+  )
+
+  const wakeSession = useCallback(
+    async (sessionId: string): Promise<void> => {
+      const session = state.sessions.find((entry) => entry.id === sessionId)
+      dispatch({ type: 'pendingSet', sessionId, action: 'waking' })
+      const result = await callApi(window.ade.sessions.wake({ sessionId }))
+      dispatch({ type: 'pendingClear', sessionId })
+      if (!result.ok) {
+        notify(errorNotice(result.error))
+        await refreshSessions()
+        return
+      }
+      dispatch({ type: 'sessionUpserted', session: result.value })
+      notify({
+        tone: 'success',
+        message: `Woke ${session?.title ?? 'the session'}.`,
+        detail:
+          session === undefined
+            ? undefined
+            : wakePlan(session.harness, null).resumesConversation
+              ? 'The conversation was resumed in this worktree.'
+              : 'A new shell was started in this worktree.'
+      })
+    },
+    [notify, refreshSessions, state.sessions]
+  )
+
   const recheckSession = useCallback(
     async (sessionId: string): Promise<void> => {
       const result = await callApi(window.ade.sessions.get({ sessionId }))
@@ -771,12 +906,16 @@ export function useWorkspace(): {
     runtime,
     creating,
     addRepository,
+    initializeRepository,
+    retryPreparation,
     removeRepository,
     confirmRemoval,
     dismissRemoval,
     createSession,
     stopSession,
     restartSession,
+    sleepSession,
+    wakeSession,
     recheckSession,
     requestRemoveSession,
     discardSession,

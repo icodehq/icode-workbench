@@ -1,28 +1,35 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   AlertTriangle,
   FileDiff,
   Files,
   GitBranch,
   Loader2,
+  PanelLeftOpen,
   RefreshCw,
   RotateCcw,
-  Square,
   TerminalSquare,
   Trash2
 } from 'lucide-react'
 import type { AppError } from '../../../shared/domain/errors'
+import { isAgentHarness } from '../../../shared/domain/harness'
+import { wakeDescription } from '../../../shared/domain/session-sleep'
 import type {
   RepositorySummary,
   SessionSummary,
   WorktreeSummary
 } from '../../../shared/schemas/ipc'
+import type { AgentSendResult } from '../lib/agent-send'
+import type { WorkbenchDraftStore } from '../review/drafts'
 import type { Notice, PendingAction } from '../state/workspace'
 import TerminalPane from './TerminalPane'
 import ChangesPanel from './ChangesPanel'
 import FilesPanel from './FilesPanel'
-import GitPanel from './GitPanel'
-import { useSessionReview } from '../review/use-session-review'
+import GitBranchMenu from './GitBranchMenu'
+import RemoveSessionDialog from './RemoveSessionDialog'
+import SessionActionsMenu from './SessionActionsMenu'
+import SleepSessionDialog from './SleepSessionDialog'
+import SessionDetailsDrawer from './SessionDetailsDrawer'
 import {
   activityDotClass,
   activityLabel,
@@ -30,10 +37,12 @@ import {
   activityTooltip,
   authorityNote,
   harnessName,
-  sessionStateLabel,
+  isKnownActivity,
+  sessionStateLabelFor,
+  sessionStateDotClass,
+  sessionStatePillClass,
   shortId,
-  stateDotClass,
-  stateTextClass
+  stateDotClass
 } from './status'
 
 type Props = {
@@ -41,8 +50,11 @@ type Props = {
   repo: RepositorySummary | null
   pending: PendingAction | null
   panes: SessionSummary[]
-  onStop: (sessionId: string) => void
   onRestart: (sessionId: string) => void
+  onSleep?: (sessionId: string) => void
+  onWake?: (sessionId: string) => void
+  /** Direct sessions support hibernate; task sessions remain scheduler-owned. */
+  allowSleep?: boolean
   onRecheck: (sessionId: string) => void
   onRemove: (sessionId: string) => void
   onRecoverWorktree: (sessionId: string) => void
@@ -55,9 +67,22 @@ type Props = {
   openRequest: { path: string; line: number; nonce: number } | null
   onOpenRequestHandled: () => void
   /** Sends review feedback to the Agent's terminal. */
-  onSendToAgent: (text: string) => void
+  onSendToAgent: (text: string) => Promise<AgentSendResult>
+  /** Review notes, feedback and commit message, keyed by session. */
+  drafts: WorkbenchDraftStore
   /** Asks the shell to open a file in the Files tab (Git list, review). */
   onRequestOpenInFiles: (path: string, line: number) => void
+  /**
+   * A view another surface asked for (a task's Changes button).
+   *
+   * `nonce` makes repeating the same request observable, so clicking "Changes"
+   * twice still lands on Changes rather than being ignored as unchanged.
+   */
+  viewRequest: { view: 'terminal' | 'changes' | 'files'; nonce: number } | null
+  onViewRequestHandled: () => void
+  /** Shows a labelled restore control only while the Sessions column is hidden. */
+  sessionsListHidden?: boolean
+  onShowSessionsList?: () => void
 }
 
 const WORKTREE_STATUS_LABEL: Record<WorktreeSummary['status'], string> = {
@@ -71,10 +96,10 @@ const WORKTREE_STATUS_LABEL: Record<WorktreeSummary['status'], string> = {
 }
 
 const WORKTREE_STATUS_TONE: Record<WorktreeSummary['status'], string> = {
-  creating: 'text-amber-400',
-  incomplete: 'text-amber-400',
+  creating: 'text-signal',
+  incomplete: 'text-signal',
   'ready-to-start': 'text-muted-foreground',
-  active: 'text-emerald-400',
+  active: 'text-add',
   missing: 'text-destructive',
   inconsistent: 'text-destructive',
   failed: 'text-destructive'
@@ -82,6 +107,14 @@ const WORKTREE_STATUS_TONE: Record<WorktreeSummary['status'], string> = {
 
 function worktreeBlocksTerminal(worktree: WorktreeSummary | null): boolean {
   return worktree !== null && (worktree.status === 'missing' || worktree.status === 'inconsistent')
+}
+
+function hostUnavailable(session: SessionSummary): boolean {
+  return (
+    session.authority === 'unreachable' ||
+    session.reason === 'host_unreachable' ||
+    session.reason === 'host_unreachable_history'
+  )
 }
 
 function WorktreePanel({
@@ -109,8 +142,8 @@ function WorktreePanel({
         </div>
         <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
           {missing
-            ? 'ADE will not fall back to the primary checkout. The branch still holds committed work; you can re-create the checkout from it.'
-            : 'Git does not recognise this directory as the recorded worktree. ADE will not start a terminal or delete anything until this is resolved.'}
+            ? 'iCode will not fall back to the primary checkout. The branch still holds committed work; you can re-create the checkout from it.'
+            : 'Git does not recognise this directory as the recorded worktree. iCode will not start a terminal or delete anything until this is resolved.'}
         </p>
         <dl className="mt-3 space-y-1 rounded-md border border-border bg-background px-3 py-2 font-mono text-[10px] text-muted-foreground">
           <div>
@@ -168,7 +201,7 @@ function paneActive(session: SessionSummary, candidate: SessionSummary): boolean
   return session.incarnationId === candidate.incarnationId
 }
 
-function StatePanel({
+export function StatePanel({
   session,
   onRestart,
   onRecheck
@@ -201,11 +234,11 @@ function StatePanel({
         </div>
         <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
           {live
-            ? 'ADE is connecting to the existing process. It never starts a replacement for a live session.'
+            ? 'iCode is connecting to the existing process. It never starts a replacement for a live session.'
             : authorityNote(session)}
         </p>
         {session.error ? (
-          <p className="mt-2 break-words rounded-md border border-destructive/30 bg-destructive/10 px-2.5 py-1.5 font-mono text-[10px] leading-relaxed text-red-200">
+          <p className="mt-2 break-words rounded-md border border-destructive/30 bg-destructive/10 px-2.5 py-1.5 font-mono text-[10px] leading-relaxed text-destructive">
             {session.error.message}
             {session.error.detail ? ` — ${session.error.detail}` : ''}
           </p>
@@ -219,8 +252,14 @@ function StatePanel({
           <div className="mt-4 flex gap-2">
             <button
               type="button"
-              className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-[11px] hover:bg-muted"
+              className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-[11px] hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
               onClick={onRestart}
+              disabled={hostUnavailable(session)}
+              title={
+                hostUnavailable(session)
+                  ? 'Host unreachable. Recheck the host before restarting.'
+                  : 'Stop the process and start a new incarnation'
+              }
               data-testid="state-restart"
             >
               <RotateCcw size={12} />
@@ -247,8 +286,10 @@ export default function SessionWorkspace({
   repo,
   pending,
   panes,
-  onStop,
   onRestart,
+  onSleep,
+  onWake,
+  allowSleep = false,
   onRecheck,
   onRemove,
   onRecoverWorktree,
@@ -258,107 +299,162 @@ export default function SessionWorkspace({
   openRequest,
   onOpenRequestHandled,
   onSendToAgent,
-  onRequestOpenInFiles
+  drafts,
+  onRequestOpenInFiles,
+  viewRequest,
+  onViewRequestHandled,
+  sessionsListHidden = false,
+  onShowSessionsList
 }: Props): React.JSX.Element {
   const worktree = session.worktree
   const blocked = worktreeBlocksTerminal(worktree)
   // The view survives re-renders but resets when the active session changes.
-  const [view, setView] = useState<'terminal' | 'changes' | 'files' | 'git'>('terminal')
+  const [view, setView] = useState<'terminal' | 'changes' | 'files'>('terminal')
+  const [historyRequest, setHistoryRequest] = useState<{ path: string; nonce: number } | null>(null)
+  const [detailsOpen, setDetailsOpen] = useState(false)
+  const [removeOpen, setRemoveOpen] = useState(false)
+  const [sleepOpen, setSleepOpen] = useState(false)
+  // Branch/remote operations happen in the header; Changes reloads when they do.
+  const [gitRevision, setGitRevision] = useState(0)
+
+  useEffect(() => {
+    setDetailsOpen(false)
+  }, [session.id])
+
+  useEffect(() => {
+    if (!viewRequest) return
+    setView(viewRequest.view)
+    onViewRequestHandled()
+  }, [viewRequest, onViewRequestHandled])
   const [viewSessionId, setViewSessionId] = useState(session.id)
   if (viewSessionId !== session.id) {
     setViewSessionId(session.id)
     setView('terminal')
+    setHistoryRequest(null)
   }
-  const review = useSessionReview(session.id, view === 'changes', session.state)
   const activity = session.activity
+  // Unknown is an absence of evidence, not a state worth occupying the compact
+  // header with. Details explains why it is absent.
+  const knownActivity = isKnownActivity(activity) ? activity : null
   const activePane = !blocked && panes.some((candidate) => paneActive(session, candidate))
-  const canStop = (session.state === 'live' || session.state === 'starting') && pending === null
-  const canRestart = pending === null && !blocked
+  const sleeping = session.sleeping === true
+  const live = session.state === 'live'
+  const canSleep = allowSleep && live && !sleeping && pending === null
+  const canWake = allowSleep && sleeping && pending === null
+  const sleepDisabledReason =
+    pending !== null
+      ? 'Another session action is in progress.'
+      : 'Only a live session can sleep.'
+  const canRestart = pending === null && !blocked && !hostUnavailable(session)
+  const restartReason =
+    pending === 'restarting'
+      ? 'Restart is already in progress.'
+      : hostUnavailable(session)
+        ? 'Host unreachable. Recheck the host before restarting.'
+        : blocked
+          ? 'The worktree is missing or inconsistent.'
+          : 'Restart this session.'
 
   return (
     <section className="flex min-w-0 flex-1 flex-col">
-      <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <h1 className="truncate text-[12px] font-semibold" data-testid="session-title">
+      <header className="shrink-0 border-b border-border bg-background" data-testid="session-header">
+        <div className="flex h-12 items-center gap-2 px-3">
+          <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+            <h1
+              className="min-w-0 flex-1 truncate text-[15px] font-semibold leading-none tracking-[-0.01em]"
+              data-testid="session-title"
+            >
               {session.title}
             </h1>
             <span
-              className={`inline-flex items-center gap-1 text-[9px] ${stateTextClass(session.state)}`}
+              className={`inline-flex h-5 shrink-0 items-center gap-1.5 rounded-full border px-1.5 text-[10px] font-medium ${sessionStatePillClass(session, pending)}`}
               data-testid="session-state"
               data-state={session.state}
+              data-sleeping={String(session.sleeping === true)}
               data-authority={session.authority}
               data-reason={session.reason}
             >
-              <span className={`h-1.5 w-1.5 rounded-full ${stateDotClass(session.state, pending)}`} />
-              {sessionStateLabel(session.state, pending)}
+              <span className={`h-1.5 w-1.5 rounded-full ${sessionStateDotClass(session, pending)}`} />
+              {sessionStateLabelFor(session, pending)}
             </span>
             <span
-              className={`inline-flex items-center gap-1 text-[9px] ${activityTone(activity)}${
-                activity?.state === 'waiting' ? ' rounded bg-amber-500/10 px-1.5 py-0.5' : ''
+              className={`min-w-0 shrink-0 items-center gap-1 text-[10.5px] ${activityTone(activity)} ${
+                knownActivity === null ? 'hidden' : 'inline-flex'
               }`}
-              title={activityTooltip(activity)}
+              title={knownActivity === null ? undefined : activityTooltip(knownActivity)}
               data-testid="session-activity"
               data-activity={activity?.state ?? 'unknown'}
               data-activity-tool={activity?.toolName ?? ''}
               data-activity-unread={String(activity?.unread ?? false)}
             >
-              <span className={`h-1.5 w-1.5 rounded-full ${activityDotClass(activity)}`} />
-              {activity && activity.state !== 'unknown' ? activityLabel(activity) : 'Activity unknown'}
+              {knownActivity === null ? null : (
+                <>
+                  <span
+                    className={`h-1.5 w-1.5 shrink-0 rounded-full ${activityDotClass(knownActivity)}`}
+                  />
+                  <span className="hidden max-w-[110px] truncate md:inline">
+                    {activityLabel(knownActivity)}
+                  </span>
+                </>
+              )}
             </span>
-          </div>
-          <div className="mt-0.5 flex min-w-0 items-center gap-2 text-[9px] text-muted-foreground">
-            <span>
-              {repo?.target.kind === 'wsl' && session.harness === 'shell'
-                ? `WSL terminal · ${repo.target.distro}`
-                : repo?.target.kind === 'wsl'
-                  ? `${harnessName(session.harness)} · in ${repo.target.distro}`
-                  : harnessName(session.harness)}
-            </span>
-            <span className="text-border">|</span>
-            <span className="truncate" title={repo?.path}>
-              {repo?.displayName ?? 'Unknown repository'}
-              {repo?.currentBranch ? ` · ${repo.currentBranch}` : ''}
-            </span>
+            {knownActivity === null ? null : <span className="h-3 w-px shrink-0 bg-border" />}
             {worktree ? (
-              <>
-                <span className="text-border">|</span>
-                <span
-                  className={`inline-flex items-center gap-1 ${WORKTREE_STATUS_TONE[worktree.status]}`}
-                  title={`${WORKTREE_STATUS_LABEL[worktree.status]} · ${worktree.path}`}
-                  data-testid="session-worktree"
-                  data-worktree-status={worktree.status}
-                  data-worktree-branch={worktree.branch}
-                >
-                  <GitBranch size={9} />
-                  {worktree.branch}
-                </span>
-              </>
+              <span
+                className={`inline-flex min-w-0 max-w-[176px] shrink items-center ${WORKTREE_STATUS_TONE[worktree.status]}`}
+                title={`${WORKTREE_STATUS_LABEL[worktree.status]} · ${worktree.path}`}
+                data-testid="session-worktree"
+                data-worktree-status={worktree.status}
+                data-worktree-branch={worktree.branch}
+              >
+                <GitBranchMenu
+                  sessionId={session.id}
+                  branch={worktree.branch}
+                  notify={notify}
+                  onChanged={() => {
+                    setGitRevision((current) => current + 1)
+                    onRecheck(session.id)
+                  }}
+                  onOpenTerminal={() => setView('terminal')}
+                  onOpenChanges={() => setView('changes')}
+                />
+              </span>
             ) : (
-              <>
-                <span className="text-border">|</span>
-                <span title="Registered before worktree isolation existed">
-                  primary checkout
-                </span>
-              </>
+              <span
+                className="shrink-0 text-[10.5px] text-muted-foreground"
+                title="Registered before worktree isolation existed"
+              >
+                primary checkout
+              </span>
             )}
-            <span className="text-border">|</span>
-            <span title="PTY incarnation owned by the terminal host">
+            {/*
+             * The compact header shows the branch because it is an action. The
+             * rest of the metadata stays in Session details; this screen-reader
+             * copy keeps it available without spending a second row.
+             */}
+            <span
+              className="sr-only"
+              title="PTY incarnation owned by the terminal host"
+            >
               incarnation{' '}
               <span className="font-mono" data-testid="session-incarnation">
                 {shortId(session.incarnationId)}
               </span>
             </span>
-            <span className="hidden truncate text-border xl:inline">|</span>
-            <span className="hidden truncate xl:inline" title={authorityNote(session)}>
+            <span className="sr-only" title={authorityNote(session)}>
               {authorityNote(session)}
             </span>
+            <span className="sr-only">
+              Session · {repo?.displayName ?? 'workspace'};{' '}
+              {repo?.target.kind === 'wsl'
+                ? `${harnessName(session.harness)} in ${repo.target.distro}`
+                : harnessName(session.harness)}
+              ; base {worktree?.baseOid.slice(0, 7) ?? '—'}
+            </span>
           </div>
-        </div>
 
-        <div className="flex shrink-0 items-center gap-1.5">
           <div
-            className="mr-1 flex items-center rounded-md border border-border p-0.5"
+            className="flex shrink-0 items-center gap-0.5 rounded-md border border-border bg-muted/30 p-0.5"
             role="tablist"
             aria-label="Session view"
           >
@@ -366,96 +462,87 @@ export default function SessionWorkspace({
               type="button"
               role="tab"
               aria-selected={view === 'terminal'}
-              className={`inline-flex h-6 items-center gap-1 rounded px-2 text-[10px] ${
+              aria-label="Terminal"
+              title="Terminal"
+              className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded px-2 text-[11px] ${
                 view === 'terminal'
-                  ? 'bg-muted text-foreground'
+                  ? 'bg-card text-foreground shadow-sm'
                   : 'text-muted-foreground hover:text-foreground'
               }`}
               onClick={() => setView('terminal')}
               data-testid="view-terminal"
             >
-              <TerminalSquare size={10} />
-              Terminal
+              <TerminalSquare size={13} />
+              <span className="hidden xl:inline">Terminal</span>
             </button>
             <button
               type="button"
               role="tab"
               aria-selected={view === 'changes'}
-              className={`inline-flex h-6 items-center gap-1 rounded px-2 text-[10px] ${
+              aria-label="Source Control"
+              title="Source Control"
+              className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded px-2 text-[11px] ${
                 view === 'changes'
-                  ? 'bg-muted text-foreground'
+                  ? 'bg-card text-foreground shadow-sm'
                   : 'text-muted-foreground hover:text-foreground'
               }`}
               onClick={() => setView('changes')}
               data-testid="view-changes"
             >
-              <FileDiff size={10} />
-              Changes
+              <FileDiff size={13} />
+              <span className="hidden xl:inline">Source Control</span>
             </button>
             <button
               type="button"
               role="tab"
               aria-selected={view === 'files'}
-              className={`inline-flex h-6 items-center gap-1 rounded px-2 text-[10px] ${
+              aria-label="Files"
+              title="Files"
+              className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded px-2 text-[11px] ${
                 view === 'files'
-                  ? 'bg-muted text-foreground'
+                  ? 'bg-card text-foreground shadow-sm'
                   : 'text-muted-foreground hover:text-foreground'
               }`}
               onClick={() => setView('files')}
               data-testid="view-files"
             >
-              <Files size={10} />
-              Files
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={view === 'git'}
-              className={`inline-flex h-6 items-center gap-1 rounded px-2 text-[10px] ${
-                view === 'git'
-                  ? 'bg-muted text-foreground'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-              onClick={() => setView('git')}
-              data-testid="view-git"
-            >
-              <GitBranch size={10} />
-              Git
+              <Files size={13} />
+              <span className="hidden xl:inline">Files</span>
             </button>
           </div>
-          <button
-            type="button"
-            className="inline-flex h-7 items-center gap-1 rounded-md border border-border px-2 text-[10px] hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
-            onClick={() => onRestart(session.id)}
-            disabled={!canRestart}
-            title="Stop the process and start a new incarnation"
-            data-testid="restart-session"
-          >
-            <RotateCcw size={11} />
-            {pending === 'restarting' ? 'Restarting…' : 'Restart'}
-          </button>
-          <button
-            type="button"
-            className="inline-flex h-7 items-center gap-1 rounded-md border border-border px-2 text-[10px] hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
-            onClick={() => onStop(session.id)}
-            disabled={!canStop}
-            title="Request the terminal host to terminate this session"
-            data-testid="stop-session"
-          >
-            <Square size={10} />
-            {pending === 'stopping' ? 'Stopping…' : 'Stop'}
-          </button>
-          <button
-            type="button"
-            className="inline-flex h-7 items-center gap-1 rounded-md border border-border px-2 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-            onClick={() => onRemove(session.id)}
-            disabled={pending !== null}
-            title="Remove the session; a clean worktree is deleted and its branch retained"
-            data-testid="remove-session"
-          >
-            <Trash2 size={10} />
-            Remove
-          </button>
+
+          {sessionsListHidden && onShowSessionsList !== undefined ? (
+            <button
+              type="button"
+              className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
+              onClick={onShowSessionsList}
+              title="Show sessions list"
+              data-testid="show-sessions-list"
+            >
+              <PanelLeftOpen size={12} />
+              Sessions
+            </button>
+          ) : null}
+
+          <SessionActionsMenu
+            live={allowSleep && live}
+            sleeping={allowSleep && sleeping}
+            canSleep={canSleep}
+            canWake={canWake}
+            wakeDescription={wakeDescription(session.harness)}
+            sleepDisabledReason={sleepDisabledReason}
+            restartDisabled={!canRestart}
+            restartReason={restartReason}
+            removeDisabled={pending !== null}
+            removeReason={
+              pending !== null ? 'Another session action is in progress.' : 'Remove this session.'
+            }
+            onDetails={() => setDetailsOpen(true)}
+            onSleep={() => setSleepOpen(true)}
+            onWake={() => onWake?.(session.id)}
+            onRestart={() => onRestart(session.id)}
+            onRemove={() => setRemoveOpen(true)}
+          />
         </div>
       </header>
 
@@ -474,7 +561,7 @@ export default function SessionWorkspace({
             worktree={worktree}
             onRecheck={() => onRecheck(session.id)}
             onRecover={() => onRecoverWorktree(session.id)}
-            onRemove={() => onRemove(session.id)}
+            onRemove={() => setRemoveOpen(true)}
           />
         ) : !activePane ? (
           <StatePanel
@@ -485,45 +572,78 @@ export default function SessionWorkspace({
         ) : null}
       </div>
 
-      {view === 'files' ? (
-        <div className="flex min-h-0 flex-1" data-testid="files-view">
-          <FilesPanel
-            sessionId={session.id}
-            refreshToken={refreshToken}
-            notify={notify}
-            openRequest={openRequest}
-            onOpenRequestHandled={onOpenRequestHandled}
-          />
-        </div>
+      <div
+        className={`flex min-h-0 flex-1 ${view === 'files' ? '' : 'hidden'}`}
+        data-testid="files-view"
+      >
+        <FilesPanel
+          sessionId={session.id}
+          refreshToken={refreshToken}
+          notify={notify}
+          openRequest={openRequest}
+          onOpenRequestHandled={onOpenRequestHandled}
+          onOpenHistory={(path) => {
+            setHistoryRequest({ path, nonce: Date.now() })
+            setView('changes')
+          }}
+          editorEngine="monaco"
+        />
+      </div>
+
+      <div
+        className={`min-h-0 flex-1 ${view === 'changes' ? '' : 'hidden'}`}
+        data-testid="changes-view"
+      >
+        <ChangesPanel
+          sessionId={session.id}
+          sessionState={session.state}
+          refreshToken={refreshToken}
+          gitRevision={gitRevision}
+          active={view === 'changes'}
+          notify={notify}
+          onOpenPath={(path) => {
+            setView('files')
+            onRequestOpenInFiles(path, 1)
+          }}
+          onOpenTerminal={() => setView('terminal')}
+          onSendToAgent={onSendToAgent}
+          canSendToAgent={session.state === 'live' && isAgentHarness(session.harness)}
+          drafts={drafts}
+          onChanged={() => onRecheck(session.id)}
+          initialHistoryPath={historyRequest}
+          onHistoryPathHandled={() => setHistoryRequest(null)}
+        />
+      </div>
+
+      {detailsOpen ? (
+        <SessionDetailsDrawer
+          session={session}
+          repo={repo}
+          notify={notify}
+          onClose={() => setDetailsOpen(false)}
+        />
       ) : null}
 
-      {view === 'git' ? (
-        <div className="flex min-h-0 flex-1" data-testid="git-view">
-          <GitPanel
-            sessionId={session.id}
-            refreshToken={refreshToken}
-            notify={notify}
-            onOpenPath={(path) => {
-              setView('files')
-              onRequestOpenInFiles(path, 1)
-            }}
-            onChanged={() => onRecheck(session.id)}
-          />
-        </div>
+      {sleepOpen ? (
+        <SleepSessionDialog
+          session={session}
+          onClose={() => setSleepOpen(false)}
+          onConfirm={() => {
+            setSleepOpen(false)
+            onSleep?.(session.id)
+          }}
+        />
       ) : null}
 
-      {view === 'changes' ? (
-        <div className="min-h-0 flex-1" data-testid="changes-view">
-          <ChangesPanel
-            review={review}
-            sessionId={session.id}
-            sessionState={session.state}
-            worktreeBranch={worktree?.branch ?? null}
-            baselineOid={worktree?.baseOid ?? null}
-            onSendToAgent={onSendToAgent}
-            canSendToAgent={session.state === 'live'}
-          />
-        </div>
+      {removeOpen ? (
+        <RemoveSessionDialog
+          session={session}
+          onClose={() => setRemoveOpen(false)}
+          onConfirm={() => {
+            setRemoveOpen(false)
+            onRemove(session.id)
+          }}
+        />
       ) : null}
     </section>
   )

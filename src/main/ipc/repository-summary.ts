@@ -22,6 +22,9 @@ export function toRepositorySummary(repository: RepositoryRecord): RepositorySum
     availability: repository.availability,
     // Never omitted and never inferred from the path: a `/home/you/app` string
     // does not say whether it is this machine's or a distro's.
-    target: repository.executionTarget
+    target: repository.executionTarget,
+    // Always present on the wire, like target: the renderer must distinguish
+    // "no preparation needed" from "preparation is still running".
+    preparation: repository.preparation ?? null
   }
 }

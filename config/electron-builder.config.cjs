@@ -61,5 +61,51 @@ module.exports = {
     target: ['dir'],
     executableName: 'ade',
     category: 'Development'
+  },
+
+  /**
+   * Windows identity and the MSI target.
+   *
+   * `author` in package.json ("ADE contributors", the copyright holder in
+   * LICENSE) is what the MSI records as manufacturer, so the installer names
+   * the same publisher the project's own license does.
+   */
+  win: {
+    target: ['msi'],
+    /**
+     * The shortcut icon is also the MSI's ARPPRODUCTICON, and WiX refuses to
+     * link a shortcut that names an Icon element with no file behind it. The
+     * mark is the app's own (a terminal prompt on the product's dark tile), not
+     * an inherited Electron icon.
+     */
+    icon: 'build/icon.ico',
+    /**
+     * A Windows package must not carry a Linux native build.
+     *
+     * node-pty's loader tries `build/Release` before `prebuilds/win32-x64`, so a
+     * pnpm install performed under WSL leaves an ELF `pty.node` inside the
+     * archive that Windows attempts and fails to load on every PTY creation
+     * before falling back. Excluding it ships only the Windows prebuild; the
+     * failure then cannot happen at all.
+     */
+    files: ['out/**/*', 'package.json', '!node_modules/node-pty/build/**']
+  },
+
+  msi: {
+    /**
+     * Per-user install.
+     *
+     * The default is already per-user (ALLUSERS=2), stated here so it is a
+     * decision rather than an accident: no elevation is required, the program
+     * lands under the user's own AppData, and nothing needs administrator rights
+     * to install, upgrade or remove.
+     */
+    perMachine: false,
+    /** Assisted UI: the user sees and can change the install location. */
+    oneClick: false,
+    createDesktopShortcut: true,
+    createStartMenuShortcut: true,
+    shortcutName: 'ADE',
+    runAfterFinish: true
   }
 }

@@ -143,6 +143,15 @@ describe('ordinary session removal', () => {
     expect(existsSync(session.worktree!.path)).toBe(true)
   })
 
+  it('stops a live PTY when Remove asks to stop it first', async () => {
+    const f = await setup()
+    const session = await f.createSession()
+    const result = await f.removals.remove(session.id, { stopIfLive: true })
+    expect(result.status).toBe('removed')
+    expect(f.host.calls.kill.some((entry) => entry.sessionId === session.id)).toBe(true)
+    expect(f.worktrees.findBySession(session.id)).toBeNull()
+  })
+
   it('fails closed when the host cannot be reached', async () => {
     const f = await setup()
     const session = await f.createSession()

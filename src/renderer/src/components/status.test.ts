@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import type { ActivitySummary } from '../../../shared/domain/activity'
 import {
+  activityDetailsHint,
+  activityDetailsLabel,
   activityDotClass,
   activityLabel,
   activitySuffix,
   activityTone,
   activityTooltip,
-  isKnownActivity
+  isKnownActivity,
+  sessionStateLabel
 } from './status'
 
 function activity(overrides: Partial<ActivitySummary> = {}): ActivitySummary {
@@ -50,6 +53,17 @@ describe('activity wording', () => {
     expect(isKnownActivity(null)).toBe(false)
   })
 
+  it('explains an absent activity signal without calling it unknown', () => {
+    expect(activityDetailsLabel(activity(), 'claude')).toBe('No activity yet')
+    expect(activityDetailsLabel(activity(), 'shell')).toBe('Not reported by this harness')
+    expect(activityDetailsLabel(activity(), 'codex')).toBe('Not reported by this harness')
+    expect(activityDetailsHint(activity(), 'claude')).toContain('starts a turn')
+    expect(activityDetailsHint(activity(), 'shell')).toContain('Shell does not report')
+    expect(
+      activityDetailsLabel(activity({ state: 'working', toolName: 'Bash' }), 'claude')
+    ).toBe('Working · Bash')
+  })
+
   it('shortens the sidebar suffix without losing the failed outcome', () => {
     expect(activitySuffix(activity({ state: 'working', toolName: 'Bash' }))).toBe('Working · Bash')
     expect(activitySuffix(activity({ state: 'waiting', toolName: 'Bash', unread: true }))).toBe(
@@ -65,9 +79,9 @@ describe('activity wording', () => {
     const idleTone = activityTone(activity({ state: 'idle', outcome: 'completed' }))
     expect(new Set([workingTone, waitingTone, idleTone]).size).toBe(3)
     expect(activityTone(null)).toBe('text-muted-foreground')
-    expect(activityDotClass(activity({ state: 'waiting' }))).toContain('amber')
-    expect(activityDotClass(activity({ state: 'idle', outcome: 'failed' }))).toContain('red')
-    expect(activityDotClass(null)).toBe('bg-neutral-500')
+    expect(activityDotClass(activity({ state: 'waiting' }))).toBe('bg-signal animate-pulse')
+    expect(activityDotClass(activity({ state: 'idle', outcome: 'failed' }))).toBe('bg-destructive')
+    expect(activityDotClass(null)).toBe('bg-muted-foreground')
   })
 
   it('explains unread and waiting states in the tooltip', () => {
@@ -77,5 +91,11 @@ describe('activity wording', () => {
     expect(activityTooltip(activity({ state: 'idle', unread: true }))).toContain('not viewed')
     expect(activityTooltip(activity({ state: 'idle', unread: false }))).toContain('idle')
     expect(activityTooltip(activity({ state: 'working' }))).toContain('working')
+  })
+})
+
+describe('session lifecycle wording', () => {
+  it('tells the user a removal is in progress without exposing the stop path', () => {
+    expect(sessionStateLabel('live', 'removing')).toBe('Removing…')
   })
 })

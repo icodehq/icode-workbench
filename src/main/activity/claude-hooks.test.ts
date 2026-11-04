@@ -119,7 +119,10 @@ afterEach(() => {
 })
 
 describe.runIf(hasClaude())('shipped hook script with real Claude', () => {
-  it('delivers hook events to the activity service and preserves a user canary hook', async () => {
+  // This spawns the real CLI (its own internal bound is 120 s), so the default
+  // 5 s test timeout was never a truthful bound: under a loaded suite the child
+  // alone takes longer. The assertions are unchanged.
+  it('delivers hook events to the activity service and preserves a user canary hook', { timeout: 120_000 }, async () => {
     const root = tempRoot()
     const userConfig = join(root, 'user-config')
     const project = join(root, 'project')

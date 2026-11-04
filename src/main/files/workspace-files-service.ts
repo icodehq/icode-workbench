@@ -32,6 +32,7 @@ export type FilesUnavailable = {
     | 'file-too-large'
     | 'binary'
     | 'write-failed'
+    | 'already-exists'
   detail: string
 }
 
@@ -103,6 +104,65 @@ export class WorkspaceFilesService {
     try {
       const result = await resolved.backend.write(relative, text)
       return { status: 'ok', ...result }
+    } catch (error) {
+      return this.mapError(error)
+    }
+  }
+
+  /**
+   * Creates an empty file, or a directory.
+   *
+   * The empty path is refused: the worktree root always exists, so asking to
+   * create it is a UI bug rather than a user intention.
+   */
+  async create(
+    sessionId: string,
+    path: string,
+    kind: 'file' | 'directory'
+  ): Promise<FilesOutcome<{ path: string; kind: 'file' | 'directory' }>> {
+    const resolved = await this.resolve(sessionId)
+    if (resolved.status !== 'ok') return resolved
+    const relative = normalizeRelativePath(path)
+    if (relative === null || relative === '') return outsideWorktree()
+    try {
+      await resolved.backend.create(relative, kind)
+      return { status: 'ok', path: relative, kind }
+    } catch (error) {
+      return this.mapError(error)
+    }
+  }
+
+  /** Renames or moves one path inside the worktree. */
+  async rename(
+    sessionId: string,
+    from: string,
+    to: string
+  ): Promise<FilesOutcome<{ from: string; to: string }>> {
+    const resolved = await this.resolve(sessionId)
+    if (resolved.status !== 'ok') return resolved
+    const source = normalizeRelativePath(from)
+    const target = normalizeRelativePath(to)
+    if (source === null || target === null || source === '' || target === '') return outsideWorktree()
+    if (source === target) {
+      return { status: 'unavailable', reason: 'already-exists', detail: 'The new name is the same as the old one.' }
+    }
+    try {
+      await resolved.backend.rename(source, target)
+      return { status: 'ok', from: source, to: target }
+    } catch (error) {
+      return this.mapError(error)
+    }
+  }
+
+  /** Deletes one path. The caller confirms; the service only refuses escapes. */
+  async remove(sessionId: string, path: string): Promise<FilesOutcome<{ path: string }>> {
+    const resolved = await this.resolve(sessionId)
+    if (resolved.status !== 'ok') return resolved
+    const relative = normalizeRelativePath(path)
+    if (relative === null || relative === '') return outsideWorktree()
+    try {
+      await resolved.backend.remove(relative)
+      return { status: 'ok', path: relative }
     } catch (error) {
       return this.mapError(error)
     }

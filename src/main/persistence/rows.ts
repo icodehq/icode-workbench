@@ -15,9 +15,11 @@ import type { CanonicalRepositoryPath } from '../../shared/domain/paths'
 import type {
   ExecutionTarget,
   RepositoryAvailability,
+  RepositoryPreparation,
   RepositoryRecord,
   WorkspaceRecord
 } from '../../shared/domain/repository'
+import { repositoryPreparationSchema } from '../../shared/schemas/domain'
 import { LOCAL_EXECUTION_TARGET } from '../../shared/domain/repository'
 import type {
   PersistedSessionObservation,
@@ -77,6 +79,8 @@ export type RepoRow = {
   host_kind?: unknown
   wsl_distro?: unknown
   wsl_distro_id?: unknown
+  /** Absent only for rows read through a pre-v6 column list. */
+  preparation_json?: unknown
 }
 
 export type WorkspaceRow = {
@@ -108,8 +112,30 @@ export function repoFromRow(row: RepoRow): RepositoryRecord {
       typeof row.git_common_dir === 'string' && row.git_common_dir.length > 0
         ? row.git_common_dir
         : null,
-    executionTarget: executionTargetFromRow(row)
+    executionTarget: executionTargetFromRow(row),
+    preparation: preparationFromRow(row.preparation_json)
   }
+}
+
+/**
+ * Preparation is stored as JSON so its shape can grow without another table
+ * rebuild. It is still validated: a hand-edited or truncated row must fail
+ * loudly instead of presenting an invalid state to the UI.
+ */
+function preparationFromRow(value: unknown): RepositoryPreparation | null {
+  if (value === undefined || value === null) return null
+  if (typeof value !== 'string' || value.length === 0) {
+    throw rowError('repos.preparation_json', value)
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(value)
+  } catch {
+    throw rowError('repos.preparation_json', value)
+  }
+  const result = repositoryPreparationSchema.safeParse(parsed)
+  if (!result.success) throw rowError('repos.preparation_json', value)
+  return result.data
 }
 
 /**
@@ -163,6 +189,8 @@ export type SessionRow = {
   last_observed_error_json: unknown
   last_observed_incarnation_id: unknown
   last_observed_at: unknown
+  sleeping_at: unknown
+  resume_token: unknown
 }
 
 const HARNESSES: readonly HarnessId[] = ['claude', 'codex', 'opencode', 'shell']
@@ -182,6 +210,10 @@ export type StoredSession = {
   createdAt: number
   lastActiveAt: number
   observation: PersistedSessionObservation
+  /** Non-null when the user slept the session and it has not been woken. */
+  sleepingAt: number | null
+  /** Harness conversation identity to resume on wake, when one is known. */
+  resumeToken: string | null
 }
 
 function parseAppError(raw: unknown): AppError | null {
@@ -217,6 +249,17 @@ export function sessionFromRow(row: SessionRow): StoredSession {
   } else if (typeof incarnation !== 'string' || !parsePtyIncarnationId(incarnation)) {
     throw rowError('sessions.last_observed_incarnation_id', incarnation)
   }
+  const sleepingAt = row.sleeping_at
+  if (sleepingAt !== null && (typeof sleepingAt !== 'number' || !Number.isInteger(sleepingAt))) {
+    throw rowError('sessions.sleeping_at', sleepingAt)
+  }
+  const resumeToken = row.resume_token
+  if (
+    resumeToken !== null &&
+    (typeof resumeToken !== 'string' || resumeToken.length === 0 || resumeToken.length > 512)
+  ) {
+    throw rowError('sessions.resume_token', resumeToken)
+  }
   return {
     id: parseSessionId(row.id),
     workspaceId: parseWorkspaceId(row.workspace_id),
@@ -230,6 +273,8 @@ export function sessionFromRow(row: SessionRow): StoredSession {
       lastObservedError: parseAppError(row.last_observed_error_json),
       lastObservedIncarnationId: incarnation as PtyIncarnationId | null,
       lastObservedAt: requireInteger(row.last_observed_at, 'sessions.last_observed_at')
-    }
+    },
+    sleepingAt,
+    resumeToken
   }
 }

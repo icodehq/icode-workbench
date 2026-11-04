@@ -537,8 +537,8 @@ async function main() {
     assert(initial.sessionId === second.id, 'The newest session is not selected')
     assert(initial.header?.state === 'unknown', `Expected unknown, got ${initial.header?.state}`)
     assert(
-      initial.header?.text.includes('Activity unknown'),
-      'The header does not explain that activity is unknown'
+      !String(initial.header?.text ?? '').includes('Activity unknown'),
+      'The compact header still shows an unknown activity label'
     )
     assert(initial.sidebar?.state === 'unknown', 'The sidebar invents an activity state')
     assert(initial.marker === null, 'An unknown activity shows a sidebar marker')
@@ -690,7 +690,7 @@ async function main() {
 
   await step('keep activity out of lifecycle and reset it when the process ends', 'AC7', async () => {
     await selectSession(first.id)
-    await click('[data-testid="stop-session"]')
+    await typeLine(first.id, 'exit')
     await waitFor(
       `document.querySelector('[data-testid="session-state"]')?.getAttribute('data-state') === 'exited'`,
       'session to exit',
@@ -698,7 +698,11 @@ async function main() {
     )
     await waitForActivity('unknown', 'activity to reset after exit')
     const ui = await activityUi()
-    assert(ui.header?.text.includes('Activity unknown'), 'Exited session keeps a stale activity')
+    assert(ui.header?.state === 'unknown', 'Exited session did not reset activity')
+    assert(
+      !/Working|Needs you|Done/u.test(String(ui.header?.text ?? '')),
+      'Exited session keeps a visible stale activity'
+    )
     assert(
       (await sessions()).find((entry) => entry.id === second.id)?.activity === 'idle',
       'Stopping one session changed another session activity'
@@ -709,7 +713,7 @@ async function main() {
 
   await step('clean up without touching the primary checkout or user config', 'AC8', async () => {
     await selectSession(second.id)
-    await click('[data-testid="stop-session"]')
+    await typeLine(second.id, 'exit')
     await waitFor(
       `document.querySelector('[data-testid="session-state"]')?.getAttribute('data-state') === 'exited'`,
       'second session to exit',

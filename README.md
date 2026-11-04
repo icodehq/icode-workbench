@@ -290,34 +290,37 @@ or with a merge/rebase/cherry-pick/revert/bisect in progress
 pnpm smoke:worktree   # packaged acceptance: two sessions, isolation, relaunch, discard
 ```
 
-## Reviewing session changes (Work 13)
+## Reviewing uncommitted changes (Work 13)
 
-Each isolated session has a **Changes** view alongside **Terminal**. It is
-strictly read-only: ADE only runs `git diff`, `status`, `ls-files`, `cat-file`
-and `rev-parse`, with `GIT_OPTIONAL_LOCKS=0`, `--no-ext-diff` and
-`--no-textconv`. Reviewing never writes the index and never starts a process in
-the worktree.
+Each isolated session has a **Changes** view alongside **Terminal**. It opens
+directly on the uncommitted working tree; there is no separate session-review
+scope.
 
-- **Baseline:** the commit recorded when the session started (`base_oid`), not
-  current `HEAD`. Changes the agent committed stay visible, as do staged,
-  unstaged and non-ignored untracked files.
-- **Staging is metadata:** rows show `staged`/`unstaged`/`both`, but there is
-  one net diff from the baseline. There are no staged-only filters.
-- **Legacy sessions** have no review: their work lives in the primary checkout
-  and cannot be attributed to the session. The panel says so instead of
-  inventing a baseline.
+- **Sections:** Conflicts, Staged Changes, Changes and Untracked Files. A
+  partially staged file appears in both Staged and Changes with its own diff.
+- **Actions:** `+ Stage` / `− Unstage` move a row between sections; Discard is
+  separate and discards the working-tree side. Ignored files are not shown.
+- **Diffs are area-scoped:** staged compares HEAD to the index, Changes compares
+  the index to the worktree, untracked compares an empty file to the file. The
+  diff header names its scope.
+- **Read-only reads:** ADE only runs `git diff`, `status`, `ls-files`,
+  `cat-file` and `rev-parse`, with `GIT_OPTIONAL_LOCKS=0`, `--no-ext-diff` and
+  `--no-textconv`. Reviewing never writes the index and never starts a process in
+  the worktree.
 - **Missing or unregistered worktrees** show an explanation; ADE never falls
   back to the primary checkout.
 - **Symlinks** are shown as their Git entry (mode `120000`), meaning the link
   target text. ADE never reads the target file.
+- **Caching:** diff bodies are kept by area/path and Git snapshot, with
+  stale-while-revalidate and in-flight dedupe. A refresh does not blank an
+  unchanged body.
 - **Refresh** happens when you open the view, when you press Refresh, and when
   the session's lifecycle state changes. There is no polling or file watcher.
-- **Limits:** 2 MiB of captured Git output per file (headers included) and 1,000
-  changed files. Oversized results are marked incomplete and only the first
-  1,500 diff lines are mounted; ADE never presents a truncated diff as complete.
+- **Limits:** 2 MiB of captured Git output per file and only the first 1,500 diff
+  lines are mounted; ADE never presents a truncated diff as complete.
 
 ```
-pnpm smoke:review   # packaged acceptance: list, content, truncation, read-only proof
+pnpm smoke:features   # packaged acceptance: Changes, stage, commit, amend
 ```
 
 ## Agent activity and attention (Work 14)

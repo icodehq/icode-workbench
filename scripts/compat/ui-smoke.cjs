@@ -41,6 +41,7 @@ const RUN = {
 let appProcess = null
 let cdp = null
 let nextPort = 9600 + (process.pid % 300)
+let repoId = null
 
 function sleep(ms) {
   return new Promise((done) => setTimeout(done, ms))
@@ -122,6 +123,40 @@ async function click(selector) {
   assert(clicked, `Could not click ${selector}`)
 }
 
+async function pressF11() {
+  await cdp.send('Input.dispatchKeyEvent', {
+    type: 'keyDown',
+    key: 'F11',
+    code: 'F11',
+    windowsVirtualKeyCode: 122,
+    nativeVirtualKeyCode: 122
+  })
+  await cdp.send('Input.dispatchKeyEvent', {
+    type: 'keyUp',
+    key: 'F11',
+    code: 'F11',
+    windowsVirtualKeyCode: 122,
+    nativeVirtualKeyCode: 122
+  })
+}
+
+async function openSessionMenu() {
+  if (
+    await cdp.evaluate(
+      `Boolean(document.querySelector('[data-testid="session-menu-popover"]'))`
+    )
+  ) {
+    return
+  }
+  await click('[data-testid="session-menu"]')
+  await waitForSelector('[data-testid="session-menu-popover"]', 10_000)
+}
+
+async function sessionAction(testId) {
+  await openSessionMenu()
+  await click(`[data-testid="${testId}"]`)
+}
+
 async function setInput(selector, value) {
   const applied = await cdp.evaluate(`(() => {
     const element = document.querySelector(${JSON.stringify(selector)});
@@ -154,17 +189,70 @@ async function waitForNotice(needle, timeoutMs = 15000) {
 }
 
 async function sessions() {
-  return cdp.evaluate(`Array.from(document.querySelectorAll('[data-session-id]')).map((element) => ({
-    id: element.dataset.sessionId,
-    state: element.dataset.sessionState,
-    incarnation: element.dataset.sessionIncarnation,
-    text: element.innerText
-  }))`)
+  return cdp.evaluate(`(() => {
+    const byId = new Map();
+    for (const element of document.querySelectorAll('[data-session-id]')) {
+      const id = element.dataset.sessionId;
+      if (!id || byId.has(id)) continue;
+      byId.set(id, {
+        id,
+        state: element.dataset.sessionState,
+        incarnation: element.dataset.sessionIncarnation,
+        text: element.innerText
+      });
+    }
+    return Array.from(byId.values());
+  })()`)
 }
 
 async function sessionByTitle(title) {
   const list = await sessions()
   return list.find((entry) => entry.text.split('\n')[0] === title) ?? null
+}
+
+async function openProjectSessions() {
+  if (
+    await cdp.evaluate(
+      `Boolean(document.querySelector('[data-testid="project-sessions-list"]'))`
+    )
+  ) {
+    return
+  }
+  if (
+    !(await cdp.evaluate(`Boolean(document.querySelector('[data-testid="projects-wall"]'))`))
+  ) {
+    await click('[data-testid="rail-projects"]')
+    await waitForSelector('[data-testid="projects-wall"]', 20000)
+  }
+  await waitForSelector('[data-testid^="project-row-"]', 20000)
+  if (repoId === null) {
+    repoId = await cdp.evaluate(
+      `document.querySelector('[data-testid^="project-row-"]')?.getAttribute('data-testid')?.replace('project-row-', '') ?? null`
+    )
+  }
+  assert(repoId, 'Could not identify the registered repository lane')
+  await click(`[data-testid="open-project-${repoId}"]`)
+  await waitForSelector('[data-testid="project-header"]', 20000)
+  await click('[data-testid="project-mode-sessions"]')
+  await waitForSelector('[data-testid="project-sessions-list"]', 20000)
+}
+
+async function openRepositories() {
+  if (
+    await cdp.evaluate(
+      `Boolean(document.querySelector('[data-testid="repositories-view"]'))`
+    )
+  ) {
+    return
+  }
+  if (
+    !(await cdp.evaluate(`Boolean(document.querySelector('[data-testid="projects-wall"]'))`))
+  ) {
+    await click('[data-testid="rail-projects"]')
+    await waitForSelector('[data-testid="projects-wall"]', 20000)
+  }
+  await click('[data-testid="manage-repositories"]')
+  await waitForSelector('[data-testid="repositories-view"]', 20000)
 }
 
 async function activeState() {
@@ -297,9 +385,14 @@ async function launch(label, environment, port) {
   })
   cdp = await connect(port)
   cdp.port = port
-  await waitForSelector('[data-testid="repo-select"]', 30000)
+  await waitForSelector('[data-testid="app-rail"]', 30000)
   await waitFor(
-    `document.body.innerText.includes('ADE') && !document.body.innerText.includes('Loading repositories')`,
+    `Boolean(document.querySelector('[data-testid="projects-wall"]')) || Boolean(document.querySelector('[data-testid="empty-workspace"]'))`,
+    'workspace wall',
+    30000
+  )
+  await waitFor(
+    `!document.body.innerText.includes('Loading repositories')`,
     'workspace boot',
     30000
   )
@@ -370,7 +463,7 @@ async function main() {
   await step('boot empty workspace and detect Harnesses', async () => {
     await launch('initial', { ADE_HOST_DIR: HOST_DIR, ADE_HOST_SOCKET: SOCKET }, port)
     const empty = await bodyText()
-    assert(empty.includes('Add your first repository'), 'First-run empty state is missing')
+    assert(empty.includes('Add a project'), 'First-run empty state is missing')
     assert((await sessions()).length === 0, 'Expected no sessions on first run')
     await screenshot('01-empty-workspace')
     return { port }
@@ -382,14 +475,111 @@ async function main() {
     await setInput('[data-testid="add-repo-input"]', REPO_DIR)
     await click('[data-testid="add-repo-submit"]')
     await waitForNotice('Registered')
-    await waitFor(
-      `Array.from(document.querySelectorAll('[data-testid="repo-select"] option')).some((option) => option.textContent.includes('repo'))`,
-      'registered repository option'
+    await waitForSelector('[data-testid^="project-row-"]', 20000)
+    repoId = await cdp.evaluate(
+      `document.querySelector('[data-testid^="project-row-"]')?.getAttribute('data-testid')?.replace('project-row-', '') ?? null`
     )
+    assert(repoId, 'Registered repository row is missing')
+    await waitForSelector('[data-testid="project-search"]')
+    await waitForSelector('[data-testid^="project-filter-"]')
+    await screenshot('02a-project-directory')
+
+    await setInput('[data-testid="project-search"]', 'no-such-project')
+    await waitForSelector('[data-testid="project-directory-empty"]', 5000)
+    await setInput('[data-testid="project-search"]', '')
+    await waitForSelector('[data-testid^="project-row-"]', 5000)
+
+    await click(`[data-testid="pin-project-${repoId}"]`)
+    await waitFor(
+      `document.querySelector('[data-testid="pin-project-${repoId}"]')?.getAttribute('aria-pressed') === 'true'`,
+      'project pin',
+      5000
+    )
+    await click('[data-testid="project-filter-pinned"]')
+    await waitFor(
+      `document.querySelectorAll('[data-testid^="project-row-"]').length === 1`,
+      'pinned directory filter',
+      5000
+    )
+    await click('[data-testid="project-filter-all"]')
+
+    await click('[data-testid="global-search"]')
+    await waitForSelector('[data-testid="command-palette"]')
+    await setInput('[data-testid="command-palette-input"]', 'repo')
+    await waitFor(
+      `document.querySelectorAll('[data-testid="command-palette-item"][data-kind="project"]').length >= 1`,
+      'project search result',
+      5000
+    )
+    await cdp.send('Input.dispatchKeyEvent', {
+      type: 'keyDown',
+      key: 'Escape',
+      code: 'Escape',
+      windowsVirtualKeyCode: 27,
+      nativeVirtualKeyCode: 27
+    })
+    await cdp.send('Input.dispatchKeyEvent', {
+      type: 'keyUp',
+      key: 'Escape',
+      code: 'Escape',
+      windowsVirtualKeyCode: 27,
+      nativeVirtualKeyCode: 27
+    })
+
+    await openProjectSessions()
     const text = await bodyText()
-    assert(text.includes('No sessions in repo'), 'Repository workspace did not load')
+    assert(text.includes('No direct sessions yet'), 'Repository workspace did not load')
     await screenshot('02-repository-registered')
     return { notice: await notice() }
+  })
+
+  await step('keep the custom window title bar truthful at the minimum width', async () => {
+    await cdp.send('Emulation.setDeviceMetricsOverride', {
+      width: 760,
+      height: 480,
+      deviceScaleFactor: 1,
+      mobile: false
+    })
+    await sleep(300)
+    const info = await cdp.evaluate(`(() => {
+      const topbar = document.querySelector('[data-testid="app-topbar"]');
+      const controls = [...document.querySelectorAll('button[data-testid^="window-"]')];
+      const clipped = controls.filter((button) => {
+        const rect = button.getBoundingClientRect();
+        return rect.left < -1 || rect.right > innerWidth + 1 || rect.top < -1 || rect.bottom > innerHeight + 1;
+      });
+      return {
+        viewport: { width: innerWidth, height: innerHeight },
+        topbarHeight: Math.round(topbar.getBoundingClientRect().height),
+        controls: controls.length,
+        clipped: clipped.map((button) => button.getAttribute('data-testid')),
+        drag: getComputedStyle(topbar).getPropertyValue('-webkit-app-region').trim(),
+        closeDrag: getComputedStyle(document.querySelector('[data-testid="window-close"]')).getPropertyValue('-webkit-app-region').trim()
+      };
+    })()`)
+    assert(info.controls === 3, `Expected three window controls, got ${String(info.controls)}`)
+    assert(info.clipped.length === 0, `Window controls overflow at 760x480: ${JSON.stringify(info)}`)
+    assert(info.drag === 'drag', `Top bar is not a drag region: ${JSON.stringify(info)}`)
+    assert(info.closeDrag === 'no-drag', `Close button is not a no-drag target: ${JSON.stringify(info)}`)
+    await cdp.send('Emulation.clearDeviceMetricsOverride')
+    await sleep(300)
+
+    const before = await cdp.evaluate('window.ade.window.isMaximized()')
+    assert(before.ok, `isMaximized failed: ${JSON.stringify(before)}`)
+    const expected = !before.value
+    await click('[data-testid="window-toggle"]')
+    await waitFor(
+      `document.querySelector('[data-testid="window-toggle"]')?.getAttribute('aria-pressed') === '${String(expected)}'`,
+      'window maximize state',
+      5000
+    )
+    await click('[data-testid="window-toggle"]')
+    await waitFor(
+      `document.querySelector('[data-testid="window-toggle"]')?.getAttribute('aria-pressed') === '${String(before.value)}'`,
+      'window restore state',
+      5000
+    )
+    return { ...info, maximized: before.value }
   })
 
   await step('inspect real Harness detection and reject unavailable Harnesses', async () => {
@@ -493,6 +683,126 @@ async function main() {
     return { before, after }
   })
 
+  await step('give the terminal more room and restore the workspace', async () => {
+    const terminalRect = () => cdp.evaluate(`(() => {
+      const rect = document.querySelector('[data-testid^="terminal-"]')?.getBoundingClientRect();
+      return rect ? { width: Math.round(rect.width), height: Math.round(rect.height) } : null;
+    })()`)
+    const normal = await terminalRect()
+    assert(normal, 'Terminal pane was not measurable')
+
+    await click('[data-testid="sessions-list-collapse"]')
+    await waitFor(
+      `!document.querySelector('[data-testid="project-sessions-list"]')`,
+      'the sessions list to collapse',
+      10_000
+    )
+    const withoutList = await terminalRect()
+    assert(
+      withoutList && withoutList.width > normal.width + 250,
+      `Collapsing Sessions did not widen the terminal (${normal?.width} -> ${withoutList?.width})`
+    )
+
+    await pressF11()
+    await waitFor(
+      `!document.querySelector('[data-testid="global-search"]') &&
+       !document.querySelector('[data-testid="app-rail"]') &&
+       !document.querySelector('[data-testid="project-header"]') &&
+       !document.querySelector('[data-testid="statusbar"]')`,
+      'focus mode to hide the surrounding chrome',
+      10_000
+    )
+    const focused = await terminalRect()
+    assert(
+      focused &&
+        focused.width > withoutList.width + 40 &&
+        focused.height > normal.height + 70,
+      `Focus mode did not expand the terminal (${JSON.stringify({ normal, withoutList, focused })})`
+    )
+    await screenshot('04b-terminal-expanded')
+
+    await pressF11()
+    await waitFor(
+      `Boolean(document.querySelector('[data-testid="global-search"]')) &&
+       Boolean(document.querySelector('[data-testid="app-rail"]'))`,
+      'F11 to leave focus mode',
+      10_000
+    )
+    // Clear any partial line a function key may have left in the shell.
+    await typeInSession(firstSession.id, '\u0003')
+
+    // Restore the list for the remaining multi-session steps.
+    await click('[data-testid="show-sessions-list"]')
+    await waitForSelector('[data-testid="project-sessions-list"]', 10_000)
+    return { normal, withoutList, focused }
+  })
+
+  await step('keep the one-line session header inside the viewport', async () => {
+    const measure = async (width, height) => {
+      await cdp.send('Emulation.setDeviceMetricsOverride', {
+        width,
+        height,
+        deviceScaleFactor: 1,
+        mobile: false
+      })
+      await sleep(500)
+      return cdp.evaluate(`(() => {
+        const header = document.querySelector('[data-testid="session-header"]');
+        const terminal = document.querySelector('[data-testid^="terminal-"]');
+        if (!header || !terminal) return null;
+        const headerRect = header.getBoundingClientRect();
+        const buttons = [...header.querySelectorAll('button')];
+        const clipped = buttons.filter((button) => {
+          const rect = button.getBoundingClientRect();
+          return rect.left < headerRect.left - 1 || rect.right > headerRect.right + 1 ||
+            rect.top < headerRect.top - 1 || rect.bottom > headerRect.bottom + 1;
+        });
+        return {
+          viewport: { width: window.innerWidth, height: window.innerHeight },
+          headerHeight: Math.round(headerRect.height),
+          headerWidth: Math.round(headerRect.width),
+          terminal: {
+            width: Math.round(terminal.getBoundingClientRect().width),
+            height: Math.round(terminal.getBoundingClientRect().height)
+          },
+          buttonCount: buttons.length,
+          clippedButtons: clipped.map((button) => button.getAttribute('data-testid'))
+        };
+      })()`)
+    }
+
+    const normal = await measure(1180, 760)
+    assert(normal, 'The session header was not measurable at 1180x760')
+    assert(
+      normal.headerHeight <= 52,
+      `The session header is not compact (${normal.headerHeight}px)`
+    )
+    assert(
+      normal.clippedButtons.length === 0,
+      `Header controls overflow at 1180x760: ${JSON.stringify(normal.clippedButtons)}`
+    )
+    assert(
+      normal.terminal.height >= 560,
+      `The terminal is still short at 1180x760 (${normal.terminal.height}px)`
+    )
+    await screenshot('04c-compact-header')
+
+    const narrow = await measure(760, 480)
+    assert(narrow, 'The session header was not measurable at 760x480')
+    assert(
+      narrow.headerHeight <= 52,
+      `The session header grew at the minimum width (${narrow.headerHeight}px)`
+    )
+    assert(
+      narrow.clippedButtons.length === 0,
+      `Header controls overflow at 760x480: ${JSON.stringify(narrow.clippedButtons)}`
+    )
+
+    await cdp.send('Emulation.clearDeviceMetricsOverride')
+    await sleep(500)
+    return { normal, narrow }
+  })
+
   const secondTitle = 'Smoke shell two'
   let secondSession = null
 
@@ -503,7 +813,7 @@ async function main() {
     await setInput('[data-testid="session-title-input"]', secondTitle)
     await click('[data-testid="create-session-submit"]')
     await waitFor(
-      `Array.from(document.querySelectorAll('[data-session-id]')).length === 2`,
+      `new Set(Array.from(document.querySelectorAll('[data-session-id]')).map((el) => el.dataset.sessionId)).size === 2`,
       'two sessions',
       20000
     )
@@ -568,23 +878,14 @@ async function main() {
     return { firstPid: Number(pidNow[1]), activePanes: allPanes }
   })
 
-  await step('stop a live session with a truthful pending state', async () => {
-    await click('[data-testid="stop-session"]')
-    const immediate = await activeState()
-    await screenshot('07-stopping')
-    assert(
-      immediate && (immediate.text.includes('Stopping') || immediate.state === 'exited'),
-      'Stop did not show a pending state'
-    )
+  await step('exit a live shell and keep its session record', async () => {
+    await click(`[data-testid="session-item-${firstSession.id}"]`)
+    await typeInSession(firstSession.id, 'exit')
     await waitForState('exited', 15000)
     const final = await activeState()
-    assert(final.reason === 'host_exited', `Unexpected stop reason ${final.reason}`)
-    const restartDisabled = await cdp.evaluate(
-      `document.querySelector('[data-testid="stop-session"]').disabled`
-    )
-    assert(restartDisabled, 'Stop stays enabled after the process exited')
-    await screenshot('08-session-stopped')
-    return { immediate, final }
+    assert(final.reason === 'host_exited', `Unexpected exit reason ${final.reason}`)
+    await screenshot('08-session-exited')
+    return { final }
   })
 
   let restartedIncarnation = null
@@ -592,7 +893,7 @@ async function main() {
   await step('restart a session and bind the terminal to the new incarnation', async () => {
     const before = await sessionByTitle(firstTitle)
     assert(before, 'First session disappeared before restart')
-    await click('[data-testid="restart-session"]')
+    await sessionAction('restart-session')
     const immediate = await activeState()
     assert(immediate && immediate.text.includes('Restarting'), 'Restart did not show a pending state')
     await waitForState('live', 20000)
@@ -624,15 +925,21 @@ async function main() {
   })
 
   await step('block repository removal while a PTY is live', async () => {
-    await click('[data-testid="remove-repo"]')
+    await openRepositories()
+    await click(`[data-testid="repository-remove-${repoId}"]`)
     await waitForNotice('live sessions', 20000)
     const feedback = await notice()
     assert(feedback.tone === 'error', 'Blocked removal was not reported as an error')
     const repoStillRegistered = await cdp.evaluate(
-      `Array.from(document.querySelectorAll('[data-testid="repo-select"] option')).some((option) => option.textContent.includes('repo'))`
+      `Boolean(document.querySelector('[data-testid="repository-row-${repoId}"]'))`
     )
     assert(repoStillRegistered, 'Repository disappeared after a blocked removal')
-    assert((await sessions()).length === 2, 'Sessions were deleted by a blocked removal')
+    await openProjectSessions()
+    const afterBlocked = await sessions()
+    assert(
+      afterBlocked.length === 2,
+      `Sessions were deleted by a blocked removal (count=${afterBlocked.length}, body=${(await bodyText()).slice(0, 240)})`
+    )
     await screenshot('10-removal-blocked')
     return feedback
   })
@@ -653,8 +960,9 @@ async function main() {
 
     port = nextPort++
     await launch('relaunch', { ADE_HOST_DIR: HOST_DIR, ADE_HOST_SOCKET: SOCKET }, port)
+    await openProjectSessions()
     await waitFor(
-      `Array.from(document.querySelectorAll('[data-session-id]')).length === 2`,
+      `new Set(Array.from(document.querySelectorAll('[data-session-id]')).map((el) => el.dataset.sessionId)).size === 2`,
       'sessions restored from persistence',
       20000
     )
@@ -704,6 +1012,16 @@ async function main() {
       'unreachable Host status',
       30000
     )
+    await openProjectSessions()
+    await waitFor(
+      `new Set(Array.from(document.querySelectorAll('[data-session-id]')).map((el) => el.dataset.sessionId)).size >= 1`,
+      'sessions restored while the Host is unreachable',
+      20000
+    )
+    const firstVisible = (await sessions())[0]
+    assert(firstVisible, 'No session row while the Host is unreachable')
+    await click(`[data-testid="session-item-${firstVisible.id}"]`)
+    await sleep(400)
     const state = await activeState()
     assert(
       state && (state.reason === 'host_unreachable' || state.reason === 'host_unreachable_history'),
@@ -713,44 +1031,34 @@ async function main() {
     const text = await bodyText()
     assert(text.toLowerCase().includes('unreachable'), 'No unreachable Host explanation in the UI')
 
-    await click('[data-testid="remove-repo"]')
+    await openRepositories()
+    await click(`[data-testid="repository-remove-${repoId}"]`)
     await waitForNotice('Could not verify live sessions', 30000)
     const feedback = await notice()
     const repoStillRegistered = await cdp.evaluate(
-      `Array.from(document.querySelectorAll('[data-testid="repo-select"] option')).some((option) => option.textContent.includes('repo'))`
+      `Boolean(document.querySelector('[data-testid="repository-row-${repoId}"]'))`
     )
     assert(repoStillRegistered, 'Repository was removed without host verification')
     await screenshot('12-host-unreachable')
+    await openProjectSessions()
 
-    // A Harness can still be detected while the Host is down. Creation must
-    // fail visibly and must never make the failed attempt the active session.
-    await click('[data-testid="new-session-open"]')
-    await waitForSelector('[data-testid="harness-option-shell"]', 20000)
-    await click('[data-testid="harness-option-shell"]')
-    await setInput('[data-testid="session-title-input"]', 'Failed start probe')
-    await click('[data-testid="create-session-submit"]')
-    await waitFor(
-      `(() => { const n = document.querySelector('[data-testid="notice"]'); return Boolean(n && n.dataset.tone === 'error'); })()`,
-      'failed creation feedback',
-      30000
-    )
-    const failureNotice = await notice()
-    assert(failureNotice && !failureNotice.text.includes('Started'), 'Failed creation claimed success')
-    const afterFailure = await sessions()
-    const failedRow = afterFailure.find((entry) => entry.text.startsWith('Failed start probe'))
+    // New session is prohibited while the Host is unreachable. Queue task
+    // remains available because it does not need a live PTY to be created.
+    const createDisabled = await cdp.evaluate(`(() => {
+      const button = document.querySelector('[data-testid="new-session-open"]')
+      return button ? { disabled: button.disabled, title: button.title } : null
+    })()`)
+    assert(createDisabled && createDisabled.disabled, 'New session stayed enabled while the Host was unreachable')
     assert(
-      failedRow === undefined || failedRow.state === 'failed',
-      `Failed creation left an untruthful session: ${JSON.stringify(failedRow)}`
+      String(createDisabled.title).toLowerCase().includes('host'),
+      `New session did not explain the Host refusal: ${JSON.stringify(createDisabled)}`
     )
-    const titleAfterFailure = await cdp.evaluate(
-      `document.querySelector('[data-testid="session-title"]')?.innerText`
+    const queueVisible = await cdp.evaluate(
+      `Boolean(document.querySelector('[data-testid="queue-task-from-menu"]')) || Boolean(document.querySelector('[data-testid="new-menu"]'))`
     )
-    assert(
-      titleAfterFailure !== 'Failed start probe',
-      'Failed creation became the active session'
-    )
-    await screenshot('13-session-creation-failure')
-    return { state, feedback, failureNotice, failedRow: failedRow ?? null }
+    assert(queueVisible, 'Queue task disappeared with the Host outage')
+    await screenshot('13-session-creation-disabled')
+    return { state, feedback, createDisabled }
   })
 
   await step('restore Host and stop the surviving sessions', async () => {
@@ -762,14 +1070,20 @@ async function main() {
       'reachable Host status',
       30000
     )
+    await openProjectSessions()
+    await waitFor(
+      `new Set(Array.from(document.querySelectorAll('[data-session-id]')).map((el) => el.dataset.sessionId)).size === 2`,
+      'sessions back after the Host became reachable',
+      20000
+    )
     const restored = await sessions()
-    assert(restored.length === 3, 'Sessions did not return after the Host became reachable')
+    assert(restored.length === 2, 'Sessions did not return after the Host became reachable')
     for (const session of restored) {
       await click(`[data-testid="session-item-${session.id}"]`)
       await sleep(300)
       const current = await activeState()
       if (current && (current.state === 'live' || current.state === 'starting')) {
-        await click('[data-testid="stop-session"]')
+        await typeInSession(session.id, 'exit')
         await waitForState('exited', 15000)
       }
     }
@@ -795,6 +1109,7 @@ async function main() {
       },
       port
     )
+    await openProjectSessions()
     await waitFor(
       `document.querySelector('[data-testid="harness-summary"]')?.innerText.includes('0/4')`,
       'no available Harnesses',
@@ -821,7 +1136,7 @@ async function main() {
       `document.querySelector('[role="dialog"]').innerText`
     )
     assert(
-      dialogText.includes('No supported Coding Agent is available'),
+      dialogText.includes('0 of 4 Harnesses available'),
       'No-available-Harness guidance is missing'
     )
     const createDisabled = await cdp.evaluate(
@@ -841,19 +1156,26 @@ async function main() {
       'reachable Host status',
       30000
     )
-    await click('[data-testid="remove-repo"]')
+    await openRepositories()
+    await click(`[data-testid="repository-remove-${repoId}"]`)
     await waitForSelector('[data-testid="confirm-remove-repo"]', 20000)
     const dialogText = await cdp.evaluate(
       `document.querySelector('[role="dialog"]').innerText`
     )
-    assert(dialogText.includes('Remove repo?'), 'Removal confirmation is missing')
+    assert(dialogText.includes('Remove'), 'Removal confirmation is missing')
     assert(dialogText.includes(firstTitle), 'Confirmation does not list dependent sessions')
     await screenshot('15-removal-confirmation')
     await click('[data-testid="confirm-remove-repo"]')
     await waitFor(
-      `document.body.innerText.includes('Add your first repository')`,
-      'empty workspace after removal',
+      `!document.querySelector('[data-testid="repository-row-${repoId}"]')`,
+      'repository removed from the Repositories page',
       20000
+    )
+    await click('[data-testid="rail-projects"]')
+    await waitForSelector('[data-testid="empty-workspace"]', 20000)
+    assert(
+      (await bodyText()).includes('Add a project'),
+      'Empty workspace copy is missing after removal'
     )
     const finalNotice = await notice()
     assert(finalNotice && finalNotice.tone === 'success', 'Removal success was not confirmed')

@@ -264,6 +264,8 @@ export type WslByteLauncher = (spec: {
   env: NodeJS.ProcessEnv
   timeoutMs: number
   signal?: AbortSignal
+  /** Payload piped to the guest program's stdin, then closed. */
+  stdin?: Buffer | string
 }) => Promise<WslByteResult>
 
 const defaultByteLauncher: WslByteLauncher = (spec) =>
@@ -310,7 +312,14 @@ const defaultByteLauncher: WslByteLauncher = (spec) =>
       }
     )
     child.once('error', reject)
-    child.stdin?.end()
+    if (spec.stdin !== undefined) {
+      child.stdin?.on('error', () => {
+        // A guest that exits early closes the pipe; the exit code carries the cause.
+      })
+      child.stdin?.end(spec.stdin)
+    } else {
+      child.stdin?.end()
+    }
   })
 
 export type WslCommandRunnerOptions = {
@@ -431,6 +440,7 @@ export class WslCommandRunner {
         cwd: resolveWslInteropCwd(this.env),
         env: { ...this.env, WSL_UTF8: '1' },
         timeoutMs: this.budget(request.timeoutMs ?? WSL_DEFAULT_TIMEOUT_MS),
+        ...(request.stdin !== undefined ? { stdin: request.stdin } : {}),
         ...(request.signal ? { signal: request.signal } : {})
       })
       if (request.signal?.aborted && result.code !== 0) {

@@ -19,6 +19,13 @@ describe('porcelain parsing', () => {
     ])
   })
 
+  it('emits a staged and an unstaged entry for a partially staged path', () => {
+    const entries = parsePorcelainZ('MM src/a.ts\u0000')
+    expect(entries).toHaveLength(2)
+    expect(entries[0]).toMatchObject({ path: 'src/a.ts', code: 'M ', area: 'staged' })
+    expect(entries[1]).toMatchObject({ path: 'src/a.ts', code: ' M', area: 'unstaged' })
+  })
+
   it('keeps the path that follows a rename', () => {
     // A rename has two NUL-separated fields; dropping the second shifts every
     // later entry and loses the new path.
@@ -34,8 +41,9 @@ describe('porcelain parsing', () => {
     expect(areaForCode('AA')).toBe('conflicted')
   })
 
-  it('reads ahead/behind', () => {
-    expect(parseAheadBehind('2\t5\n')).toEqual({ ahead: 2, behind: 5 })
+  it('reads ahead/behind with upstream-left semantics', () => {
+    // `upstream...HEAD`: left is behind, right is ahead.
+    expect(parseAheadBehind('2\t5\n')).toEqual({ ahead: 5, behind: 2 })
     expect(parseAheadBehind('garbage')).toEqual({ ahead: 0, behind: 0 })
   })
 })

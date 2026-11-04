@@ -10,7 +10,7 @@ import type {
 } from '../../../shared/schemas/ipc'
 
 export type BootPhase = 'loading' | 'ready' | 'failed'
-export type PendingAction = 'stopping' | 'restarting'
+export type PendingAction = 'stopping' | 'restarting' | 'sleeping' | 'waking' | 'removing'
 export type NoticeTone = 'info' | 'success' | 'error'
 
 export type Notice = {
@@ -69,6 +69,7 @@ export type WorkspaceAction =
   | { type: 'selectRepo'; repoId: string }
   | { type: 'selectSession'; sessionId: string }
   | { type: 'sessionUpserted'; session: SessionSummary }
+  | { type: 'sessionRemoved'; sessionId: string }
   | {
       type: 'activityUpdated'
       sessionId: string
@@ -138,6 +139,8 @@ function withoutPending(
     const session = sessions.find((entry) => entry.id === sessionId)
     if (!session) continue
     if (action === 'stopping' && isTerminalSessionState(session.state)) continue
+    if (action === 'sleeping' && session.sleeping === true) continue
+    if (action === 'waking' && session.state === 'live') continue
     next[sessionId] = action
   }
   return next
@@ -222,6 +225,23 @@ export function workspaceReducer(
       const pending = { ...state.pending }
       if (isTerminalSessionState(action.session.state)) delete pending[action.session.id]
       return { ...state, sessions, pending }
+    }
+    case 'sessionRemoved': {
+      const sessions = state.sessions.filter((session) => session.id !== action.sessionId)
+      const activeSessionId =
+        state.activeSessionId === action.sessionId
+          ? (firstSessionForRepo(sessions, state.activeRepoId)?.id ?? null)
+          : state.activeSessionId
+      const pending = { ...state.pending }
+      delete pending[action.sessionId]
+      return {
+        ...state,
+        sessions,
+        activeSessionId,
+        pending,
+        sessionCleanup:
+          state.sessionCleanup?.sessionId === action.sessionId ? null : state.sessionCleanup
+      }
     }
     case 'pendingSet':
       return {

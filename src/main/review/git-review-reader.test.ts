@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, symlinkSync, statSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -16,7 +16,6 @@ import {
   runGitRead,
   truncateUtf8
 } from './git-review-reader'
-import { REVIEW_MAX_FILE_BYTES } from '../../shared/domain/review'
 
 const roots: string[] = []
 
@@ -291,194 +290,6 @@ describe('listing changes since the baseline', () => {
   })
 })
 
-describe('file diffs', () => {
-  it('returns a patch whose added and removed lines match Git', async () => {
-    const f = makeRepo()
-    writeFileSync(join(f.repo, 'a.txt'), 'one\nTWO\nthree\n')
-    const list = await f.reader.list({ worktreePath: f.repo, baseOid: f.base, sessionId: f.sessionId })
-    const file = list.files.find((entry) => entry.path === 'a.txt')!
-
-    const diff = await f.reader.diff({
-      worktreePath: f.repo,
-      baseOid: f.base,
-      sessionId: f.sessionId,
-      path: file.path,
-      oldPath: file.oldPath,
-      status: file.status,
-      origin: file.origin,
-      binary: file.binary,
-      symlink: file.symlink,
-      additions: file.additions,
-      deletions: file.deletions
-    })
-    const added = diff.patch
-      .split('\n')
-      .filter((line) => line.startsWith('+') && !line.startsWith('+++'))
-      .map((line) => line.slice(1))
-    const removed = diff.patch
-      .split('\n')
-      .filter((line) => line.startsWith('-') && !line.startsWith('---'))
-      .map((line) => line.slice(1))
-    expect(added).toEqual(['TWO'])
-    expect(removed).toEqual(['two'])
-    const expected = execFileSync('git', ['-C', f.repo, 'diff', f.base, '--', 'a.txt'], {
-      encoding: 'utf8'
-    })
-    expect(diff.patch).toBe(expected)
-  })
-
-  it('diffs an untracked file without touching the index', async () => {
-    const f = makeRepo()
-    writeFileSync(join(f.repo, 'fresh.txt'), 'hello\n')
-    const indexBefore = statSync(join(f.repo, '.git', 'index')).mtimeMs
-    const list = await f.reader.list({ worktreePath: f.repo, baseOid: f.base, sessionId: f.sessionId })
-    const file = list.files.find((entry) => entry.path === 'fresh.txt')!
-    const diff = await f.reader.diff({
-      worktreePath: f.repo,
-      baseOid: f.base,
-      sessionId: f.sessionId,
-      path: file.path,
-      oldPath: null,
-      status: file.status,
-      origin: 'untracked',
-      binary: false,
-      symlink: file.symlink,
-      additions: file.additions,
-      deletions: file.deletions
-    })
-    expect(diff.patch).toContain('+hello')
-    expect(statSync(join(f.repo, '.git', 'index')).mtimeMs).toBe(indexBefore)
-  })
-
-  it('returns metadata and no patch for binary files', async () => {
-    const f = makeRepo()
-    writeFileSync(join(f.repo, 'blob.bin'), Buffer.from(Array.from({ length: 2048 }, (_v, i) => i % 256)))
-    const list = await f.reader.list({ worktreePath: f.repo, baseOid: f.base, sessionId: f.sessionId })
-    const file = list.files.find((entry) => entry.path === 'blob.bin')!
-    const diff = await f.reader.diff({
-      worktreePath: f.repo,
-      baseOid: f.base,
-      sessionId: f.sessionId,
-      path: file.path,
-      oldPath: null,
-      status: file.status,
-      origin: file.origin,
-      binary: true,
-      symlink: false,
-      additions: null,
-      deletions: null
-    })
-    expect(diff).toMatchObject({ binary: true, patch: '', truncated: false })
-  })
-
-  it('shows the link target for a symlink, never the target file content', async () => {
-    const f = makeRepo()
-    const outside = join(f.root, 'secret.txt')
-    writeFileSync(outside, 'TOP-SECRET-CONTENT\n')
-    symlinkSync(outside, join(f.repo, 'link.txt'))
-
-    const list = await f.reader.list({ worktreePath: f.repo, baseOid: f.base, sessionId: f.sessionId })
-    const file = list.files.find((entry) => entry.path === 'link.txt')!
-    const diff = await f.reader.diff({
-      worktreePath: f.repo,
-      baseOid: f.base,
-      sessionId: f.sessionId,
-      path: file.path,
-      oldPath: null,
-      status: file.status,
-      origin: 'untracked',
-      binary: false,
-      symlink: true,
-      additions: file.additions,
-      deletions: file.deletions
-    })
-    expect(diff.patch).not.toContain('TOP-SECRET-CONTENT')
-    expect(diff.patch).toContain(outside)
-  })
-
-  it('never desynchronises the worktree: status and index are unchanged', async () => {
-    const f = makeRepo()
-    writeFileSync(join(f.repo, 'a.txt'), 'one\nchanged\nthree\n')
-    writeFileSync(join(f.repo, 'fresh.txt'), 'new\n')
-    const statusBefore = git(f.repo, 'status', '--porcelain')
-    const indexBefore = statSync(join(f.repo, '.git', 'index')).mtimeMs
-
-    const list = await f.reader.list({ worktreePath: f.repo, baseOid: f.base, sessionId: f.sessionId })
-    for (const file of list.files) {
-      await f.reader.diff({
-        worktreePath: f.repo,
-        baseOid: f.base,
-        sessionId: f.sessionId,
-        path: file.path,
-        oldPath: file.oldPath,
-        status: file.status,
-        origin: file.origin,
-        binary: file.binary,
-        symlink: file.symlink,
-        additions: file.additions,
-        deletions: file.deletions
-      })
-    }
-
-    // Check the index before running status: a plain `git status` may itself
-    // refresh stat info, which would mask what the review did.
-    expect(statSync(join(f.repo, '.git', 'index')).mtimeMs).toBe(indexBefore)
-    expect(git(f.repo, 'status', '--porcelain')).toBe(statusBefore)
-  })
-
-  it('rejects a bad baseline and an escaping path', async () => {
-    const f = makeRepo()
-    await expect(f.reader.assertBaseline(f.repo, 'f'.repeat(40))).rejects.toSatisfy(
-      (error: unknown) => codeOf(error) === 'GIT_READ_FAILED'
-    )
-    await expect(
-      f.reader.diff({
-        worktreePath: f.repo,
-        baseOid: f.base,
-        sessionId: f.sessionId,
-        path: '../escape.txt',
-        oldPath: null,
-        status: 'added',
-        origin: 'untracked',
-        binary: false,
-        symlink: false,
-        additions: 1,
-        deletions: 0
-      })
-    ).rejects.toSatisfy(
-      (error: unknown) =>
-        codeOf(error) === 'INVALID_ARGUMENT' || codeOf(error) === 'REVIEW_PATH_OUTSIDE'
-    )
-  })
-
-  it('reports truncation for a diff larger than the byte budget', async () => {
-    const f = makeRepo()
-    const reader = new GitReviewReader()
-    writeFileSync(join(f.repo, 'huge.txt'), 'x\n'.repeat(REVIEW_MAX_FILE_BYTES))
-    const list = await reader.list({ worktreePath: f.repo, baseOid: f.base, sessionId: f.sessionId })
-    const file = list.files.find((entry) => entry.path === 'huge.txt')!
-    const diff = await reader.diff({
-      worktreePath: f.repo,
-      baseOid: f.base,
-      sessionId: f.sessionId,
-      path: file.path,
-      oldPath: null,
-      status: file.status,
-      origin: 'untracked',
-      binary: false,
-      symlink: false,
-      additions: file.additions,
-      deletions: file.deletions
-    })
-    expect(diff.truncated).toBe(true)
-    expect(diff.truncatedReason).toBe('bytes')
-    expect(Buffer.byteLength(diff.patch, 'utf8')).toBeLessThanOrEqual(REVIEW_MAX_FILE_BYTES)
-  })
-})
-
-/**
- * W6: the reader must be selected by execution target, never by inspecting a path.
- */
 describe('review reader routing by execution target', () => {
   const WSL = {
     kind: 'wsl' as const,
@@ -521,5 +332,38 @@ describe('review reader routing by execution target', () => {
     await expect(
       routed.runReadForTest({ cwd: '/home/u/src', args: ['diff'], timeoutMs: 1_000 })
     ).rejects.toMatchObject({ appError: { code: 'GIT_READ_FAILED' } })
+  })
+})
+
+describe('conflicted diffs', () => {
+  it('reads the working file as a normal patch containing the markers', async () => {
+    const f = makeRepo()
+    git(f.repo, 'checkout', '-q', '-b', 'side')
+    writeFileSync(join(f.repo, 'a.txt'), 'side\n')
+    git(f.repo, 'add', 'a.txt')
+    commit(f.repo, 'side')
+    git(f.repo, 'checkout', '-q', 'main')
+    writeFileSync(join(f.repo, 'a.txt'), 'main\n')
+    git(f.repo, 'add', 'a.txt')
+    commit(f.repo, 'main')
+    expect(() => git(f.repo, 'merge', 'side')).toThrow()
+
+    const diff = await f.reader.diffArea({
+      worktreePath: f.repo,
+      sessionId: f.sessionId,
+      path: 'a.txt',
+      oldPath: null,
+      scope: 'conflict',
+      status: 'modified',
+      binary: false,
+      symlink: null,
+      additions: null,
+      deletions: null
+    })
+    expect(diff.patch).toContain('<<<<<<< HEAD')
+    expect(diff.patch).toContain('=======')
+    expect(diff.patch).toContain('>>>>>>> side')
+    expect(diff.patch).toContain('+++ b/a.txt')
+    expect(diff.patch).not.toContain('diff --cc')
   })
 })

@@ -21,11 +21,11 @@ export default function RemovalDialog({
       aria-modal="true"
       aria-label="Confirm repository removal"
     >
-      <div className="w-full max-w-md rounded-lg border border-border bg-card p-5 shadow-2xl">
+      <div className="ade-modal w-full max-w-md rounded-lg border border-border bg-card p-6 shadow-2xl">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-2">
-            <AlertTriangle size={15} className="text-amber-400" />
-            <h2 className="text-[14px] font-semibold">Remove {prompt.repoName}?</h2>
+            <AlertTriangle size={15} className="text-signal" />
+            <h2 className="text-[16px] font-semibold">Remove {prompt.repoName}?</h2>
           </div>
           <button
             type="button"
@@ -36,7 +36,7 @@ export default function RemovalDialog({
             <X size={14} />
           </button>
         </div>
-        <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+        <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground">
           This unregisters the repository and permanently deletes{' '}
           {prompt.sessions.length === 1
             ? 'one stored session record'
@@ -45,16 +45,16 @@ export default function RemovalDialog({
         </p>
         <ul className="mt-3 max-h-40 overflow-y-auto rounded-md border border-border bg-background px-3 py-2">
           {prompt.sessions.map((session) => (
-            <li key={session.id} className="truncate py-0.5 text-[11px]">
+            <li key={session.id} className="truncate py-0.5 text-[12px]">
               {session.title}
-              <span className="ml-2 text-[9px] text-muted-foreground">{session.state}</span>
+              <span className="ml-2 text-[11px] text-muted-foreground">{session.state}</span>
             </li>
           ))}
         </ul>
         <div className="mt-5 flex justify-end gap-2">
           <button
             type="button"
-            className="rounded-md border border-border px-3 py-1.5 text-[11px] hover:bg-muted"
+            className="h-9 rounded-md border border-border px-3 text-[12px] hover:bg-muted"
             onClick={onCancel}
             disabled={busy}
           >
@@ -62,7 +62,7 @@ export default function RemovalDialog({
           </button>
           <button
             type="button"
-            className="inline-flex items-center gap-1.5 rounded-md bg-destructive px-3 py-1.5 text-[11px] font-medium text-black hover:opacity-90 disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 h-9 rounded-md bg-destructive px-3.5 text-[12px] font-medium text-black hover:opacity-90 disabled:opacity-50"
             onClick={onConfirm}
             disabled={busy}
             data-testid="confirm-remove-repo"

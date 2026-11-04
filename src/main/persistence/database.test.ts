@@ -5,7 +5,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
-import { DatabaseError, openDatabase, runMigrations } from './database'
+import { DatabaseError, SCHEMA_VERSION, openDatabase, runMigrations } from './database'
 import { MIGRATIONS } from './migrations'
 import { RepositoryStore } from './repository-store'
 import { SessionStore } from './session-store'
@@ -32,18 +32,23 @@ function sha256(file: string): string {
 }
 
 describe('database initialization', () => {
-  it('creates a fresh database at schema version 2', () => {
+  it('creates a fresh database at the latest schema version', () => {
     const root = tempRoot()
     const db = openTempDatabase(root)
-    expect(db.userVersion()).toBe(3)
+    expect(db.userVersion()).toBe(SCHEMA_VERSION)
     const tables = db.raw
       .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
       .all() as Array<{ name: string }>
     expect(tables.map((row) => row.name)).toEqual([
+      // v4: durable work lives beside sessions, not inside them.
       'repos',
       'session_worktrees',
       'sessions',
       'sqlite_sequence',
+      'task_occurrences',
+      'task_schedules',
+      'task_settings',
+      'tasks',
       'ui_state',
       'workspaces',
       'worktree_branches'
@@ -90,9 +95,58 @@ describe('database initialization', () => {
     first.close()
 
     const second = openDatabase({ path, migrations: MIGRATIONS })
-    expect(second.userVersion()).toBe(3)
+    expect(second.userVersion()).toBe(SCHEMA_VERSION)
     expect(new RepositoryStore(second).list()).toHaveLength(1)
     second.close()
+  })
+
+  it('round-trips background preparation state without losing the repository', () => {
+    const root = tempRoot()
+    const path = join(root.dir, 'ade.sqlite')
+    const db = openDatabase({ path, migrations: MIGRATIONS })
+    const repositories = new RepositoryStore(db)
+    const id = newRepoId()
+    repositories.insert({
+      id,
+      path: toCanonicalRepositoryPath(root.dir),
+      displayName: 'atlas',
+      addedAt: 1,
+      lastOpenedAt: 2,
+      currentBranch: null,
+      availability: 'present',
+      gitCommonDir: null,
+      executionTarget: LOCAL_EXECUTION_TARGET,
+      preparation: {
+        state: 'preparing',
+        startedAt: 10,
+        finishedAt: null,
+        committedFiles: null,
+        skippedFolders: ['node_modules/'],
+        error: null
+      }
+    })
+
+    expect(repositories.findById(id)?.preparation).toMatchObject({
+      state: 'preparing',
+      skippedFolders: ['node_modules/']
+    })
+
+    repositories.updatePreparation(id, {
+      state: 'ready',
+      startedAt: 10,
+      finishedAt: 20,
+      committedFiles: 7,
+      skippedFolders: ['node_modules/'],
+      error: null
+    })
+    db.close()
+
+    const reopened = openDatabase({ path, migrations: MIGRATIONS })
+    expect(new RepositoryStore(reopened).findById(id)?.preparation).toMatchObject({
+      state: 'ready',
+      committedFiles: 7
+    })
+    reopened.close()
   })
 
   it('refuses to open a database written by a newer schema', () => {
@@ -409,7 +463,7 @@ describe('migrations', () => {
     v1.close()
 
     const v2 = openDatabase({ path, migrations: MIGRATIONS })
-    expect(v2.userVersion()).toBe(3)
+    expect(v2.userVersion()).toBe(SCHEMA_VERSION)
     const repositoriesV2 = new RepositoryStore(v2)
     const sessionsV2 = new SessionStore(v2)
     expect(repositoriesV2.findById(repoId)).toMatchObject({
@@ -453,6 +507,16 @@ describe('migrations', () => {
       'repos_wsl_registration_path_idx',
       'session_worktrees_repo_idx',
       'sessions_workspace_idx',
+      // v4: the queue's own access paths, and the occurrence receipt that makes
+      // duplicate triggers a database answer rather than a memory one.
+      'task_occurrences_schedule_idx',
+      'task_schedules_enabled_idx',
+      'tasks_previous_idx',
+      'tasks_repo_created_idx',
+      // v5: review state is read per queue view and per retry chain.
+      'tasks_review_idx',
+      'tasks_schedule_idx',
+      'tasks_status_created_idx',
       'workspaces_repo_idx',
       'worktree_branches_repo_idx'
     ])
@@ -464,7 +528,7 @@ describe('migrations', () => {
     const repo = join(root.dir, 'repo')
     execFileSync('git', ['init', '-q', '-b', 'main', repo], { stdio: 'pipe' })
     const db = openTempDatabase(root)
-    expect(db.userVersion()).toBe(3)
+    expect(db.userVersion()).toBe(SCHEMA_VERSION)
     db.close()
   })
 })

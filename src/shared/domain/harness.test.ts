@@ -5,6 +5,7 @@ import {
   classifyHarnessProbe,
   extractHarnessVersion,
   harnessLabel,
+  isAgentHarness,
   isHarnessSelectable
 } from './harness'
 import type { HarnessProbeEvidence } from './harness'
@@ -38,6 +39,13 @@ describe('harness registry', () => {
   it('uses the user shell for the shell entry', () => {
     expect(HARNESS_DEFINITIONS.shell.command).toEqual({ kind: 'user-shell' })
     expect(HARNESS_DEFINITIONS.claude.command).toEqual({ kind: 'executable', name: 'claude' })
+  })
+
+  it('only lets agent harnesses receive review notes', () => {
+    expect(isAgentHarness('claude')).toBe(true)
+    expect(isAgentHarness('codex')).toBe(true)
+    expect(isAgentHarness('opencode')).toBe(true)
+    expect(isAgentHarness('shell')).toBe(false)
   })
 })
 

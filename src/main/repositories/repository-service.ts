@@ -112,9 +112,18 @@ export class RepositoryService {
    */
   async addRepository(
     inputPath: string,
-    requestedTarget: ExecutionTarget = LOCAL_EXECUTION_TARGET
+    requestedTarget: ExecutionTarget = LOCAL_EXECUTION_TARGET,
+    options: { targetAlreadyValidated?: boolean } = {}
   ): Promise<AddRepositoryOutcome> {
-    const executionTarget = await this.deps.validateTarget(requestedTarget)
+    /*
+     * Onboarding has just validated the target (and resolved the folder) before
+     * calling this. Re-running `wsl.exe --list` here is a full distro discovery
+     * on the Add-project critical path; the optional flag is limited to callers
+     * that can prove the target already passed the same validator.
+     */
+    const executionTarget = options.targetAlreadyValidated
+      ? requestedTarget
+      : await this.deps.validateTarget(requestedTarget)
     // Why the canonical target: it carries the proven registration id, which the
     // resolver needs to address the right distro, and which is what gets stored.
     const resolved = await this.deps.resolveRoot(inputPath, executionTarget)
@@ -182,6 +191,106 @@ export class RepositoryService {
       repository,
       created: true,
       registeredViaLinkedWorktree: resolved.registeredVia ?? null
+    }
+  }
+
+  /**
+   * Registers a folder whose Git repository was **just created** at `root`.
+   *
+   * The general path resolves the root through the target's Git, which is
+   * correct for arbitrary checkouts and linked worktrees but costs several guest
+   * commands. After `git init` in an empty folder those answers are already
+   * known: the root is the folder, the common dir is its `.git`, and there is no
+   * branch until the first commit. This keeps that proof in one narrowly named
+   * method instead of weakening the general resolver.
+   */
+  async addInitializedRepository(
+    rootInput: string,
+    requestedTarget: ExecutionTarget = LOCAL_EXECUTION_TARGET,
+    options: { targetAlreadyValidated?: boolean } = {}
+  ): Promise<AddRepositoryOutcome> {
+    const executionTarget = options.targetAlreadyValidated
+      ? requestedTarget
+      : await this.deps.validateTarget(requestedTarget)
+    const root = toCanonicalRepositoryPath(rootInput)
+    const separator =
+      executionTarget.kind === 'local' && process.platform === 'win32' ? '\\' : '/'
+    const commonDir = `${root.replace(/[\\/]+$/u, '')}${separator}.git`
+    const existing =
+      this.deps.repositories.findByPath(root, executionTarget) ??
+      this.deps.repositories.findByCommonDir(commonDir, executionTarget)
+    if (existing) {
+      this.ensureWorkspace(existing)
+      return {
+        repository: existing,
+        created: false,
+        registeredViaLinkedWorktree: null
+      }
+    }
+
+    /*
+     * A pre-v3 WSL row cannot be found by the registration-scoped lookup. Keep
+     * the same adoption/refusal rule as the general path; a fast registration
+     * must not create a second row for the same checkout.
+     */
+    if (executionTarget.kind === 'wsl' && executionTarget.distroId !== null) {
+      const legacy = this.deps.repositories.findLegacyWslByNameAndPath(
+        executionTarget.distro,
+        root
+      )
+      if (legacy !== null) {
+        if (legacy.gitCommonDir === null || legacy.gitCommonDir !== commonDir) {
+          throw new RepositoryPathError(
+            makeAppError(
+              'WSL_LEGACY_REGISTRATION_UNRESOLVED',
+              'A repository is already registered for that WSL folder without a distro id.',
+              {
+                detail:
+                  'ADE cannot prove the existing registration and this distro are the same installation, so it will not rebind it. Remove that repository and add it again.',
+                context: { path: root, distro: executionTarget.distro }
+              }
+            )
+          )
+        }
+        this.deps.repositories.adoptRegistrationId(legacy.id, executionTarget.distroId)
+        this.ensureWorkspace(legacy)
+        return {
+          repository: legacy,
+          created: false,
+          registeredViaLinkedWorktree: null
+        }
+      }
+    }
+
+    const now = this.deps.now()
+    const repository: RepositoryRecord = {
+      id: newRepoId(),
+      path: root,
+      displayName: displayNameFor(root),
+      addedAt: now,
+      lastOpenedAt: now,
+      currentBranch: null,
+      availability:
+        executionTarget.kind === 'local' ? this.deps.pathStatus(root) : 'present',
+      gitCommonDir: commonDir,
+      executionTarget
+    }
+    const workspace: WorkspaceRecord = {
+      id: newWorkspaceId(),
+      repoId: repository.id,
+      path: root,
+      kind: 'primary-checkout',
+      createdAt: now
+    }
+    this.deps.database.transaction(() => {
+      this.deps.repositories.insert(repository)
+      this.deps.repositories.insertWorkspace(workspace)
+    })
+    this.deps.uiState.setActiveRepository(repository.id)
+    return {
+      repository,
+      created: true,
+      registeredViaLinkedWorktree: null
     }
   }
 

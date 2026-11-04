@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { collapseContext, parseUnifiedDiff } from './parse-unified-diff'
+import { collapseContext, countUnifiedDiffChanges, parseUnifiedDiff } from './parse-unified-diff'
 
 const MODIFY = `diff --git a/src/app.ts b/src/app.ts
 index 1111111..2222222 100644
@@ -36,8 +36,19 @@ describe('parseUnifiedDiff', () => {
     expect(after).toMatchObject({ kind: 'context', text: 'return a', oldLine: 4, newLine: 5 })
   })
 
-  it('parses an added file with a /dev/null old side', () => {
-    const parsed = parseUnifiedDiff(`diff --git a/new.txt b/new.txt
+  it('counts added and removed lines from the patch itself', () => {
+    expect(countUnifiedDiffChanges(MODIFY)).toEqual({ additions: 2, deletions: 1 })
+    expect(
+      countUnifiedDiffChanges(`--- /dev/null
++++ b/new.txt
+@@ -0,0 +1,2 @@
++hello
++world
+`)
+    ).toEqual({ additions: 2, deletions: 0 })
+  })
+
+  it('parses an added file with a /dev/null old side', () => {    const parsed = parseUnifiedDiff(`diff --git a/new.txt b/new.txt
 new file mode 100644
 index 0000000..1111111
 --- /dev/null

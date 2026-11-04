@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { callApi, errorNotice } from '../lib/api'
-import type { FilesListingPayload } from '../../../shared/ade-api'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { fuzzyScore } from '../files/fuzzy'
+import { getWorktreeFileIndex } from '../files/file-index'
 import type { FileEntry } from '../../../shared/domain/workspace-files'
 import type { Notice } from '../state/workspace'
 
@@ -13,39 +13,20 @@ export type QuickOpenProps = {
   onOpen: (path: string, line: number) => void
 }
 
-const MAX_FILES = 5000
-
 /**
- * Scores a fuzzy subsequence match, higher is better; null means no match.
+ * Splits `path:line` into its parts.
  *
- * Deliberately the classic filename behaviour: characters must appear in order,
- * a contiguous run at a path-segment start scores best, and the basename counts
- * double so "panl" finds `components/FilesPanel.tsx` rather than a longer path
- * that happens to contain the letters.
+ * Orca's palette accepts a line suffix, and the same shorthand is how a search
+ * hit or a compiler message is usually pasted. A colon is only treated as a line
+ * marker when what follows is a positive integer, so a Windows-style drive or a
+ * file legitimately named `a:1` is left alone unless unambiguous.
  */
-export function fuzzyScore(candidate: string, query: string): number | null {
-  if (query.length === 0) return 0
-  const haystack = candidate.toLowerCase()
-  const needle = query.toLowerCase()
-
-  let score = 0
-  let cursor = 0
-  let lastMatch = -2
-  for (const character of needle) {
-    const found = haystack.indexOf(character, cursor)
-    if (found === -1) return null
-    const contiguous = found === lastMatch + 1
-    const atSegmentStart = found === 0 || haystack[found - 1] === '/'
-    const inBasename = found >= haystack.lastIndexOf('/') + 1
-    score += 1
-    if (contiguous) score += 4
-    if (atSegmentStart) score += 6
-    if (inBasename) score += 3
-    lastMatch = found
-    cursor = found + 1
-  }
-  // Prefer shorter paths when the match quality ties.
-  return score - Math.min(candidate.length, 200) / 100
+export function splitLineSuffix(query: string): { path: string; line: number | null } {
+  const match = /^(.*):(\d+)$/u.exec(query.trim())
+  if (match === null) return { path: query.trim(), line: null }
+  const line = Number.parseInt(match[2] ?? '', 10)
+  if (!Number.isFinite(line) || line < 1) return { path: query.trim(), line: null }
+  return { path: match[1] ?? '', line }
 }
 
 /**
@@ -69,35 +50,6 @@ export default function QuickOpen({
   const [note, setNote] = useState('')
   const input = useRef<HTMLInputElement | null>(null)
 
-  const walk = useCallback(
-    async (path: string, collected: string[]): Promise<boolean> => {
-      const result = await callApi<FilesListingPayload>(window.ade.files.list({ sessionId, path }))
-      if (!result.ok) {
-        notify(errorNotice(result.error))
-        return false
-      }
-      const value = result.value
-      if (value.status === 'unavailable') {
-        setNote(
-          value.reason === 'worktree-unavailable'
-            ? 'This distro could not be reached, so file navigation is unavailable.'
-            : value.detail
-        )
-        return false
-      }
-      for (const entry of value.entries) {
-        if (collected.length >= MAX_FILES) return false
-        if (entry.kind === 'file') collected.push(entry.path)
-        else if (!SKIP.has(entry.name)) {
-          const ok = await walk(entry.path, collected)
-          if (!ok) return false
-        }
-      }
-      return true
-    },
-    [notify, sessionId]
-  )
-
   useEffect(() => {
     setFiles([])
     setIndexed(false)
@@ -109,27 +61,30 @@ export default function QuickOpen({
   useEffect(() => {
     if (!open || indexed) return
     let cancelled = false
-    const collected: string[] = []
-    void walk('', collected).then(() => {
+    void getWorktreeFileIndex(sessionId, notify).then((result) => {
       if (cancelled) return
-      setFiles(collected)
+      setFiles(result.files)
+      setNote(result.note ?? '')
       setIndexed(true)
     })
     return () => {
       cancelled = true
     }
-  }, [indexed, open, walk])
+  }, [indexed, notify, open, sessionId])
 
   useEffect(() => {
     if (open) input.current?.focus()
   }, [open])
 
+  const requestedLine = useMemo(() => splitLineSuffix(query).line, [query])
+
   const matches = useMemo(() => {
     if (!indexed) return []
-    if (query.trim().length === 0) return files.slice(0, 50)
+    const wanted = splitLineSuffix(query).path
+    if (wanted.length === 0) return files.slice(0, 50)
     const scored: Array<{ path: string; score: number }> = []
     for (const path of files) {
-      const score = fuzzyScore(path, query.trim())
+      const score = fuzzyScore(path, wanted)
       if (score !== null) scored.push({ path, score })
     }
     scored.sort((left, right) => right.score - left.score || left.path.localeCompare(right.path))
@@ -150,12 +105,12 @@ export default function QuickOpen({
         if (event.target === event.currentTarget) onClose()
       }}
     >
-      <div className="w-[520px] overflow-hidden rounded-lg border border-border bg-card shadow-xl">
+      <div className="w-[640px] overflow-hidden rounded-xl border border-line-strong bg-card shadow-[var(--ade-shadow-overlay)]">
         <input
           ref={input}
           value={query}
-          placeholder={indexed ? 'Go to file…' : 'Indexing worktree…'}
-          className="w-full border-b border-border bg-transparent px-3 py-2 text-[12px] text-foreground outline-none placeholder:text-muted-foreground"
+          placeholder={indexed ? 'Go to file… (path:line)' : 'Indexing worktree…'}
+          className="w-full border-b border-border bg-transparent px-4 py-3 text-[13px] text-foreground outline-none placeholder:text-muted-foreground"
           data-testid="quick-open-input"
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={(event) => {
@@ -175,27 +130,27 @@ export default function QuickOpen({
               event.preventDefault()
               const chosen = matches[active]
               if (chosen) {
-                onOpen(chosen, 1)
+                onOpen(chosen, requestedLine ?? 1)
                 onClose()
               }
             }
           }}
         />
-        <div className="max-h-80 overflow-auto py-1" data-testid="quick-open-results">
-          {note ? <p className="px-3 py-2 text-[10px] text-amber-400">{note}</p> : null}
+        <div className="max-h-96 overflow-auto py-1.5" data-testid="quick-open-results">
+          {note ? <p className="px-4 py-2 text-[11px] text-signal">{note}</p> : null}
           {!note && indexed && matches.length === 0 ? (
-            <p className="px-3 py-2 text-[10px] text-muted-foreground">No file matches that.</p>
+            <p className="px-4 py-2 text-[11px] text-muted-foreground">No file matches that.</p>
           ) : null}
           {matches.map((path, index) => (
             <button
               key={path}
               type="button"
-              className={`flex w-full items-center px-3 py-1 text-left font-mono text-[11px] ${
+              className={`flex w-full items-center px-4 py-1.5 text-left font-mono text-[12px] ${
                 index === active ? 'bg-muted text-foreground' : 'text-muted-foreground'
               }`}
               onMouseEnter={() => setActive(index)}
               onClick={() => {
-                onOpen(path, 1)
+                onOpen(path, requestedLine ?? 1)
                 onClose()
               }}
               data-testid={`quick-open-hit-${path}`}
@@ -204,16 +159,14 @@ export default function QuickOpen({
             </button>
           ))}
         </div>
-        <p className="border-t border-border px-3 py-1 text-[9px] text-muted-foreground">
-          {indexed ? `${String(files.length)} file(s) in this worktree` : 'reading the worktree…'} · Enter opens ·
-          Esc closes
+        <p className="border-t border-border px-4 py-2 text-[10px] text-muted-foreground">
+          {indexed ? `${String(files.length)} file(s) in this worktree` : 'reading the worktree…'}
+          {requestedLine === null ? '' : ` · opens at line ${String(requestedLine)}`} · Enter opens · Esc closes
         </p>
       </div>
     </div>
   )
 }
-
-const SKIP = new Set(['.git', 'node_modules', 'dist', 'out', 'build', '.next', 'target', '__pycache__', '.venv'])
 
 /** Exported for the renderer test: entries are only files, never directories. */
 export type { FileEntry }

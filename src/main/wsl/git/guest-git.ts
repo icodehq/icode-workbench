@@ -52,6 +52,8 @@ export type GuestGitRequest = {
   /** Guest absolute path. Passed as `-C`; never inherited from the Windows cwd. */
   cwd: string
   args: readonly string[]
+  /** Payload for Git's stdin, e.g. a hunk patch for `git apply`. */
+  stdin?: Buffer | string
   timeoutMs?: number
   signal?: AbortSignal
 }
@@ -182,6 +184,7 @@ export async function runGuestGit(
         ...request.args
       ],
       timeoutMs,
+      ...(request.stdin !== undefined ? { stdin: request.stdin } : {}),
       ...(request.signal ? { signal: request.signal } : {})
     })
 
@@ -237,6 +240,7 @@ async function runInLoginShell(
     distro: request.distro,
     argv: ['sh', '-lc', fencedCommand(invocation)],
     timeoutMs,
+    ...(request.stdin !== undefined ? { stdin: request.stdin } : {}),
     ...(request.signal ? { signal: request.signal } : {})
   })
   if ('status' in result) {

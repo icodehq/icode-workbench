@@ -26,3 +26,10 @@ artifacts/work13/worktree/
 !artifacts/work13/*.log
 !artifacts/work14/*.log
 .DS_Store
+
+# Local Windows MSI staging and probe outputs
+build/msi-extract/
+build/msi-extract-latest/
+build/msi-tool/node_modules/
+/index.js
+/C:*Temp/

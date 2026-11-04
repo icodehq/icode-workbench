@@ -17,11 +17,20 @@
  *      and two holders are indistinguishable by intent.
  */
 
-import { spawn } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AppError } from '../../../shared/domain/errors'
 import { makeAppError } from '../../../shared/domain/errors'
+import {
+  WSL_HOLDER_ARGS_ENV,
+  WSL_HOLDER_CWD_ENV,
+  WSL_HOLDER_READY_ENV,
+  WSL_HOLDER_WSL_ENV,
+  parseWslHolderReady
+} from '../../../shared/wsl-holder-ready'
 import { resolveWslExecutablePath, resolveWslInteropCwd } from '../exec'
 import type { WslHolderRecord, WslHolderState } from './records'
 import { parseWslHolderRecord } from './records'
@@ -87,15 +96,19 @@ export function createHolderRecordStore(directory: string): HolderRecordStore {
   }
 }
 
-export type HolderSpawn = (distro: string) => {
+export type HolderSpawnResult = {
   windowsPid: WindowsProcessId
   /**
-   * Resolves when the spawned `wsl.exe` exits. A holder exiting means the distro
+   * Resolves when the holder wrapper exits. A holder exiting means the distro
    * may have stopped, so the caller must re-check Host liveness rather than
    * assume the Host is gone (or still there).
    */
   exited?: Promise<void>
 }
+
+export type HolderSpawn = (
+  distro: string
+) => HolderSpawnResult | Promise<HolderSpawnResult>
 
 export type HolderDeps = {
   store: HolderRecordStore
@@ -107,6 +120,17 @@ export type HolderDeps = {
   sleep?: (ms: number) => Promise<void>
   env?: NodeJS.ProcessEnv
   platform?: NodeJS.Platform
+  /**
+   * The packaged or built host entry used as the GUI-subsystem wrapper.
+   *
+   * Production supplies it from the composition root; tests normally inject
+   * `spawn` and never need it.
+   */
+  holderEntryPath?: string
+  /** Electron executable used for the wrapper. */
+  execPath?: string
+  /** Directory for the wrapper's short-lived ready files. */
+  readyDirectory?: string
   /** Bound on how long `release` waits for a terminated holder to disappear. */
   releaseTimeoutMs?: number
   /** Notification only: the caller re-checks liveness, this module draws no verdict. */
@@ -115,38 +139,160 @@ export type HolderDeps = {
 
 const DEFAULT_RELEASE_TIMEOUT_MS = 5_000
 const RELEASE_POLL_MS = 100
+const HOLDER_READY_TIMEOUT_MS = 10_000
+const HOLDER_READY_POLL_MS = 25
 
-/** Detached, ignored stdio: an attached child dies with the app's job object. */
+/**
+ * Launches the hidden wrapper, which starts `wsl.exe` without a console and
+ * reports its PID through a ready file.
+ *
+ * The recorded PID remains the `wsl.exe` child, not the wrapper: holder
+ * identity, adoption after an app restart, and release all keep their existing
+ * meaning. The wrapper is only a console-free parent for the WSL process.
+ */
 function spawnDetachedHolder(deps: {
   env: NodeJS.ProcessEnv
   platform: NodeJS.Platform
+  execPath?: string
+  holderEntryPath?: string
+  readyDirectory?: string
 }): HolderSpawn {
-  return (distro) => {
+  return async (distro) => {
     if (deps.platform !== 'win32') {
       throw new Error('A WSL holder can only be spawned from Windows.')
     }
-    const child = spawn(
-      resolveWslExecutablePath(deps.env, deps.platform),
-      buildHolderArgs(distro),
-      {
-        cwd: resolveWslInteropCwd(deps.env),
-        env: { ...deps.env, WSL_UTF8: '1' },
-        detached: true,
-        windowsHide: true,
-        stdio: 'ignore'
-      }
+    if (deps.execPath === undefined || deps.execPath.length === 0) {
+      throw new Error('The Electron executable was not supplied for the WSL holder wrapper.')
+    }
+    if (deps.holderEntryPath === undefined || deps.holderEntryPath.length === 0) {
+      throw new Error('The host entry was not supplied for the WSL holder wrapper.')
+    }
+
+    const cwd = resolveWslInteropCwd(deps.env)
+    const wslPath = resolveWslExecutablePath(deps.env, deps.platform)
+    const readyDirectory = deps.readyDirectory ?? join(tmpdir(), 'ade-wsl-holders')
+    mkdirSync(readyDirectory, { recursive: true, mode: 0o700 })
+    const readyFile = join(
+      readyDirectory,
+      `holder-${String(process.pid)}-${String(Date.now())}-${randomUUID()}.json`
     )
-    const pid = child.pid
-    if (pid === undefined) throw new Error('Holder did not report a Windows PID.')
-    const exited = new Promise<void>((resolve) => {
-      child.once('exit', () => resolve())
-      child.once('error', () => resolve())
+
+    const wrapper = spawn(deps.execPath, [deps.holderEntryPath], {
+      cwd,
+      env: {
+        ...deps.env,
+        ELECTRON_RUN_AS_NODE: '1',
+        [WSL_HOLDER_READY_ENV]: readyFile,
+        [WSL_HOLDER_WSL_ENV]: wslPath,
+        [WSL_HOLDER_ARGS_ENV]: JSON.stringify(buildHolderArgs(distro)),
+        [WSL_HOLDER_CWD_ENV]: cwd
+      },
+      detached: true,
+      windowsHide: true,
+      stdio: 'ignore'
     })
-    child.unref()
-    const windowsPid = asWindowsProcessId(pid)
-    if (windowsPid === null) throw new Error('Holder reported an invalid Windows PID.')
-    return { windowsPid, exited }
+
+    const wrapperPid = wrapper.pid
+    if (wrapperPid === undefined) {
+      throw new Error('The WSL holder wrapper did not report a Windows PID.')
+    }
+
+    let wrapperExited = false
+    let wrapperExitDetail = ''
+    let wrapperError: Error | null = null
+    const exited = new Promise<void>((resolve) => {
+      wrapper.once('exit', (code, signal) => {
+        wrapperExited = true
+        wrapperExitDetail = ` (wrapper exit ${String(code)}${
+          signal === null ? '' : `, signal ${signal}`
+        })`
+        resolve()
+      })
+      wrapper.once('error', (error) => {
+        wrapperError = error
+        resolve()
+      })
+    })
+
+    try {
+      const pid = await waitForHolderReady(readyFile, {
+        error: () => wrapperError,
+        exited: () => wrapperExited,
+        exitDetail: () => wrapperExitDetail
+      })
+      const windowsPid = asWindowsProcessId(pid)
+      if (windowsPid === null) throw new Error('The WSL holder reported an invalid Windows PID.')
+      rmSync(readyFile, { force: true })
+      wrapper.unref()
+      return { windowsPid, exited }
+    } catch (error) {
+      try {
+        wrapper.kill()
+      } catch {
+        // The tree kill below is the authority; the wrapper may already be gone.
+      }
+      await killWrapperTree(wrapperPid)
+      rmSync(readyFile, { force: true })
+      wrapper.unref()
+      throw error
+    }
   }
+}
+
+/** Reads the wrapper's ready file; a missing file is not an error yet. */
+function readReadyFile(path: string): string | null {
+  try {
+    return readFileSync(path, 'utf8')
+  } catch {
+    return null
+  }
+}
+
+async function waitForHolderReady(
+  readyFile: string,
+  state: {
+    error: () => Error | null
+    exited: () => boolean
+    exitDetail: () => string
+  }
+): Promise<number> {
+  const deadline = Date.now() + HOLDER_READY_TIMEOUT_MS
+  while (Date.now() < deadline) {
+    const error = state.error()
+    if (error !== null) throw error
+
+    const text = readReadyFile(readyFile)
+    if (text !== null) {
+      const parsed = parseWslHolderReady(text)
+      if (parsed === null) {
+        throw new Error('The WSL holder wrapper wrote an invalid ready record.')
+      }
+      if ('error' in parsed) throw new Error(parsed.error)
+      return parsed.pid
+    }
+    if (state.exited()) {
+      throw new Error(
+        `The WSL holder wrapper exited before reporting its WSL child${state.exitDetail()}.`
+      )
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, HOLDER_READY_POLL_MS))
+  }
+  throw new Error('Timed out waiting for the WSL holder wrapper to report its WSL child.')
+}
+
+/**
+ * Best-effort cleanup for a wrapper that failed before reporting a child.
+ * `taskkill /T` also reaches any `wsl.exe` the wrapper had already started.
+ */
+function killWrapperTree(pid: number): Promise<void> {
+  return new Promise<void>((resolve) => {
+    execFile(
+      'taskkill',
+      ['/PID', String(pid), '/T', '/F'],
+      { windowsHide: true },
+      () => resolve()
+    )
+  })
 }
 
 export type HolderEnsureOutcome =
@@ -176,7 +322,10 @@ export function createWslHolder(deps: HolderDeps): WslHolder {
     deps.spawn ??
     spawnDetachedHolder({
       env: deps.env ?? process.env,
-      platform: deps.platform ?? process.platform
+      platform: deps.platform ?? process.platform,
+      ...(deps.execPath === undefined ? {} : { execPath: deps.execPath }),
+      ...(deps.holderEntryPath === undefined ? {} : { holderEntryPath: deps.holderEntryPath }),
+      ...(deps.readyDirectory === undefined ? {} : { readyDirectory: deps.readyDirectory })
     })
   /**
    * Terminating a *Windows* pid is the one place this module may do so, and only
@@ -228,7 +377,7 @@ export function createWslHolder(deps: HolderDeps): WslHolder {
       }
 
       try {
-        const spawned = spawn(distro)
+        const spawned = await spawn(distro)
         // A holder that exits may have taken the distro (and Host) with it. The
         // caller re-checks liveness; nothing here decides the Host died.
         void spawned.exited?.then(() => deps.onHolderExit?.(distro))

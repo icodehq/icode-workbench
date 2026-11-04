@@ -19,7 +19,8 @@ function repo(id: string, name = id): RepositorySummary {
     path: `/work/${name}`,
     currentBranch: 'main',
     availability: 'present',
-    target: { kind: 'local' }
+    target: { kind: 'local' },
+    preparation: null
   }
 }
 
@@ -212,6 +213,29 @@ describe('session updates', () => {
     })
     expect(pendingAction(state, 'ses_two')).toBeNull()
     expect(state.sessions).toHaveLength(2)
+  })
+
+  it('removes an acknowledged session immediately and selects the next one', () => {
+    let state = loaded({ activeSessionId: 'ses_two' })
+    state = workspaceReducer(state, {
+      type: 'pendingSet',
+      sessionId: 'ses_two',
+      action: 'removing'
+    })
+    state = workspaceReducer(state, {
+      type: 'sessionCleanup',
+      prompt: {
+        sessionId: 'ses_two',
+        title: 'ses_two',
+        branch: 'ade/ses_two',
+        blocker: null
+      }
+    })
+    state = workspaceReducer(state, { type: 'sessionRemoved', sessionId: 'ses_two' })
+    expect(state.sessions.map((entry) => entry.id)).toEqual(['ses_one', 'ses_three'])
+    expect(activeSession(state)?.id).toBe('ses_one')
+    expect(pendingAction(state, 'ses_two')).toBeNull()
+    expect(state.sessionCleanup).toBeNull()
   })
 
   it('starts an explicit restart marker and clears it on request completion', () => {

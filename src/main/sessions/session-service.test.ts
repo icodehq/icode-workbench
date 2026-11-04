@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionService, SessionServiceError } from './session-service'
 import { FakeHostGateway } from './fake-host-gateway'
 import { makeRepositoryService, makeTempRoot, openTempDatabase } from '../persistence/persistence-test-fixtures'
@@ -18,6 +18,7 @@ import type { HarnessDetectionResult } from '../harness/harness-detector'
 import { newRepoId } from '../../shared/domain/ids'
 import { toPtyIncarnationId } from '../../shared/domain/ids'
 import type { RendererSessionEvent } from '../../shared/schemas/ipc'
+import type { WorkspaceTrustService } from '../harness/trust/workspace-trust'
 
 type Fixture = {
   root: TempRoot
@@ -92,7 +93,10 @@ function unusable(
       }
 }
 
-function setup(options: { harness?: HarnessDetectionResult } = {}): Fixture {
+function setup(options: {
+  harness?: HarnessDetectionResult
+  workspaceTrust?: WorkspaceTrustService
+} = {}): Fixture {
   const root = makeTempRoot('ade-session-')
   const db = openTempDatabase(root)
   const stores = makeRepositoryService(db, {
@@ -121,6 +125,7 @@ function setup(options: { harness?: HarnessDetectionResult } = {}): Fixture {
     worktrees,
     gitWorktrees,
     host,
+    ...(options.workspaceTrust === undefined ? {} : { workspaceTrust: options.workspaceTrust }),
     detectHarness: async (_harness, target) => {
       detection.targets.push(target)
       return detection.current
@@ -190,8 +195,10 @@ function setup(options: { harness?: HarnessDetectionResult } = {}): Fixture {
   }
 }
 
-async function withRepo(): Promise<Fixture> {
-  const fixture = setup()
+async function withRepo(options: {
+  workspaceTrust?: WorkspaceTrustService
+} = {}): Promise<Fixture> {
+  const fixture = setup(options)
   const added = await fixture.stores.service.addRepository(fixture.repoPath)
   fixture.repoId = added.repository.id
   return fixture
@@ -649,6 +656,57 @@ describe('worktree isolation', () => {
     expect(f.host.sessions.get(created.id)!.info.cwd).toBe(created.worktree!.path)
   })
 
+  it('sleeps durably and wakes with the harness resume command', async () => {
+    const f = await withRepo()
+    const created = await f.service.create(createInput(f))
+    f.stores.sessions.setResumeToken(created.id as never, 'claude-conversation-1')
+
+    const slept = await f.service.sleep(created.id)
+    expect(slept.sleeping).toBe(true)
+    expect(slept.state).toBe('exited')
+    expect(f.stores.sessions.findById(created.id as never)!.sleepingAt).not.toBeNull()
+
+    const woken = await f.service.wake(created.id)
+    expect(woken.sleeping).toBe(false)
+    expect(woken.state).toBe('live')
+    expect(woken.incarnationId).not.toBe(created.incarnationId)
+    expect(f.stores.sessions.findById(created.id as never)!.sleepingAt).toBeNull()
+
+    const args = f.host.calls.createOrAttach.at(-1)!.args
+    expect(args).toContain('--resume')
+    expect(args).toContain('claude-conversation-1')
+    expect(args).toContain('--settings')
+  })
+
+  it.each([
+    ['codex', ['resume', '--last']],
+    ['opencode', ['--continue']],
+    ['shell', []]
+  ] as const)('wakes %s with its harness-native resume strategy', async (harness, resumeArgs) => {
+    const f = await withRepo()
+    const created = await f.service.create(createInput(f, { harness }))
+    await f.service.sleep(created.id)
+    const woken = await f.service.wake(created.id)
+    expect(woken.state).toBe('live')
+    const args = f.host.calls.createOrAttach.at(-1)!.args
+    if (resumeArgs.length === 0) {
+      expect(args.some((arg) => arg === '--continue' || arg === 'resume')).toBe(false)
+    } else {
+      expect(args.slice(-resumeArgs.length)).toEqual([...resumeArgs])
+    }
+  })
+
+  it('does not sleep a session that is not live', async () => {
+    const f = await withRepo()
+    const created = await f.service.create(createInput(f))
+    f.host.finish(created.id, 0, true)
+
+    await expect(f.service.sleep(created.id)).rejects.toSatisfy(
+      (error: unknown) =>
+        error instanceof SessionServiceError && error.appError.code === 'INVALID_ARGUMENT'
+    )
+  })
+
   it('keeps a legacy session in the primary checkout, including restart', async () => {
     const f = await withRepo()
     const workspace = f.stores.repositories.workspaceForRepo(f.repoId as never)!
@@ -837,6 +895,49 @@ describe('Path A terminal routing', () => {
     expect(call.args.at(-1)).toBe(created.worktree?.path)
     // A ConPTY cannot start in a Linux path.
     expect(call.cwd).toBe(join(f.root.dir, 'pty'))
+  })
+
+  it('does not report a newly created WSL worktree as missing', async () => {
+    /*
+     * Regression: create() returned a summary without an existence probe, so
+     * describeWorktree stat'ed the guest path on Windows and the New Session
+     * overlay said the worktree was missing while the session was live.
+     */
+    const f = await withRepo()
+    const added = await f.stores.service.addRepository(f.repoPath, WSL_TARGET)
+    const guestPath = '/home/u/.ade/worktrees/scope/repo/ses'
+    vi.spyOn(f.gitWorktrees, 'worktreeRootFor').mockResolvedValue('/home/u/.ade/worktrees/scope')
+    vi.spyOn(f.gitWorktrees, 'worktreePathFor').mockReturnValue(guestPath)
+    vi.spyOn(f.gitWorktrees, 'create').mockResolvedValue(undefined)
+
+    const created = await f.service.create({
+      repoId: added.repository.id,
+      harness: 'shell',
+      cols: 80,
+      rows: 24
+    })
+
+    expect(created.worktree).toMatchObject({ path: guestPath, status: 'active' })
+  })
+
+  it('prepares harness trust for the worktree before spawning', async () => {
+    const prepare = vi.fn(async () => ({ status: 'trusted' as const }))
+    const f = await withRepo({
+      workspaceTrust: { prepare, remove: vi.fn(async () => undefined) }
+    })
+    const added = await f.stores.service.addRepository(f.repoPath, WSL_TARGET)
+    const created = await f.service.create({
+      repoId: added.repository.id,
+      harness: 'claude',
+      cols: 80,
+      rows: 24
+    })
+
+    expect(prepare).toHaveBeenCalledWith({
+      harness: 'claude',
+      target: WSL_TARGET,
+      worktreePath: created.worktree?.path
+    })
   })
 
   it('never probes a harness for a Path A terminal', async () => {

@@ -92,6 +92,7 @@ export type FilesUnavailableReason =
   | 'file-too-large'
   | 'binary'
   | 'write-failed'
+  | 'already-exists'
 
 export function isSkippedDirectory(name: string): boolean {
   return (FILES_SKIP_DIRECTORIES as readonly string[]).includes(name)

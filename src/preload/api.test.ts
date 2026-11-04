@@ -41,13 +41,21 @@ describe('preload API surface', () => {
       [
         'activity',
         'branches',
+        'files',
         'getRuntimeInfo',
+        'git',
         'harness',
+        'onRepoEvent',
         'onSessionEvent',
+        'onTaskEvent',
+        'onViewCommand',
         'repos',
         'review',
+        'schedules',
         'sessions',
+        'tasks',
         'terminal',
+        'window',
         // Distro discovery for the repository dialog: named, no channel strings.
         'wsl'
       ].sort()
@@ -60,14 +68,39 @@ describe('preload API surface', () => {
     const { api, invoke } = setup()
     await api.repos.list()
     await api.repos.add({ path: '/tmp/repo' })
+    await api.repos.inspect({ path: '/tmp/repo', target: { kind: 'local' } })
+    await api.repos.initialize({ path: '/tmp/repo', target: { kind: 'local' } })
+    await api.repos.retryPreparation({ repoId })
     await api.repos.remove({ repoId, acknowledgeDependentSessions: true })
 
     expect(invoke.mock.calls.map((call) => call[0])).toEqual([
       IPC_CHANNELS.reposList,
       IPC_CHANNELS.reposAdd,
+      IPC_CHANNELS.reposInspect,
+      IPC_CHANNELS.reposInitialize,
+      IPC_CHANNELS.reposRetryPreparation,
       IPC_CHANNELS.reposRemove
     ])
     expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.reposAdd, { path: '/tmp/repo' })
+  })
+
+  it('routes window controls and maximize events', async () => {
+    const { api, invoke, subscribe, unsubscribe } = setup()
+    await api.window.minimize()
+    await api.window.toggleMaximize()
+    await api.window.close()
+    await api.window.isMaximized()
+    const off = api.window.onMaximizedChange(() => undefined)
+
+    expect(invoke.mock.calls.map((call) => call[0])).toEqual([
+      IPC_CHANNELS.windowMinimize,
+      IPC_CHANNELS.windowToggleMaximize,
+      IPC_CHANNELS.windowClose,
+      IPC_CHANNELS.windowIsMaximized
+    ])
+    expect(subscribe).toHaveBeenCalledWith(IPC_CHANNELS.windowMaximizedEvent, expect.any(Function))
+    off()
+    expect(unsubscribe).toHaveBeenCalledTimes(1)
   })
 
   it('routes session and terminal operations', async () => {
@@ -153,6 +186,15 @@ describe('session event subscription', () => {
     disposeFirst()
     api.onSessionEvent(vi.fn())
     expect(subscribe).toHaveBeenCalledTimes(2)
+  })
+
+  it('forwards native View commands without exposing channel strings', () => {
+    const { api, subscribe, emit } = setup()
+    const listener = vi.fn()
+    api.onViewCommand(listener)
+    expect(subscribe.mock.calls[0]![0]).toBe(IPC_CHANNELS.viewCommand)
+    emit('focus')
+    expect(listener).toHaveBeenCalledWith('focus')
   })
 })
 

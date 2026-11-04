@@ -54,11 +54,11 @@ export default function WorktreeCleanupDialog({
       aria-label="Session worktree cleanup"
       data-testid="worktree-cleanup-dialog"
     >
-      <div className="w-full max-w-lg rounded-lg border border-border bg-card p-5 shadow-2xl">
+      <div className="ade-modal w-full max-w-lg rounded-lg border border-border bg-card p-6 shadow-2xl">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-2">
-            <AlertTriangle size={15} className="text-amber-400" />
-            <h2 className="text-[14px] font-semibold">{blockerTitle(prompt)}</h2>
+            <AlertTriangle size={15} className="text-signal" />
+            <h2 className="text-[16px] font-semibold">{blockerTitle(prompt)}</h2>
           </div>
           <button
             type="button"
@@ -70,17 +70,17 @@ export default function WorktreeCleanupDialog({
           </button>
         </div>
 
-        <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+        <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground">
           {blocker?.kind === 'dirty'
-            ? 'Commit the work in the session terminal, or discard the worktree deliberately. ADE will not delete a worktree that contains changes.'
+            ? 'Commit the work in the session terminal, or discard the worktree deliberately. iCode will not delete a worktree that contains changes.'
             : blocker?.kind === 'unmerged'
               ? 'The branch has commits that are not in the primary checkout. Merge them, or discard the worktree deliberately.'
               : blocker?.kind === 'missing'
                 ? 'The directory is gone, so nothing will be deleted. Re-create the checkout from the retained branch, then remove the session normally.'
-                : 'ADE could not verify this worktree. Nothing will be deleted until the state can be inspected.'}
+                : 'iCode could not verify this worktree. Nothing will be deleted until the state can be inspected.'}
         </p>
 
-        <dl className="mt-3 space-y-1 rounded-md border border-border bg-background px-3 py-2 font-mono text-[10px] text-muted-foreground">
+        <dl className="mt-3 space-y-1 rounded-md border border-border bg-background px-3 py-2 font-mono text-[11px] text-muted-foreground">
           <div>
             session <span className="text-foreground">{prompt.title}</span>
           </div>
@@ -108,7 +108,7 @@ export default function WorktreeCleanupDialog({
               ))}
             </ul>
             {blocker.files.length > 40 ? (
-              <p className="mt-1 text-[9px] text-muted-foreground">
+              <p className="mt-1 text-[11px] text-muted-foreground">
                 +{blocker.files.length - 40} more
               </p>
             ) : null}
@@ -118,7 +118,7 @@ export default function WorktreeCleanupDialog({
         {recoverable ? (
           <button
             type="button"
-            className="mt-4 inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-[11px] hover:bg-muted"
+            className="mt-4 inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-[12px] hover:bg-muted"
             onClick={onRecover}
             data-testid="cleanup-recover"
           >
@@ -129,7 +129,7 @@ export default function WorktreeCleanupDialog({
 
         {discardable ? (
           <div className="mt-4 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-3">
-            <p className="text-[11px] font-medium text-red-200">
+            <p className="text-[12px] font-medium text-destructive">
               Discard the worktree and lose the changes above
             </p>
             <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
@@ -138,7 +138,7 @@ export default function WorktreeCleanupDialog({
               <span className="font-mono text-foreground">{prompt.branch}</span> to confirm.
             </p>
             <input
-              className="mt-2 w-full rounded-md border border-border bg-background px-2.5 py-1.5 font-mono text-[11px] outline-none focus:border-destructive"
+              className="mt-2 w-full rounded-md border border-border bg-background px-3 py-2 font-mono text-[12px] outline-none focus:border-destructive"
               value={typed}
               onChange={(event) => setTyped(event.target.value)}
               placeholder={prompt.branch}
@@ -147,7 +147,7 @@ export default function WorktreeCleanupDialog({
             />
             <button
               type="button"
-              className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-destructive px-2.5 py-1.5 text-[11px] font-medium text-black hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+              className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-destructive px-2.5 py-1.5 text-[12px] font-medium text-black hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
               onClick={() => void onDiscard(prompt.branch)}
               disabled={!confirmMatches || busy}
               data-testid="discard-confirm"
@@ -161,7 +161,7 @@ export default function WorktreeCleanupDialog({
         <div className="mt-5 flex justify-end">
           <button
             type="button"
-            className="rounded-md border border-border px-3 py-1.5 text-[11px] hover:bg-muted"
+            className="h-9 rounded-md border border-border px-3 text-[12px] hover:bg-muted"
             onClick={onClose}
           >
             Keep worktree

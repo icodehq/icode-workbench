@@ -82,6 +82,27 @@ describe('repository registration', () => {
     expect(detail?.workspace.id).toBe(listed[0]!.workspace.id)
   })
 
+  it('registers a just-initialized folder without re-probing Git', async () => {
+    const h = harness()
+    const repoPath = join(h.root.dir, 'fresh')
+    mkdirSync(repoPath, { recursive: true })
+    const real = execFileSync('realpath', [repoPath]).toString().trim()
+
+    const first = await h.service.addInitializedRepository(repoPath)
+    expect(first.created).toBe(true)
+    expect(first.repository.path).toBe(real)
+    expect(first.repository.currentBranch).toBeNull()
+    expect(first.repository.gitCommonDir).toBe(join(real, '.git'))
+    expect(h.service.getRepository(first.repository.id)?.workspace.repoId).toBe(
+      first.repository.id
+    )
+
+    const again = await h.service.addInitializedRepository(repoPath)
+    expect(again.created).toBe(false)
+    expect(again.repository.id).toBe(first.repository.id)
+    expect(h.service.listRepositories()).toHaveLength(1)
+  })
+
   it('treats the same path on another execution target as a distinct repository', async () => {
     const h = harness()
     const repoPath = join(h.root.dir, 'atlas')

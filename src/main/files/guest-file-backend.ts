@@ -82,6 +82,47 @@ printf '%s' "$out"
 exit 0
 `
 
+const CREATE_SCRIPT = `
+root=$1
+rel=$2
+kind=$3
+cd "$root" 2>/dev/null || { echo "NOTFOUND"; exit 4; }
+if [ -e "$rel" ]; then echo "EXISTS"; exit 10; fi
+parent=$(dirname -- "$rel")
+if [ ! -d "$parent" ]; then echo "NOTFOUND"; exit 4; fi
+if [ "$kind" = "directory" ]; then
+  mkdir -- "$rel" || { echo "FAILED"; exit 8; }
+else
+  # noclobber-equivalent: set -C makes the redirect refuse an existing file.
+  ( set -C; : > "$rel" ) 2>/dev/null || { echo "FAILED"; exit 8; }
+fi
+exit 0
+`
+
+const RENAME_SCRIPT = `
+root=$1
+from=$2
+to=$3
+cd "$root" 2>/dev/null || { echo "NOTFOUND"; exit 4; }
+if [ ! -e "$from" ]; then echo "NOTFOUND"; exit 4; fi
+if [ -e "$to" ]; then echo "EXISTS"; exit 10; fi
+parent=$(dirname -- "$to")
+if [ ! -d "$parent" ]; then echo "NOTFOUND"; exit 4; fi
+mv -- "$from" "$to" || { echo "FAILED"; exit 8; }
+exit 0
+`
+
+const REMOVE_SCRIPT = `
+root=$1
+rel=$2
+cd "$root" 2>/dev/null || { echo "NOTFOUND"; exit 4; }
+if [ ! -e "$rel" ]; then echo "NOTFOUND"; exit 4; fi
+# Never allow the checkout itself to be the target.
+case "$rel" in "."|""|"/") echo "FAILED"; exit 8;; esac
+rm -rf -- "$rel" || { echo "FAILED"; exit 8; }
+exit 0
+`
+
 function decode(buffer: Buffer): string {
   return buffer.toString('utf8')
 }
@@ -262,6 +303,26 @@ export function createGuestFileBackend(
         truncated: matches.length >= limit || scannedFiles >= FILES_MAX_SEARCH_FILES,
         scannedFiles: Number.isFinite(scannedFiles) ? scannedFiles : matches.length
       }
+    },
+
+    async create(relative, kind) {
+      const result = await run(CREATE_SCRIPT, [worktreePath, relative, kind])
+      if (result.code === 4) throw new FileAccessError('not-found', 'The parent directory does not exist.')
+      if (result.code === 10) throw new FileAccessError('already-exists', 'Something already exists at that path.')
+      if (result.code !== 0) throw new FileAccessError('write-failed', 'That path could not be created.')
+    },
+
+    async rename(from, to) {
+      const result = await run(RENAME_SCRIPT, [worktreePath, from, to])
+      if (result.code === 4) throw new FileAccessError('not-found', 'That path does not exist.')
+      if (result.code === 10) throw new FileAccessError('already-exists', 'Something already exists at the new path.')
+      if (result.code !== 0) throw new FileAccessError('write-failed', 'That path could not be renamed.')
+    },
+
+    async remove(relative) {
+      const result = await run(REMOVE_SCRIPT, [worktreePath, relative])
+      if (result.code === 4) throw new FileAccessError('not-found', 'That path does not exist.')
+      if (result.code !== 0) throw new FileAccessError('write-failed', 'That path could not be deleted.')
     }
   }
 }

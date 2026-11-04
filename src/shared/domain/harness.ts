@@ -34,6 +34,14 @@ export function harnessLabel(id: HarnessId): string {
   return HARNESS_DEFINITIONS[id].label
 }
 
+/**
+ * Shell is a terminal, not an agent. Review notes typed into it would be
+ * executed as shell input, so only the coding-agent harnesses can receive them.
+ */
+export function isAgentHarness(id: HarnessId): boolean {
+  return id !== 'shell'
+}
+
 export type HarnessProbeOutcome = 'exited' | 'timed_out' | 'signaled' | 'spawn_error'
 
 /** Raw evidence from a real probe; produced by the detector in main. */

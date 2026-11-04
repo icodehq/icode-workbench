@@ -12,7 +12,13 @@ import type { LaunchCommand } from './launch-command'
 import { chooseShellCommand } from './default-shell'
 import { findExecutable } from './find-executable'
 
-export const PROBE_TIMEOUT_MS = 5000
+/**
+ * Version probes are cold-start work: a Node-based shim (OpenCode) can take
+ * several seconds to report after other agent sessions are already running.
+ * Five seconds produced false "could not be verified" results under load; ten
+ * still bounds a genuinely broken harness without hiding it.
+ */
+export const PROBE_TIMEOUT_MS = 10_000
 const MAX_CAPTURE_BYTES = 8192
 
 /** npm installs Windows CLIs as `.cmd` shims, alongside a `.ps1` twin. */

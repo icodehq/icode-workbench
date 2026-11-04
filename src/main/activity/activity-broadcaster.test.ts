@@ -22,6 +22,7 @@ function transition(overrides: Partial<ActivityTransition> = {}): ActivityTransi
     sessionId: SESSION,
     previous: summary({ state: 'working', unread: false, outcome: null }),
     next: summary(),
+    harnessSessionId: null,
     attention: 'done',
     ...overrides
   }

@@ -2,8 +2,9 @@
 /**
  * Work 12 acceptance: per-session worktree isolation through the real UI.
  *
- * Runs the packaged Linux application with an isolated XDG profile (no
- * ADE_GATE_* overrides) and exercises two concurrent sessions, isolation,
+ * Runs the current build through the local Electron by default (set
+ * ADE_SMOKE_EXECUTABLE to test a packaged app) with an isolated XDG profile
+ * (no ADE_GATE_* overrides). It exercises two concurrent sessions, isolation,
  * quit/relaunch, restart, removal protection, discard, branch retention and
  * branch deletion.
  */
@@ -22,7 +23,9 @@ const { join, resolve } = require('node:path')
 const { connect } = require('./ui-cdp.cjs')
 
 const APP_DIR = resolve(__dirname, '..', '..')
-const PACKAGED_EXE = process.env.ADE_SMOKE_EXECUTABLE ?? join(APP_DIR, 'dist', 'linux-unpacked', 'ade')
+const ELECTRON = require('electron')
+const EXPLICIT_EXECUTABLE = process.env.ADE_SMOKE_EXECUTABLE ?? null
+const APP_EXECUTABLE = EXPLICIT_EXECUTABLE ?? ELECTRON
 const ARTIFACT_DIR = process.env.ADE_SMOKE_ARTIFACTS ?? join(APP_DIR, 'artifacts', 'work12')
 const RUN_DIR = mkdtempSync(join(tmpdir(), 'ade-work12-accept-'))
 const REPO_DIR = join(RUN_DIR, 'repo')
@@ -166,6 +169,34 @@ async function click(selector) {
   assert(ok, `Could not click ${selector}`)
 }
 
+async function openSessionMenu() {
+  if (
+    await cdp.evaluate(
+      `Boolean(document.querySelector('[data-testid="session-menu-popover"]'))`
+    )
+  ) {
+    return
+  }
+  await click('[data-testid="session-menu"]')
+  await waitFor(
+    `Boolean(document.querySelector('[data-testid="session-menu-popover"]'))`,
+    'the Session menu'
+  )
+}
+
+async function sessionAction(testId) {
+  await openSessionMenu()
+  await click(`[data-testid="${testId}"]`)
+}
+
+async function requestRemoveSession() {
+  await sessionAction('remove-session')
+  await waitFor(
+    `Boolean(document.querySelector('[data-testid="remove-session-dialog"]'))`,
+    'the Remove session dialog'
+  )
+}
+
 async function setInput(selector, value) {
   const ok = await cdp.evaluate(`(() => {
     const el = document.querySelector(${JSON.stringify(selector)});
@@ -275,7 +306,11 @@ async function launch(label) {
   const stream = createWriteStream(logPath)
   RUN.artifacts.push(logPath)
   const port = await allocatePort()
-  appProcess = spawn(PACKAGED_EXE, [`--remote-debugging-port=${port}`], {
+  appProcess = spawn(
+    APP_EXECUTABLE,
+    EXPLICIT_EXECUTABLE ? [`--remote-debugging-port=${port}`] : ['.', `--remote-debugging-port=${port}`],
+    {
+    cwd: APP_DIR,
     env: {
       ...process.env,
       XDG_CONFIG_HOME: XDG_CONFIG,
@@ -290,7 +325,7 @@ async function launch(label) {
   cdp = await connect(port)
   cdp.port = port
   await waitFor(
-    `Boolean(document.querySelector('[data-testid="repo-select"]')) && !document.body.innerText.includes('Loading repositories')`,
+    `Boolean(document.querySelector('[data-testid="app-rail"]')) && (Boolean(document.querySelector('[data-testid="empty-workspace"]')) || Boolean(document.querySelector('[data-testid="projects-wall"]'))) && !document.body.innerText.includes('Loading repositories')`,
     'workspace boot',
     30000
   )
@@ -380,6 +415,23 @@ async function terminalReady(sessionId) {
   await waitForLine(sessionId, (line) => /\$\s*$/.test(line), 'shell prompt')
 }
 
+
+async function openProjectSessions() {
+  if (await cdp.evaluate(`Boolean(document.querySelector('[data-testid="project-sessions-list"]'))`)) return
+  if (!(await cdp.evaluate(`Boolean(document.querySelector('[data-testid="projects-wall"]'))`))) {
+    await click('[data-testid="rail-projects"]')
+    await waitFor(`Boolean(document.querySelector('[data-testid="projects-wall"]'))`, 'projects wall', 20000)
+  }
+  const repoTestId = await cdp.evaluate(
+    `document.querySelector('[data-testid^="project-row-"]')?.getAttribute('data-testid') ?? null`
+  )
+  assert(repoTestId, 'No project lane after relaunch')
+  await click(`[data-testid="${repoTestId.replace('project-row-', 'open-project-')}"]`)
+  await waitFor(`Boolean(document.querySelector('[data-testid="project-header"]'))`, 'project header', 20000)
+  await click('[data-testid="project-mode-sessions"]')
+  await waitFor(`Boolean(document.querySelector('[data-testid="project-sessions-list"]'))`, 'project sessions', 20000)
+}
+
 async function main() {
   mkdirSync(ARTIFACT_DIR, { recursive: true })
   mkdirSync(REPO_DIR, { recursive: true })
@@ -392,7 +444,7 @@ async function main() {
     { cwd: REPO_DIR }
   )
   RUN.build = {
-    executable: PACKAGED_EXE,
+    executable: APP_EXECUTABLE,
     userData: USER_DATA,
     worktreeRoot: join(USER_DATA, 'worktrees'),
     gateOverrides: Object.keys(process.env).filter((key) => key.startsWith('ADE_GATE_'))
@@ -479,8 +531,10 @@ async function main() {
     await sleep(800)
     assert(pidAlive(hostPid), 'Detached host died with the app')
     await launch('relaunch')
+    await sleep(1500)
+    await openProjectSessions()
     await waitFor(
-      `Array.from(document.querySelectorAll('[data-session-id]')).length === 2`,
+      `new Set(Array.from(document.querySelectorAll('[data-session-id]')).map((el) => el.dataset.sessionId)).size === 2`,
       'sessions restored',
       30000
     )
@@ -515,7 +569,7 @@ async function main() {
 
   await step('restart in the same worktree with a new incarnation', 'AC5', async () => {
     const before = state.a
-    await click('[data-testid="restart-session"]')
+    await sessionAction('restart-session')
     await waitFor(
       `(() => {
         const item = document.querySelector('[data-session-id="${before.id}"]');
@@ -539,25 +593,37 @@ async function main() {
     return { before: before.incarnation, after: after.incarnation, branch: worktree }
   })
 
-  await step('block removal while the PTY is live', 'AC6', async () => {
-    await click('[data-testid="remove-session"]')
-    const feedback = await waitForNotice('live terminal')
-    expectTone(feedback)
-    assert(existsSync(state.aEntry.path), 'Live removal deleted the worktree')
-    await screenshot('04-live-removal-blocked')
-    return feedback
+  await step('confirm before removing a live session', 'AC6', async () => {
+    await requestRemoveSession()
+    const text = await cdp.evaluate(
+      `document.querySelector('[data-testid="remove-session-dialog"]').innerText`
+    )
+    assert(text.includes('branch is kept'), 'Removal does not say the branch is kept')
+    assert(
+      text.includes('uncommitted work is protected'),
+      'Removal does not say uncommitted work is protected'
+    )
+    assert(!text.includes('terminal process'), 'Removal exposes terminal-process internals')
+    assert(!text.includes('worktree'), 'Removal exposes worktree internals')
+    await screenshot('04-live-removal-confirmation')
+    await click('[data-testid="remove-session-cancel"]')
+    await waitFor(
+      `!document.querySelector('[data-testid="remove-session-dialog"]')`,
+      'the Remove dialog to close'
+    )
+    assert(existsSync(state.aEntry.path), 'Cancelled removal deleted the worktree')
+    return { text: text.trim().split('\n').filter(Boolean) }
   })
 
   await step('protect uncommitted work and require an exact discard confirmation', 'AC7', async () => {
-    await click('[data-testid="stop-session"]')
+    writeFileSync(join(state.aEntry.path, 'uncommitted.txt'), 'work in progress\n')
+    await requestRemoveSession()
+    await click('[data-testid="remove-session-confirm"]')
     await waitFor(
-      `document.querySelector('[data-testid="session-state"]')?.getAttribute('data-state') === 'exited'`,
-      'session A to exit',
+      `Boolean(document.querySelector('[data-testid="worktree-cleanup-dialog"]'))`,
+      'cleanup dialog',
       20000
     )
-    writeFileSync(join(state.aEntry.path, 'uncommitted.txt'), 'work in progress\n')
-    await click('[data-testid="remove-session"]')
-    await waitFor(`Boolean(document.querySelector('[data-testid="worktree-cleanup-dialog"]'))`, 'cleanup dialog')
     const dialog = await cdp.evaluate(
       `document.querySelector('[data-testid="worktree-cleanup-dialog"]').innerText`
     )
@@ -600,13 +666,8 @@ async function main() {
 
   await step('remove a clean session and retain its branch', 'AC8', async () => {
     await selectSession(state.b.id)
-    await click('[data-testid="stop-session"]')
-    await waitFor(
-      `document.querySelector('[data-testid="session-state"]')?.getAttribute('data-state') === 'exited'`,
-      'session B to exit',
-      20000
-    )
-    await click('[data-testid="remove-session"]')
+    await requestRemoveSession()
+    await click('[data-testid="remove-session-confirm"]')
     await waitFor(
       `!Array.from(document.querySelectorAll('[data-session-id]')).some((el) => el.innerText.includes('Worktree B'))`,
       'session B removal',
@@ -624,6 +685,23 @@ async function main() {
   })
 
   await step('delete the retained branch explicitly', 'AC8', async () => {
+    /*
+     * Session removal refreshes the branch list asynchronously. The delete
+     * control is deliberately disabled while the branch's old worktree path is
+     * still recorded; wait for the refreshed enabled row instead of clicking a
+     * disabled button and then blaming the missing notice.
+     */
+    await waitFor(
+      `(() => {
+        const row = Array.from(document.querySelectorAll('[data-testid^="retained-branch-"]')).find((el) =>
+          el.getAttribute('data-testid') === ${JSON.stringify(`retained-branch-${state.bEntry.branch}`)}
+        );
+        const button = row && row.querySelector('button');
+        return Boolean(button) && !button.disabled;
+      })()`,
+      'retained branch delete enabled',
+      20_000
+    )
     const removed = await cdp.evaluate(`(() => {
       const row = Array.from(document.querySelectorAll('[data-testid^="retained-branch-"]')).find((el) =>
         el.getAttribute('data-testid') === ${JSON.stringify(`retained-branch-${state.bEntry.branch}`)}

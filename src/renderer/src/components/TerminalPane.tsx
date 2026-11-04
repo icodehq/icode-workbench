@@ -5,73 +5,64 @@ import { AlertTriangle, Loader2, RefreshCw } from 'lucide-react'
 import type { AppError } from '../../../shared/domain/errors'
 import type { SessionSummary } from '../../../shared/schemas/ipc'
 import { SessionTerminal, type TerminalStatus } from '../terminal/session-terminal'
+import { rememberTerminalSize } from '../terminal/terminal-size'
 
 /**
  * Terminal palettes, one per application appearance.
  *
- * These are a terminal-specific extension of Instrument A2 rather than A2
- * itself: the prototype defines the application surface but never renders a
- * terminal, so its tokens do not cover ANSI, cursor or selection colours. Each
- * background equals the A2 canvas for that appearance, which is what keeps the
- * pane wrapper, the status chips and the error overlay coherent without any
- * component-level colour work.
- *
- * Every ANSI colour in the light palette was measured against `#F6F5F2` and
- * clears 4.5:1; the dark palette keeps the previously shipped colours except
- * `brightBlack`, raised from `#737373` (4.10:1) to `#8A8A8A` (5.63:1) because it
- * is the colour of comments and dimmed metadata. The two documented exceptions
- * are deliberate and are not text colours: dark `black` is the terminal's own
- * background, and light `white`/`brightWhite` are dark inks so that default text
- * remains readable on paper.
+ * The terminal is deliberately dark in both appearances, matching the iCode
+ * prototype: ANSI output and the prompt keep a stable palette while the shell
+ * switches. The light face uses the prototype's lighter terminal ground; the
+ * application surface around it remains paper.
  */
 export const TERMINAL_THEMES: Record<'light' | 'dark', ITheme> = {
   light: {
-    background: '#F6F5F2',
-    foreground: '#17181A',
-    cursor: '#17181A',
-    cursorAccent: '#F6F5F2',
-    selectionBackground: 'rgba(92, 97, 103, 0.32)',
-    selectionInactiveBackground: 'rgba(92, 97, 103, 0.16)',
-    black: '#24292F',
-    red: '#B42318',
-    green: '#14702F',
-    yellow: '#8F6200',
-    blue: '#0550AE',
-    magenta: '#7340CD',
-    cyan: '#0E6E7A',
-    white: '#3D4348',
-    brightBlack: '#666C73',
-    brightRed: '#8C1D18',
-    brightGreen: '#0B5A26',
-    brightYellow: '#6B4600',
-    brightBlue: '#033D82',
-    brightMagenta: '#6633B3',
-    brightCyan: '#0A5560',
-    brightWhite: '#17181A'
+    background: '#101722',
+    foreground: '#D7E2F0',
+    cursor: '#3FB950',
+    cursorAccent: '#101722',
+    selectionBackground: 'rgba(88, 166, 255, 0.26)',
+    selectionInactiveBackground: 'rgba(88, 166, 255, 0.14)',
+    black: '#101722',
+    red: '#FF7B72',
+    green: '#3FB950',
+    yellow: '#D29922',
+    blue: '#79C0FF',
+    magenta: '#D2A8FF',
+    cyan: '#56D4DD',
+    white: '#D7E2F0',
+    brightBlack: '#8B9BB0',
+    brightRed: '#FFA198',
+    brightGreen: '#56D364',
+    brightYellow: '#E3B341',
+    brightBlue: '#A5D6FF',
+    brightMagenta: '#E2C5FF',
+    brightCyan: '#76E3EA',
+    brightWhite: '#F0F6FC'
   },
   dark: {
-    background: '#0C0D0F',
-    foreground: '#E5E5E5',
-    cursor: '#FAFAFA',
-    cursorAccent: '#0C0D0F',
-    selectionBackground: 'rgba(154, 160, 166, 0.38)',
-    selectionInactiveBackground: 'rgba(154, 160, 166, 0.22)',
-    black: '#171717',
-    red: '#F87171',
-    green: '#4ADE80',
-    yellow: '#FACC15',
-    blue: '#60A5FA',
-    magenta: '#C084FC',
-    cyan: '#22D3EE',
-    white: '#E5E5E5',
-    brightBlack: '#8A8A8A',
-    brightRed: '#FCA5A5',
-    brightGreen: '#86EFAC',
-    brightYellow: '#FDE047',
-    brightBlue: '#93C5FD',
-    brightMagenta: '#D8B4FE',
-    brightCyan: '#67E8F9',
-    brightWhite: '#FAFAFA'
+    background: '#070B10',
+    foreground: '#C9D1D9',
+    cursor: '#56D364',
+    cursorAccent: '#070B10',
+    selectionBackground: 'rgba(31, 111, 235, 0.28)',
+    selectionInactiveBackground: 'rgba(31, 111, 235, 0.14)',
+    black: '#0A0E14',
+    red: '#FF7B72',
+    green: '#56D364',
+    yellow: '#D29922',
+    blue: '#79C0FF',
+    magenta: '#D2A8FF',
+    cyan: '#56D4DD',
+    white: '#C9D1D9',
+    brightBlack: '#8B949E',
+    brightRed: '#FFA198',
+    brightGreen: '#7EE787',
+    brightYellow: '#E3B341',
+    brightBlue: '#A5D6FF',
+    brightMagenta: '#E2C5FF',
+    brightCyan: '#76E3EA',
+    brightWhite: '#F0F6FC'
   }
 }
 
@@ -90,16 +81,19 @@ type Props = {
   session: SessionSummary
   active: boolean
   onError: (error: AppError) => void
+  /** A read-only preview: no focus, no resize back to the PTY. */
+  preview?: boolean
 }
 
 function describesTerminal(state: SessionSummary['state']): boolean {
   return state === 'starting' || state === 'live'
 }
 
-export default function TerminalPane({ session, active, onError }: Props): React.JSX.Element {
+export default function TerminalPane({ session, active, onError, preview = false }: Props): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const termRef = useRef<Terminal | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
+  const fitFrameRef = useRef<number | null>(null)
   const controllerRef = useRef<SessionTerminal | null>(null)
   const activeRef = useRef(active)
   const [status, setStatus] = useState<TerminalStatus>({
@@ -119,11 +113,29 @@ export default function TerminalPane({ session, active, onError }: Props): React
     if (!term || !fitAddon || !container) return
     if (container.clientWidth === 0 || container.clientHeight === 0) return
     try {
-      fitAddon.fit()
+      const proposed = fitAddon.proposeDimensions()
+      if (proposed === undefined) return
+      if (term.cols !== proposed.cols || term.rows !== proposed.rows) {
+        fitAddon.fit()
+      }
+      if (!preview && activeRef.current) {
+        // Persist only the fitted grid. Writing it from the attach snapshot
+        // would overwrite the remembered size with the host's old dimensions.
+        rememberTerminalSize({ cols: term.cols, rows: term.rows })
+      }
     } catch {
       // A hidden or detached container is not an error; the next activation fits.
     }
-  }, [])
+  }, [preview])
+
+  /** Coalesce observer/font/activation fits into one animation frame. */
+  const scheduleFit = useCallback((): void => {
+    if (fitFrameRef.current !== null) return
+    fitFrameRef.current = window.requestAnimationFrame(() => {
+      fitFrameRef.current = null
+      fit()
+    })
+  }, [fit])
 
   useEffect(() => {
     const container = containerRef.current
@@ -132,12 +144,13 @@ export default function TerminalPane({ session, active, onError }: Props): React
     const term = new Terminal({
       allowProposedApi: false,
       convertEol: false,
-      cursorBlink: true,
+      cursorBlink: !preview,
+      disableStdin: preview,
       fontFamily:
         "'JetBrains Mono', 'Cascadia Code', 'SFMono-Regular', Menlo, Consolas, monospace",
-      fontSize: 12,
-      lineHeight: 1.25,
-      scrollback: 5000,
+      fontSize: preview ? 10 : 12,
+      lineHeight: 1.2,
+      scrollback: preview ? 1000 : 5000,
       theme: { ...TERMINAL_THEMES[currentThemeName()] }
     })
     const fitAddon = new FitAddon()
@@ -146,16 +159,34 @@ export default function TerminalPane({ session, active, onError }: Props): React
     termRef.current = term
     fitRef.current = fitAddon
 
-    const inputDisposable = term.onData((data) => {
-      void controllerRef.current?.write(data)
-    })
+    const inputDisposable = preview
+      ? { dispose: (): void => {} }
+      : term.onData((data) => {
+          void controllerRef.current?.write(data)
+        })
+    /*
+     * A window drag can produce a resize event on every frame. Sending each one
+     * across the host made the shell redraw constantly; coalesce for one short
+     * interval and send only the final grid.
+     */
+    let resizeTimer: ReturnType<typeof setTimeout> | null = null
+    let pendingResize: { cols: number; rows: number } | null = null
     const resizeDisposable = term.onResize(({ cols, rows }) => {
-      controllerRef.current?.resize(cols, rows)
+      if (preview) return
+      pendingResize = { cols, rows }
+      if (resizeTimer !== null) clearTimeout(resizeTimer)
+      resizeTimer = setTimeout(() => {
+        resizeTimer = null
+        const next = pendingResize
+        pendingResize = null
+        if (next !== null) controllerRef.current?.resize(next.cols, next.rows)
+      }, 50)
     })
 
     const controller = new SessionTerminal({
       sessionId: session.id,
       api: window.ade,
+      readOnly: preview,
       sink: {
         reset: () => term.reset(),
         write: (data) => term.write(data),
@@ -165,10 +196,13 @@ export default function TerminalPane({ session, active, onError }: Props): React
       },
       onStatus: setStatus,
       onAttached: () => {
+        scheduleFit()
         window.requestAnimationFrame(() => {
-          if (!activeRef.current) return
-          fit()
-          term.focus()
+          if (preview) {
+            term.scrollToBottom()
+            return
+          }
+          if (activeRef.current) term.focus()
         })
       },
       onError
@@ -177,10 +211,25 @@ export default function TerminalPane({ session, active, onError }: Props): React
     controller.start()
 
     const observer = new ResizeObserver(() => {
-      if (!activeRef.current) return
-      fit()
+      if (!preview && !activeRef.current) return
+      scheduleFit()
     })
     observer.observe(container)
+
+    /*
+     * `font-display: swap` means the first fit can use fallback glyph metrics
+     * and then change when JetBrains Mono arrives. Fit again once the document
+     * fonts are ready; this is a layout correction, not a second terminal.
+     */
+    let disposed = false
+    if (document.fonts !== undefined) {
+      void document.fonts.ready
+        .then(() => {
+          if (!disposed) scheduleFit()
+        })
+        .catch(() => undefined)
+    }
+    scheduleFit()
 
     // xterm compares the `theme` option by reference, so a fresh object is
     // required for the update to be applied. Assigning the option only rewrites
@@ -196,6 +245,12 @@ export default function TerminalPane({ session, active, onError }: Props): React
     })
 
     return () => {
+      disposed = true
+      if (resizeTimer !== null) clearTimeout(resizeTimer)
+      if (fitFrameRef.current !== null) {
+        window.cancelAnimationFrame(fitFrameRef.current)
+        fitFrameRef.current = null
+      }
       themeObserver.disconnect()
       observer.disconnect()
       resizeDisposable.dispose()
@@ -208,16 +263,13 @@ export default function TerminalPane({ session, active, onError }: Props): React
     }
     // The component is keyed by session and incarnation by its owner.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session.id])
+  }, [session.id, preview])
 
   useEffect(() => {
-    if (!active) return
-    const frame = window.requestAnimationFrame(() => {
-      fit()
-      termRef.current?.focus()
-    })
-    return () => window.cancelAnimationFrame(frame)
-  }, [active, fit])
+    if (!active || preview) return
+    scheduleFit()
+    termRef.current?.focus()
+  }, [active, preview, scheduleFit])
 
   const showOverlay = status.phase === 'error'
   const busy = status.phase === 'connecting' || status.phase === 'resyncing'
@@ -226,18 +278,21 @@ export default function TerminalPane({ session, active, onError }: Props): React
 
   return (
     <div
-      className={`relative h-full w-full overflow-hidden bg-background ${active ? '' : 'hidden'}`}
+      className={`relative h-full w-full overflow-hidden bg-background ${
+        preview ? 'wall-terminal pointer-events-none' : active ? '' : 'hidden'
+      }`}
       data-testid={`terminal-pane-${session.id}`}
+      data-preview={preview ? 'true' : 'false'}
       data-active={active ? 'true' : 'false'}
       data-phase={status.phase}
     >
       <div
         ref={containerRef}
-        className="terminal-host absolute inset-0 px-2 py-1"
+        className={`terminal-host absolute inset-0 ${preview ? 'px-1.5 py-1' : 'px-2 py-1'}`}
         data-testid={`terminal-${session.id}`}
-        onClick={() => termRef.current?.focus()}
+        onClick={preview ? undefined : () => termRef.current?.focus()}
       />
-      {busy ? (
+      {busy && !preview ? (
         <div className="pointer-events-none absolute left-3 top-2 z-10 flex items-center gap-2 rounded-md border border-border bg-card/95 px-2 py-1 text-[10px] text-muted-foreground">
           <Loader2 size={11} className="animate-spin" />
           {status.phase === 'connecting'
@@ -245,37 +300,47 @@ export default function TerminalPane({ session, active, onError }: Props): React
             : 'Synchronizing terminal output…'}
         </div>
       ) : null}
-      {finished ? (
+      {finished && !preview ? (
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 border-t border-border bg-card/95 px-3 py-1.5 text-[10px] text-muted-foreground">
-          {status.phase === 'exited'
-            ? `Process exited${status.exitCode === null ? '' : ` (code ${String(status.exitCode)})`}. The output above is final.`
-            : status.phase === 'unavailable'
-              ? (status.message ?? 'The terminal host no longer owns this session.')
-              : (status.message ?? 'The process failed.')}
-          {describesTerminal(session.state) ? ' The host has not confirmed this state yet.' : ''}
+          {session.sleeping === true
+            ? 'Session is sleeping. Wake it to start a new process.'
+            : status.phase === 'exited'
+              ? `Process exited${status.exitCode === null ? '' : ` (code ${String(status.exitCode)})`}. The output above is final.`
+              : status.phase === 'unavailable'
+                ? (status.message ?? 'The terminal host no longer owns this session.')
+                : (status.message ?? 'The process failed.')}
+          {session.sleeping !== true && describesTerminal(session.state)
+            ? ' The host has not confirmed this state yet.'
+            : ''}
         </div>
       ) : null}
       {showOverlay ? (
-        <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/85 p-6">
-          <div className="w-full max-w-md rounded-lg border border-destructive/40 bg-card p-4">
-            <div className="flex items-center gap-2 text-[12px] font-medium text-destructive">
-              <AlertTriangle size={14} />
-              Terminal unavailable
-            </div>
-            <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-              {status.message ?? 'The terminal could not be synchronized.'}
-            </p>
-            <button
-              type="button"
-              className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-border bg-muted px-2.5 py-1.5 text-[11px] hover:bg-border/40"
-              onClick={() => controllerRef.current?.retry()}
-              data-testid="terminal-retry"
-            >
-              <RefreshCw size={12} />
-              Reconnect
-            </button>
+        preview ? (
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/90 px-2 text-center text-[9px] text-muted-foreground">
+            Preview unavailable
           </div>
-        </div>
+        ) : (
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/85 p-6">
+            <div className="w-full max-w-md rounded-lg border border-destructive/40 bg-card p-4">
+              <div className="flex items-center gap-2 text-[12px] font-medium text-destructive">
+                <AlertTriangle size={14} />
+                Terminal unavailable
+              </div>
+              <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+                {status.message ?? 'The terminal could not be synchronized.'}
+              </p>
+              <button
+                type="button"
+                className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-border bg-muted px-2.5 py-1.5 text-[11px] hover:bg-border/40"
+                onClick={() => controllerRef.current?.retry()}
+                data-testid="terminal-retry"
+              >
+                <RefreshCw size={12} />
+                Reconnect
+              </button>
+            </div>
+          </div>
+        )
       ) : null}
     </div>
   )

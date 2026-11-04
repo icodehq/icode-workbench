@@ -105,6 +105,21 @@ describe('holder ensure', () => {
     expect(store.current()?.windowsPid).toBe(5555)
   })
 
+  it('waits for an asynchronous spawn report before recording the holder', async () => {
+    const store = memoryStore(null)
+    const holder = createWslHolder({
+      store,
+      queryProcess: async () => evidenceFor({ missing: true }),
+      spawn: async () => {
+        await Promise.resolve()
+        return { windowsPid: asWindowsProcessId(6666)! }
+      }
+    })
+    const outcome = await holder.ensure(DISTRO, ID)
+    expect(outcome.outcome).toBe('spawned')
+    expect(store.current()?.windowsPid).toBe(6666)
+  })
+
   it('spawns when the pid was reused by another process', async () => {
     const store = memoryStore(RECORD)
     const holder = createWslHolder({

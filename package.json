@@ -37,15 +37,21 @@
     "smoke:claude": "node scripts/compat/claude-tui-smoke.cjs",
     "smoke:worktree": "node scripts/compat/worktree-isolation-smoke.cjs",
     "test:watch": "vitest --config vitest.config.mts",
-    "smoke:review": "node scripts/compat/review-smoke.cjs",
-    "smoke:activity": "node scripts/compat/activity-smoke.cjs"
+    "perf:scm": "ADE_PERF=1 vitest run --config vitest.config.mts src/main/git/git-workspace-service.test.ts -t \"reads 10k untracked files\"",
+    "smoke:activity": "node scripts/compat/activity-smoke.cjs",
+    "package:msi": "pnpm build && node scripts/wsl/prepare-artifacts.cjs && electron-builder --win msi --x64 --config config/electron-builder.config.cjs",
+    "smoke:features": "node scripts/compat/feature-smoke.cjs",
+    "smoke:projects": "node scripts/compat/project-onboarding-smoke.cjs",
+    "smoke:scm": "node scripts/compat/scm-smoke.cjs"
   },
   "dependencies": {
     "@xterm/addon-fit": "0.11.0",
     "@xterm/addon-serialize": "0.14.0",
     "@xterm/headless": "6.0.0",
     "@xterm/xterm": "6.0.0",
+    "chokidar": "4.0.3",
     "lucide-react": "0.577.0",
+    "monaco-editor": "0.57.0",
     "node-pty": "1.1.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
@@ -67,5 +73,6 @@
     "typescript": "5.9.3",
     "vite": "8.3.4",
     "vitest": "5.0.5"
-  }
+  },
+  "author": "ADE contributors"
 }

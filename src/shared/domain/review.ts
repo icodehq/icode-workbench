@@ -33,8 +33,14 @@ export type ReviewFile = {
   additions: number | null
   deletions: number | null
   binary: boolean
-  /** Git stores a symlink as mode 120000; its "content" is the link target. */
-  symlink: boolean
+  /**
+   * Git stores a symlink as mode 120000; its "content" is the link target.
+   *
+   * `null` means the check could not be completed (for example a distro that is
+   * unreachable). It is deliberately not `false`: claiming "not a symlink" when
+   * nobody asked the right filesystem is the misreport this field must avoid.
+   */
+  symlink: boolean | null
 }
 
 export type ReviewList = {
@@ -59,7 +65,7 @@ export type ReviewDiff = {
   truncated: boolean
   truncatedReason: ReviewTruncation
   binary: boolean
-  symlink: boolean
+  symlink: boolean | null
   additions: number | null
   deletions: number | null
 }

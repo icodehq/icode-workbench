@@ -1,3 +1,4 @@
+import type { AppError } from './errors'
 import type { RepoId, WorkspaceId } from './ids'
 import type { CanonicalRepositoryPath } from './paths'
 
@@ -43,6 +44,27 @@ export function isLocalTarget(target: ExecutionTarget): boolean {
   return target.kind === 'local'
 }
 
+/**
+ * The potentially long part of adding a folder: creating its first commit.
+ *
+ * Registration is deliberately separate from this state. A project is real and
+ * usable for browsing as soon as its row exists; only isolated sessions need
+ * the baseline. Keeping preparation out of the Add request is what lets the
+ * dialog close before Git has staged a large tree.
+ */
+export type RepositoryPreparationState = 'preparing' | 'ready' | 'failed'
+
+export type RepositoryPreparation = {
+  state: RepositoryPreparationState
+  startedAt: number
+  finishedAt: number | null
+  /** Files actually committed; null until preparation finishes successfully. */
+  committedFiles: number | null
+  /** Dependency/cache folders intentionally left out of the first commit. */
+  skippedFolders: string[]
+  error: AppError | null
+}
+
 export type RepositoryRecord = {
   id: RepoId
   path: CanonicalRepositoryPath
@@ -55,6 +77,20 @@ export type RepositoryRecord = {
   gitCommonDir: string | null
   /** Defaults to local for rows written before schema v3. */
   executionTarget: ExecutionTarget
+  /** Null for an ordinary registered repository with a baseline commit. */
+  preparation?: RepositoryPreparation | null
+}
+
+/**
+ * Whether worktree-backed sessions must wait for preparation.
+ *
+ * A failed preparation is also blocked: starting a worktree without a baseline
+ * cannot succeed, and the UI should offer the explicit retry instead.
+ */
+export function repositoryPreparationBlocksSessions(
+  preparation: RepositoryPreparation | null | undefined
+): boolean {
+  return preparation?.state === 'preparing' || preparation?.state === 'failed'
 }
 
 export type WorkspaceKind = 'primary-checkout'

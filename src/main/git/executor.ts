@@ -13,7 +13,7 @@
  * ends up handed to Windows Git.
  */
 
-import { execFile } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { mkdirSync, readdirSync, rmdirSync, statSync } from 'node:fs'
 import { dirname } from 'node:path'
 import type { ExecutionTarget } from '../../shared/domain/repository'
@@ -25,12 +25,31 @@ export type GitExecRequest = {
   /** Working directory: a Windows path for a local target, a guest path otherwise. */
   cwd: string
   args: readonly string[]
+  /** Payload for Git's stdin, e.g. a hunk patch for `git apply`. */
+  stdin?: Buffer | string
   timeoutMs: number
   signal?: AbortSignal
 }
 
+/** Receives stdout as it arrives; the executor does not accumulate it. */
+export type GitStreamHandlers = {
+  onStdout(chunk: Buffer): void
+  onStderr?(chunk: Buffer): void
+}
+
+export type GitStreamRunner = (
+  request: GitExecRequest,
+  handlers: GitStreamHandlers
+) => Promise<GuestGitResult>
+
 export type GitExecutor = {
   exec(request: GitExecRequest): Promise<GuestGitResult>
+  /**
+   * Optional because `wsl.exe` currently buffers the guest process. Local Git
+   * streams; a guest status read still uses `exec` and enforces the limit after
+   * the buffer arrives.
+   */
+  stream?: GitStreamRunner
 }
 
 /**
@@ -161,20 +180,21 @@ export function createGuestHostFileSystem(
 export function createLocalGitExecutor(
   options: { env?: NodeJS.ProcessEnv } = {}
 ): GitExecutor {
+  const env = {
+    ...(options.env ?? process.env),
+    GIT_TERMINAL_PROMPT: '0',
+    GIT_OPTIONAL_LOCKS: '0'
+  }
   return {
-    exec({ cwd, args, timeoutMs, signal }) {
+    exec({ cwd, args, stdin, timeoutMs, signal }) {
       return new Promise<GuestGitResult>((resolve, reject) => {
-        execFile(
+        const child = execFile(
           'git',
           ['-C', cwd, ...args],
           {
             timeout: timeoutMs,
             maxBuffer: 64 * 1024 * 1024,
-            env: {
-              ...(options.env ?? process.env),
-              GIT_TERMINAL_PROMPT: '0',
-              GIT_OPTIONAL_LOCKS: '0'
-            },
+            env,
             ...(signal ? { signal } : {})
           },
           (error, stdout, stderr) => {
@@ -201,6 +221,63 @@ export function createLocalGitExecutor(
             })
           }
         )
+        if (stdin !== undefined) {
+          child.stdin?.on('error', () => {
+            // Git may exit before reading the whole patch; the exit code explains why.
+          })
+          child.stdin?.end(stdin)
+        }
+      })
+    },
+    stream({ cwd, args, timeoutMs, signal }, handlers) {
+      return new Promise<GuestGitResult>((resolve, reject) => {
+        const child = spawn('git', ['-C', cwd, ...args], {
+          env,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          windowsHide: true,
+          ...(signal ? { signal } : {})
+        })
+        let settled = false
+        let timedOut = false
+        const stderr: Buffer[] = []
+        const timer = setTimeout(() => {
+          timedOut = true
+          child.kill('SIGTERM')
+        }, timeoutMs)
+        const finish = (complete: () => void): void => {
+          if (settled) return
+          settled = true
+          clearTimeout(timer)
+          complete()
+        }
+        child.stdout.on('data', (chunk: Buffer) => {
+          try {
+            handlers.onStdout(chunk)
+          } catch (error) {
+            // A consumer that stops reading must not leave Git running.
+            child.kill('SIGTERM')
+            finish(() => reject(error))
+          }
+        })
+        child.stderr.on('data', (chunk: Buffer) => {
+          stderr.push(chunk)
+          handlers.onStderr?.(chunk)
+        })
+        child.on('error', (error) => {
+          finish(() => reject(error))
+        })
+        child.on('close', (code, closeSignal) => {
+          void closeSignal
+          finish(() =>
+            resolve({
+              // Stdout was delivered chunk by chunk; there is no copy here.
+              stdout: Buffer.alloc(0),
+              stderr: Buffer.concat(stderr),
+              exitCode: timedOut ? null : code,
+              timedOut
+            })
+          )
+        })
       })
     }
   }
@@ -212,11 +289,12 @@ export function createGuestGitExecutor(
   distro: string
 ): GitExecutor {
   return {
-    exec({ cwd, args, timeoutMs, signal }) {
+    exec({ cwd, args, stdin, timeoutMs, signal }) {
       return runGuestGit(runner, {
         distro,
         cwd,
         args,
+        ...(stdin !== undefined ? { stdin } : {}),
         timeoutMs,
         ...(signal ? { signal } : {})
       })
@@ -255,6 +333,12 @@ export function createGitExecutorRouter(deps: GitExecutorRouterDeps): GitExecuto
   const local = deps.localExecutor ?? createLocalGitExecutor()
   const localFs = createLocalHostFileSystem()
   const cache = new Map<string, { executor: GitExecutor; fs: HostFileSystem }>()
+  /**
+   * `$HOME` is stable for the life of a distro registration. Resolving it on
+   * every Git call made an Add-project request pay a fresh `wsl.exe` probe even
+   * though only the executor was needed; cache it alongside the executor.
+   */
+  const rootCache = new Map<string, string>()
   return {
     async resolve(target) {
       if (target.kind === 'local') {
@@ -274,12 +358,17 @@ export function createGitExecutorRouter(deps: GitExecutorRouterDeps): GitExecuto
         }
         cache.set(key, entry)
       }
-      const root = await deps.guestWorktreeRoot(target.distro)
-      if (root === null) {
-        throw new GitUnavailableError(
-          'The WSL distro did not report a home directory, so its worktree root is unknown.',
-          target.distro
-        )
+      let root = rootCache.get(key)
+      if (root === undefined) {
+        const resolved = await deps.guestWorktreeRoot(target.distro)
+        if (resolved === null) {
+          throw new GitUnavailableError(
+            'The WSL distro did not report a home directory, so its worktree root is unknown.',
+            target.distro
+          )
+        }
+        root = resolved
+        rootCache.set(key, resolved)
       }
       return { executor: entry.executor, worktreeRoot: root, fs: entry.fs }
     }

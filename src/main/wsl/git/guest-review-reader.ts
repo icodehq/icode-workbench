@@ -116,3 +116,34 @@ export function createGuestReviewReader(
     }
   }
 }
+
+/**
+ * Symlink probe for one distro.
+ *
+ * `test -L` is the distro's own answer about its own filesystem. Exit 0 means
+ * link, exit 1 means "not a link", and anything else (including a distro that
+ * cannot be reached) is unknown — never `false`, because the question was not
+ * answered. The path arrives as a positional parameter, so a file name holding
+ * shell syntax stays data.
+ */
+export function createGuestSymlinkProbe(
+  runner: WslCommandRunner,
+  distro: string
+): (worktreePath: string, relativePath: string) => Promise<boolean | null> {
+  return async (worktreePath, relativePath) => {
+    try {
+      const result = await runner.runBytes({
+        scope: 'guest',
+        distro,
+        argv: ['sh', '-c', 'cd "$1" 2>/dev/null || exit 9; test -L "$2"', 'sh', worktreePath, relativePath],
+        timeoutMs: 10_000
+      })
+      if ('status' in result) return null
+      if (result.code === 0) return true
+      if (result.code === 1) return false
+      return null
+    } catch {
+      return null
+    }
+  }
+}

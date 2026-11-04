@@ -139,7 +139,8 @@ describe('output contracts', () => {
         path: '/home/dev/atlas',
         currentBranch: 'main',
         availability: 'present',
-        target: { kind: 'local' }
+        target: { kind: 'local' },
+        preparation: null
       }).success
     ).toBe(true)
     // A WSL target round-trips its registration identity untouched.
@@ -150,7 +151,8 @@ describe('output contracts', () => {
         path: '/home/dev/atlas',
         currentBranch: 'main',
         availability: 'present',
-        target: { kind: 'wsl', distro: 'Ubuntu-26.04', distroId: 'guid-a' }
+        target: { kind: 'wsl', distro: 'Ubuntu-26.04', distroId: 'guid-a' },
+        preparation: null
       }).success
     ).toBe(true)
     // A target is required: an omitted one is not silently read as local.
@@ -191,7 +193,8 @@ describe('output contracts', () => {
           path: '/home/dev/atlas',
           currentBranch: null,
           availability: 'missing',
-          target: { kind: 'local' }
+          target: { kind: 'local' },
+          preparation: null
         }
       }).success
     ).toBe(true)

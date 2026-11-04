@@ -33,6 +33,18 @@ export const APP_ERROR_CODES = [
   'REVIEW_PATH_OUTSIDE',
   'GIT_READ_FAILED',
   'GIT_READ_TIMEOUT',
+  // Project adoption: a folder can be a Git-free project, but not yet a usable one.
+  'GIT_IDENTITY_MISSING',
+  'GIT_INIT_FAILED',
+  'GIT_COMMIT_FAILED',
+  // Git state that needs a specific remedy rather than a generic "git failed".
+  'GIT_INDEX_LOCKED',
+  'GIT_CONFLICT',
+  'GIT_DIVERGED',
+  'GIT_AUTH_FAILED',
+  'GIT_NON_FAST_FORWARD',
+  'GIT_BRANCH_IN_USE',
+  'GIT_STALE_STATUS',
   // WSL execution targets. Each names a different remedy, so they are separate
   // codes rather than one WSL_* bucket: the distro is gone, versus WSL itself is
   // unavailable, versus a probe against a live distro failed.
@@ -86,6 +98,8 @@ const RETRYABLE_CODES: ReadonlySet<AppErrorCode> = new Set<AppErrorCode>([
   'WORKTREE_CREATE_FAILED',
   'GIT_READ_FAILED',
   'GIT_READ_TIMEOUT',
+  // Index lock contention is transient: the other Git process usually finishes.
+  'GIT_INDEX_LOCKED',
   // A stopped distro or a busy WSL service generally answers on the next attempt.
   'WSL_UNAVAILABLE',
   'WSL_GUEST_PROBE_FAILED',

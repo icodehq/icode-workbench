@@ -2,7 +2,12 @@ import { z } from 'zod'
 import type { AppError } from '../domain/errors'
 import { WORKTREE_STATES, WORKTREE_STATUSES } from '../domain/worktree'
 import { activitySummarySchema } from './activity'
-import { appErrorSchema, harnessIdSchema, reconciliationReasonSchema } from './domain'
+import {
+  appErrorSchema,
+  harnessIdSchema,
+  reconciliationReasonSchema,
+  repositoryPreparationSchema
+} from './domain'
 import {
   absolutePathSchema,
   dimensionSchema,
@@ -19,28 +24,115 @@ export const IPC_CHANNELS = {
   runtimeInfo: 'ade:runtime-info',
   reposList: 'ade:repos:list',
   reposAdd: 'ade:repos:add',
+  reposInspect: 'ade:repos:inspect',
+  reposInitialize: 'ade:repos:initialize',
+  reposRetryPreparation: 'ade:repos:retry-preparation',
+  reposPickFolder: 'ade:repos:pick-folder',
   reposRemove: 'ade:repos:remove',
+  reposEvent: 'ade:repos:event',
+  viewCommand: 'ade:view:command',
+  windowMinimize: 'ade:window:minimize',
+  windowToggleMaximize: 'ade:window:toggle-maximize',
+  windowClose: 'ade:window:close',
+  windowIsMaximized: 'ade:window:is-maximized',
+  windowMaximizedEvent: 'ade:window:maximized',
   sessionsList: 'ade:sessions:list',
   sessionsGet: 'ade:sessions:get',
   sessionsCreate: 'ade:sessions:create',
   sessionsClose: 'ade:sessions:close',
   sessionsRestart: 'ade:sessions:restart',
+  sessionsSleep: 'ade:sessions:sleep',
+  sessionsWake: 'ade:sessions:wake',
   sessionsRemove: 'ade:sessions:remove',
   sessionsDiscard: 'ade:sessions:discard',
   sessionsRecoverWorktree: 'ade:sessions:recover-worktree',
   branchesList: 'ade:branches:list',
   branchesRemove: 'ade:branches:remove',
-  reviewList: 'ade:review:list',
-  reviewDiff: 'ade:review:diff',
+  reviewAreaDiff: 'ade:review:area-diff',
   filesList: 'ade:files:list',
   filesRead: 'ade:files:read',
   filesWrite: 'ade:files:write',
   filesSearch: 'ade:files:search',
+  filesCreate: 'ade:files:create',
+  filesRename: 'ade:files:rename',
+  filesRemove: 'ade:files:remove',
   gitStatus: 'ade:git:status',
+  gitCancelStatus: 'ade:git:cancel-status',
+  gitOperationState: 'ade:git:operation-state',
+  gitOperationContinue: 'ade:git:operation-continue',
+  gitOperationAbort: 'ade:git:operation-abort',
+  gitRangeDiff: 'ade:git:range-diff',
+  gitWatchStatus: 'ade:git:watch-status',
+  gitStatusEvent: 'ade:git:status-event',
   gitStageAll: 'ade:git:stage-all',
   gitUnstageAll: 'ade:git:unstage-all',
   gitCommit: 'ade:git:commit',
   gitDiscardPath: 'ade:git:discard-path',
+  gitSetPathStaged: 'ade:git:set-path-staged',
+  gitSetPathsStaged: 'ade:git:set-paths-staged',
+  gitDiscardPaths: 'ade:git:discard-paths',
+  gitBranches: 'ade:git:branches',
+  gitSwitchBranch: 'ade:git:switch-branch',
+  gitCreateBranch: 'ade:git:create-branch',
+  gitCreateTag: 'ade:git:create-tag',
+  gitDeleteTag: 'ade:git:delete-tag',
+  gitTags: 'ade:git:tags',
+  gitCheckoutRef: 'ade:git:checkout-ref',
+  gitFileAtRevision: 'ade:git:file-at-revision',
+  gitIndexFile: 'ade:git:index-file',
+  gitApplyPatch: 'ade:git:apply-patch',
+  gitConflictFile: 'ade:git:conflict-file',
+  gitResolveConflict: 'ade:git:resolve-conflict',
+  gitStashList: 'ade:git:stash-list',
+  gitStashPush: 'ade:git:stash-push',
+  gitStashDiff: 'ade:git:stash-diff',
+  gitStashAction: 'ade:git:stash-action',
+  gitWorktreeList: 'ade:git:worktree-list',
+  gitWorktreeAction: 'ade:git:worktree-action',
+  gitSubmoduleList: 'ade:git:submodule-list',
+  gitSubmoduleAction: 'ade:git:submodule-action',
+  gitBlame: 'ade:git:blame',
+  gitRenameBranch: 'ade:git:rename-branch',
+  gitDeleteBranch: 'ade:git:delete-branch',
+  gitMergeBranch: 'ade:git:merge-branch',
+  gitRebaseBranch: 'ade:git:rebase-branch',
+  gitCherryPick: 'ade:git:cherry-pick',
+  gitRevert: 'ade:git:revert',
+  gitReset: 'ade:git:reset',
+  gitPush: 'ade:git:push',
+  gitPull: 'ade:git:pull',
+  gitPublish: 'ade:git:publish',
+  gitFetch: 'ade:git:fetch',
+  gitRemotes: 'ade:git:remotes',
+  gitFetchRemote: 'ade:git:fetch-remote',
+  gitAddRemote: 'ade:git:add-remote',
+  gitRemoveRemote: 'ade:git:remove-remote',
+  gitPushTags: 'ade:git:push-tags',
+  gitForcePush: 'ade:git:force-push',
+  gitRemoteBranches: 'ade:git:remote-branches',
+  gitSetUpstream: 'ade:git:set-upstream',
+  gitAmend: 'ade:git:amend',
+  gitHistory: 'ade:git:history',
+  gitLog: 'ade:git:log',
+  gitCommitDetail: 'ade:git:commit-detail',
+  gitRevisionFileDiff: 'ade:git:revision-file-diff',
+  gitCompare: 'ade:git:compare',
+  tasksList: 'ade:tasks:list',
+  tasksCreate: 'ade:tasks:create',
+  tasksCancel: 'ade:tasks:cancel',
+  tasksRetry: 'ade:tasks:retry',
+  tasksHistory: 'ade:tasks:history',
+  tasksChanges: 'ade:tasks:changes',
+  tasksDecideReview: 'ade:tasks:decide-review',
+  tasksSettings: 'ade:tasks:settings',
+  tasksSetSettings: 'ade:tasks:set-settings',
+  schedulesList: 'ade:schedules:list',
+  schedulesCreate: 'ade:schedules:create',
+  schedulesUpdate: 'ade:schedules:update',
+  schedulesSetEnabled: 'ade:schedules:set-enabled',
+  schedulesRunNow: 'ade:schedules:run-now',
+  schedulesRemove: 'ade:schedules:remove',
+  taskEvent: 'ade:tasks:event',
   activityList: 'ade:activity:list',
   activityClearUnread: 'ade:activity:clear-unread',
   terminalAttach: 'ade:terminal:attach',
@@ -118,6 +210,45 @@ export const addRepositoryInputSchema = z.strictObject({
   target: executionTargetSchema.optional()
 })
 
+/**
+ * Asking the platform's folder dialog for a repository path.
+ *
+ * The target travels with the request because what a picker can show depends on
+ * it: a local repository is a Windows path, while a WSL one is browsed through
+ * that distro's `\\wsl.localhost` namespace and answered in Linux spelling.
+ */
+export const pickRepositoryFolderInputSchema = z.strictObject({
+  target: executionTargetSchema,
+  /**
+   * A WSL project can be stored in the distro or on a Windows drive. The latter
+   * needs a native Windows folder dialog because Windows denies browsing
+   * `\\wsl.localhost\<distro>\mnt\<drive>`; the selected spelling is translated
+   * by the project-folder service, never recorded as a Linux path verbatim.
+   */
+  source: z.enum(['wsl', 'windows']).optional()
+})
+
+export const pickRepositoryFolderResultSchema = z.discriminatedUnion('status', [
+  z.strictObject({
+    status: z.literal('selected'),
+    path: absolutePathSchema,
+    /** The Windows spelling the user chose, before WSL translation. */
+    translatedFrom: z.string().min(1).max(4096).optional()
+  }),
+  z.strictObject({ status: z.literal('cancelled') }),
+  z.strictObject({
+    status: z.literal('unavailable'),
+    reason: z.enum([
+      'not_windows',
+      'guest_home_unknown',
+      'dialog_failed',
+      'wrong_filesystem',
+      'path_unavailable'
+    ]),
+    detail: z.string().min(1).max(500)
+  })
+])
+
 export const removeRepositoryInputSchema = z.strictObject({
   repoId: repoIdSchema,
   /** Required before stored session rows are cascaded. */
@@ -138,6 +269,16 @@ export const createSessionInputSchema = z.strictObject({
 
 export const sessionTargetInputSchema = z.strictObject({
   sessionId: sessionIdSchema
+})
+
+/**
+ * Removing a live session is the normal user path: the UI asks to remove the
+ * session, not to understand the separate "stop process" step. The backend
+ * stops the PTY first, then applies every existing worktree safety check.
+ */
+export const removeSessionInputSchema = z.strictObject({
+  sessionId: sessionIdSchema,
+  stopIfLive: z.boolean().optional()
 })
 
 export const harnessListInputSchema = z.strictObject({
@@ -177,8 +318,98 @@ export const repositorySummarySchema = z.strictObject({
   currentBranch: z.string().min(1).max(255).nullable(),
   availability: z.enum(['present', 'missing', 'unknown']),
   /** Always present on the wire; local for every repository that predates v3. */
+  target: executionTargetSchema,
+  /**
+   * Background first-commit state. Null for an ordinary checkout that already
+   * has a baseline and for rows that predate preparation.
+   */
+  preparation: repositoryPreparationSchema.nullable()
+})
+
+/** `alreadyRegistered` is the service's own answer, not a client-side guess. */
+export const addRepositoryResultSchema = repositorySummarySchema.extend({
+  alreadyRegistered: z.boolean()
+})
+
+/** A repository offered when the selected folder is only a container of repos. */
+export const projectRepositoryCandidateSchema = z.strictObject({
+  path: absolutePathSchema,
+  displayName: z.string().min(1).max(200)
+})
+
+/** The bounded file estimate shown before an initial commit is created. */
+export const projectFolderPreviewSchema = z.strictObject({
+  files: z.number().int().nonnegative(),
+  bytes: z.number().int().nonnegative(),
+  truncated: z.boolean()
+})
+
+export const projectIdentityStateSchema = z.strictObject({
+  configured: z.boolean(),
+  name: z.string().max(200).nullable(),
+  email: z.string().max(320).nullable()
+})
+
+/**
+ * What Add project found before it changes anything.
+ *
+ * `gitless` and `unborn` are deliberately different: one needs `git init`, the
+ * other already has a repository but no baseline commit. `parent` means the
+ * folder contains repositories and must not be initialized over them.
+ */
+export const projectFolderInspectionSchema = z.strictObject({
+  kind: z.enum(['repository', 'unborn', 'gitless', 'parent']),
+  path: absolutePathSchema,
+  /**
+   * The Windows spelling supplied for a WSL target, when it was translated.
+   * Absent for a path that was already a Linux path.
+   */
+  translatedFrom: z.string().min(1).max(4096).optional(),
+  root: absolutePathSchema.nullable(),
+  currentBranch: z.string().min(1).max(255).nullable(),
+  hasCommit: z.boolean(),
+  repositories: z.array(projectRepositoryCandidateSchema).max(200),
+  preview: projectFolderPreviewSchema.nullable(),
+  identity: projectIdentityStateSchema,
+  canInitialize: z.boolean(),
+  blockedReason: z.string().max(2000).nullable()
+})
+
+export const inspectRepositoryInputSchema = z.strictObject({
+  path: absolutePathSchema,
   target: executionTargetSchema
 })
+
+export const projectIdentityInputSchema = z.strictObject({
+  name: z
+    .string()
+    .trim()
+    .min(1)
+    .max(200)
+    .refine((value) => !/[\u0000-\u001f\u007f]/u.test(value), 'must not contain control characters'),
+  email: z
+    .string()
+    .trim()
+    .min(3)
+    .max(320)
+    .refine((value) => !/[\u0000-\u001f\u007f]/u.test(value), 'must not contain control characters')
+})
+
+export const initializeRepositoryInputSchema = z.strictObject({
+  path: absolutePathSchema,
+  target: executionTargetSchema,
+  identity: projectIdentityInputSchema.optional()
+})
+
+export const retryRepositoryPreparationInputSchema = z.strictObject({
+  repoId: repoIdSchema
+})
+
+export const initializeRepositoryResultSchema = addRepositoryResultSchema.extend({
+  initialized: z.boolean(),
+  committedFiles: z.number().int().nonnegative()
+})
+
 
 export const worktreeSummarySchema = z.strictObject({
   path: absolutePathSchema,
@@ -201,6 +432,12 @@ export const sessionSummarySchema = z.strictObject({
   exitCode: z.number().int().nullable(),
   error: appErrorSchema.nullable(),
   updatedAt: timestampSchema,
+  /**
+   * Durable sleep intent. The process is stopped; the session and worktree
+   * remain. Optional so older fixtures and already-persisted summaries remain
+   * parseable; the backend always sets it.
+   */
+  sleeping: z.boolean().optional(),
   /** `null` for legacy sessions that run in the repository's primary checkout. */
   worktree: worktreeSummarySchema.nullable(),
   /**
@@ -399,10 +636,19 @@ export type OrphanedHostSession = z.infer<typeof orphanedHostSessionSchema>
 export type SessionListView = z.infer<typeof sessionListViewSchema>
 export type RemoveRepositoryResult = z.infer<typeof removeRepositoryResultSchema>
 export type AddRepositoryInput = z.infer<typeof addRepositoryInputSchema>
+export type ProjectRepositoryCandidate = z.infer<typeof projectRepositoryCandidateSchema>
+export type ProjectFolderPreview = z.infer<typeof projectFolderPreviewSchema>
+export type ProjectIdentityState = z.infer<typeof projectIdentityStateSchema>
+export type ProjectFolderInspection = z.infer<typeof projectFolderInspectionSchema>
+export type InspectRepositoryInput = z.infer<typeof inspectRepositoryInputSchema>
+export type ProjectIdentityInput = z.infer<typeof projectIdentityInputSchema>
+export type InitializeRepositoryInput = z.infer<typeof initializeRepositoryInputSchema>
+export type InitializeRepositoryResult = z.infer<typeof initializeRepositoryResultSchema>
 export type RemoveRepositoryInput = z.infer<typeof removeRepositoryInputSchema>
 export type ListSessionsInput = z.infer<typeof listSessionsInputSchema>
 export type CreateSessionInput = z.infer<typeof createSessionInputSchema>
 export type SessionTargetInput = z.infer<typeof sessionTargetInputSchema>
+export type RemoveSessionInput = z.infer<typeof removeSessionInputSchema>
 export type TerminalAttachInput = z.infer<typeof terminalAttachInputSchema>
 export type TerminalWriteInput = z.infer<typeof terminalWriteInputSchema>
 export type TerminalResizeInput = z.infer<typeof terminalResizeInputSchema>

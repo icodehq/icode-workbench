@@ -1,19 +1,19 @@
 {
   "work": 13,
-  "startedAt": "2026-10-21T16:26:59.872Z",
-  "runDir": "/tmp/ade-work13-review-CUXmef",
+  "startedAt": "2026-10-30T18:20:34.159Z",
+  "runDir": "/tmp/ade-work13-review-fBnV3h",
   "steps": [
     {
       "name": "register a repository and create a session",
       "criterion": "AC1",
       "status": "passed",
-      "durationMs": 2036,
+      "durationMs": 5928,
       "details": {
         "session": {
-          "id": "ses_88448c47-eea6-4aa2-bb78-91cab7b9505e",
+          "id": "ses_21354766-7b46-4e5b-a94f-2f3fd850a7fc",
           "state": "live",
-          "incarnation": "c6a30787d3240c80",
-          "text": "Review session\nShell · Live · ade/ses_88448c47-eea6-4aa2-bb78-91cab7b9505e"
+          "incarnation": "f100f5967a784460",
+          "text": "Review session\nShell · Live · ade/ses_21354766-7b46-4e5b-a94f-2f3fd850a7fc"
         }
       }
     },
@@ -21,35 +21,29 @@
       "name": "produce committed, unstaged, untracked, deleted and binary changes",
       "criterion": "AC1",
       "status": "passed",
-      "durationMs": 67,
+      "durationMs": 97,
       "details": {
-        "worktreePath": "/tmp/ade-work13-review-CUXmef/xdg-config/ade/worktrees/repo_d613a857-4202-4cd9-a541-e371c0ef0e71/ses_88448c47-eea6-4aa2-bb78-91cab7b9505e"
+        "worktreePath": "/tmp/ade-work13-review-fBnV3h/xdg-config/ade/worktrees/repo_6e0e5d3b-2c55-4341-b244-36c1bb8c2bcd/ses_21354766-7b46-4e5b-a94f-2f3fd850a7fc"
       }
     },
     {
       "name": "list every change with correct identity, status and counts",
       "criterion": "AC1",
       "status": "passed",
-      "durationMs": 521,
+      "durationMs": 1072,
       "details": {
         "rows": [
-          {
-            "path": "count",
-            "status": null,
-            "area": null,
-            "text": "5 files"
-          },
           {
             "path": "a.txt",
             "status": "modified",
             "area": "staged",
-            "text": "M\na.txt\n+1 −1"
+            "text": "M\na.txt\ncommitted\n+1 −1"
           },
           {
             "path": "blob.bin",
             "status": "added",
             "area": "untracked",
-            "text": "A\nblob.bin\nbinary\nuntracked\nbinary"
+            "text": "A\nblob.bin\nbinary\nbinary"
           },
           {
             "path": "crlf.txt",
@@ -61,7 +55,7 @@
             "path": "fresh.txt",
             "status": "added",
             "area": "untracked",
-            "text": "A\nfresh.txt\nuntracked\n+2 −0"
+            "text": "A\nfresh.txt\n+2 −0"
           },
           {
             "path": "gone.txt",
@@ -76,7 +70,7 @@
       "name": "render a unified diff that matches Git content and line numbers",
       "criterion": "AC2",
       "status": "passed",
-      "durationMs": 1355,
+      "durationMs": 1211,
       "details": {
         "expectedAdded": [
           "TWO"
@@ -90,16 +84,16 @@
       "name": "refresh shows new work without a stale view",
       "criterion": "AC3",
       "status": "passed",
-      "durationMs": 517,
+      "durationMs": 815,
       "details": {
-        "files": 7
+        "files": 6
       }
     },
     {
       "name": "report truncation explicitly for an oversized diff",
       "criterion": "AC4",
       "status": "passed",
-      "durationMs": 1510,
+      "durationMs": 1874,
       "details": {
         "banner": true
       }
@@ -108,35 +102,45 @@
       "name": "switch views without respawning the PTY",
       "criterion": "AC5",
       "status": "passed",
-      "durationMs": 576,
+      "durationMs": 2139,
       "details": {
         "spawns": 1,
-        "incarnation": "c6a30787d3240c80"
+        "incarnation": "f100f5967a784460"
       }
     },
     {
       "name": "prove review is read-only",
       "criterion": "AC6",
       "status": "passed",
-      "durationMs": 23303,
+      "durationMs": 4302,
       "details": {
-        "indexMtime": "1792600022"
+        "indexMtime": "1793384447"
+      }
+    },
+    {
+      "name": "separate staged and unstaged working-tree rows",
+      "criterion": "AC7b",
+      "status": "passed",
+      "durationMs": 1558,
+      "details": {
+        "staged": true,
+        "unstaged": true
       }
     },
     {
       "name": "explain a missing worktree without falling back",
       "criterion": "AC8",
       "status": "passed",
-      "durationMs": 1982,
+      "durationMs": 4612,
       "details": {
-        "explanation": "CHANGES"
+        "explanation": "Changes"
       }
     },
     {
       "name": "refuse an escaping path at the IPC boundary",
       "criterion": "AC9",
       "status": "passed",
-      "durationMs": 6,
+      "durationMs": 7,
       "details": {
         "code": "INVALID_ARGUMENT"
       }
@@ -145,18 +149,18 @@
       "name": "never expose symlink target contents",
       "criterion": "AC10",
       "status": "passed",
-      "durationMs": 1001,
+      "durationMs": 1249,
       "details": {
-        "target": "/tmp/ade-work13-review-CUXmef/outside-secret.txt"
+        "target": "/tmp/ade-work13-review-fBnV3h/outside-secret.txt"
       }
     },
     {
       "name": "clean up the test session, host and run directory",
       "criterion": "AC11",
       "status": "passed",
-      "durationMs": 2069,
+      "durationMs": 3402,
       "details": {
-        "hostPid": 2610415,
+        "hostPid": 863243,
         "removed": true
       }
     }
@@ -168,6 +172,7 @@
     "AC4": "PASS",
     "AC5": "PASS",
     "AC6": "PASS",
+    "AC7b": "PASS",
     "AC8": "PASS",
     "AC9": "PASS",
     "AC10": "PASS",
@@ -175,22 +180,23 @@
   },
   "failures": [],
   "artifacts": [
-    "/home/oliverxu/ade-work13/artifacts/work13/app-initial.log",
-    "/home/oliverxu/ade-work13/artifacts/work13/01-changed-files.png",
-    "/home/oliverxu/ade-work13/artifacts/work13/02-modified-diff.png",
-    "/home/oliverxu/ade-work13/artifacts/work13/03-binary.png",
-    "/home/oliverxu/ade-work13/artifacts/work13/04-refreshed.png",
-    "/home/oliverxu/ade-work13/artifacts/work13/05-truncated.png",
-    "/home/oliverxu/ade-work13/artifacts/work13/06-view-toggle.png",
-    "/home/oliverxu/ade-work13/artifacts/work13/app-missing.log",
-    "/home/oliverxu/ade-work13/artifacts/work13/07-missing-worktree.png",
-    "/home/oliverxu/ade-work13/artifacts/work13/08-symlink.png"
+    "/mnt/d/Development/WSLProjects/icode/artifacts/work13/app-initial.log",
+    "/mnt/d/Development/WSLProjects/icode/artifacts/work13/01-changed-files.png",
+    "/mnt/d/Development/WSLProjects/icode/artifacts/work13/02-modified-diff.png",
+    "/mnt/d/Development/WSLProjects/icode/artifacts/work13/03-binary.png",
+    "/mnt/d/Development/WSLProjects/icode/artifacts/work13/04-refreshed.png",
+    "/mnt/d/Development/WSLProjects/icode/artifacts/work13/05-truncated.png",
+    "/mnt/d/Development/WSLProjects/icode/artifacts/work13/06-view-toggle.png",
+    "/mnt/d/Development/WSLProjects/icode/artifacts/work13/06b-working-tree.png",
+    "/mnt/d/Development/WSLProjects/icode/artifacts/work13/app-missing.log",
+    "/mnt/d/Development/WSLProjects/icode/artifacts/work13/07-missing-worktree.png",
+    "/mnt/d/Development/WSLProjects/icode/artifacts/work13/08-symlink.png"
   ],
   "build": {
-    "executable": "/home/oliverxu/ade-work13/dist/linux-unpacked/ade",
-    "userData": "/tmp/ade-work13-review-CUXmef/xdg-config/ade",
+    "executable": "/mnt/d/Development/WSLProjects/icode/node_modules/.pnpm/electron@43.7.8_supports-color@7.2.0/node_modules/electron/dist/electron",
+    "userData": "/tmp/ade-work13-review-fBnV3h/xdg-config/ade",
     "gateOverrides": []
   },
-  "finishedAt": "2026-10-21T16:27:34.869Z",
+  "finishedAt": "2026-10-30T18:21:02.600Z",
   "status": "passed"
 }

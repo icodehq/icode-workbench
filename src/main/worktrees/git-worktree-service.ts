@@ -1,4 +1,4 @@
-import { mkdirSync, readdirSync, rmdirSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, rmdirSync, statSync } from 'node:fs'
 import { dirname } from 'node:path'
 import type { ExecutionTarget } from '../../shared/domain/repository'
 import {
@@ -13,6 +13,7 @@ import type {
   WorktreeInspection
 } from '../../shared/domain/worktree'
 import { SessionServiceError } from '../sessions/session-errors'
+import type { GuestGitResult } from '../wsl/git/guest-git'
 import { samePathResolved } from './worktree-status'
 
 const READ_TIMEOUT_MS = 10_000
@@ -96,7 +97,7 @@ export class GitWorktreeService {
             worktreeRoot: this.deps.worktreeRoot,
             fs: {
               isDirectory: async (value: string) => this.isDirectory(value),
-              exists: async (value: string) => this.isDirectory(value),
+              exists: async (value: string) => this.exists(value),
               ensureParentDirectory: async (value: string) => this.ensureParentDirectory(value)
             }
           }
@@ -166,7 +167,7 @@ export class GitWorktreeService {
       target.kind === 'local' || !this.deps.router
         ? {
             isDirectory: async (value: string) => this.isDirectory(value),
-            exists: async (value: string) => this.isDirectory(value)
+            exists: async (value: string) => this.exists(value)
           }
         : await this.deps.router.resolve(target).then((entry) => entry.fs)
     return { isDirectory: resolved.isDirectory, exists: resolved.exists }
@@ -205,9 +206,86 @@ export class GitWorktreeService {
     }
   }
 
+  /**
+   * Runs a Git mutation with a payload on stdin.
+   *
+   * Hunk staging uses this for `git apply -`; the patch must not travel as an
+   * argument, and it must reach guest Git byte-for-byte. Stderr is returned as
+   * text so the caller can quote Git's own rejection instead of inventing one.
+   */
+  async gitInputFor(
+    target: ExecutionTarget = LOCAL_TARGET
+  ): Promise<
+    (
+      cwd: string,
+      args: string[],
+      input: string,
+      timeoutMs?: number
+    ) => Promise<{ stdout: string; stderr: string; exitCode: number | null; timedOut: boolean }>
+  > {
+    const executor = await this.executorFor(target)
+    return async (cwd, args, input, timeoutMs = MUTATE_TIMEOUT_MS) => {
+      const result = await executor.exec({ cwd, args, stdin: input, timeoutMs })
+      return {
+        stdout: result.stdout.toString('utf8'),
+        stderr: result.stderr.toString('utf8'),
+        exitCode: result.exitCode,
+        timedOut: result.timedOut
+      }
+    }
+  }
+
+  /**
+   * Streams read-only Git output for one target.
+   *
+   * Returns null when the target's executor cannot stream (the guest path today,
+   * because `wsl.exe` buffers the guest process). Callers must have a buffered
+   * fallback; they must not assume local and guest behave the same here.
+   */
+  async streamGitFor(
+    target: ExecutionTarget = LOCAL_TARGET
+  ): Promise<
+    | ((
+        cwd: string,
+        args: string[],
+        onStdout: (chunk: Buffer) => void,
+        options?: { timeoutMs?: number; signal?: AbortSignal }
+      ) => Promise<GuestGitResult>)
+    | null
+  > {
+    const executor = await this.executorFor(target)
+    const stream = executor.stream
+    if (!stream) return null
+    return (cwd, args, onStdout, options = {}) =>
+      stream(
+        {
+          cwd,
+          args,
+          timeoutMs: options.timeoutMs ?? READ_TIMEOUT_MS,
+          ...(options.signal ? { signal: options.signal } : {})
+        },
+        { onStdout }
+      )
+  }
+
   private async executorFor(target: ExecutionTarget): Promise<GitExecutor> {
     if (target.kind === 'local' || !this.deps.router) return this.localExecutor
     return (await this.deps.router.resolve(target)).executor
+  }
+
+  /**
+   * Raw Git results for a target.
+   *
+   * Project initialization needs stdout, stderr and the exit status so it can
+   * distinguish "not a repository" from a real Git failure. It uses the same
+   * executor as every other operation; there is no second target router.
+   */
+  async gitResultFor(
+    target: ExecutionTarget = LOCAL_TARGET
+  ): Promise<(cwd: string, args: string[], timeoutMs?: number) => Promise<GuestGitResult>> {
+    const executor = await this.executorFor(target)
+    return (cwd, args, timeoutMs = READ_TIMEOUT_MS) =>
+      executor.exec({ cwd, args, timeoutMs })
   }
 
   /** Refuses paths outside the managed root so a corrupted row cannot target arbitrary directories. */
@@ -240,16 +318,25 @@ export class GitWorktreeService {
     const commonDir = await git(primaryRoot, ['rev-parse', '--git-common-dir'], READ_TIMEOUT_MS)
       .then((value) => this.resolveGitPath(primaryRoot, value))
       .catch(() => null)
+    // Worktree-scoped operations (merge, cherry-pick, revert, rebase) write their
+    // marker into the worktree's own git dir, not only the shared common dir.
+    const worktreeGitDir = await git(primaryRoot, ['rev-parse', '--git-dir'], READ_TIMEOUT_MS)
+      .then((value) => this.resolveGitPath(primaryRoot, value))
+      .catch(() => null)
+    const markerDirs = [...new Set([worktreeGitDir, commonDir].filter((dir): dir is string => dir !== null))]
     let inProgressOperation: string | null = null
-    if (commonDir !== null) {
-      for (const marker of IN_PROGRESS_MARKERS) {
-        // A guest common dir is probed in the guest; a local one with statSync, as
+    for (const marker of IN_PROGRESS_MARKERS) {
+      let found = false
+      for (const dir of markerDirs) {
+        // A guest git dir is probed in the guest; a local one with statSync, as
         // before. Never the other way around.
-        if (await ctx.exists(`${commonDir}/${marker}`)) {
+        if (await ctx.exists(`${dir}/${marker}`)) {
           inProgressOperation = marker
+          found = true
           break
         }
       }
+      if (found) break
     }
     return {
       headOid: headOid && headOid.length > 0 ? headOid : null,
@@ -536,6 +623,19 @@ export class GitWorktreeService {
   private isDirectory(path: string): boolean {
     try {
       return statSync(path).isDirectory()
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * Existence is not directory-ness. Operation markers such as `MERGE_HEAD`
+   * are files in the common Git directory; asking `isDirectory` here made every
+   * local merge/rebase look finished.
+   */
+  private exists(path: string): boolean {
+    try {
+      return existsSync(path)
     } catch {
       return false
     }

@@ -23,6 +23,7 @@ import {
 import { resolvedShellCommand } from '../harness/default-shell'
 import { SessionServiceError, errorFromHost } from './session-errors'
 import { harnessLabel, type HarnessId } from '../../shared/domain/harness'
+import { wakePlan } from '../../shared/domain/session-sleep'
 import {
   newSessionId,
   parseRepoId,
@@ -55,6 +56,7 @@ import type {
 } from '../../shared/schemas/ipc'
 import { HostRequestError } from '../host/host-client'
 import { withLaunchArgs } from '../harness/launch-command'
+import type { WorkspaceTrustService } from '../harness/trust/workspace-trust'
 
 
 export type SessionServiceDeps = {
@@ -64,6 +66,13 @@ export type SessionServiceDeps = {
   worktrees: WorktreeStore
   gitWorktrees: GitWorktreeService
   host: HostGateway
+  /**
+   * Seeds the harness's per-folder trust record for a new session worktree.
+   *
+   * Best-effort: a config that cannot be written must not prevent a session from
+   * starting; the harness may then show its normal trust prompt.
+   */
+  workspaceTrust?: WorkspaceTrustService
   /**
    * Discovery for one harness **on the host that owns the repository**.
    *
@@ -389,7 +398,12 @@ export class SessionService {
       const repository = this.deps.repositories.findById(record.repoId)
       if (!repository) continue
       const inspection = await this.deps.gitWorktrees
-        .inspect({ primaryRoot: repository.path, path: record.path, branch: record.branch })
+        .inspect({
+          primaryRoot: repository.path,
+          path: record.path,
+          branch: record.branch,
+          target: repository.executionTarget
+        })
         .catch(() => null)
       if (inspection?.pathExists === true && inspection.registered) {
         // Creation completed before the crash; the PTY was never started.
@@ -570,6 +584,7 @@ export class SessionService {
         target
       })
       this.deps.worktrees.updateState(sessionId, 'created', null, this.now())
+      await this.prepareWorkspaceTrust(input.harness, target, worktreePath)
 
       /**
        * Two routes, chosen by persisted intent:
@@ -621,14 +636,19 @@ export class SessionService {
       this.deps.sessions.recordObservation(sessionId, observation)
       this.deps.worktrees.updateState(sessionId, 'ready', null, this.now())
       const row = this.deps.sessions.findById(sessionIdParse(sessionId))!
-      const summary = this.toSummary(row, {
-        state: 'live',
-        authority: 'host',
-        reason: 'host_live',
-        incarnationId: toPtyIncarnationId(created.incarnationId),
-        exitCode: null,
-        error: null
-      })
+      const summary = this.toSummary(
+        row,
+        {
+          state: 'live',
+          authority: 'host',
+          reason: 'host_live',
+          incarnationId: toPtyIncarnationId(created.incarnationId),
+          exitCode: null,
+          error: null
+        },
+        null,
+        true
+      )
       this.emit({ type: 'state', session: summary })
       return summary
     } catch (error) {
@@ -833,7 +853,10 @@ export class SessionService {
     // Exit truth arrives as a host event; do not invent an exit code here.
   }
 
-  async restart(sessionId: string): Promise<SessionSummary> {
+  async restart(
+    sessionId: string,
+    options: { resume?: boolean } = {}
+  ): Promise<SessionSummary> {
     const row = this.requireRow(sessionId)
     // Validate the recorded checkout before killing anything: restart must
     // never stop a healthy PTY and then discover there is nowhere to start.
@@ -846,6 +869,10 @@ export class SessionService {
     // shell is decided inside the guest.
     const detection = pathA === null ? await this.requireHarness(row.harness, target) : null
     const hostTarget = pathA === null ? target : LOCAL_TARGET
+    const launchArgs = [
+      ...this.launchArgsFor(row.harness, target),
+      ...(options.resume === true ? wakePlan(row.harness, row.resumeToken).args : [])
+    ]
     const repository = checkout.record === null
       ? null
       : this.deps.repositories.findById(checkout.record.repoId)
@@ -872,6 +899,8 @@ export class SessionService {
       await this.waitForStop(sessionId, hostTarget)
     }
 
+    await this.prepareWorkspaceTrust(row.harness, target, checkout.path)
+
     let created: CreateOrAttachPayload
     try {
       created = await this.deps.host.createOrAttach(
@@ -881,7 +910,7 @@ export class SessionService {
           command: pathA?.command ?? detection!.command!.command,
           args:
             pathA?.args ??
-            withLaunchArgs(detection!.command!, this.launchArgsFor(row.harness, target)).args,
+            withLaunchArgs(detection!.command!, launchArgs).args,
           cols: previous?.cols ?? 100,
           rows: previous?.rows ?? 30
         },
@@ -908,6 +937,8 @@ export class SessionService {
 
     this.currentIncarnations.set(sessionId, created.incarnationId)
     this.deps.onIncarnation?.(sessionId, created.incarnationId)
+    this.deps.sessions.setSleeping(row.id, null)
+    const awakeRow = { ...row, sleepingAt: null }
     const observation: PersistedSessionObservation = {
       lastObservedState: 'live',
       lastObservedExitCode: null,
@@ -919,16 +950,94 @@ export class SessionService {
     if (checkout.record !== null) {
       this.deps.worktrees.updateState(sessionId, 'ready', null, this.now())
     }
-    const summary = this.toSummary({ ...row, observation }, {
-      state: 'live',
+    const summary = this.toSummary(
+      { ...awakeRow, observation },
+      {
+        state: 'live',
+        authority: 'host',
+        reason: 'host_live',
+        incarnationId: toPtyIncarnationId(created.incarnationId),
+        exitCode: null,
+        error: null
+      },
+      null,
+      true
+    )
+    this.emit({ type: 'state', session: summary })
+    return summary
+  }
+
+  /**
+   * Hibernate a live session: stop the PTY (freeing CPU/memory) and persist the
+   * sleep intent. The worktree, branch, title and resume token stay. Wake uses
+   * the harness-specific resume command; nothing here pretends the process was
+   * suspended.
+   */
+  async sleep(sessionId: string): Promise<SessionSummary> {
+    const row = this.requireRow(sessionId)
+    const target = this.targetForSession(row)
+    const hostTarget = this.hostTargetFor(row.harness, target)
+
+    let previous: SessionInfo | undefined
+    try {
+      const list = await this.deps.host.listSessions(hostTarget)
+      previous = list.sessions.find((entry) => entry.sessionId === sessionId)
+    } catch (error) {
+      throw new SessionServiceError(errorFromHost(error, 'Could not query the terminal host.'))
+    }
+    if (!previous || (previous.status !== 'live' && previous.status !== 'starting')) {
+      throw new SessionServiceError(
+        makeAppError('INVALID_ARGUMENT', 'Only a live session can be slept.', {
+          context: { sessionId }
+        })
+      )
+    }
+
+    try {
+      await this.deps.host.kill(sessionId, hostTarget)
+    } catch (error) {
+      throw new SessionServiceError(
+        errorFromHost(error, 'The running session could not be stopped for sleep.')
+      )
+    }
+    await this.waitForStop(sessionId, hostTarget, 10_000)
+
+    const sleepingAt = this.now()
+    this.deps.sessions.setSleeping(row.id, sleepingAt)
+    this.deps.onIncarnation?.(sessionId, null)
+    const observation: PersistedSessionObservation = {
+      lastObservedState: 'exited',
+      lastObservedExitCode: previous.exitCode ?? null,
+      lastObservedError: null,
+      lastObservedIncarnationId:
+        (previous.incarnationId as PtyIncarnationId | undefined) ??
+        row.observation.lastObservedIncarnationId,
+      lastObservedAt: sleepingAt
+    }
+    this.deps.sessions.recordObservation(row.id, observation)
+    const summary = this.toSummary({ ...row, sleepingAt, observation }, {
+      state: 'exited',
       authority: 'host',
-      reason: 'host_live',
-      incarnationId: toPtyIncarnationId(created.incarnationId),
-      exitCode: null,
+      reason: 'host_exited',
+      incarnationId: observation.lastObservedIncarnationId,
+      exitCode: observation.lastObservedExitCode,
       error: null
     })
     this.emit({ type: 'state', session: summary })
     return summary
+  }
+
+  /** Wake a slept session with the harness resume command for its worktree. */
+  async wake(sessionId: string): Promise<SessionSummary> {
+    const row = this.requireRow(sessionId)
+    if (row.sleepingAt === null) {
+      throw new SessionServiceError(
+        makeAppError('INVALID_ARGUMENT', 'This session is not sleeping.', {
+          context: { sessionId }
+        })
+      )
+    }
+    return this.restart(sessionId, { resume: true })
   }
 
   /**
@@ -975,8 +1084,12 @@ export class SessionService {
 
   // ─── Internals ────────────────────────────────────────────────────
 
-  private async waitForStop(sessionId: string, target: ExecutionTarget): Promise<void> {
-    const deadline = Date.now() + 3000
+  private async waitForStop(
+    sessionId: string,
+    target: ExecutionTarget,
+    timeoutMs = 3000
+  ): Promise<void> {
+    const deadline = Date.now() + timeoutMs
     while (Date.now() < deadline) {
       try {
         const list = await this.deps.host.listSessions(target)
@@ -989,7 +1102,7 @@ export class SessionService {
     }
     throw new SessionServiceError(
       makeAppError('INTERNAL', 'The previous terminal did not stop in time.', {
-        detail: 'Restart was refused to avoid two PTYs for one session.',
+        detail: 'The action was refused to avoid two PTYs for one session.',
         context: { sessionId }
       })
     )
@@ -997,6 +1110,25 @@ export class SessionService {
 
   private launchArgsFor(harness: HarnessId, target: ExecutionTarget): string[] {
     return this.deps.launchArgs?.(harness, target) ?? []
+  }
+
+  /**
+   * Best-effort harness workspace trust for a checkout that is about to run.
+   *
+   * A failure is deliberately not fatal: some users have read-only or malformed
+   * harness configs, and starting the session with the harness's own prompt is
+   * safer than blocking work. The trust service never throws to the session.
+   */
+  private async prepareWorkspaceTrust(
+    harness: HarnessId,
+    target: ExecutionTarget,
+    worktreePath: string
+  ): Promise<void> {
+    try {
+      await this.deps.workspaceTrust?.prepare({ harness, target, worktreePath })
+    } catch {
+      // The harness remains usable; its own trust dialog is the fallback.
+    }
   }
 
   private async requireHarness(
@@ -1151,6 +1283,21 @@ export class SessionService {
         })
       )
     }
+    const repository = this.deps.repositories.findById(workspace.repoId)
+    /**
+     * A synchronous summary has not asked a remote host whether the checkout
+     * exists. Falling back to a local `stat` is correct only for a local
+     * repository: for a WSL target it would ask Windows about a Linux path and
+     * label a healthy worktree `missing`. `null` means "not checked", which
+     * `worktreeSummaryFor` deliberately treats as present; reconciliation and
+     * explicit refreshes still supply a real true/false answer.
+     */
+    const effectiveWorktreeExists =
+      worktreeExists !== undefined
+        ? worktreeExists
+        : repository !== null && repository.executionTarget.kind !== 'local'
+          ? null
+          : undefined
     return {
       id: row.id,
       repoId: workspace.repoId,
@@ -1163,7 +1310,13 @@ export class SessionService {
       exitCode: reconciled.exitCode,
       error: reconciled.error ?? this.impliedError(reconciled.reason),
       updatedAt: this.now(),
-      worktree: this.worktreeSummaryFor(row, reconciled.state, hostCwd, worktreeExists),
+      sleeping: row.sleepingAt !== null,
+      worktree: this.worktreeSummaryFor(
+        row,
+        reconciled.state,
+        hostCwd,
+        effectiveWorktreeExists
+      ),
       activity: this.activityFor(row, reconciled.state)
     }
   }
@@ -1189,7 +1342,8 @@ export class SessionService {
     const record = this.deps.worktrees.findBySession(row.id)
     if (!record) return null
     // `undefined` = local, let describeWorktree stat it. `null` = a remote host
-    // could not answer, which must not become a `missing` claim.
+    // could not answer, or this synchronous summary did not ask; neither may
+    // become a `missing` claim.
     const directoryExists = worktreeExists === null ? true : (worktreeExists ?? undefined)
     return describeWorktree(record, sessionState, hostCwd, directoryExists)
   }

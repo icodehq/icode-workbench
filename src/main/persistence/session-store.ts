@@ -20,7 +20,7 @@ export type SessionMetadataDraft = {
 
 const SESSION_COLUMNS = `id, workspace_id, harness, title, created_at, last_active_at,
   last_observed_state, last_observed_exit_code, last_observed_error_json,
-  last_observed_incarnation_id, last_observed_at`
+  last_observed_incarnation_id, last_observed_at, sleeping_at, resume_token`
 
 /**
  * Session rows are durable *observations*, not liveness. Work 5 must reconcile
@@ -34,7 +34,7 @@ export class SessionStore {
     this.db.raw
       .prepare(
         `INSERT INTO sessions (${SESSION_COLUMNS})
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`
       )
       .run(
         draft.id,
@@ -82,7 +82,8 @@ export class SessionStore {
       .prepare(
         `SELECT s.id, s.workspace_id, s.harness, s.title, s.created_at, s.last_active_at,
                 s.last_observed_state, s.last_observed_exit_code, s.last_observed_error_json,
-                s.last_observed_incarnation_id, s.last_observed_at
+                s.last_observed_incarnation_id, s.last_observed_at, s.sleeping_at,
+                s.resume_token
          FROM sessions s
          JOIN workspaces w ON w.id = s.workspace_id
          WHERE w.repo_id = ?
@@ -114,6 +115,18 @@ export class SessionStore {
         observation.lastObservedAt,
         id
       )
+  }
+
+  setSleeping(id: SessionId, sleepingAt: number | null): void {
+    this.db.raw
+      .prepare('UPDATE sessions SET sleeping_at = ? WHERE id = ?')
+      .run(sleepingAt, id)
+  }
+
+  setResumeToken(id: SessionId, resumeToken: string | null): void {
+    this.db.raw
+      .prepare('UPDATE sessions SET resume_token = ? WHERE id = ?')
+      .run(resumeToken, id)
   }
 }
 

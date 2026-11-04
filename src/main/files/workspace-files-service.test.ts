@@ -153,3 +153,94 @@ describe('workspace files: local backend', () => {
     expect(result.matches[0]?.column).toBe(7)
   })
 })
+
+/**
+ * File management inside the selected worktree.
+ *
+ * The dangerous outcomes are all of the same kind: creating over something that
+ * exists, renaming across the worktree boundary, or deleting a path the user did
+ * not select. Each is refused here rather than repaired later.
+ */
+describe('workspace files: management', () => {
+  function sessionBacked(root: string) {
+    return service({ target: LOCAL, worktreePath: root, backend: createLocalFileBackend(root) })
+  }
+
+  it('creates a file and a directory, and refuses to clobber either', async () => {
+    const root = home()
+    const svc = sessionBacked(root)
+
+    expect(await svc.create('ses_x', 'new.ts', 'file')).toMatchObject({ status: 'ok', kind: 'file' })
+    expect(readFileSync(join(root, 'new.ts'), 'utf8')).toBe('')
+    expect(await svc.create('ses_x', 'docs', 'directory')).toMatchObject({ status: 'ok', kind: 'directory' })
+    expect(await svc.create('ses_x', 'new.ts', 'file')).toMatchObject({
+      status: 'unavailable',
+      reason: 'already-exists'
+    })
+    // An existing empty file must survive a failed recreate.
+    writeFileSync(join(root, 'new.ts'), 'keep me\n')
+    expect(await svc.create('ses_x', 'new.ts', 'file')).toMatchObject({ reason: 'already-exists' })
+    expect(readFileSync(join(root, 'new.ts'), 'utf8')).toBe('keep me\n')
+  })
+
+  it('creates inside a nested directory, and reports a missing parent', async () => {
+    const root = home()
+    const svc = sessionBacked(root)
+    expect(await svc.create('ses_x', 'a/b.ts', 'file')).toMatchObject({ reason: 'not-found' })
+    await svc.create('ses_x', 'a', 'directory')
+    expect(await svc.create('ses_x', 'a/b.ts', 'file')).toMatchObject({ status: 'ok' })
+  })
+
+  it('renames a file and refuses to rename onto an existing path', async () => {
+    const root = home()
+    writeFileSync(join(root, 'one.ts'), 'one\n')
+    writeFileSync(join(root, 'two.ts'), 'two\n')
+    const svc = sessionBacked(root)
+
+    expect(await svc.rename('ses_x', 'one.ts', 'moved.ts')).toMatchObject({ status: 'ok' })
+    expect(readFileSync(join(root, 'moved.ts'), 'utf8')).toBe('one\n')
+    expect(() => readFileSync(join(root, 'one.ts'))).toThrow()
+
+    expect(await svc.rename('ses_x', 'moved.ts', 'two.ts')).toMatchObject({ reason: 'already-exists' })
+    // Both files keep their content after the refusal.
+    expect(readFileSync(join(root, 'moved.ts'), 'utf8')).toBe('one\n')
+    expect(readFileSync(join(root, 'two.ts'), 'utf8')).toBe('two\n')
+  })
+
+  it('refuses a rename that would escape the worktree', async () => {
+    const root = home()
+    writeFileSync(join(root, 'a.ts'), 'x\n')
+    const svc = sessionBacked(root)
+    expect(await svc.rename('ses_x', 'a.ts', '../outside.ts')).toMatchObject({ reason: 'path-outside' })
+    expect(readFileSync(join(root, 'a.ts'), 'utf8')).toBe('x\n')
+  })
+
+  it('deletes a file and a directory tree, and reports a missing path', async () => {
+    const root = home()
+    writeFileSync(join(root, 'gone.ts'), 'x\n')
+    mkdirSync(join(root, 'dir'))
+    writeFileSync(join(root, 'dir', 'inner.ts'), 'y\n')
+    const svc = sessionBacked(root)
+
+    expect(await svc.remove('ses_x', 'gone.ts')).toMatchObject({ status: 'ok' })
+    expect(await svc.remove('ses_x', 'dir')).toMatchObject({ status: 'ok' })
+    expect(() => readFileSync(join(root, 'dir', 'inner.ts'))).toThrow()
+    expect(await svc.remove('ses_x', 'gone.ts')).toMatchObject({ reason: 'not-found' })
+  })
+
+  it('refuses to delete or create at the worktree root', async () => {
+    const root = home()
+    const svc = sessionBacked(root)
+    expect(await svc.remove('ses_x', '')).toMatchObject({ reason: 'path-outside' })
+    expect(await svc.create('ses_x', '', 'file')).toMatchObject({ reason: 'path-outside' })
+    expect(await svc.remove('ses_x', '../escape')).toMatchObject({ reason: 'path-outside' })
+  })
+
+  it('does not manage files when the distro cannot be reached', async () => {
+    const svc = service({ target: WSL, fsThrows: true })
+    expect(await svc.create('ses_x', 'a.ts', 'file')).toMatchObject({
+      status: 'unavailable',
+      reason: 'worktree-unavailable'
+    })
+  })
+})

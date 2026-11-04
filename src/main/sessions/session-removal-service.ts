@@ -18,6 +18,7 @@ import type { StoredSession } from '../persistence/rows'
 import { makeAppError } from '../../shared/domain/errors'
 import { SessionServiceError, errorFromHost } from './session-errors'
 import { hostTargetFor } from '../wsl/terminal/path-a'
+import type { WorkspaceTrustService } from '../harness/trust/workspace-trust'
 
 export type SessionRemovalDeps = {
   database: Database
@@ -26,6 +27,7 @@ export type SessionRemovalDeps = {
   worktrees: WorktreeStore
   gitWorktrees: GitWorktreeService
   host: HostGateway
+  workspaceTrust?: Pick<WorkspaceTrustService, 'remove'>
   summarise: (sessionId: string) => Promise<SessionSummary>
 }
 
@@ -80,12 +82,22 @@ export class SessionRemovalService {
     return repository.executionTarget
   }
 
-  async remove(sessionId: string): Promise<RemoveSessionResult> {
+  async remove(
+    sessionId: string,
+    options: { stopIfLive?: boolean } = {}
+  ): Promise<RemoveSessionResult> {
     const row = this.requireSession(sessionId)
-    const summary = await this.deps.summarise(sessionId)
-    const liveness = await this.liveness(sessionId, this.targetForSession(row))
+    const target = this.targetForSession(row)
+    const liveness = await this.liveness(sessionId, target)
     if (!liveness.ok) return { status: 'host_unavailable', error: liveness.error }
-    if (liveness.live) return { status: 'blocked_live_sessions', session: summary }
+    if (liveness.live && options.stopIfLive !== true) {
+      return { status: 'blocked_live_sessions', session: await this.deps.summarise(sessionId) }
+    }
+    if (liveness.live) await this.stopForRemoval(sessionId, target)
+    // Build the summary only after any stop: the cleanup decision must describe
+    // the process as it is now, not the stale live state. This also avoids a
+    // second full Host/Git reconciliation on the normal stop-and-remove path.
+    const summary = await this.deps.summarise(sessionId)
 
     const record = this.deps.worktrees.findBySession(sessionId)
     if (record !== null) {
@@ -128,6 +140,13 @@ export class SessionRemovalService {
           }
         }
       }
+      await this.deps.workspaceTrust
+        ?.remove({
+          harness: row.harness,
+          target: repository.executionTarget,
+          worktreePath: record.path
+        })
+        .catch(() => undefined)
     }
 
     this.deps.database.transaction(() => {
@@ -144,7 +163,7 @@ export class SessionRemovalService {
   }
 
   async discard(sessionId: string, confirmBranch: string): Promise<DiscardSessionResult> {
-    this.requireSession(sessionId)
+    const row = this.requireSession(sessionId)
     const summary = await this.deps.summarise(sessionId)
     const record = this.deps.worktrees.findBySession(sessionId)
     if (!record) {
@@ -218,6 +237,13 @@ export class SessionRemovalService {
         })
       )
     }
+    await this.deps.workspaceTrust
+      ?.remove({
+        harness: row.harness,
+        target: discardTarget,
+        worktreePath: record.path
+      })
+      .catch(() => undefined)
     this.deps.database.transaction(() => {
       this.deps.worktrees.deleteBySession(sessionId)
       this.deps.sessions.delete(this.requireSession(sessionId).id)
@@ -375,6 +401,42 @@ export class SessionRemovalService {
    * as "not live" (or, worse, as a local process with the same id). Measured
    * during W7: removal refused with "could not verify" for a live guest session.
    */
+  /**
+   * Stops the PTY as part of Remove. This is deliberately not a separate user
+   * concept: the user asked to remove the session, and the UI says it will stop
+   * the process first. Every destructive worktree check still runs afterwards.
+   */
+  private async stopForRemoval(sessionId: string, target: ExecutionTarget): Promise<void> {
+    try {
+      await this.deps.host.kill(sessionId, target)
+    } catch (error) {
+      const appError = errorFromHost(error, 'The running session could not be stopped for removal.')
+      if (appError.code !== 'SESSION_NOT_FOUND') throw new SessionServiceError(appError)
+    }
+
+    // The Host confirms exit asynchronously; under WSLg or a loaded machine a
+    // kill can take several seconds to surface in listSessions.
+    const deadline = Date.now() + 10_000
+    while (Date.now() < deadline) {
+      try {
+        const list = await this.deps.host.listSessions(target)
+        const entry = list.sessions.find((item) => item.sessionId === sessionId)
+        if (!entry || (entry.status !== 'live' && entry.status !== 'starting')) return
+      } catch (error) {
+        throw new SessionServiceError(
+          errorFromHost(error, 'Could not confirm the session stopped for removal.')
+        )
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+    throw new SessionServiceError(
+      makeAppError('INTERNAL', 'The running session did not stop in time.', {
+        detail: 'Removal was refused so no worktree is deleted while its PTY still runs.',
+        context: { sessionId }
+      })
+    )
+  }
+
   private async liveness(sessionId: string, target: ExecutionTarget): Promise<Liveness> {
     try {
       const list = await this.deps.host.listSessions(target)

@@ -1,4 +1,4 @@
-import { readdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
   FILES_MAX_ENTRIES_PER_DIRECTORY,
@@ -28,12 +28,24 @@ export type FileBackend = {
   write(relativePath: string, text: string): Promise<{ size: number }>
   /** Plain-text search across the checkout. */
   search(query: string, options: { caseSensitive: boolean; limit: number }): Promise<FileSearchResult>
+  /** Creates an empty file, or a directory. Never overwrites an existing path. */
+  create(relativePath: string, kind: 'file' | 'directory'): Promise<void>
+  /** Renames or moves one path. Fails when the target already exists. */
+  rename(from: string, to: string): Promise<void>
+  /** Deletes one file or one empty-or-not directory tree. */
+  remove(relativePath: string): Promise<void>
 }
 
 /** Raised when the backend could not read at all, distinct from "no such file". */
 export class FileAccessError extends Error {
   constructor(
-    readonly reason: 'not-found' | 'not-a-file' | 'not-a-directory' | 'unreadable' | 'write-failed',
+    readonly reason:
+      | 'not-found'
+      | 'not-a-file'
+      | 'not-a-directory'
+      | 'unreadable'
+      | 'write-failed'
+      | 'already-exists',
     message: string
   ) {
     super(message)
@@ -201,6 +213,56 @@ export function createLocalFileBackend(root: string): FileBackend {
 
       await walk('')
       return { matches, truncated, scannedFiles }
+    },
+
+    async create(relative, kind) {
+      const absolute = joinRelative(root, relative)
+      try {
+        // `wx`/mkdir without recursive both refuse to clobber an existing path.
+        if (kind === 'directory') await mkdir(absolute)
+        else await writeFile(absolute, '', { flag: 'wx' })
+      } catch (error) {
+        if (errnoOf(error) === 'EEXIST') {
+          throw new FileAccessError('already-exists', 'Something already exists at that path.')
+        }
+        if (errnoOf(error) === 'ENOENT') {
+          throw new FileAccessError('not-found', 'The parent directory does not exist.')
+        }
+        throw new FileAccessError('write-failed', 'That path could not be created.')
+      }
+    },
+
+    async rename(from, to) {
+      // POSIX `rename` silently replaces the target; that would destroy a file
+      // the user still has. Refuse a collision explicitly instead.
+      try {
+        await lstat(joinRelative(root, to))
+        throw new FileAccessError('already-exists', 'Something already exists at the new path.')
+      } catch (error) {
+        if (error instanceof FileAccessError) throw error
+        if (errnoOf(error) !== 'ENOENT') {
+          throw new FileAccessError('write-failed', 'The new path could not be checked.')
+        }
+      }
+      try {
+        await rename(joinRelative(root, from), joinRelative(root, to))
+      } catch (error) {
+        const code = errnoOf(error)
+        if (code === 'EEXIST' || code === 'ENOTEMPTY') {
+          throw new FileAccessError('already-exists', 'Something already exists at the new path.')
+        }
+        if (code === 'ENOENT') throw new FileAccessError('not-found', 'That path does not exist.')
+        throw new FileAccessError('write-failed', 'That path could not be renamed.')
+      }
+    },
+
+    async remove(relative) {
+      try {
+        await rm(joinRelative(root, relative), { recursive: true })
+      } catch (error) {
+        if (errnoOf(error) === 'ENOENT') throw new FileAccessError('not-found', 'That path does not exist.')
+        throw new FileAccessError('write-failed', 'That path could not be deleted.')
+      }
     }
   }
 }

@@ -39,6 +39,15 @@ export const sessionLifecycleStateSchema = z.enum(SESSION_LIFECYCLE_STATES)
 
 export const repositoryAvailabilitySchema = z.enum(['present', 'missing'])
 
+export const repositoryPreparationSchema = z.strictObject({
+  state: z.enum(['preparing', 'ready', 'failed']),
+  startedAt: timestampSchema,
+  finishedAt: timestampSchema.nullable(),
+  committedFiles: z.number().int().nonnegative().nullable(),
+  skippedFolders: z.array(z.string().min(1).max(200)).max(50),
+  error: appErrorSchema.nullable()
+})
+
 export const repositoryRecordSchema = z.strictObject({
   id: repoIdSchema,
   path: absolutePathSchema,
@@ -46,7 +55,8 @@ export const repositoryRecordSchema = z.strictObject({
   addedAt: timestampSchema,
   lastOpenedAt: timestampSchema,
   currentBranch: z.string().min(1).max(255).nullable(),
-  availability: repositoryAvailabilitySchema
+  availability: repositoryAvailabilitySchema,
+  preparation: repositoryPreparationSchema.nullable().optional()
 })
 
 export const workspaceRecordSchema = z.strictObject({

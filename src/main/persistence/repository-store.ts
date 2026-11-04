@@ -14,7 +14,7 @@ export type RepositoryWithWorkspace = {
 }
 
 const REPO_COLUMNS = `id, path, display_name, added_at, last_opened_at, current_branch, availability,
-  git_common_dir, host_kind, wsl_distro, wsl_distro_id`
+  git_common_dir, host_kind, wsl_distro, wsl_distro_id, preparation_json`
 const WORKSPACE_COLUMNS = `id, repo_id, path, kind, created_at`
 
 /**
@@ -142,7 +142,7 @@ export class RepositoryStore {
     this.db.raw
       .prepare(
         `INSERT INTO repos (${REPO_COLUMNS})
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         repo.id,
@@ -155,7 +155,10 @@ export class RepositoryStore {
         repo.gitCommonDir,
         repo.executionTarget.kind,
         repo.executionTarget.kind === 'wsl' ? repo.executionTarget.distro : '',
-        repo.executionTarget.kind === 'wsl' ? repo.executionTarget.distroId : null
+        repo.executionTarget.kind === 'wsl' ? repo.executionTarget.distroId : null,
+        repo.preparation === undefined || repo.preparation === null
+          ? null
+          : JSON.stringify(repo.preparation)
       )
   }
 
@@ -182,6 +185,25 @@ export class RepositoryStore {
 
   updateBranch(id: RepoId, branch: string | null): void {
     this.db.raw.prepare('UPDATE repos SET current_branch = ? WHERE id = ?').run(branch, id)
+  }
+
+  /**
+   * Writes the background first-commit state. The row may already be gone if
+   * the user removed the project while preparation was running; that is a
+   * no-op, not an error.
+   */
+  updatePreparation(
+    id: RepoId,
+    preparation: RepositoryRecord['preparation']
+  ): void {
+    this.db.raw
+      .prepare('UPDATE repos SET preparation_json = ? WHERE id = ?')
+      .run(
+        preparation === undefined || preparation === null
+          ? null
+          : JSON.stringify(preparation),
+        id
+      )
   }
 
   touchLastOpened(id: RepoId, at: number): void {

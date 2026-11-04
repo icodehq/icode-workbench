@@ -36,6 +36,39 @@ describe('local executor', () => {
     expect(result.exitCode).not.toBe(0)
     expect(result.stderr.toString('utf8')).toContain('not a git repository')
   })
+
+  it('streams stdout as chunks without keeping a second copy', async () => {
+    const executor = createLocalGitExecutor()
+    const chunks: Buffer[] = []
+    const result = await executor.stream!(
+      {
+        cwd: process.cwd(),
+        args: ['rev-parse', '--is-inside-work-tree'],
+        timeoutMs: 5_000
+      },
+      { onStdout: (chunk) => chunks.push(chunk) }
+    )
+    expect(result.exitCode).toBe(0)
+    expect(Buffer.concat(chunks).toString('utf8').trim()).toBe('true')
+    expect(result.stdout.length).toBe(0)
+  })
+
+  it('rejects a stream whose signal was already aborted', async () => {
+    const executor = createLocalGitExecutor()
+    const controller = new AbortController()
+    controller.abort()
+    await expect(
+      executor.stream!(
+        {
+          cwd: process.cwd(),
+          args: ['status'],
+          timeoutMs: 5_000,
+          signal: controller.signal
+        },
+        { onStdout: () => undefined }
+      )
+    ).rejects.toHaveProperty('name', 'AbortError')
+  })
 })
 
 /** Answers the login-shell probe as a distro with Git on PATH does. */

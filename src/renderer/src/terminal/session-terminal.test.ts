@@ -87,6 +87,7 @@ function harness(
     maxResyncs?: number
     cooldown?: number
     bufferLimit?: number
+    readOnly?: boolean
     onError?: (error: Parameters<NonNullable<SessionTerminalOptions['onError']>>[0]) => void
   } = {}
 ): Harness {
@@ -128,6 +129,7 @@ function harness(
     sink,
     onStatus: (status) => statuses.push(status),
     ...(options.onError ? { onError: options.onError } : {}),
+    readOnly: options.readOnly === true,
     maxResyncs: options.maxResyncs ?? 3,
     resyncCooldownMs: options.cooldown ?? 0,
     ...(options.bufferLimit === undefined ? {} : { bufferLimitBytes: options.bufferLimit })
@@ -173,6 +175,20 @@ describe('attach and snapshot ordering', () => {
     expect(h.sink.writes).toEqual(['RESET', 'SNAPSHOT', 'SEVEN'])
     expect(h.controller.getStatus().phase).toBe('live')
     expect(h.attach).toHaveBeenCalledTimes(1)
+  })
+
+  it('never types into or resizes a read-only wall preview', async () => {
+    const h = harness({ readOnly: true })
+    h.attach.mockResolvedValueOnce(attachment({ cols: 120, rows: 40 }))
+    h.controller.start()
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(h.sink.writes).toEqual(['RESET', 'SNAPSHOT'])
+    expect(await h.controller.write('ls\r')).toBe(false)
+    h.controller.resize(80, 24)
+    expect(h.write).not.toHaveBeenCalled()
+    expect(h.resize).not.toHaveBeenCalled()
   })
 
   it('sorts buffered events and applies only contiguous sequences', async () => {

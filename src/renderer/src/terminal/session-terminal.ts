@@ -47,6 +47,8 @@ export type SessionTerminalOptions = {
   /** Called after a snapshot is applied and buffered output is drained. */
   onAttached?: (payload: TerminalAttachPayload) => void
   onError?: (error: AppError) => void
+  /** A wall preview may read the snapshot but must never resize or type into the PTY. */
+  readOnly?: boolean
   bufferLimitBytes?: number
   maxResyncs?: number
   resyncWindowMs?: number
@@ -87,6 +89,7 @@ export class SessionTerminal {
   private readonly maxResyncs: number
   private readonly resyncWindowMs: number
   private readonly resyncCooldownMs: number
+  private readonly readOnly: boolean
 
   private started = false
   private disposed = false
@@ -121,6 +124,7 @@ export class SessionTerminal {
     this.maxResyncs = options.maxResyncs ?? DEFAULT_MAX_RESYNCS
     this.resyncWindowMs = options.resyncWindowMs ?? DEFAULT_RESYNC_WINDOW_MS
     this.resyncCooldownMs = options.resyncCooldownMs ?? DEFAULT_RESYNC_COOLDOWN_MS
+    this.readOnly = options.readOnly === true
     this.onStatus = options.onStatus
     this.onAttached = options.onAttached
     this.onError = options.onError
@@ -161,7 +165,14 @@ export class SessionTerminal {
   }
 
   async write(data: string): Promise<boolean> {
-    if (this.disposed || this.status.phase !== 'live' || this.incarnationId === null) return false
+    if (
+      this.readOnly ||
+      this.disposed ||
+      this.status.phase !== 'live' ||
+      this.incarnationId === null
+    ) {
+      return false
+    }
     const incarnationId = this.incarnationId
     try {
       const result = await this.api.terminal.write({ sessionId: this.sessionId, incarnationId, data })
@@ -175,7 +186,7 @@ export class SessionTerminal {
   }
 
   resize(cols: number, rows: number): void {
-    if (this.disposed) return
+    if (this.disposed || this.readOnly) return
     const width = Math.max(1, Math.min(1000, Math.floor(cols)))
     const height = Math.max(1, Math.min(1000, Math.floor(rows)))
     this.pendingResize = { cols: width, rows: height }
@@ -419,7 +430,7 @@ export class SessionTerminal {
   // ─── Input and resize ─────────────────────────────────────────────
 
   private flushResize(): void {
-    if (this.pendingResize === null || this.incarnationId === null) return
+    if (this.readOnly || this.pendingResize === null || this.incarnationId === null) return
     const next = this.pendingResize
     if (
       this.lastSentResize !== null &&

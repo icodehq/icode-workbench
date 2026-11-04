@@ -12,6 +12,8 @@ export type ActivityTransition = {
   sessionId: string
   previous: ActivitySummary
   next: ActivitySummary
+  /** Harness conversation identity for Sleep/Wake; never shown as activity. */
+  harnessSessionId: string | null
   /** A transition the user should be told about, at most once per logical change. */
   attention: 'done' | 'waiting' | null
 }
@@ -69,6 +71,15 @@ export class ActivityService {
   }
 
   /**
+   * The harness conversation identity carried by the newest accepted hook.
+   * Activity itself stays advisory and in-memory; SessionService persists this
+   * one value so Sleep/Wake can resume the right conversation.
+   */
+  harnessSessionId(sessionId: string): string | null {
+    return this.entries.get(sessionId)?.activity.claudeSessionId ?? null
+  }
+
+  /**
    * Binds the incarnation the session is now expected to report. Called after
    * create/attach/restart so events from a previous process are rejected.
    */
@@ -96,6 +107,7 @@ export class ActivityService {
       sessionId,
       previous: toActivitySummary(previous),
       next: toActivitySummary(entry.activity),
+      harnessSessionId: entry.activity.claudeSessionId,
       attention: null
     })
     return true
@@ -159,6 +171,7 @@ export class ActivityService {
       sessionId: event.sessionId,
       previous: toActivitySummary(previous),
       next: toActivitySummary(next),
+      harnessSessionId: next.claudeSessionId,
       attention
     })
     return alreadySeen ? 'duplicate' : 'accepted'

@@ -10,6 +10,7 @@ import { SessionService } from './session-service'
 import { FakeHostGateway } from './fake-host-gateway'
 import { newRepoId, newSessionId, newWorkspaceId, toPtyIncarnationId } from '../../shared/domain/ids'
 import type { ExecutionTarget } from '../../shared/domain/repository'
+import type { SessionSummary } from '../../shared/schemas/ipc'
 import type { GitExecutorRouter } from '../git/executor'
 import { toCanonicalRepositoryPath } from '../../shared/domain/paths'
 
@@ -68,6 +69,7 @@ function setup(options: { guestExists: boolean; resolveFails?: boolean; target?:
     }
   }
   const gitWorktrees = new GitWorktreeService({ worktreeRoot: join(root.dir, 'worktrees'), router })
+  const host = new FakeHostGateway()
 
   const service = new SessionService({
     database: db,
@@ -75,7 +77,7 @@ function setup(options: { guestExists: boolean; resolveFails?: boolean; target?:
     sessions,
     worktrees,
     gitWorktrees,
-    host: new FakeHostGateway(),
+    host,
     detectHarness: async () => ({
       state: 'available',
       harness: 'claude',
@@ -156,7 +158,7 @@ function setup(options: { guestExists: boolean; resolveFails?: boolean; target?:
     root.cleanup()
   })
 
-  return { service, sessionId, asked, worktreePath }
+  return { service, sessionId, asked, worktreePath, host }
 }
 
 describe('session list worktree status', () => {
@@ -196,5 +198,35 @@ describe('session list worktree status', () => {
     rmSync(f.worktreePath, { recursive: true, force: true })
     const view = await f.service.list()
     expect(view.sessions.find((s) => s.id === f.sessionId)!.worktree?.status).toBe('missing')
+  })
+
+  it('does not call a guest worktree missing on a host state update', async () => {
+    /*
+     * This is the New Session / exit-event path: it emits a summary without an
+     * async existence probe. A local stat of a guest path would say missing even
+     * though the checkout is healthy.
+     */
+    const f = setup({ guestExists: true })
+    await f.host.createOrAttach({
+      sessionId: f.sessionId,
+      cwd: '/tmp',
+      command: '/bin/sh',
+      cols: 80,
+      rows: 24
+    })
+    const states: SessionSummary[] = []
+    const unsubscribe = f.service.subscribe((event) => {
+      if (event.type === 'state' && event.session.id === f.sessionId) {
+        states.push(event.session)
+      }
+    })
+
+    f.host.finish(f.sessionId, 0)
+    await Promise.resolve()
+    unsubscribe()
+
+    const summary = states.at(-1)
+    expect(summary?.worktree?.status).not.toBe('missing')
+    expect(summary?.state).toBe('exited')
   })
 })

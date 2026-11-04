@@ -87,7 +87,7 @@ export default function Sidebar({
                 </span>
                 {repo.target.kind === 'wsl' ? (
                   <span
-                    className="ml-1 rounded border border-sky-500/40 bg-sky-500/10 px-1 text-[8px] font-medium text-sky-300"
+                    className="ml-1 rounded border border-info/40 bg-info-weak px-1 text-[8px] font-medium text-info"
                     title={`WSL distro ${repo.target.distro}`}
                     data-testid="sidebar-repo-target"
                     data-target="wsl"
@@ -97,7 +97,7 @@ export default function Sidebar({
                 ) : null}
               </div>
               {repo.availability === 'missing' ? (
-                <p className="mb-1 px-2 text-[10px] text-amber-400">Path is missing on disk</p>
+                <p className="mb-1 px-2 text-[10px] text-signal">Path is missing on disk</p>
               ) : null}
               {sessionsForRepo.length === 0 ? (
                 <p className="px-2 py-1 text-[10px] text-muted-foreground">No sessions</p>
@@ -168,7 +168,7 @@ export default function Sidebar({
                               session.worktree.status === 'failed' ||
                               session.worktree.status === 'incomplete') ? (
                               <span
-                                className="block truncate text-[9px] text-amber-400"
+                                className="block truncate text-[9px] text-signal"
                                 data-testid={`session-worktree-status-${session.id}`}
                               >
                                 {session.worktree.status}
@@ -232,12 +232,12 @@ export default function Sidebar({
         ) : null}
 
         {orphans.length > 0 ? (
-          <section className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-2">
-            <div className="flex items-center gap-1.5 text-[10px] font-medium text-amber-300">
+          <section className="mt-2 rounded-md border border-signal-line bg-signal-weak px-2 py-2">
+            <div className="flex items-center gap-1.5 text-[10px] font-medium text-signal">
               <AlertTriangle size={11} />
               {orphans.length} untracked terminal{orphans.length === 1 ? '' : 's'}
             </div>
-            <p className="mt-1 text-[10px] leading-relaxed text-amber-200/80">
+            <p className="mt-1 text-[10px] leading-relaxed text-signal opacity-80">
               The terminal host still owns sessions that ADE does not track. They are not attached
               here and are left running.
             </p>
@@ -245,7 +245,7 @@ export default function Sidebar({
               {orphans.slice(0, 4).map((orphan) => (
                 <li
                   key={orphan.sessionId}
-                  className="truncate font-mono text-[9px] text-amber-200/70"
+                  className="truncate font-mono text-[9px] text-signal opacity-70"
                   title={`${orphan.command} in ${orphan.cwd}`}
                 >
                   {orphan.command} · pid {orphan.ptyPid}

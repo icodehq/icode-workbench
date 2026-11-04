@@ -13,6 +13,7 @@ import type {
   ReviewList,
   ReviewUnavailableReason
 } from '../../shared/domain/review'
+import type { ReviewAreaDiffInput } from '../../shared/schemas/review'
 
 export type ReviewServiceDeps = {
   sessions: SessionService
@@ -26,6 +27,7 @@ type Unavailable = Extract<ReviewAvailability, { status: 'unavailable' }>
 
 export type ReviewListOutcome = ({ status: 'available' } & ReviewList) | Unavailable
 export type ReviewDiffOutcome = ({ status: 'available' } & ReviewDiff) | Unavailable
+
 
 type Target =
   | {
@@ -70,48 +72,22 @@ export class ReviewService {
     return outcome
   }
 
-  async diff(
-    sessionId: string,
-    path: string,
-    oldPath: string | null = null
-  ): Promise<ReviewDiffOutcome> {
-    const target = await this.resolveTarget(sessionId)
+  async diffArea(input: ReviewAreaDiffInput): Promise<ReviewDiffOutcome> {
+    const target = await this.resolveTarget(input.sessionId)
     if (target.status === 'unavailable') return target
-
-    // The renderer may only select from the validated listing, so re-read it and
-    // refuse a path Git does not actually report as changed.
     const reader = this.readerFor(target.executionTarget)
-    const list = await this.read(() =>
-      reader.list({
-        worktreePath: target.worktreePath,
-        baseOid: target.baseOid,
-        sessionId: target.sessionId
-      })
-    )
-    const file = list.files.find(
-      (entry) => entry.path === path && (oldPath === null || entry.oldPath === oldPath)
-    )
-    if (!file) {
-      throw new SessionServiceError(
-        makeAppError('INVALID_ARGUMENT', 'That file is not part of this session review.', {
-          context: { path }
-        })
-      )
-    }
-
     const diff = await this.read(() =>
-      reader.diff({
+      reader.diffArea({
         worktreePath: target.worktreePath,
-        baseOid: target.baseOid,
         sessionId: target.sessionId,
-        path: file.path,
-        oldPath: file.oldPath,
-        status: file.status,
-        origin: file.origin,
-        binary: file.binary,
-        symlink: file.symlink,
-        additions: file.additions,
-        deletions: file.deletions
+        path: input.path,
+        oldPath: input.oldPath ?? null,
+        scope: input.scope,
+        status: input.status,
+        binary: input.binary,
+        symlink: input.symlink,
+        additions: input.additions,
+        deletions: input.deletions
       })
     )
     const outcome: ReviewDiffOutcome = { status: 'available', ...diff }

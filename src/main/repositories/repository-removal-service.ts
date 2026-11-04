@@ -24,6 +24,8 @@ export type RepositoryRemovalDeps = {
   worktrees: WorktreeStore
   gitWorktrees: GitWorktreeService
   summarise: (repoId: RepoId) => Promise<SessionSummary[]>
+  /** Stops a background first commit before the project row is deleted. */
+  preparations?: { cancel(repoId: RepoId): void }
 }
 
 /**
@@ -56,6 +58,9 @@ export class RepositoryRemovalService {
     }
 
     if (impact.sessions.length === 0) {
+      // The project is leaving the workspace; do not let a first commit land
+      // after the user asked to remove it.
+      this.deps.preparations?.cancel(repoId)
       const outcome = this.deps.repositoryService.removeRepository(repoId, {
         acknowledgeDependentSessions: false
       })
@@ -159,6 +164,7 @@ export class RepositoryRemovalService {
       })
     }
 
+    this.deps.preparations?.cancel(repoId)
     const outcome = this.deps.repositoryService.removeRepository(repoId, {
       acknowledgeDependentSessions: true
     })

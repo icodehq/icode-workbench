@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { AlertCircle, CheckCircle2, Info, X } from 'lucide-react'
 import type { Notice } from '../state/workspace'
 
@@ -8,25 +9,31 @@ type Props = {
 
 const TONE = {
   info: {
-    className: 'border-sky-500/40 bg-sky-500/10 text-sky-200',
+    className: 'border-info/40 bg-info-weak text-info',
     Icon: Info
   },
   success: {
-    className: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200',
+    className: 'border-add/40 bg-add-weak text-add',
     Icon: CheckCircle2
   },
   error: {
-    className: 'border-destructive/50 bg-destructive/10 text-red-200',
+    className: 'border-destructive/50 bg-destructive/10 text-destructive',
     Icon: AlertCircle
   }
 } as const
 
 export default function NoticeToast({ notice, onDismiss }: Props): React.JSX.Element | null {
+  useEffect(() => {
+    if (!notice) return
+    // Errors stay long enough to read the detail; confirmations are transient.
+    const timer = window.setTimeout(onDismiss, notice.tone === 'error' ? 8000 : 4500)
+    return () => window.clearTimeout(timer)
+  }, [notice, onDismiss])
   if (!notice) return null
   const tone = TONE[notice.tone]
   return (
     <div
-      className={`fixed right-3 top-14 z-50 flex w-[380px] max-w-[calc(100vw-24px)] items-start gap-2 rounded-md border px-3 py-2 text-[11px] shadow-xl ${tone.className}`}
+      className={`fixed bottom-10 right-3 z-50 flex w-[380px] max-w-[calc(100vw-24px)] items-start gap-2 rounded-md border px-3 py-2 text-[11px] shadow-xl ${tone.className}`}
       role="status"
       data-testid="notice"
       data-tone={notice.tone}

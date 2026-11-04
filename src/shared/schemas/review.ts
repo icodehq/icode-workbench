@@ -23,15 +23,24 @@ export const reviewPathSchema = z
     'must not contain a parent segment'
   )
 
-export const reviewListInputSchema = z.strictObject({
-  sessionId: sessionIdSchema
-})
+export const reviewDiffScopeSchema = z.enum(['staged', 'unstaged', 'untracked', 'conflict'])
+export type ReviewDiffScope = z.infer<typeof reviewDiffScopeSchema>
 
-export const reviewDiffInputSchema = z.strictObject({
+/**
+ * A working-tree diff is scoped to one side of the index. The metadata is
+ * display-only and comes from the same status snapshot the row was rendered
+ * from; the path and containment are re-validated in main.
+ */
+export const reviewAreaDiffInputSchema = z.strictObject({
   sessionId: sessionIdSchema,
   path: reviewPathSchema,
-  /** Rename origin reported by the listing; required for rename diffs. */
-  oldPath: reviewPathSchema.nullish()
+  oldPath: reviewPathSchema.nullish(),
+  scope: reviewDiffScopeSchema,
+  status: z.enum(REVIEW_FILE_STATUSES),
+  binary: z.boolean(),
+  symlink: z.boolean().nullable(),
+  additions: z.number().int().nonnegative().nullable(),
+  deletions: z.number().int().nonnegative().nullable()
 })
 
 export const reviewFileSchema = z.strictObject({
@@ -43,7 +52,7 @@ export const reviewFileSchema = z.strictObject({
   additions: z.number().int().nonnegative().nullable(),
   deletions: z.number().int().nonnegative().nullable(),
   binary: z.boolean(),
-  symlink: z.boolean()
+  symlink: z.boolean().nullable()
 })
 
 export const reviewUnavailableReasonSchema = z.enum([
@@ -54,25 +63,11 @@ export const reviewUnavailableReasonSchema = z.enum([
   'invalid-baseline'
 ])
 
-export const reviewListPayloadSchema = z.strictObject({
-  status: z.literal('available'),
-  sessionId: sessionIdSchema,
-  baselineOid: z.string().min(1).max(128),
-  files: z.array(reviewFileSchema).max(1000),
-  listTruncated: z.boolean()
-})
-
 export const reviewUnavailableSchema = z.strictObject({
   status: z.literal('unavailable'),
   reason: reviewUnavailableReasonSchema,
   detail: z.string().min(1).max(500)
 })
-
-/** A list/diff request succeeds even when it reports that review is impossible. */
-export const reviewListResultSchema = z.union([
-  reviewListPayloadSchema,
-  reviewUnavailableSchema
-])
 
 export const reviewDiffPayloadSchema = z.strictObject({
   status: z.literal('available'),
@@ -84,7 +79,7 @@ export const reviewDiffPayloadSchema = z.strictObject({
   truncated: z.boolean(),
   truncatedReason: z.enum(['bytes', 'timeout']).nullable(),
   binary: z.boolean(),
-  symlink: z.boolean(),
+  symlink: z.boolean().nullable(),
   additions: z.number().int().nonnegative().nullable(),
   deletions: z.number().int().nonnegative().nullable()
 })
@@ -95,12 +90,9 @@ export const reviewDiffResultSchema = z.union([
 ])
 
 export type ReviewUnavailableReason = z.infer<typeof reviewUnavailableReasonSchema>
-export type ReviewListInput = z.infer<typeof reviewListInputSchema>
-export type ReviewDiffInput = z.infer<typeof reviewDiffInputSchema>
+export type ReviewAreaDiffInput = z.infer<typeof reviewAreaDiffInputSchema>
 export type ReviewFilePayload = z.infer<typeof reviewFileSchema>
-export type ReviewListPayload = z.infer<typeof reviewListPayloadSchema>
 export type ReviewDiffPayload = z.infer<typeof reviewDiffPayloadSchema>
-export type ReviewListResult = z.infer<typeof reviewListResultSchema>
 export type ReviewDiffResult = z.infer<typeof reviewDiffResultSchema>
 
 export { absolutePathSchema, appErrorSchema }
