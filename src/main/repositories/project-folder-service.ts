@@ -14,7 +14,7 @@
  * not wait for it.
  */
 
-import { constants as fsConstants } from 'node:fs'
+import { constants as fsConstants, realpathSync } from 'node:fs'
 import { access, lstat, readdir, realpath, stat } from 'node:fs/promises'
 import { isAbsolute, join, parse as parsePath } from 'node:path'
 import { homedir } from 'node:os'
@@ -138,8 +138,18 @@ function isNotGitRepository(detail: string): boolean {
 }
 
 function normalizeLocal(value: string, platform: NodeJS.Platform): string {
-  const withoutTrailing = value.replace(/[\\/]+$/u, '') || value
-  return platform === 'win32' ? withoutTrailing.toLowerCase() : withoutTrailing
+  let resolved = value
+  try {
+    // Expand Windows short names/casing before comparing; `RUNNER~1` and
+    // `runneradmin` are the same directory.
+    resolved = realpathSync.native(value)
+  } catch {
+    // Non-existent paths still compare by their normalized spelling.
+  }
+  const withoutTrailing = resolved.replace(/[\\/]+$/u, '') || resolved
+  return platform === 'win32'
+    ? withoutTrailing.replace(/\\/gu, '/').toLowerCase()
+    : withoutTrailing
 }
 
 function normalizePosix(value: string): string {

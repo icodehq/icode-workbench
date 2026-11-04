@@ -98,7 +98,9 @@ export function samePathResolved(
 ): boolean {
   const resolve = (value: string): string => {
     try {
-      return realpathSync(value)
+      // The native resolver expands Windows 8.3 short names (RUNNER~1), so a
+      // Git-reported short path and a Node-composed long path compare equal.
+      return realpathSync.native(value)
     } catch {
       return value
     }

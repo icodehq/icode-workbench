@@ -99,7 +99,7 @@ describe('harness detection', () => {
   })
 
   it('probes the user shell for the shell harness', async () => {
-    const { detector: d, probes } = detector({ shell: '/bin/bash' })
+    const { detector: d, probes } = detector({ shell: '/bin/bash', platform: 'linux' })
     const result = await d.detect('shell')
     expect(result.state).toBe('available')
     expect(probes).toEqual(['/bin/bash'])
@@ -229,7 +229,7 @@ describe('Windows shell harness', () => {
   })
 
   it('keeps the POSIX probe for the shell harness on Linux', async () => {
-    const { detector: instance, probes } = detector({ shell: '/bin/bash' })
+    const { detector: instance, probes } = detector({ shell: '/bin/bash', platform: 'linux' })
 
     const result = await instance.detect('shell')
 
