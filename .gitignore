@@ -10,24 +10,12 @@ dist-*/
 *.AppImage
 *.blockmap
 
-# Local acceptance evidence and one-off runs. The curated Work 12-14 summaries
-# and screenshots are tracked and stay reviewable.
-artifacts/*
-!artifacts/work12/
-!artifacts/work13/
-!artifacts/work14/
-# Duplicate/one-off sub-runs inside the curated directories (Work 15 excluded
-# these as not evidence for the Work they sit under).
-artifacts/work12/claude/
-artifacts/work13/worktree/
-# One-off failure capture from a smoke run, not part of the curated evidence.
-artifacts/work14/failure.png
+# Local acceptance evidence, smoke runs and packaging inputs. These are
+# machine-local outputs, never product source.
+artifacts/
 
-# Logs and OS noise. The curated Work 12-14 app logs are tracked evidence.
+# Logs and OS noise.
 *.log
-!artifacts/work12/*.log
-!artifacts/work13/*.log
-!artifacts/work14/*.log
 .DS_Store
 
 # Local Windows MSI staging and probe outputs
