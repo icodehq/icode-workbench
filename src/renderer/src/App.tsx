@@ -13,7 +13,7 @@ import ProjectsWall from './components/ProjectsWall'
 import RepositoriesView from './components/RepositoriesView'
 import SchedulesView from './components/SchedulesView'
 import SessionWorkspace from './components/SessionWorkspace'
-import SettingsView from './components/SettingsView'
+import SettingsPage from './pages/SettingsPage'
 import StatusBar from './components/StatusBar'
 import AppLayout from './layouts/AppLayout'
 import GlobalOverlays from './layouts/GlobalOverlays'
@@ -825,7 +825,7 @@ export default function App(): React.JSX.Element {
       />
     ),
     settings: (
-      <SettingsView
+      <SettingsPage
         state={state}
         runtime={workspace.runtime}
         maxConcurrent={tasks.maxConcurrent}
