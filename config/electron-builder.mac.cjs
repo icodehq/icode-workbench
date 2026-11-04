@@ -23,6 +23,8 @@ module.exports = {
     gatekeeperAssess: false,
     minimumSystemVersion: '12.0',
     notarize: true,
+    // Repair node-pty's spawn-helper mode before signing/dmg creation.
+    afterPack: 'config/scripts/native/after-pack-mac.cjs',
     artifactName: '${productName}-${version}-mac-${arch}.${ext}',
     /**
      * The darwin prebuilds are the payload. Excluding `build/**` and `bin/**`

@@ -186,9 +186,13 @@ function main(argv) {
     )
     check(!existsSync(join(ptyDir, 'bin')), `${options.platform} package must not ship Electron-ABI bin copies`)
     if (options.platform === 'mac') {
+      const helper = join(ptyDir, 'prebuilds', `darwin-${options.arch}`, 'spawn-helper')
+      check(existsSync(helper), 'macOS package is missing node-pty spawn-helper')
+      // node-pty's tarball omits the executable bit; a non-executable helper
+      // makes every PTY fail with "posix_spawnp failed".
       check(
-        existsSync(join(ptyDir, 'prebuilds', `darwin-${options.arch}`, 'spawn-helper')),
-        'macOS package is missing node-pty spawn-helper'
+        (statSync(helper).mode & 0o111) !== 0,
+        `macOS node-pty spawn-helper is not executable: ${helper}`
       )
     }
   }

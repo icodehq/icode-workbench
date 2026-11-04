@@ -21,7 +21,10 @@ const servers: Server[] = []
 const savedEnv = { ...process.env }
 
 function root(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'icode-supervisor-'))
+  // macOS TMPDIR is long enough to hit the sun_path fallback for otherwise
+  // ordinary fixtures; a short POSIX root keeps these tests about behavior.
+  const base = process.platform === 'darwin' ? '/tmp' : tmpdir()
+  const dir = mkdtempSync(join(base, 'icode-supervisor-'))
   roots.push(dir)
   return dir
 }

@@ -85,6 +85,12 @@ function main(argv) {
     run(process.execPath, ['config/scripts/wsl/prepare-artifacts.cjs', '--verify-only'])
   }
 
+  if (platform === 'mac') {
+    // The package's own postinstall does not set the executable bit on its
+    // Darwin spawn-helper. Repair it even when install scripts were skipped.
+    require('./native/mac-pty-modes.cjs').ensureMacPtyModes(REPO_ROOT)
+  }
+
   if (platform === 'linux') {
     if (process.env.ICODE_SKIP_NATIVE_STAGE === '1') {
       process.stdout.write(

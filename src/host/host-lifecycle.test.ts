@@ -23,7 +23,10 @@ const hosts: RunningHost[] = []
 const clients: Array<{ close: () => void }> = []
 
 function root(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'icode-life-'))
+  // macOS TMPDIR is long enough to hit the sun_path fallback for otherwise
+  // ordinary fixtures; a short POSIX root keeps these tests about behavior.
+  const base = process.platform === 'darwin' ? '/tmp' : tmpdir()
+  const dir = mkdtempSync(join(base, 'icode-life-'))
   roots.push(dir)
   return dir
 }
