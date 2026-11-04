@@ -4,9 +4,10 @@ An agent development environment for local Coding Agent TUIs.
 
 **Status:** The terminal workspace, detached Host, SQLite persistence, packaged
 WSL2/WSLg support, session worktrees, changes review, agent activity, and full
-Source Control parity are implemented. Only Linux x64 under WSL2/WSLg is verified;
-native Windows, macOS, other Linux distributions/architectures, code signing, and
-auto-updates are not supported by this build.
+Source Control parity are implemented. Linux x64 under WSL2/WSLg and Windows x64
+(NSIS, including native PowerShell sessions and a packaged smoke) are verified in
+CI. macOS, other architectures, code signing, and auto-updates are not yet
+supported by this build.
 
 ## Stack
 

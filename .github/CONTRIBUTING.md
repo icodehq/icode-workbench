@@ -147,9 +147,11 @@ ICODE_GATE_PACKAGED_DIR=/path/to/dist/linux-unpacked pnpm gate:packaged
 `tests/compat/packaged-smoke.cjs` verifies the packaged binary from `/tmp`:
 WAL SQLite, the bundled native PTY, and the unpacked Host starting a real session.
 
-`pnpm package:win` and `pnpm package:msi` produce Windows installers. They require
-a Windows environment with the WiX toolchain; MSI is the currently configured
-target, and the NSIS migration is tracked separately.
+`pnpm package:win` produces the Windows NSIS installer on a Windows host. CI
+builds it after downloading the verified WSL tree, then runs
+`verify-package` and the Windows packaged smoke (`tests/compat/packaged-smoke-win.cjs`),
+which covers SQLite, a native PowerShell ConPTY session, the named-pipe Host, and
+shutdown.
 
 ## Packaged Linux acceptance
 

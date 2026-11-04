@@ -48,9 +48,6 @@ jobs:
     name: Unit and build (Windows)
     runs-on: windows-2022
     timeout-minutes: 30
-    # Phase 3 makes the Windows suite blocking. Keep the job recording results
-    # while the known POSIX-only tests are still being converted.
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -130,9 +127,6 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 45
     needs: wsl-artifacts
-    # First iteration: record the result; flip to blocking once the Windows
-    # suite and packaged smoke are confirmed green.
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
