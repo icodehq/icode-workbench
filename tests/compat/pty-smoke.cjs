@@ -48,9 +48,15 @@ async function main() {
     throw new Error(`Expected Electron ABI ${EXPECTED_ABI}, got ${String(modules)}`)
   }
 
-  const shell = process.env.SHELL || '/bin/bash'
+  const shell =
+    process.platform === 'win32'
+      ? process.env.ComSpec || 'cmd.exe'
+      : process.env.SHELL || '/bin/bash'
+  // Bash-only flags would break zsh and cmd.exe; the marker command itself is
+  // portable across bash, zsh, PowerShell, and cmd.
+  const shellArgs = /(?:^|[\\/])bash(?:\.exe)?$/iu.test(shell) ? ['--noprofile', '--norc'] : []
   const output = await new Promise((resolve, reject) => {
-    const term = pty.spawn(shell, ['--noprofile', '--norc'], {
+    const term = pty.spawn(shell, shellArgs, {
       name: 'xterm-256color',
       cols: 100,
       rows: 30,

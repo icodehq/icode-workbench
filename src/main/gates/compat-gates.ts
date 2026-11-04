@@ -7,9 +7,12 @@ import { randomUUID } from 'node:crypto'
 import { HostSupervisor } from '../host/host-supervisor'
 import type { HostClient } from '../host/host-client'
 import type { HostEvent } from '../../shared/host-protocol'
+import { resolvedShellCommand } from '../harness/default-shell'
 
-const SHELL = process.env.SHELL && process.env.SHELL.length > 0 ? process.env.SHELL : '/bin/bash'
-const SHELL_ARGS = ['--noprofile', '--norc']
+const SHELL = resolvedShellCommand()
+// The marker command is valid in bash, zsh, PowerShell, and cmd. Bash-only
+// flags such as --noprofile would break the other shells.
+const SHELL_ARGS: string[] = []
 
 export function artifactDir(): string {
   return process.env.ICODE_GATE_ARTIFACTS ?? join(process.cwd(), 'artifacts', 'work1')
