@@ -215,9 +215,14 @@ async function startHostSession(
   }
 }
 
-function failed(error: unknown): { error: string; stack?: string } {
+function failed(error: unknown): { error: string; detail?: string; stack?: string } {
+  const detail =
+    error && typeof error === 'object' && 'detail' in error
+      ? (error as { detail?: unknown }).detail
+      : undefined
   return {
     error: error instanceof Error ? error.message : String(error),
+    ...(typeof detail === 'string' && detail.length > 0 ? { detail } : {}),
     ...(error instanceof Error && error.stack ? { stack: error.stack } : {})
   }
 }
