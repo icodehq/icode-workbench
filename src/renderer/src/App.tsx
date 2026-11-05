@@ -34,6 +34,8 @@ import { sendAgentText, type AgentSendResult } from './lib/agent-send'
 import { setRendererPlatform } from './lib/platform'
 import { harnessLabel, isAgentHarness } from '../../shared/domain/harness'
 import { WorkbenchDraftStore } from './review/drafts'
+import { openFilesStore } from './files/open-files'
+import { filesClipboardStore } from './files/files-clipboard'
 
 const NEEDS_ORDER = { Answer: 0, Retry: 1, Review: 2 } as const
 const SESSIONS_LIST_KEY = 'icode.sessionsListOpen'
@@ -58,6 +60,7 @@ export default function App(): React.JSX.Element {
   const { state } = workspace
   const tasks = useTaskQueue(workspace.notify)
   const theme = useThemePreference()
+
   const {
     displaySurface,
     taskSession,
@@ -74,6 +77,25 @@ export default function App(): React.JSX.Element {
     openRequest,
     commands
   } = useAppNavigation({ workspace, tasks })
+
+  // Tabs belong to live sessions only. Keeping a removed session's dirty text
+  // would make the close guard ask about a session the user can no longer see.
+  // Include the sessions currently on screen so a transient list refresh cannot
+  // drop the text the user is looking at.
+  useEffect(() => {
+    if (state.boot !== 'ready') return
+    const ids = new Set(state.sessions.map((session) => session.id))
+    for (const task of tasks.tasks) {
+      if (task.sessionId !== null) ids.add(task.sessionId)
+    }
+    if (state.activeSessionId !== null) ids.add(state.activeSessionId)
+    if (taskSession !== null) ids.add(taskSession.sessionId)
+    if (projectSession !== null) ids.add(projectSession.id)
+    openFilesStore.retain(ids)
+    const clipboard = filesClipboardStore.get()
+    if (clipboard !== null && !ids.has(clipboard.sessionId)) filesClipboardStore.clear()
+  }, [projectSession, state.activeSessionId, state.boot, state.sessions, taskSession, tasks.tasks])
+
   const [sessionsListOpen, setSessionsListOpen] = useState<boolean>(initialSessionsListOpen)
   const [terminalFocus, setTerminalFocus] = useState(false)
   const [addOpen, setAddOpen] = useState(false)

@@ -24,9 +24,17 @@ import {
   filesListInputSchema,
   filesReadInputSchema,
   filesCreateInputSchema,
+  filesCancelSearchInputSchema,
+  filesCopyManyInputSchema,
+  filesCopyPathsInputSchema,
+  filesMoveManyInputSchema,
   filesRemoveInputSchema,
+  filesRemoveManyInputSchema,
   filesRenameInputSchema,
+  filesReplaceInputSchema,
   filesSearchInputSchema,
+  filesStatInputSchema,
+  filesWatchInputSchema,
   filesWriteInputSchema,
   scheduleCreateInputSchema,
   scheduleEnabledInputSchema,
@@ -78,16 +86,55 @@ export type DispatcherServices = {
   gitInvoke: (input: unknown) => Promise<unknown>
   filesList: (input: { sessionId: string; path: string }) => Promise<unknown>
   filesRead: (input: { sessionId: string; path: string }) => Promise<unknown>
-  filesWrite: (input: { sessionId: string; path: string; text: string }) => Promise<unknown>
+  filesWrite: (input: {
+    sessionId: string
+    path: string
+    text: string
+    expectedEtag?: string | null
+  }) => Promise<unknown>
   filesSearch: (input: {
     sessionId: string
     query: string
     caseSensitive: boolean
+    wholeWord: boolean
+    regex: boolean
+    include: string[]
+    exclude: string[]
     limit: number
+  }) => Promise<unknown>
+  filesCancelSearch: (input: { sessionId: string }) => Promise<unknown>
+  filesReplace: (input: {
+    sessionId: string
+    query: string
+    replacement: string
+    caseSensitive: boolean
+    wholeWord: boolean
+    regex: boolean
+    include: string[]
+    exclude: string[]
+    paths: string[]
   }) => Promise<unknown>
   filesCreate: (input: { sessionId: string; path: string; kind: 'file' | 'directory' }) => Promise<unknown>
   filesRename: (input: { sessionId: string; from: string; to: string }) => Promise<unknown>
   filesRemove: (input: { sessionId: string; path: string }) => Promise<unknown>
+  filesRemoveMany: (input: { sessionId: string; paths: string[] }) => Promise<unknown>
+  filesMoveMany: (input: {
+    sessionId: string
+    paths: string[]
+    destination: string
+  }) => Promise<unknown>
+  filesCopyMany: (input: {
+    sessionId: string
+    paths: string[]
+    destination: string
+  }) => Promise<unknown>
+  filesCopyPaths: (input: {
+    sessionId: string
+    paths: string[]
+    format: 'absolute' | 'relative'
+  }) => Promise<unknown>
+  filesStat: (input: { sessionId: string; path: string }) => Promise<unknown>
+  filesWatch: (input: { sessionId: string; active: boolean }) => Promise<unknown>
   tasksList: (input: { repoId?: string; statuses?: string[]; limit?: number }) => Promise<unknown>
   tasksCreate: (input: { repoId: string; title?: string; prompt: string; harness: string }) => Promise<unknown>
   tasksCancel: (input: { taskId: string }) => Promise<unknown>
@@ -319,6 +366,18 @@ export function createDispatcher(services: DispatcherServices): Dispatcher {
         return run(() => services.filesSearch(input))
       }
 
+      case IPC_CHANNELS.filesCancelSearch: {
+        const input = parse(filesCancelSearchInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.filesCancelSearch(input))
+      }
+
+      case IPC_CHANNELS.filesReplace: {
+        const input = parse(filesReplaceInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.filesReplace(input))
+      }
+
       case IPC_CHANNELS.filesCreate: {
         const input = parse(filesCreateInputSchema, rawInput)
         if ('code' in input) return { ok: false, error: input }
@@ -335,6 +394,42 @@ export function createDispatcher(services: DispatcherServices): Dispatcher {
         const input = parse(filesRemoveInputSchema, rawInput)
         if ('code' in input) return { ok: false, error: input }
         return run(() => services.filesRemove(input))
+      }
+
+      case IPC_CHANNELS.filesRemoveMany: {
+        const input = parse(filesRemoveManyInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.filesRemoveMany(input))
+      }
+
+      case IPC_CHANNELS.filesMoveMany: {
+        const input = parse(filesMoveManyInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.filesMoveMany(input))
+      }
+
+      case IPC_CHANNELS.filesCopyMany: {
+        const input = parse(filesCopyManyInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.filesCopyMany(input))
+      }
+
+      case IPC_CHANNELS.filesCopyPaths: {
+        const input = parse(filesCopyPathsInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.filesCopyPaths(input))
+      }
+
+      case IPC_CHANNELS.filesStat: {
+        const input = parse(filesStatInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.filesStat(input))
+      }
+
+      case IPC_CHANNELS.filesWatch: {
+        const input = parse(filesWatchInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.filesWatch(input))
       }
 
       case IPC_CHANNELS.tasksList: {

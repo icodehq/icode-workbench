@@ -8,6 +8,7 @@ import { registerAppIpc } from './ipc/register'
 import { IPC_CHANNELS } from '../shared/schemas/ipc'
 import { installApplicationMenu } from './menu'
 import { clampWindowState, loadWindowState, trackWindowState } from './window-state'
+import { installWindowCloseGuard } from './window-close'
 import { applyLoginEnvironment } from './app/login-environment'
 import { APP_LOCAL_PROFILE_DIR_NAME, APP_NAME } from '../shared/domain/app-identity'
 
@@ -124,6 +125,7 @@ function createWindow(): void {
 
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   window.webContents.on('will-navigate', (event) => event.preventDefault())
+  installWindowCloseGuard(window, { enabled: !backgroundLaunch })
 
   const devUrl = process.env.ELECTRON_RENDERER_URL
   if (devUrl) {

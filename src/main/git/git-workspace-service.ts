@@ -25,6 +25,7 @@ import type { BlameLine } from './blame-reader'
 import type { ExecutionTarget } from '../../shared/domain/repository'
 import type { RepoId } from '../../shared/domain/ids'
 import type { FilesUnavailable } from '../files/workspace-files-service'
+import { normalizeRelativePath } from '../../shared/domain/workspace-files'
 import type {
   ChangeDiffOutcome,
   ChangeListOutcome,
@@ -114,6 +115,67 @@ export class GitWorkspaceService {
     return statusOps.status(this, sessionId, options)
   }
 
+
+  /**
+   * Authoritative `.gitignore` check for a bounded set of worktree paths.
+   *
+   * `git check-ignore --stdin -z` handles nested ignore files and tracked-file
+   * rules; exit code 1 simply means nothing matched.
+   */
+  async checkIgnore(
+    sessionId: string,
+    paths: readonly string[]
+  ): Promise<GitOutcome<{ ignored: string[] }>> {
+    const resolved = await this.resolve(sessionId)
+    if (resolved.status !== 'ok') return resolved
+    const cleaned: string[] = []
+    for (const path of paths) {
+      const relative = normalizeRelativePath(path)
+      if (relative === null || relative === '') {
+        return {
+          status: 'unavailable',
+          reason: 'path-outside',
+          detail: 'That path is not inside this worktree.'
+        }
+      }
+      cleaned.push(relative)
+    }
+    if (cleaned.length === 0) return { status: 'ok', ignored: [] }
+    try {
+      const result = await resolved.input(
+        resolved.worktreePath,
+        ['check-ignore', '--stdin', '-z'],
+        `${cleaned.join('\u0000')}\u0000`
+      )
+      if (result.timedOut) {
+        return {
+          status: 'unavailable',
+          reason: 'git-failed',
+          detail: 'The ignore check timed out.'
+        }
+      }
+      if (result.exitCode !== 0 && result.exitCode !== 1) {
+        return {
+          status: 'unavailable',
+          reason: 'git-failed',
+          detail: result.stderr.trim() || 'Git could not check the ignore rules.'
+        }
+      }
+      const ignored = result.exitCode === 0
+        ? result.stdout
+            .split('\u0000')
+            .map((path) => path.replace(/\\/gu, '/').replace(/^\.\//u, ''))
+            .filter((path) => path !== '')
+        : []
+      return { status: 'ok', ignored }
+    } catch (error) {
+      return {
+        status: 'unavailable',
+        reason: 'git-failed',
+        detail: error instanceof Error ? error.message : String(error)
+      }
+    }
+  }
 
   /**
    * One side of the working tree for one path.

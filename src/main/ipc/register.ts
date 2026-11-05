@@ -1,4 +1,4 @@
-import { BrowserWindow, dialog, ipcMain, type IpcMainInvokeEvent, type WebFrameMain } from 'electron'
+import { BrowserWindow, clipboard, dialog, ipcMain, type IpcMainInvokeEvent, type WebFrameMain } from 'electron'
 import { IPC_CHANNELS, type IpcResult } from '../../shared/schemas/ipc'
 import { makeAppError } from '../../shared/domain/errors'
 import type { AppRuntime } from '../app/runtime'
@@ -8,11 +8,13 @@ import { toRepositorySummary } from './repository-summary'
 import { RepositoryFolderPicker } from '../repositories/folder-picker'
 import { pickRepositoryFolderResultSchema } from '../../shared/schemas/ipc'
 import { app } from 'electron'
+import { respondToWindowClose } from '../window-close'
 
 export const WINDOW_CONTROL_CHANNELS: readonly string[] = [
   IPC_CHANNELS.windowMinimize,
   IPC_CHANNELS.windowToggleMaximize,
   IPC_CHANNELS.windowClose,
+  IPC_CHANNELS.windowCloseResponse,
   IPC_CHANNELS.windowIsMaximized
 ]
 
@@ -40,9 +42,17 @@ export const HANDLED_CHANNELS: readonly string[] = [
   IPC_CHANNELS.filesRead,
   IPC_CHANNELS.filesWrite,
   IPC_CHANNELS.filesSearch,
+  IPC_CHANNELS.filesCancelSearch,
+  IPC_CHANNELS.filesReplace,
   IPC_CHANNELS.filesCreate,
   IPC_CHANNELS.filesRename,
   IPC_CHANNELS.filesRemove,
+  IPC_CHANNELS.filesRemoveMany,
+  IPC_CHANNELS.filesMoveMany,
+  IPC_CHANNELS.filesCopyMany,
+  IPC_CHANNELS.filesCopyPaths,
+  IPC_CHANNELS.filesStat,
+  IPC_CHANNELS.filesWatch,
   IPC_CHANNELS.gitInvoke,
   IPC_CHANNELS.tasksList,
   IPC_CHANNELS.tasksCreate,
@@ -218,15 +228,49 @@ export function createAppDispatcher(
     activityClearUnread: async (input) => runtime.activity.clearUnread(input.sessionId),
     filesList: (input) => runtime.files.list(input.sessionId, input.path),
     filesRead: (input) => runtime.files.read(input.sessionId, input.path),
-    filesWrite: (input) => runtime.files.write(input.sessionId, input.path, input.text),
+    filesWrite: (input) =>
+      runtime.files.write(input.sessionId, input.path, input.text, input.expectedEtag),
     filesSearch: (input) =>
       runtime.files.search(input.sessionId, input.query, {
         caseSensitive: input.caseSensitive,
+        wholeWord: input.wholeWord,
+        regex: input.regex,
+        include: input.include,
+        exclude: input.exclude,
         limit: input.limit
+      }),
+    filesCancelSearch: async (input) => ({
+      cancelled: runtime.files.cancelSearch(input.sessionId)
+    }),
+    filesReplace: (input) =>
+      runtime.files.replace(input.sessionId, input.query, input.replacement, {
+        caseSensitive: input.caseSensitive,
+        wholeWord: input.wholeWord,
+        regex: input.regex,
+        include: input.include,
+        exclude: input.exclude,
+        paths: input.paths
       }),
     filesCreate: (input) => runtime.files.create(input.sessionId, input.path, input.kind),
     filesRename: (input) => runtime.files.rename(input.sessionId, input.from, input.to),
     filesRemove: (input) => runtime.files.remove(input.sessionId, input.path),
+    filesRemoveMany: (input) => runtime.files.removeMany(input.sessionId, input.paths),
+    filesMoveMany: (input) =>
+      runtime.files.moveMany(input.sessionId, input.paths, input.destination),
+    filesCopyMany: (input) =>
+      runtime.files.copyMany(input.sessionId, input.paths, input.destination),
+    filesCopyPaths: async (input) => {
+      const result = await runtime.files.copyPaths(
+        input.sessionId,
+        input.paths,
+        input.format
+      )
+      if (result.status !== 'ok') return result
+      clipboard.writeText(result.paths.join('\n'))
+      return { status: 'ok' as const, count: result.paths.length }
+    },
+    filesStat: (input) => runtime.files.stat(input.sessionId, input.path),
+    filesWatch: (input) => runtime.filesWatcher.setActive(input.sessionId, input.active),
     gitInvoke: (input) => invokeGitCommand(runtime, input),
     tasksList: (input) => Promise.resolve(runtime.tasks.list(input as never)),
     tasksCreate: (input) => Promise.resolve(outcomeOrThrow(runtime.tasks.create(input as never))),
@@ -295,7 +339,10 @@ export function registerAppIpc(
   const handlers: string[] = []
 
   for (const channel of WINDOW_CONTROL_CHANNELS) {
-    const handler = async (event: IpcMainInvokeEvent): Promise<IpcResult<unknown>> => {
+    const handler = async (
+      event: IpcMainInvokeEvent,
+      rawInput?: unknown
+    ): Promise<IpcResult<unknown>> => {
       if (!isTrustedFrame(event.senderFrame, options.devServerUrl)) {
         return {
           ok: false,
@@ -320,6 +367,15 @@ export function registerAppIpc(
       }
       if (channel === IPC_CHANNELS.windowClose) {
         window.close()
+        return { ok: true, value: null }
+      }
+      if (channel === IPC_CHANNELS.windowCloseResponse) {
+        const raw =
+          typeof rawInput === 'object' && rawInput !== null
+            ? (rawInput as { action?: unknown }).action
+            : undefined
+        const action = raw === 'ack' || raw === 'close' ? raw : 'cancel'
+        respondToWindowClose(window, action)
         return { ok: true, value: null }
       }
       return { ok: true, value: window.isMaximized() }
@@ -369,7 +425,12 @@ export function registerAppIpc(
     broadcast(IPC_CHANNELS.gitStatusEvent, event)
   })
 
+  const unsubscribeFilesChanged = runtime.filesWatcher.subscribe((event) => {
+    broadcast(IPC_CHANNELS.filesChangedEvent, event)
+  })
+
   return () => {
+    unsubscribeFilesChanged()
     unsubscribeGitStatus()
     unsubscribeRepos()
     unsubscribeTasks()

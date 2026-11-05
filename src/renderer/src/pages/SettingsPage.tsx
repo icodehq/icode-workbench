@@ -5,6 +5,7 @@ import type { ThemeName, ThemePreference } from '../theme/apply-theme'
 import { hostStatus } from '../state/host-status'
 import type { WorkspaceState } from '../state/workspace'
 import ScmSettingsCard from '../scm/ScmSettingsCard'
+import FilesSettingsCard from '../files/FilesSettingsCard'
 import SettingsCard from '../components/SettingsCard'
 
 type SettingsPageProps = {
@@ -111,6 +112,8 @@ export default function SettingsPage({
             </SettingsCard>
 
             <ScmSettingsCard />
+
+            <FilesSettingsCard />
 
             <SettingsCard title="Task execution">
               <div className="flex flex-wrap items-center justify-between gap-3">

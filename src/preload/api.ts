@@ -1,6 +1,7 @@
 import type { GitApi, IcodeApi, RuntimeInfo, ViewCommand } from '../shared/icode-api'
 import type { GitStatusWatchEvent } from '../shared/domain/git-workspace'
 import { GIT_COMMAND_NAMES } from '../shared/ipc/git-commands'
+import type { FilesChangedEvent } from '../shared/domain/workspace-files'
 import { IPC_CHANNELS } from '../shared/schemas/ipc'
 import type { IpcResult, RendererSessionEvent } from '../shared/schemas/ipc'
 
@@ -89,9 +90,21 @@ export function createIcodeApi(invoke: InvokeFn, subscribe: SubscribeFn): IcodeA
       read: (input) => call(IPC_CHANNELS.filesRead, input),
       write: (input) => call(IPC_CHANNELS.filesWrite, input),
       search: (input) => call(IPC_CHANNELS.filesSearch, input),
+      cancelSearch: (input) => call(IPC_CHANNELS.filesCancelSearch, input),
+      replace: (input) => call(IPC_CHANNELS.filesReplace, input),
       create: (input) => call(IPC_CHANNELS.filesCreate, input),
       rename: (input) => call(IPC_CHANNELS.filesRename, input),
-      remove: (input) => call(IPC_CHANNELS.filesRemove, input)
+      remove: (input) => call(IPC_CHANNELS.filesRemove, input),
+      removeMany: (input) => call(IPC_CHANNELS.filesRemoveMany, input),
+      moveMany: (input) => call(IPC_CHANNELS.filesMoveMany, input),
+      copyMany: (input) => call(IPC_CHANNELS.filesCopyMany, input),
+      copyPaths: (input) => call(IPC_CHANNELS.filesCopyPaths, input),
+      stat: (input) => call(IPC_CHANNELS.filesStat, input),
+      watch: (input) => call(IPC_CHANNELS.filesWatch, input),
+      onChanged: (listener) =>
+        subscribe(IPC_CHANNELS.filesChangedEvent, (payload) =>
+          listener(payload as FilesChangedEvent)
+        )
     },
     git: createGitApi(call, subscribe),
     tasks: {
@@ -130,7 +143,10 @@ export function createIcodeApi(invoke: InvokeFn, subscribe: SubscribeFn): IcodeA
       close: () => call(IPC_CHANNELS.windowClose),
       isMaximized: () => call(IPC_CHANNELS.windowIsMaximized),
       onMaximizedChange: (listener) =>
-        subscribe(IPC_CHANNELS.windowMaximizedEvent, (payload) => listener(Boolean(payload)))
+        subscribe(IPC_CHANNELS.windowMaximizedEvent, (payload) => listener(Boolean(payload))),
+      onBeforeClose: (listener) =>
+        subscribe(IPC_CHANNELS.windowBeforeClose, () => listener()),
+      respondClose: (action) => call(IPC_CHANNELS.windowCloseResponse, { action })
     },
     onTaskEvent: (listener: () => void) => {
       const handler = (): void => listener()

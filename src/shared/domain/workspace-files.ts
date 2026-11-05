@@ -40,6 +40,8 @@ export type FileEntry = {
   kind: FileEntryKind
   /** Bytes for a file; null for a directory. */
   size: number | null
+  /** Milliseconds since the Unix epoch; null when the host cannot report it. */
+  modifiedAt: number | null
 }
 
 export type FileListing = {
@@ -53,12 +55,68 @@ export type FileContent = {
   path: string
   text: string
   size: number
+  /**
+   * Opaque disk version. A save may name this as its expected version, so an
+   * Agent's intervening write becomes an explicit conflict instead of a silent
+   * overwrite. Backends choose the shape; callers never parse it.
+   */
+  etag: string
   /** True when the file is not UTF-8 text; `text` is then empty. */
   binary: boolean
   /** True when the file exceeded the read budget. */
   tooLarge: boolean
   /** True when the on-disk bytes do not end with a newline. */
   missingTrailingNewline: boolean
+}
+
+/** Version and type of one path, without reading its contents. */
+export type FileStat = {
+  path: string
+  kind: FileEntryKind
+  size: number
+  etag: string | null
+  /** Milliseconds since the Unix epoch; null when the host cannot report it. */
+  modifiedAt: number | null
+}
+
+/**
+ * What changed inside one watched worktree.
+ *
+ * `changedPaths` are worktree-relative and may contain paths that no longer
+ * exist. `overflow` means the burst exceeded the per-window cap, so the
+ * consumer must reconcile broadly instead of trusting the list.
+ */
+export type FilesChangedEvent = {
+  sessionId: string
+  revision: number
+  changedPaths: string[]
+  overflow: boolean
+  /** True when the watcher stopped and the consumer must fall back to polling. */
+  failed?: boolean
+}
+
+export type FilesWatchOutcome =
+  | { watching: true }
+  | {
+      watching: false
+      reason: 'unsupported-target' | 'watch-failed' | 'cancelled'
+    }
+
+/** One path's outcome inside a batch operation. */
+export type FileBatchEntry = {
+  path: string
+  /** Present for move/copy. */
+  from?: string
+  to?: string
+  ok: boolean
+  /** True when the work was deliberately not needed (same parent). */
+  skipped?: boolean
+  reason?: string
+  detail?: string
+}
+
+export type FileBatchResult = {
+  results: FileBatchEntry[]
 }
 
 export type FileSearchMatch = {
@@ -77,6 +135,34 @@ export type FileSearchResult = {
   truncated: boolean
   /** Files examined before the cap, for an honest "searched N files" note. */
   scannedFiles: number
+  /** True when a newer search or Stop superseded this one. */
+  cancelled?: boolean
+}
+
+/** Options shared by search and the bounded replace scan. */
+export type FileSearchOptions = {
+  caseSensitive: boolean
+  wholeWord: boolean
+  regex: boolean
+  include: string[]
+  exclude: string[]
+  limit: number
+}
+
+export type FileReplaceEntry = {
+  path: string
+  ok: boolean
+  replaced: number
+  reason?: string
+  detail?: string
+}
+
+export type FileReplaceResult = {
+  files: number
+  replacements: number
+  results: FileReplaceEntry[]
+  /** True when the search surface was capped before all matches were examined. */
+  truncated: boolean
 }
 
 /** Why a file operation could not be answered. */
@@ -93,6 +179,12 @@ export type FilesUnavailableReason =
   | 'binary'
   | 'write-failed'
   | 'already-exists'
+  /** The disk changed since the caller read it; `currentEtag` names the new version. */
+  | 'changed-on-disk'
+  /** The search pattern is not a valid regular expression. */
+  | 'invalid-query'
+  /** A newer search or Stop superseded this one. */
+  | 'cancelled'
 
 export function isSkippedDirectory(name: string): boolean {
   return (FILES_SKIP_DIRECTORIES as readonly string[]).includes(name)

@@ -6,6 +6,7 @@ import {
   gitBlameInputSchema,
   gitBranchesInputSchema,
   gitCheckoutRefInputSchema,
+  gitCheckIgnoreInputSchema,
   gitCommitActionInputSchema,
   gitCommitDetailInputSchema,
   gitCommitInputSchema,
@@ -50,12 +51,13 @@ import { changeDiffInputSchema } from '../schemas/changes'
  * One entry per Git operation.
  *
  * This map is the single list of Git commands: main builds its handler table
- * from these keys, the preload façade is generated from them, and the renderer
+ * from these keys, the preload facade is generated from them, and the renderer
  * API is a mapped type over the same names. Adding an operation means adding
  * one schema here, one handler in main, and one result type.
  */
 export const GIT_COMMAND_INPUTS = {
   status: gitStatusInputSchema,
+  checkIgnore: gitCheckIgnoreInputSchema,
   changeDiff: changeDiffInputSchema,
   sessionChanges: gitSessionChangesInputSchema,
   operationState: gitOperationStateInputSchema,
@@ -118,5 +120,5 @@ export type GitCommandInput<K extends GitCommandName> = z.infer<
   (typeof GIT_COMMAND_INPUTS)[K]
 >
 
-/** Runtime list for the preload façade; order is irrelevant. */
+/** Runtime list for the preload facade; order is irrelevant. */
 export const GIT_COMMAND_NAMES = Object.keys(GIT_COMMAND_INPUTS) as GitCommandName[]

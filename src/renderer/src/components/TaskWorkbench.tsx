@@ -335,6 +335,7 @@ export default function TaskWorkbench({
           <FilesPanel
             sessionId={session.id}
             refreshToken={refreshToken}
+            active={tab === 'files'}
             notify={notify}
             openRequest={openRequest ?? filesRequest}
             onOpenRequestHandled={() => {

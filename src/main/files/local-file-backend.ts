@@ -1,4 +1,6 @@
-import { lstat, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { cp, lstat, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import type { Stats } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import {
   FILES_MAX_ENTRIES_PER_DIRECTORY,
@@ -9,8 +11,12 @@ import {
   looksBinaryBytes,
   type FileContent,
   type FileEntry,
-  type FileSearchResult
+  type FileSearchOptions,
+  type FileSearchResult,
+  type FileStat
 } from '../../shared/domain/workspace-files'
+import { isSearchPathIncluded } from '../../shared/domain/glob'
+import { compileTextMatcher } from '../../shared/domain/text-search'
 
 /**
  * File access for one checkout, wherever it lives.
@@ -25,13 +31,30 @@ export type FileBackend = {
   /** Entries of one directory inside the checkout. */
   list(relativePath: string): Promise<{ entries: FileEntry[]; truncated: boolean }>
   read(relativePath: string): Promise<FileContent>
-  write(relativePath: string, text: string): Promise<{ size: number }>
+  stat(relativePath: string): Promise<FileStat>
+  /**
+   * Writes one file.
+   *
+   * `expectedEtag` is the optimistic-concurrency check: a string requires that
+   * version, `null` requires that the path is still absent, and `undefined`
+   * keeps the unconditional write used by non-editor callers.
+   */
+  write(
+    relativePath: string,
+    text: string,
+    expectedEtag?: string | null
+  ): Promise<{ size: number; etag: string }>
   /** Plain-text search across the checkout. */
-  search(query: string, options: { caseSensitive: boolean; limit: number }): Promise<FileSearchResult>
+  search(
+    query: string,
+    options: FileSearchOptions & { signal?: AbortSignal }
+  ): Promise<FileSearchResult>
   /** Creates an empty file, or a directory. Never overwrites an existing path. */
-  create(relativePath: string, kind: 'file' | 'directory'): Promise<void>
+  create(relativePath: string, kind: 'file' | 'directory'): Promise<{ etag: string | null }>
   /** Renames or moves one path. Fails when the target already exists. */
   rename(from: string, to: string): Promise<void>
+  /** Recursively copies one path. Fails when the target already exists. */
+  copy(from: string, to: string): Promise<void>
   /** Deletes one file or one empty-or-not directory tree. */
   remove(relativePath: string): Promise<void>
 }
@@ -45,13 +68,49 @@ export class FileAccessError extends Error {
       | 'not-a-directory'
       | 'unreadable'
       | 'write-failed'
-      | 'already-exists',
-    message: string
+      | 'already-exists'
+      | 'changed-on-disk'
+      | 'invalid-query'
+      | 'cancelled',
+    message: string,
+    /** The version that made the write conflict, when the host can report it. */
+    readonly currentEtag?: string
   ) {
     super(message)
     this.name = 'FileAccessError'
   }
 }
+
+/** Opaque version used by the editor's optimistic save. */
+function hashOf(buffer: Buffer): string {
+  return `sha256:${createHash('sha256').update(buffer).digest('hex')}`
+}
+
+/** Directories and oversized files are versioned by stat, not by content. */
+function statEtag(info: Stats): string {
+  return `stat:${info.mtimeMs}:${info.size}`
+}
+
+function etagOf(info: Stats, buffer: Buffer): string {
+  return info.size > FILES_MAX_FILE_BYTES ? statEtag(info) : hashOf(buffer)
+}
+
+async function etagForPath(absolute: string, info: Stats): Promise<string> {
+  if (info.size > FILES_MAX_FILE_BYTES) return statEtag(info)
+  return hashOf(await readFile(absolute))
+}
+
+function fileStatOf(relative: string, info: Stats, etag: string): FileStat {
+  return {
+    path: relative,
+    kind: info.isDirectory() ? 'directory' : 'file',
+    size: info.size,
+    etag,
+    modifiedAt: Number.isFinite(info.mtimeMs) ? Math.round(info.mtimeMs) : null
+  }
+}
+
+let writeSequence = 0
 
 function errnoOf(error: unknown): string {
   return error instanceof Error && 'code' in error ? String((error as { code?: unknown }).code) : ''
@@ -91,18 +150,32 @@ export function createLocalFileBackend(root: string): FileBackend {
         }
         if (dirent.name === '.' || dirent.name === '..') continue
         const childRelative = relative === '' ? dirent.name : `${relative}/${dirent.name}`
+        let info: Stats | null = null
+        try {
+          info = await stat(joinRelative(root, childRelative))
+        } catch {
+          info = null
+        }
+        const modifiedAt =
+          info !== null && Number.isFinite(info.mtimeMs) ? Math.round(info.mtimeMs) : null
         if (dirent.isDirectory()) {
-          entries.push({ name: dirent.name, path: childRelative, kind: 'directory', size: null })
+          entries.push({
+            name: dirent.name,
+            path: childRelative,
+            kind: 'directory',
+            size: null,
+            modifiedAt
+          })
           continue
         }
         if (!dirent.isFile()) continue
-        let size: number | null = null
-        try {
-          size = (await stat(joinRelative(root, childRelative))).size
-        } catch {
-          size = null
-        }
-        entries.push({ name: dirent.name, path: childRelative, kind: 'file', size })
+        entries.push({
+          name: dirent.name,
+          path: childRelative,
+          kind: 'file',
+          size: info?.size ?? null,
+          modifiedAt
+        })
       }
       entries.sort(
         (left, right) =>
@@ -127,6 +200,7 @@ export function createLocalFileBackend(root: string): FileBackend {
           path: relative,
           text: '',
           size: info.size,
+          etag: statEtag(info),
           binary: false,
           tooLarge: true,
           missingTrailingNewline: false
@@ -137,30 +211,121 @@ export function createLocalFileBackend(root: string): FileBackend {
         path: relative,
         text: looksBinaryBytes(buffer) ? '' : buffer.toString('utf8'),
         size: info.size,
+        etag: etagOf(info, buffer),
         binary: looksBinaryBytes(buffer),
         tooLarge: false,
         missingTrailingNewline: buffer.length > 0 && buffer[buffer.length - 1] !== 0x0a
       }
     },
 
-    async write(relative, text) {
+    async stat(relative) {
       const absolute = joinRelative(root, relative)
+      let info
       try {
-        await writeFile(absolute, text, 'utf8')
-        return { size: Buffer.byteLength(text, 'utf8') }
+        info = await stat(absolute)
+      } catch (error) {
+        if (errnoOf(error) === 'ENOENT') throw new FileAccessError('not-found', 'That path does not exist.')
+        throw new FileAccessError('unreadable', 'That path could not be read.')
+      }
+      if (info.isDirectory()) {
+        return fileStatOf(relative, info, statEtag(info))
+      }
+      if (!info.isFile()) {
+        throw new FileAccessError('not-a-file', 'That path is not a file or folder.')
+      }
+      if (info.size > FILES_MAX_FILE_BYTES) {
+        return fileStatOf(relative, info, statEtag(info))
+      }
+      const buffer = await readFile(absolute)
+      return fileStatOf(relative, info, etagOf(info, buffer))
+    },
+
+    async write(relative, text, expectedEtag) {
+      const absolute = joinRelative(root, relative)
+      let current: Stats | null = null
+      try {
+        current = await stat(absolute)
+      } catch (error) {
+        if (errnoOf(error) !== 'ENOENT') {
+          throw new FileAccessError('write-failed', 'That file could not be checked before writing.')
+        }
+      }
+      if (current !== null && current.isDirectory()) {
+        throw new FileAccessError('not-a-file', 'That path is a directory.')
+      }
+
+      if (expectedEtag !== undefined) {
+        if (expectedEtag === null) {
+          if (current !== null) {
+            throw new FileAccessError(
+              'changed-on-disk',
+              'Something already exists at that path.',
+              await etagForPath(absolute, current)
+            )
+          }
+        } else {
+          if (current === null) {
+            throw new FileAccessError('changed-on-disk', 'That file was deleted on disk.')
+          }
+          const currentEtag = await etagForPath(absolute, current)
+          if (currentEtag !== expectedEtag) {
+            throw new FileAccessError(
+              'changed-on-disk',
+              'That file changed on disk.',
+              currentEtag
+            )
+          }
+        }
+      }
+
+      // Stage then rename, so a failed write cannot truncate the real file. The
+      // etag check above narrows the check-to-rename window; the watcher and the
+      // conflict dialog cover the remainder.
+      const temp = `${absolute}.icode-write-${process.pid}-${++writeSequence}`
+      try {
+        await writeFile(temp, text, current === null ? 'utf8' : { encoding: 'utf8', mode: current.mode })
+        await rename(temp, absolute)
+      } catch (error) {
+        await rm(temp, { force: true }).catch(() => undefined)
+        const code = errnoOf(error)
+        // Windows can refuse replacing an existing file with rename. The etag
+        // has already been checked, so the direct write is the best available
+        // fallback there.
+        if (code === 'EEXIST' || code === 'EPERM' || code === 'EACCES' || code === 'ENOTEMPTY') {
+          try {
+            await writeFile(absolute, text, 'utf8')
+          } catch {
+            throw new FileAccessError('write-failed', 'That file could not be written.')
+          }
+        } else {
+          throw new FileAccessError('write-failed', 'That file could not be written.')
+        }
+      }
+
+      try {
+        const after = await stat(absolute)
+        return { size: after.size, etag: hashOf(Buffer.from(text, 'utf8')) }
       } catch {
-        throw new FileAccessError('write-failed', 'That file could not be written.')
+        return { size: Buffer.byteLength(text, 'utf8'), etag: hashOf(Buffer.from(text, 'utf8')) }
       }
     },
 
     async search(query, options) {
-      const needle = options.caseSensitive ? query : query.toLowerCase()
+      const matcher = compileTextMatcher(query, {
+        caseSensitive: options.caseSensitive,
+        wholeWord: options.wholeWord,
+        regex: options.regex
+      })
+      if (matcher.error !== null) {
+        throw new FileAccessError('invalid-query', matcher.error)
+      }
       const matches: FileSearchResult['matches'] = []
       let scannedFiles = 0
       let truncated = false
+      const cancelled = (): boolean => options.signal?.aborted === true
 
       const walk = async (relative: string): Promise<void> => {
-        if (truncated) return
+        if (truncated || cancelled()) return
         let dirents
         try {
           dirents = await readdir(joinRelative(root, relative), { withFileTypes: true })
@@ -169,7 +334,7 @@ export function createLocalFileBackend(root: string): FileBackend {
         }
         dirents.sort((left, right) => left.name.localeCompare(right.name))
         for (const dirent of dirents) {
-          if (truncated) return
+          if (truncated || cancelled()) return
           if (dirent.isDirectory()) {
             if (isSkippedDirectory(dirent.name)) continue
             await walk(relative === '' ? dirent.name : `${relative}/${dirent.name}`)
@@ -181,6 +346,7 @@ export function createLocalFileBackend(root: string): FileBackend {
             return
           }
           const childRelative = relative === '' ? dirent.name : `${relative}/${dirent.name}`
+          if (!isSearchPathIncluded(childRelative, options.include, options.exclude)) continue
           scannedFiles += 1
           let buffer: Buffer
           try {
@@ -193,9 +359,9 @@ export function createLocalFileBackend(root: string): FileBackend {
           if (looksBinaryBytes(buffer)) continue
           const lines = buffer.toString('utf8').split('\n')
           for (let index = 0; index < lines.length; index += 1) {
+            if (cancelled()) return
             const line = lines[index] ?? ''
-            const haystack = options.caseSensitive ? line : line.toLowerCase()
-            const column = haystack.indexOf(needle)
+            const column = matcher.match(line)
             if (column === -1) continue
             matches.push({
               path: childRelative,
@@ -212,15 +378,25 @@ export function createLocalFileBackend(root: string): FileBackend {
       }
 
       await walk('')
-      return { matches, truncated, scannedFiles }
+      return {
+        matches,
+        truncated,
+        scannedFiles,
+        ...(cancelled() ? { cancelled: true } : {})
+      }
     },
 
     async create(relative, kind) {
       const absolute = joinRelative(root, relative)
       try {
         // `wx`/mkdir without recursive both refuse to clobber an existing path.
-        if (kind === 'directory') await mkdir(absolute)
-        else await writeFile(absolute, '', { flag: 'wx' })
+        if (kind === 'directory') {
+          await mkdir(absolute)
+          return { etag: null }
+        }
+        await writeFile(absolute, '', { flag: 'wx' })
+        const info = await stat(absolute)
+        return { etag: etagOf(info, Buffer.alloc(0)) }
       } catch (error) {
         if (errnoOf(error) === 'EEXIST') {
           throw new FileAccessError('already-exists', 'Something already exists at that path.')
@@ -253,6 +429,46 @@ export function createLocalFileBackend(root: string): FileBackend {
         }
         if (code === 'ENOENT') throw new FileAccessError('not-found', 'That path does not exist.')
         throw new FileAccessError('write-failed', 'That path could not be renamed.')
+      }
+    },
+
+    async copy(from, to) {
+      // A directory cannot be copied into itself. An equal target is handled by
+      // the existing-target check below, which produces `already-exists`.
+      if (to.startsWith(`${from}/`)) {
+        throw new FileAccessError('write-failed', 'A folder cannot be copied into itself.')
+      }
+      const source = joinRelative(root, from)
+      const target = joinRelative(root, to)
+      try {
+        await lstat(source)
+      } catch (error) {
+        if (errnoOf(error) === 'ENOENT') throw new FileAccessError('not-found', 'That path does not exist.')
+        throw new FileAccessError('unreadable', 'That path could not be read.')
+      }
+      try {
+        await lstat(target)
+        throw new FileAccessError('already-exists', 'Something already exists at the new path.')
+      } catch (error) {
+        if (error instanceof FileAccessError) throw error
+        if (errnoOf(error) !== 'ENOENT') {
+          throw new FileAccessError('write-failed', 'The new path could not be checked.')
+        }
+      }
+      try {
+        await cp(source, target, {
+          recursive: true,
+          errorOnExist: true,
+          force: false,
+          preserveTimestamps: true
+        })
+      } catch (error) {
+        const code = errnoOf(error)
+        if (code === 'ENOENT') throw new FileAccessError('not-found', 'That path does not exist.')
+        if (code === 'EEXIST') {
+          throw new FileAccessError('already-exists', 'Something already exists at the new path.')
+        }
+        throw new FileAccessError('write-failed', 'That path could not be copied.')
       }
     },
 

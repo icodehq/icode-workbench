@@ -26,11 +26,19 @@ import type { GitCommandInput, GitCommandName } from './ipc/git-commands'
 import type { ChangeListResult, FileDiffResult } from './schemas/changes'
 import type {
   filesCreateInputSchema,
+  filesCancelSearchInputSchema,
+  filesCopyManyInputSchema,
+  filesCopyPathsInputSchema,
+  filesReplaceInputSchema,
   filesListInputSchema,
+  filesMoveManyInputSchema,
   filesReadInputSchema,
   filesRemoveInputSchema,
+  filesRemoveManyInputSchema,
   filesRenameInputSchema,
   filesSearchInputSchema,
+  filesStatInputSchema,
+  filesWatchInputSchema,
   filesWriteInputSchema,
   scheduleCreateInputSchema,
   scheduleEnabledInputSchema,
@@ -46,7 +54,16 @@ import type {
   taskScheduleSchema,
   taskSettingsInputSchema
 } from './schemas/workspace'
-import type { FileContent, FileListing, FileSearchResult } from './domain/workspace-files'
+import type {
+  FileBatchResult,
+  FileContent,
+  FileListing,
+  FileReplaceResult,
+  FileSearchResult,
+  FileStat,
+  FilesChangedEvent,
+  FilesWatchOutcome
+} from './domain/workspace-files'
 import type {
   GitBatchResult,
   GitRemote,
@@ -94,6 +111,7 @@ export type RuntimeInfo = {
  */
 export type GitCommandResultMap = {
   status: GitStatusPayload
+  checkIgnore: GitCheckIgnorePayload
   changeDiff: FileDiffResult
   sessionChanges: ChangeListResult
   operationState: GitOperationStatePayload
@@ -256,6 +274,13 @@ export type IcodeProductApi = {
     search: (
       input: z.infer<typeof filesSearchInputSchema>
     ) => Promise<IpcResult<FileSearchPayload>>
+    /** Stops the current search; a newer search also cancels the old one. */
+    cancelSearch: (
+      input: z.infer<typeof filesCancelSearchInputSchema>
+    ) => Promise<IpcResult<{ cancelled: boolean }>>
+    replace: (
+      input: z.infer<typeof filesReplaceInputSchema>
+    ) => Promise<IpcResult<FilesReplacePayload>>
     create: (
       input: z.infer<typeof filesCreateInputSchema>
     ) => Promise<IpcResult<FilesMutatePayload>>
@@ -265,6 +290,25 @@ export type IcodeProductApi = {
     remove: (
       input: z.infer<typeof filesRemoveInputSchema>
     ) => Promise<IpcResult<FilesMutatePayload>>
+    removeMany: (
+      input: z.infer<typeof filesRemoveManyInputSchema>
+    ) => Promise<IpcResult<FilesBatchPayload>>
+    moveMany: (
+      input: z.infer<typeof filesMoveManyInputSchema>
+    ) => Promise<IpcResult<FilesBatchPayload>>
+    copyMany: (
+      input: z.infer<typeof filesCopyManyInputSchema>
+    ) => Promise<IpcResult<FilesBatchPayload>>
+    /** Main writes the resulting paths to the system clipboard. */
+    copyPaths: (
+      input: z.infer<typeof filesCopyPathsInputSchema>
+    ) => Promise<IpcResult<FilesCopyPathsPayload>>
+    stat: (input: z.infer<typeof filesStatInputSchema>) => Promise<IpcResult<FilesStatPayload>>
+    /** Starts or stops the live worktree watcher; poll when `watching` is false. */
+    watch: (
+      input: z.infer<typeof filesWatchInputSchema>
+    ) => Promise<IpcResult<FilesWatchOutcome>>
+    onChanged: (listener: (event: FilesChangedEvent) => void) => () => void
   }
   /** Worktree-scoped Git state and the common change operations. */
   git: GitApi
@@ -321,6 +365,13 @@ export type IcodeProductApi = {
     close: () => Promise<IpcResult<null>>
     isMaximized: () => Promise<IpcResult<boolean>>
     onMaximizedChange: (listener: (maximized: boolean) => void) => () => void
+    /** Main asks before closing; answer with `respondClose`. */
+    onBeforeClose: (listener: () => void) => () => void
+    /**
+     * `ack` says the renderer received the request and is showing a prompt;
+     * `close`/`cancel` resolve it.
+     */
+    respondClose: (action: 'ack' | 'close' | 'cancel') => Promise<IpcResult<null>>
   }
   onSessionEvent: (listener: (event: RendererSessionEvent) => void) => () => void
   /** Fires when the durable queue changed; the listener re-reads the list. */
@@ -338,6 +389,8 @@ export type WorkspaceUnavailablePayload = {
   status: 'unavailable'
   reason: string
   detail: string
+  /** Present when a write lost the optimistic-concurrency check. */
+  currentEtag?: string
 }
 export type FilesListingPayload =
   | ({ status: 'ok' } & FileListing)
@@ -346,11 +399,31 @@ export type FileContentPayload = ({ status: 'ok' } & FileContent) | WorkspaceUna
 export type FileSearchPayload =
   | ({ status: 'ok' } & FileSearchResult)
   | WorkspaceUnavailablePayload
+export type FilesReplacePayload =
+  | ({ status: 'ok' } & FileReplaceResult)
+  | WorkspaceUnavailablePayload
 export type FilesMutatePayload =
-  | { status: 'ok'; path?: string; kind?: 'file' | 'directory'; from?: string; to?: string }
+  | {
+      status: 'ok'
+      path?: string
+      kind?: 'file' | 'directory'
+      from?: string
+      to?: string
+      /** Present when a file was created, so it opens with a valid version. */
+      etag?: string | null
+    }
   | WorkspaceUnavailablePayload
 export type FilesWritePayload =
-  | ({ status: 'ok'; size: number })
+  | ({ status: 'ok'; size: number; etag: string })
+  | WorkspaceUnavailablePayload
+export type FilesStatPayload =
+  | ({ status: 'ok' } & FileStat)
+  | WorkspaceUnavailablePayload
+export type FilesBatchPayload =
+  | ({ status: 'ok' } & FileBatchResult)
+  | WorkspaceUnavailablePayload
+export type FilesCopyPathsPayload =
+  | { status: 'ok'; count: number }
   | WorkspaceUnavailablePayload
 export type GitOpPayload =
   | ({ status: 'ok'; staged?: number; unstaged?: number })
@@ -392,6 +465,9 @@ export type GitResetPayload =
   | WorkspaceUnavailablePayload
 export type GitStatusPayload =
   | ({ status: 'ok'; snapshot: GitWorkspaceStatus })
+  | WorkspaceUnavailablePayload
+export type GitCheckIgnorePayload =
+  | { status: 'ok'; ignored: string[] }
   | WorkspaceUnavailablePayload
 export type GitBatchPayload =
   | { status: 'ok'; result: GitBatchResult }

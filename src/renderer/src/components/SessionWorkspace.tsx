@@ -30,6 +30,7 @@ import RemoveSessionDialog from './RemoveSessionDialog'
 import SessionActionsMenu from './SessionActionsMenu'
 import SleepSessionDialog from './SleepSessionDialog'
 import SessionDetailsDrawer from './SessionDetailsDrawer'
+import { useFilesDirtyCount } from '../files/open-files'
 import {
   activityDotClass,
   activityLabel,
@@ -307,6 +308,7 @@ export default function SessionWorkspace({
   onShowSessionsList
 }: Props): React.JSX.Element {
   const worktree = session.worktree
+  const unsavedFiles = useFilesDirtyCount(session.id)
   const blocked = worktreeBlocksTerminal(worktree)
   // The view survives re-renders but resets when the active session changes.
   const [view, setView] = useState<'terminal' | 'changes' | 'files'>('terminal')
@@ -578,6 +580,7 @@ export default function SessionWorkspace({
         <FilesPanel
           sessionId={session.id}
           refreshToken={refreshToken}
+          active={view === 'files'}
           notify={notify}
           openRequest={openRequest}
           onOpenRequestHandled={onOpenRequestHandled}
@@ -637,6 +640,7 @@ export default function SessionWorkspace({
       {removeOpen ? (
         <RemoveSessionDialog
           session={session}
+          unsavedCount={unsavedFiles}
           onClose={() => setRemoveOpen(false)}
           onConfirm={() => {
             setRemoveOpen(false)

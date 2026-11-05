@@ -1482,6 +1482,31 @@ describe('git workspace: inspection and history operations', () => {
     expect(details?.gitDir.endsWith('.git')).toBe(true)
   })
 
+  it('reads authoritative ignore rules for a path batch', async () => {
+    const f = await realRepo()
+    writeFileSync(join(f.worktree, '.gitignore'), 'dist/\n*.log\n!keep.log\n')
+    mkdirSync(join(f.worktree, 'dist'))
+    writeFileSync(join(f.worktree, 'dist', 'a.js'), 'x\n')
+    writeFileSync(join(f.worktree, 'debug.log'), 'x\n')
+    writeFileSync(join(f.worktree, 'keep.log'), 'x\n')
+
+    const result = await f.service.checkIgnore(f.sessionId, [
+      'dist',
+      'dist/a.js',
+      'debug.log',
+      'keep.log',
+      'src/a.ts'
+    ])
+    expect(result.status).toBe('ok')
+    if (result.status === 'ok') {
+      expect([...result.ignored].sort()).toEqual(['debug.log', 'dist', 'dist/a.js'])
+    }
+    expect(await f.service.checkIgnore(f.sessionId, ['../escape'])).toMatchObject({
+      status: 'unavailable',
+      reason: 'path-outside'
+    })
+  })
+
   it('reports an in-progress merge marker from the common Git directory', async () => {
     const f = await realRepo()
     const commonDir = execFileSync(

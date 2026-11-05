@@ -30,6 +30,11 @@ const GIT_COMMANDS: Record<GitCommandName, GitCommand> = {
     input: GIT_COMMAND_INPUTS.status,
     run: (runtime, input: { sessionId: string }) => runtime.gitWorkspace.status(input.sessionId)
   },
+  checkIgnore: {
+    input: GIT_COMMAND_INPUTS.checkIgnore,
+    run: (runtime, input: { sessionId: string; paths: string[] }) =>
+      runtime.gitWorkspace.checkIgnore(input.sessionId, input.paths)
+  },
   changeDiff: {
     input: GIT_COMMAND_INPUTS.changeDiff,
     run: (runtime, input) => runtime.gitWorkspace.changeDiff(input)

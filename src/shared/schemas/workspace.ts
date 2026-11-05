@@ -25,17 +25,59 @@ export const filesWriteInputSchema = z.strictObject({
   sessionId: sessionIdSchema,
   path: relativePathSchema,
   /** Capped so a renderer cannot push an unbounded buffer through IPC. */
-  text: z.string().max(4 * 1024 * 1024)
+  text: z.string().max(4 * 1024 * 1024),
+  /**
+   * Opaque version from read/stat. `null` means "the file must not exist yet".
+   * Omitted keeps the unconditional legacy write used by non-editor callers.
+   */
+  expectedEtag: z.string().max(512).nullable().optional()
 })
+
+export const filesStatInputSchema = z.strictObject({
+  sessionId: sessionIdSchema,
+  path: relativePathSchema
+})
+
+export const filesWatchInputSchema = z.strictObject({
+  sessionId: sessionIdSchema,
+  active: z.boolean()
+})
+
+const searchPathListSchema = z.array(z.string().min(1).max(400)).max(100).default([])
 
 export const filesSearchInputSchema = z.strictObject({
   sessionId: sessionIdSchema,
   query: z.string().min(1).max(400),
   caseSensitive: z.boolean().default(false),
+  wholeWord: z.boolean().default(false),
+  regex: z.boolean().default(false),
+  include: searchPathListSchema,
+  exclude: searchPathListSchema,
   limit: z.number().int().min(1).max(500).default(200)
 })
 
+export const filesCancelSearchInputSchema = z.strictObject({
+  sessionId: sessionIdSchema
+})
+
+export const filesReplaceInputSchema = z.strictObject({
+  sessionId: sessionIdSchema,
+  query: z.string().min(1).max(400),
+  replacement: z.string().max(4000),
+  caseSensitive: z.boolean().default(false),
+  wholeWord: z.boolean().default(false),
+  regex: z.boolean().default(false),
+  include: searchPathListSchema,
+  exclude: searchPathListSchema,
+  /** The displayed result files; empty means the whole searched surface. */
+  paths: searchPathListSchema
+})
+
 export const gitStatusInputSchema = z.strictObject({ sessionId: sessionIdSchema })
+export const gitCheckIgnoreInputSchema = z.strictObject({
+  sessionId: sessionIdSchema,
+  paths: z.array(relativePathSchema).min(1).max(5000)
+})
 export const gitOperationStateInputSchema = z.strictObject({ sessionId: sessionIdSchema })
 export const gitOperationActionInputSchema = z.strictObject({ sessionId: sessionIdSchema })
 export const gitSessionChangesInputSchema = z.strictObject({ sessionId: sessionIdSchema })
@@ -69,6 +111,31 @@ export const filesRenameInputSchema = z.strictObject({
   sessionId: sessionIdSchema,
   from: relativePathSchema,
   to: relativePathSchema
+})
+
+const filePathListSchema = z.array(relativePathSchema).min(1).max(5000)
+
+export const filesRemoveManyInputSchema = z.strictObject({
+  sessionId: sessionIdSchema,
+  paths: filePathListSchema
+})
+
+export const filesMoveManyInputSchema = z.strictObject({
+  sessionId: sessionIdSchema,
+  paths: filePathListSchema,
+  destination: relativePathSchema.default('')
+})
+
+export const filesCopyManyInputSchema = z.strictObject({
+  sessionId: sessionIdSchema,
+  paths: filePathListSchema,
+  destination: relativePathSchema.default('')
+})
+
+export const filesCopyPathsInputSchema = z.strictObject({
+  sessionId: sessionIdSchema,
+  paths: filePathListSchema,
+  format: z.enum(['absolute', 'relative'])
 })
 
 export const filesRemoveInputSchema = z.strictObject({

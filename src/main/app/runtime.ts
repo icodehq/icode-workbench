@@ -20,6 +20,7 @@ import { RepositoryPreparationService } from '../repositories/repository-prepara
 import { prepareFirstCommit } from '../repositories/first-commit'
 import { SessionRemovalService } from '../sessions/session-removal-service'
 import { WorkspaceFilesService } from '../files/workspace-files-service'
+import { WorkspaceFilesWatcherService } from '../files/workspace-files-watcher'
 import { GitWorkspaceService } from '../git/git-workspace-service'
 import { GitStatusWatcherService } from '../git/status-watcher'
 import { TaskStore } from '../tasks/task-store'
@@ -67,6 +68,8 @@ export type AppRuntime = {
   gitWorkspace: GitWorkspaceService
   /** Watches visible local worktrees and emits coalesced status changes. */
   gitStatusWatcher: GitStatusWatcherService
+  /** Watches the visible Files pane's worktree; polling covers unsupported targets. */
+  filesWatcher: WorkspaceFilesWatcherService
   /** Add-project inspection and explicit first-commit initialization. */
   projectFolders: ProjectFolderService
   /** Background first-commit work, exposed for retry and startup wiring. */
@@ -559,6 +562,30 @@ export async function startAppRuntime(): Promise<AppRuntime> {
   })
 
   /**
+   * Files watches the checkout itself (not the Git directory). A local path is
+   * watched directly; a WSL worktree on DrvFs uses the same translated Windows
+   * path as the Git watcher; an ext4 guest returns null and the renderer polls.
+   */
+  const resolveFilesWatchTarget = async (sessionId: string) => {
+    const record = worktrees.findBySession(sessionId)
+    if (!record) return null
+    const repository = persistence.repositories.findById(record.repoId)
+    if (!repository) return null
+    if (repository.executionTarget.kind === 'local') {
+      return { worktreePath: record.path }
+    }
+    const worktreePath = await translateGuestWatchPath(
+      repository.executionTarget.distro,
+      record.path
+    )
+    return worktreePath === null ? null : { worktreePath }
+  }
+
+  const filesWatcher = new WorkspaceFilesWatcherService({
+    resolveTarget: resolveFilesWatchTarget
+  })
+
+  /**
    * The Harness list for one execution target.
    *
    * Detection is per target, not per app: a WSL repository's Agents live inside
@@ -740,6 +767,7 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     files,
     gitWorkspace,
     gitStatusWatcher,
+    filesWatcher,
     projectFolders,
     repositoryPreparations,
     onRepoChange: (listener) => {
@@ -775,6 +803,7 @@ export async function startAppRuntime(): Promise<AppRuntime> {
         taskScheduler.stop()
         taskDispatcher.stop()
         await gitStatusWatcher.stopAll().catch(() => undefined)
+        await filesWatcher.stopAll().catch(() => undefined)
         await activityServer.stop().catch(() => undefined)
         sessions.dispose()
         // Do not stop the detached host: live sessions must survive app exit.
@@ -808,7 +837,10 @@ export async function startAppRuntime(): Promise<AppRuntime> {
   })()
 
   runtime = api
-  app.on('before-quit', () => {
+  // `will-quit` runs after every window has closed. A cancelled window-close
+  // (the unsaved Files prompt) must not tear down persistence while the window
+  // is still on screen, which `before-quit` would do on macOS Cmd+Q.
+  app.on('will-quit', () => {
     void api.shutdown()
   })
   return api
