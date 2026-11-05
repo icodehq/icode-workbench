@@ -97,19 +97,6 @@ export type GitStatusWatchEvent = {
 /** Why a session's live watch is not available. */
 export type GitWatchUnavailableReason = 'unsupported-target' | 'watch-failed' | 'cancelled'
 
-/** A local tag and the object it points at. */
-export type GitTag = {
-  name: string
-  oid: string
-}
-
-/** A configured Git remote from `git remote -v`. */
-export type GitRemote = {
-  name: string
-  url: string
-  pushUrl: string | null
-}
-
 /** Git's well-known empty-tree object, used to diff a root commit. */
 export const GIT_EMPTY_TREE_OID = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
 

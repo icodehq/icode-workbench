@@ -6,8 +6,6 @@ import {
   type GitCommitResult,
   type GitLogPage,
   type GitRangeFile,
-  type GitRemote,
-  type GitTag,
   type GitWorkspaceStatus
 } from '../../shared/domain/git-workspace'
 import {
@@ -15,11 +13,7 @@ import {
 } from './status-reader'
 import { GitOperationQueue } from './operation-queue'
 import {
-} from './batch-ops'
-import {
-  type GitOperationKind,
-  type GitSubmoduleEntry,
-  type GitWorktreeEntry
+  type GitOperationKind
 } from './repository-model'
 import type { BlameLine } from './blame-reader'
 import type { ExecutionTarget } from '../../shared/domain/repository'
@@ -35,7 +29,6 @@ import type { ChangeDiffInput } from '../../shared/schemas/changes'
 import { readChangeDiff, type ReadContext } from './change-reader'
 import { readSessionChanges, type SessionStateSource } from './session-changes'
 import * as historyOps from './workspace/history'
-import * as advancedOps from './workspace/advanced'
 import * as branchOps from './workspace/branches'
 import * as remoteOps from './workspace/remotes'
 import * as changeOps from './workspace/changes'
@@ -220,6 +213,59 @@ export class GitWorkspaceService {
   async sessionChanges(sessionId: string): Promise<ChangeListOutcome> {
     return readSessionChanges(this.deps, sessionId)
   }
+
+  /**
+   * The staged index diff, used by AI commit-message generation.
+   *
+   * This is a worktree-scoped read with the same bounded reader as Review: it
+   * never blocks on the network and never mutates the index.
+   */
+  async stagedDiff(sessionId: string): Promise<
+    | { status: 'ok'; patch: string; truncated: boolean }
+    | GitUnavailable
+  > {
+    const resolved = await this.resolve(sessionId)
+    if (resolved.status !== 'ok') return resolved
+    let context
+    try {
+      context = await this.deps.gitWorktrees.readContextFor(resolved.target)
+    } catch (error) {
+      return {
+        status: 'unavailable',
+        reason: 'worktree-unavailable',
+        detail: detailOf(error, 'The session worktree could not be read.')
+      }
+    }
+    try {
+      const read = await context.read({
+        cwd: resolved.worktreePath,
+        args: [
+          'diff',
+          '--cached',
+          '--no-color',
+          '--no-ext-diff',
+          '--no-textconv',
+          '-M',
+          '--'
+        ],
+        byteBudget: 2 * 1024 * 1024
+      })
+      if (read.exitCode !== 0) {
+        return {
+          status: 'unavailable',
+          reason: 'git-failed',
+          detail: read.stderrTail || 'Git could not read the staged changes.'
+        }
+      }
+      return { status: 'ok', patch: read.stdout, truncated: read.truncated }
+    } catch (error) {
+      return {
+        status: 'unavailable',
+        reason: 'git-failed',
+        detail: detailOf(error, 'Git could not read the staged changes.')
+      }
+    }
+  }
   async readStatusSnapshot(sessionId: string, signal: AbortSignal): Promise<GitOutcome<{ snapshot: GitWorkspaceStatus }>> {
     return statusOps.readStatusSnapshot(this, sessionId, signal)
   }
@@ -255,36 +301,6 @@ export class GitWorkspaceService {
   }
 
 
-  /** Local branches, remotes and tags with the current branch marked. */
-  async worktreeList(sessionId: string): Promise<
-    GitOutcome<{
-      worktrees: Array<
-        GitWorktreeEntry & { sessionId: string | null; active: boolean; primary: boolean }
-      >
-    }>
-  > {
-    return advancedOps.worktreeList(this, sessionId)
-  }
-
-
-  /** Locks, unlocks, prunes or removes a registered worktree. */
-  async worktreeAction(sessionId: string, action: 'lock' | 'unlock' | 'prune' | 'remove', path?: string, reason?: string): Promise<GitOutcome<{ action: 'lock' | 'unlock' | 'prune' | 'remove'; path: string | null }>> {
-    return advancedOps.worktreeAction(this, sessionId, action, path, reason)
-  }
-
-
-  /** Submodules of this worktree and their pointer state. */
-  async submoduleStatus(sessionId: string): Promise<GitOutcome<{ submodules: GitSubmoduleEntry[] }>> {
-    return advancedOps.submoduleStatus(this, sessionId)
-  }
-
-
-  /** Initializes, updates, syncs or stages one or all submodules. */
-  async submoduleAction(sessionId: string, action: 'init' | 'update' | 'sync' | 'stage', path?: string): Promise<GitOutcome<{ action: 'init' | 'update' | 'sync' | 'stage'; path: string | null }>> {
-    return advancedOps.submoduleAction(this, sessionId, action, path)
-  }
-
-
   /**
    * Changed files between two revisions.
    *
@@ -293,7 +309,7 @@ export class GitWorkspaceService {
    * `truncated` flag tells the history view to paginate instead of pretending
    * the range ended.
    */
-  async rangeDiff(sessionId: string, from: string, to = 'HEAD'): Promise<GitOutcome<{ fromOid: string; toOid: string; files: GitRangeFile[]; truncated: boolean }>> {
+  async rangeDiff(sessionId: string, from: string, to = 'HEAD'): Promise<GitOutcome<{ fromOid: string; toOid: string; commitCount: number; files: GitRangeFile[]; truncated: boolean }>> {
     return historyOps.rangeDiff(this, sessionId, from, to)
   }
 
@@ -352,103 +368,6 @@ export class GitWorkspaceService {
   }
 
 
-  /** Local branches, for the branch switcher. */
-  async branches(sessionId: string): Promise<GitOutcome<{ current: string | null; names: string[] }>> {
-    return branchOps.branches(this, sessionId)
-  }
-
-
-  /**
-   * Switches this worktree to another branch.
-   *
-   * A dirty worktree is refused rather than carried across: Git would either
-   * fail halfway or copy unrelated edits onto the other branch, and neither is
-   * something to do on the user's behalf. Conflicts with the target branch are
-   * reported by name so the user can choose.
-   */
-  async switchBranch(sessionId: string, branch: string): Promise<GitOutcome<{ branch: string }>> {
-    return branchOps.switchBranch(this, sessionId, branch)
-  }
-
-
-  /**
-   * Creates a local branch at HEAD without checking it out.
-   *
-   * Creating a branch is safe on a dirty worktree because it does not move the
-   * checkout; switching is a separate operation and still refuses dirty work.
-   */
-  async createBranch(sessionId: string, branch: string, at?: string): Promise<GitOutcome<{ branch: string }>> {
-    return branchOps.createBranch(this, sessionId, branch, at)
-  }
-
-
-  /**
-   * Creates a lightweight local tag at one commit. Tags are local until the
-   * user explicitly pushes them; there is no automatic push here.
-   */
-  async createTag(sessionId: string, name: string, oid: string): Promise<GitOutcome<{ name: string; oid: string }>> {
-    return branchOps.createTag(this, sessionId, name, oid)
-  }
-
-
-  /** Renames a local branch without changing the checkout. */
-  async renameBranch(sessionId: string, from: string, to: string): Promise<GitOutcome<{ from: string; branch: string }>> {
-    return branchOps.renameBranch(this, sessionId, from, to)
-  }
-
-
-  /**
-   * Deletes a local branch only when it is merged and not checked out by any
-   * worktree. This is deliberately the safe `-d` form; force deletion is not
-   * offered from the menu.
-   */
-  async deleteBranch(sessionId: string, branch: string): Promise<GitOutcome<{ branch: string }>> {
-    return branchOps.deleteBranch(this, sessionId, branch)
-  }
-
-
-  /**
-   * Merges a local branch into the current branch. Conflicts are Git's outcome:
-   * the operation banner then offers Continue or Abort.
-   */
-  async mergeBranch(sessionId: string, branch: string): Promise<GitOutcome<{ branch: string }>> {
-    return branchOps.mergeBranch(this, sessionId, branch)
-  }
-
-
-  /**
-   * Rebases the current branch onto another local branch or commit.
-   *
-   * This rewrites local history, so the UI confirms it. Conflicts leave the
-   * rebase marker and are handled by the operation banner's Continue/Abort.
-   */
-  async rebaseBranch(sessionId: string, branch: string): Promise<GitOutcome<{ branch: string }>> {
-    return branchOps.rebaseBranch(this, sessionId, branch)
-  }
-
-
-  /** Deletes a local tag. Remote tags are never touched. */
-  async deleteTag(sessionId: string, name: string): Promise<GitOutcome<{ name: string }>> {
-    return branchOps.deleteTag(this, sessionId, name)
-  }
-
-
-  /** Local tags with the object each points at. Remote tags are not listed. */
-  async tags(sessionId: string): Promise<GitOutcome<{ tags: GitTag[] }>> {
-    return branchOps.tags(this, sessionId)
-  }
-
-
-  /**
-   * Checks out a tag or commit detached. A dirty worktree is refused for the
-   * same reason as a branch switch: carrying uncommitted work across a
-   * checkout can lose it.
-   */
-  async checkoutRef(sessionId: string, ref: string): Promise<GitOutcome<{ ref: string; headOid: string }>> {
-    return branchOps.checkoutRef(this, sessionId, ref)
-  }
-
-
   /**
    * Cherry-picks or reverts one commit with Git's default message.
    *
@@ -498,60 +417,6 @@ export class GitWorkspaceService {
   }
 
 
-  /** Configured remotes with their fetch and push URLs. */
-  async remotes(sessionId: string): Promise<GitOutcome<{ remotes: GitRemote[] }>> {
-    return remoteOps.remotes(this, sessionId)
-  }
-
-
-  /** Adds a remote. The URL is never logged or echoed with credentials. */
-  async addRemote(sessionId: string, name: string, url: string): Promise<GitOutcome<{ name: string }>> {
-    return remoteOps.addRemote(this, sessionId, name, url)
-  }
-
-
-  /** Fetches one named remote, optionally pruning deleted remote branches. */
-  async fetchRemote(sessionId: string, remote: string, prune = false): Promise<GitOutcome<{ remote: string }>> {
-    return remoteOps.fetchRemote(this, sessionId, remote, prune)
-  }
-
-
-  /** Removes a remote; local branches and commits are untouched. */
-  async removeRemote(sessionId: string, name: string): Promise<GitOutcome<{ name: string }>> {
-    return remoteOps.removeRemote(this, sessionId, name)
-  }
-
-
-  /** Pushes local tags to the default remote. Explicit, never automatic. */
-  async pushTags(sessionId: string): Promise<GitOutcome<{ remote: string }>> {
-    return remoteOps.pushTags(this, sessionId)
-  }
-
-
-  /** Remote-tracking branches, e.g. `origin/main`, for an upstream picker. */
-  async remoteBranches(sessionId: string): Promise<GitOutcome<{ branches: string[] }>> {
-    return remoteOps.remoteBranches(this, sessionId)
-  }
-
-
-  /** Sets the current branch's upstream to an existing remote-tracking branch. */
-  async setUpstream(sessionId: string, upstream: string): Promise<GitOutcome<{ branch: string; upstream: string }>> {
-    return remoteOps.setUpstream(this, sessionId, upstream)
-  }
-
-
-  /** Force-push guarded by the remote-tracking lease; never a bare force. */
-  async forcePush(sessionId: string): Promise<GitOutcome<{ branch: string; upstream: string }>> {
-    return remoteOps.forcePush(this, sessionId)
-  }
-
-
-  /** Fetches the default remote without changing the working tree. */
-  async fetch(sessionId: string): Promise<GitOutcome<{ remote: string }>> {
-    return remoteOps.fetch(this, sessionId)
-  }
-
-
   /**
    * Rewrites the last commit's message. This is deliberately local; no
    * force-push is offered here, because a rewritten commit is not safe to send
@@ -574,7 +439,6 @@ export class GitWorkspaceService {
       limit?: number
       skip?: number
       ref?: string
-      allRefs?: boolean
       path?: string
     } = {}): Promise<GitOutcome<GitLogPage>> {
     return historyOps.log(this, sessionId, options)
@@ -710,41 +574,6 @@ export class GitWorkspaceService {
    */
   async applyPatch(sessionId: string, patch: string, path: string, mode: 'stage' | 'unstage' | 'discard'): Promise<GitOutcome<{ path: string; mode: 'stage' | 'unstage' | 'discard' }>> {
     return changeOps.applyPatch(this, sessionId, patch, path, mode)
-  }
-
-
-  /**
-   * Lists stashes with their selector, subject, date and commit id.
-   *
-   * NUL-separated fields keep a stash message containing tabs or newlines from
-   * shifting later entries. The selector is parsed back into a numeric index so
-   * every later action is addressed as `stash@{n}` rather than trusting a ref
-   * string supplied by the renderer.
-   */
-  async stashList(sessionId: string): Promise<
-    GitOutcome<{
-      stashes: Array<{ index: number; ref: string; subject: string; date: string; oid: string }>
-    }>
-  > {
-    return advancedOps.stashList(this, sessionId)
-  }
-
-
-  /** Creates a stash. `includeUntracked` also saves files Git has not added yet. */
-  async stashPush(sessionId: string, message: string, includeUntracked: boolean, keepIndex: boolean): Promise<GitOutcome<{ created: boolean }>> {
-    return advancedOps.stashPush(this, sessionId, message, includeUntracked, keepIndex)
-  }
-
-
-  /** Unified patch for one stash, including untracked files when present. */
-  async stashDiff(sessionId: string, index: number): Promise<GitOutcome<{ ref: string; patch: string; truncated: boolean }>> {
-    return advancedOps.stashDiff(this, sessionId, index)
-  }
-
-
-  /** Applies, pops or drops one stash addressed by its list index. */
-  async stashAction(sessionId: string, index: number, action: 'apply' | 'pop' | 'drop'): Promise<GitOutcome<{ ref: string; action: 'apply' | 'pop' | 'drop' }>> {
-    return advancedOps.stashAction(this, sessionId, index, action)
   }
 
 

@@ -366,7 +366,7 @@ async function run() {
       'worktree watcher active',
       15000
     )
-    await waitForSelector('[data-testid="scm-repo-header"]', 10000)
+    await waitForSelector('[data-testid="scm-session-strip"]', 10000)
     assert(
       await cdp.evaluate(
         `Boolean(document.querySelector('[data-testid="working-tree"] aside [data-testid="git-commit-message"]'))`
@@ -378,6 +378,23 @@ async function run() {
         `document.querySelector('[data-testid="git-commit"]')?.innerText.includes('Up to date')`
       ),
       'a clean worktree with an upstream should show Up to date'
+    )
+    const removedSurfaces = await cdp.evaluate(`({
+      stashes: Boolean(document.querySelector('[data-testid="scm-stashes"]')),
+      worktrees: Boolean(document.querySelector('[data-testid="scm-worktrees"]')),
+      submodules: Boolean(document.querySelector('[data-testid="scm-submodules"]')),
+      tags: Boolean(document.querySelector('[data-testid="scm-tags"]')),
+      branchMenu: Boolean(document.querySelector('[data-testid="git-branch-chip"]'))
+    })`)
+    assert(
+      Object.values(removedSurfaces).every((present) => present === false),
+      `repository-wide surfaces are still present: ${JSON.stringify(removedSurfaces)}`
+    )
+    assert(
+      await cdp.evaluate(
+        `!document.querySelector('[data-testid="scm-generate-message"]')`
+      ),
+      'a Shell session must not offer AI commit-message generation'
     )
     await screenshot('01-source-control')
   })
@@ -444,6 +461,26 @@ async function run() {
       .execFileSync('git', ['-C', worktreePath, 'status', '--porcelain'], { encoding: 'utf8' })
       .trim()
     assert(status === '', `worktree not clean after smart commit: ${status}`)
+
+    // The session page must keep showing work the agent committed, not only
+    // the uncommitted working tree.
+    await waitForSelector('[data-testid="working-file-committed-README.md"]', 15000)
+    await waitForSelector('[data-testid="working-file-committed-src/app.ts"]', 15000)
+    await waitFor(
+      `document.querySelector('[data-testid="review-count"]')?.textContent?.includes('since base') === true`,
+      'committed-since-base summary',
+      15000
+    )
+    const sessionSummary = await cdp.evaluate(
+      `document.querySelector('[data-testid="review-count"]')?.textContent?.trim() ?? ''`
+    )
+    assert(
+      sessionSummary.includes('1 commit') && sessionSummary.includes('2 files changed'),
+      `unexpected session summary: ${JSON.stringify(sessionSummary)}`
+    )
+    await click('[data-testid="working-file-committed-README.md"] button[aria-selected]')
+    await waitForSelector('[data-testid="scm-committed-diff"]', 15000)
+    await screenshot('02b-committed-since-base')
   })
 
   await step('filter, tree/list and batch stage two untracked files', async () => {
@@ -700,186 +737,6 @@ async function run() {
     return { staged: 'new line 2 only' }
   })
 
-  await step('stash changes, inspect, apply and pop', async () => {
-    const exec = require('node:child_process').execFileSync
-    await cdp.evaluate(`(async () => {
-      const tracked = await window.icode.files.write({ sessionId: ${JSON.stringify(sessionId)}, path: 'README.md', text: 'stash tracked change\\n' });
-      if (!tracked.ok) throw new Error(tracked.error.message);
-      const untracked = await window.icode.files.write({ sessionId: ${JSON.stringify(sessionId)}, path: 'stash-untracked.txt', text: 'stash untracked\\n' });
-      if (!untracked.ok) throw new Error(untracked.error.message);
-      return true;
-    })()`)
-    await waitForSelector('[data-testid="working-file-unstaged-README.md"]', 15000)
-    await waitForSelector('[data-testid="working-file-untracked-stash-untracked.txt"]', 15000)
-    await click('[data-testid="scm-stash-toggle-compose"]')
-    await waitForSelector('[data-testid="scm-stash-message"]', 5000)
-    await setValue('[data-testid="scm-stash-message"]', 'smoke stash')
-    await click('[data-testid="scm-stash-untracked"]')
-    await click('[data-testid="scm-stash-create"]')
-    await waitForNotice('Stashed changes', 20000)
-    await waitForSelector('[data-testid="scm-stash-row-0"]', 15000)
-    await waitFor(
-      `!document.querySelector('[data-testid="working-file-unstaged-README.md"]') && !document.querySelector('[data-testid="working-file-untracked-stash-untracked.txt"]')`,
-      'stash removed the worktree changes',
-      15000
-    )
-    await click('[data-testid="scm-stash-open-0"]')
-    await waitForSelector('[data-testid="scm-stash-detail"]', 10000)
-    await waitForSelector('[data-testid="scm-stash-file-README.md"]', 10000)
-    await waitForSelector('[data-testid="scm-stash-file-stash-untracked.txt"]', 10000)
-    const stashDetail = await cdp.evaluate(
-      `document.querySelector('[data-testid="scm-stash-detail"]')?.innerText ?? ''`
-    )
-    assert(stashDetail.includes('stash tracked change'), 'stash diff did not show the tracked edit')
-    await screenshot('05c-stash')
-    await click('[data-testid="scm-stash-close"]')
-    await click('[data-testid="scm-stash-apply-0"]')
-    await waitForNotice('Applied stash@{0}', 20000)
-    await waitForSelector('[data-testid="working-file-unstaged-README.md"]', 15000)
-    assert(
-      require('node:fs').readFileSync(join(worktreePath, 'stash-untracked.txt'), 'utf8') ===
-        'stash untracked\n',
-      'stash apply did not restore the untracked file'
-    )
-    assert(
-      await cdp.evaluate(`Boolean(document.querySelector('[data-testid="scm-stash-row-0"]'))`),
-      'apply removed the stash entry'
-    )
-    exec('git', ['-C', worktreePath, 'checkout', '--', 'README.md'], { stdio: 'pipe' })
-    require('node:fs').unlinkSync(join(worktreePath, 'stash-untracked.txt'))
-    await waitFor(
-      `!document.querySelector('[data-testid="working-file-unstaged-README.md"]')`,
-      'applied change cleaned up before pop',
-      10000
-    )
-    await click('[data-testid="scm-stash-pop-0"]')
-    await waitForNotice('Popped stash@{0}', 20000)
-    await waitForSelector('[data-testid="working-file-unstaged-README.md"]', 15000)
-    await waitFor(
-      `!document.querySelector('[data-testid="scm-stash-row-0"]')`,
-      'pop removed the stash entry',
-      10000
-    )
-    exec('git', ['-C', worktreePath, 'checkout', '--', 'README.md'], { stdio: 'pipe' })
-    require('node:fs').unlinkSync(join(worktreePath, 'stash-untracked.txt'))
-    await waitFor(
-      `!document.querySelector('[data-testid="working-file-unstaged-README.md"]')`,
-      'popped change cleaned up',
-      10000
-    )
-  })
-
-  await step('locks, unlocks and removes an unowned worktree', async () => {
-    await waitForSelector('[data-testid="scm-worktrees"]', 15000)
-    const worktreeInfo = await waitFor(
-      `(() => {
-        const rows = [...document.querySelectorAll('[data-testid^="scm-worktree-row-"]')];
-        const extra = rows.find((row) => row.innerText.toLowerCase().includes('extra-worktree'));
-        const primary = rows.find((row) => row.innerText.toLowerCase().includes('primary'));
-        const owned = rows.find((row) => row.innerText.toLowerCase().includes('session'));
-        if (!extra || !primary || !owned) return false;
-        const index = extra.getAttribute('data-testid').replace('scm-worktree-row-', '');
-        return {
-          index,
-          primaryRemoveDisabled: primary.querySelector('[data-testid^="scm-worktree-remove-"]')?.disabled === true,
-          sessionRemoveDisabled: owned.querySelector('[data-testid^="scm-worktree-remove-"]')?.disabled === true,
-          sessionLockDisabled: owned.querySelector('[data-testid^="scm-worktree-lock-"]')?.disabled === true
-        };
-      })()`,
-      'worktree rows',
-      15000
-    )
-    assert(worktreeInfo.primaryRemoveDisabled, 'the primary checkout remove action is enabled')
-    assert(worktreeInfo.sessionRemoveDisabled, 'the session worktree remove action is enabled')
-    assert(worktreeInfo.sessionLockDisabled, 'the session worktree lock action is enabled')
-    const index = worktreeInfo.index
-    await screenshot('05d-worktrees')
-    await click(`[data-testid="scm-worktree-lock-${index}"]`)
-    await waitForNotice('Locked worktree', 15000)
-    await waitFor(
-      `document.querySelector('[data-testid="scm-worktree-row-${index}"]')?.innerText.toLowerCase().includes('locked')`,
-      'worktree locked badge',
-      10000
-    )
-    await click(`[data-testid="scm-worktree-unlock-${index}"]`)
-    await waitForNotice('Unlocked worktree', 15000)
-    await waitFor(
-      `!document.querySelector('[data-testid="scm-worktree-row-${index}"]')?.innerText.toLowerCase().includes('locked')`,
-      'worktree unlocked badge',
-      10000
-    )
-    await click(`[data-testid="scm-worktree-remove-${index}"]`)
-    await waitForSelector(`[data-testid="scm-worktree-remove-yes-${index}"]`, 5000)
-    await click(`[data-testid="scm-worktree-remove-yes-${index}"]`)
-    await waitForNotice('Removed worktree', 15000)
-    await waitFor(
-      `![...document.querySelectorAll('[data-testid^="scm-worktree-row-"]')].some((row) => row.innerText.includes('extra-worktree'))`,
-      'extra worktree row removed',
-      10000
-    )
-    assert(!existsSync(EXTRA_WORKTREE_DIR), 'the extra worktree directory still exists')
-    await click('[data-testid="scm-worktrees-prune"]')
-    await waitForNotice('Pruned worktrees', 15000)
-  })
-
-  await step('initializes, updates, syncs and stages a submodule', async () => {
-    const exec = require('node:child_process').execFileSync
-    await waitForSelector('[data-testid="scm-submodules"]', 15000)
-    await waitForSelector('[data-testid="scm-submodule-row-vendor/lib"]', 15000)
-    const initial = await cdp.evaluate(
-      `document.querySelector('[data-testid="scm-submodule-row-vendor/lib"]')?.innerText.toLowerCase() ?? ''`
-    )
-    assert(initial.includes('not initialized'), `submodule did not start uninitialized: ${initial}`)
-    await click('[data-testid="scm-submodule-init-vendor/lib"]')
-    await waitForNotice('Initialized vendor/lib', 20000)
-    await click('[data-testid="scm-submodule-update-vendor/lib"]')
-    await waitForNotice('Updated vendor/lib', 30000)
-    await waitFor(
-      `document.querySelector('[data-testid="scm-submodule-row-vendor/lib"]')?.innerText.toLowerCase().includes('clean')`,
-      'submodule clean after update',
-      15000
-    )
-    await click('[data-testid="scm-submodule-sync-vendor/lib"]')
-    await waitForNotice('Synced vendor/lib', 20000)
-
-    const subPath = join(worktreePath, 'vendor', 'lib')
-    exec('git', ['-C', subPath, 'config', 'user.email', 'sub@smoke.test'], { stdio: 'pipe' })
-    exec('git', ['-C', subPath, 'config', 'user.name', 'Sub Smoke'], { stdio: 'pipe' })
-    writeFileSync(join(subPath, 'lib.txt'), 'submodule changed\n')
-    exec('git', ['-C', subPath, 'commit', '-qam', 'sub change'], { stdio: 'pipe' })
-    await waitFor(
-      `document.querySelector('[data-testid="scm-submodule-row-vendor/lib"]')?.innerText.toLowerCase().includes('pointer changed')`,
-      'submodule pointer changed badge',
-      15000
-    )
-    await click('[data-testid="scm-submodule-stage-vendor/lib"]')
-    await waitForNotice('Staged vendor/lib', 20000)
-    await waitFor(
-      `document.querySelector('[data-testid="scm-submodule-row-vendor/lib"]')?.innerText.toLowerCase().includes('clean')`,
-      'submodule clean after staging pointer',
-      15000
-    )
-    await screenshot('05e-submodules')
-
-    exec('git', ['-C', worktreePath, 'reset', '-q', '--', 'vendor/lib'], { stdio: 'pipe' })
-    exec('git', ['-C', subPath, 'checkout', '-q', 'HEAD~1'], { stdio: 'pipe' })
-  })
-
-  await step('browses tags in the sidebar', async () => {
-    await waitForSelector('[data-testid="scm-tags"]', 15000)
-    await waitForSelector('[data-testid="scm-tag-row-v-browse"]', 15000)
-    await click('[data-testid="scm-tag-checkout-v-browse"]')
-    await waitForSelector('[data-testid="scm-tag-checkout-yes-v-browse"]', 5000)
-    await screenshot('05f-tags')
-    await click('[data-testid="scm-tag-checkout-cancel-v-browse"]')
-    await waitFor(
-      `!document.querySelector('[data-testid="scm-tag-checkout-yes-v-browse"]')`,
-      'tag checkout confirmation cancelled',
-      5000
-    )
-    await waitForSelector('[data-testid="scm-tag-row-v-browse"]', 5000)
-  })
-
   await step('hidden Source Control releases its watcher', async () => {
     const readSummary = () =>
       cdp.evaluate(`(() => {
@@ -1005,6 +862,24 @@ async function run() {
       `document.querySelector('[data-testid="scm-history-outgoing"]')?.textContent ?? ''`
     )
     assert(outgoing.includes('1'), `the smart commit should be one ahead: ${outgoing}`)
+    const defaultScope = await cdp.evaluate(
+      `document.querySelector('[data-testid="scm-history-ref"]')?.value ?? null`
+    )
+    assert(
+      defaultScope === 'SESSION',
+      `History should default to this session, got ${JSON.stringify(defaultScope)}`
+    )
+    await screenshot('07a-history-session')
+
+    // Range compare needs two commits; the session scope deliberately shows
+    // only the commit this session made.
+    await setValue('[data-testid="scm-history-ref"]', 'HEAD')
+    await waitForSelector('[data-testid="scm-history-list"]', 10000)
+    await waitFor(
+      `document.querySelectorAll('[data-testid^="scm-history-commit-"]').length >= 2`,
+      'two branch commits for range compare',
+      10000
+    )
 
     const commitIds = await cdp.evaluate(
       `[...document.querySelectorAll('[data-testid^="scm-history-commit-"]')].slice(0, 2).map((element) => element.getAttribute('data-testid').replace('scm-history-commit-', ''))`
@@ -1032,7 +907,7 @@ async function run() {
     )
     await click('[data-testid="scm-history-clear-selection"]')
 
-    await setValue('[data-testid="scm-history-ref"]', 'ALL')
+    await setValue('[data-testid="scm-history-ref"]', 'SESSION')
     await waitForSelector('[data-testid="scm-history-list"]', 10000)
     await setValue('[data-testid="scm-history-ref"]', 'HEAD')
     await waitForSelector('[data-testid="scm-history-list"]', 10000)
@@ -1121,32 +996,6 @@ async function run() {
     await screenshot('10-commit-multi-diff')
     await click('[data-testid="scm-multi-diff-back"]')
     await waitForSelector('[data-testid="scm-history-file-README.md"]', 5000)
-
-    // Branch and tag creation at the selected commit.
-    await click('[data-testid="scm-commit-actions"]')
-    await waitForSelector('[data-testid="scm-commit-create-branch"]', 5000)
-    await click('[data-testid="scm-commit-create-branch"]')
-    await waitForSelector('[data-testid="scm-commit-dialog"]', 5000)
-    await setValue('[data-testid="scm-commit-name"]', 'review/history-smoke')
-    await click('[data-testid="scm-commit-confirm"]')
-    await waitForNotice('Created branch review/history-smoke', 10000)
-    const branchOid = require('node:child_process')
-      .execFileSync('git', ['-C', worktreePath, 'rev-parse', 'review/history-smoke'], {
-        encoding: 'utf8'
-      })
-      .trim()
-    assert(branchOid === smartOid, 'the new branch does not point at the selected commit')
-
-    await click('[data-testid="scm-commit-actions"]')
-    await waitForSelector('[data-testid="scm-commit-create-tag"]', 5000)
-    await click('[data-testid="scm-commit-create-tag"]')
-    await waitForSelector('[data-testid="scm-commit-dialog"]', 5000)
-    await setValue('[data-testid="scm-commit-name"]', 'v-smoke')
-    await click('[data-testid="scm-commit-confirm"]')
-    await waitForNotice('Created tag v-smoke', 10000)
-    const tags = require('node:child_process')
-      .execFileSync('git', ['-C', worktreePath, 'tag', '--list'], { encoding: 'utf8' })
-    assert(tags.split('\n').includes('v-smoke'), 'the tag was not created')
 
     // Revert creates a commit, then a hard reset puts the branch back.
     await click('[data-testid="scm-commit-actions"]')
@@ -1336,54 +1185,6 @@ async function run() {
       'the resolved result was not written'
     )
     run(['branch', '-D', 'op-side'])
-  })
-
-  await step('auto-fetches while Source Control is visible', async () => {
-    await click('[data-testid="rail-settings"]')
-    await waitForSelector('[data-testid="settings-view"]', 15000)
-    await waitForSelector('[data-testid="scm-setting-auto-fetch"]', 10000)
-    const alreadyOn = await cdp.evaluate(
-      `document.querySelector('[data-testid="scm-setting-auto-fetch"]')?.checked === true`
-    )
-    if (!alreadyOn) await click('[data-testid="scm-setting-auto-fetch"]')
-    await setValue('[data-testid="scm-setting-auto-fetch-interval"]', '30')
-    const stored = await cdp.evaluate(
-      `(() => { try { return JSON.parse(window.localStorage.getItem('icode.scm.settings.v1') ?? 'null') } catch { return null } })()`
-    )
-    assert(stored?.autoFetch === true, 'auto-fetch was not enabled')
-    assert(stored?.autoFetchIntervalSec === 30, 'auto-fetch interval was not 30 seconds')
-
-    await reopenSession()
-    await openChanges()
-
-    const cp = require('node:child_process')
-    const branch = cp
-      .execFileSync('git', ['-C', worktreePath, 'rev-parse', '--abbrev-ref', 'HEAD'], {
-        encoding: 'utf8'
-      })
-      .trim()
-    const cloneDir = join(RUN_DIR, 'autofetch-clone')
-    cp.execFileSync('git', ['clone', '-q', '-b', branch, REMOTE_DIR, cloneDir], {
-      stdio: 'pipe'
-    })
-    cp.execFileSync('git', ['-C', cloneDir, 'config', 'user.email', 'remote@smoke.test'], {
-      stdio: 'pipe'
-    })
-    cp.execFileSync('git', ['-C', cloneDir, 'config', 'user.name', 'Remote Smoke'], {
-      stdio: 'pipe'
-    })
-    writeFileSync(join(cloneDir, 'README.md'), 'remote auto-fetch change\n')
-    cp.execFileSync('git', ['-C', cloneDir, 'commit', '-qam', 'remote auto-fetch'], {
-      stdio: 'pipe'
-    })
-    cp.execFileSync('git', ['-C', cloneDir, 'push', '-q', 'origin', branch], { stdio: 'pipe' })
-
-    await waitForSelector('[data-testid="scm-repo-behind"]', 45000)
-    const behind = await cdp.evaluate(
-      `document.querySelector('[data-testid="scm-repo-behind"]')?.textContent ?? ''`
-    )
-    assert(behind.includes('1'), `auto-fetch did not report one incoming commit: ${behind}`)
-    await screenshot('14-auto-fetch')
   })
 
   await step('edit and save a file in Monaco', async () => {

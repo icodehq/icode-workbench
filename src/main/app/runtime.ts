@@ -22,6 +22,7 @@ import { SessionRemovalService } from '../sessions/session-removal-service'
 import { WorkspaceFilesService } from '../files/workspace-files-service'
 import { WorkspaceFilesWatcherService } from '../files/workspace-files-watcher'
 import { GitWorkspaceService } from '../git/git-workspace-service'
+import { CommitMessageService } from '../ai/commit-message-service'
 import { GitStatusWatcherService } from '../git/status-watcher'
 import { TaskStore } from '../tasks/task-store'
 import { TaskService } from '../tasks/task-service'
@@ -66,6 +67,8 @@ export type AppRuntime = {
   files: WorkspaceFilesService
   /** Worktree-scoped Git state and stage/commit operations. */
   gitWorkspace: GitWorkspaceService
+  /** One-shot AI commit-message drafts from the staged index. */
+  commitMessages: CommitMessageService
   /** Watches visible local worktrees and emits coalesced status changes. */
   gitStatusWatcher: GitStatusWatcherService
   /** Watches the visible Files pane's worktree; polling covers unsupported targets. */
@@ -525,6 +528,12 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     gitWorktrees,
     sessions
   })
+  const commitMessages = new CommitMessageService({
+    sessions,
+    gitWorkspace,
+    detectHarness: detectHarnessForTarget,
+    wslRunner
+  })
   const translateGuestWatchPath = async (distro: string, guestPath: string): Promise<string | null> => {
     const result = await wslRunner.run({
       scope: 'guest',
@@ -769,6 +778,7 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     sessionRemovals,
     files,
     gitWorkspace,
+    commitMessages,
     gitStatusWatcher,
     filesWatcher,
     projectFolders,

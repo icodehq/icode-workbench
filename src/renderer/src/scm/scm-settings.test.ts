@@ -32,11 +32,9 @@ describe('SCM settings', () => {
   it('uses explicit defaults and preserves current product behaviour', () => {
     expect(DEFAULT_SCM_SETTINGS).toMatchObject({
       smartCommit: 'off',
-      autoFetch: false,
       untrackedMode: 'separate',
       viewMode: 'list',
       sidebarWidth: 320,
-      confirmForcePush: true,
       autoRefresh: true
     })
     expect(loadScmSettings(memoryStorage())).toEqual(DEFAULT_SCM_SETTINGS)
@@ -53,7 +51,7 @@ describe('SCM settings', () => {
     const loaded = loadScmSettings(storage)
     expect(loaded.smartCommit).toBe('tracked')
     expect(loaded.viewMode).toBe('tree')
-    expect(loaded.autoFetch).toBe(false)
+    expect(loaded.untrackedMode).toBe('separate')
     expect(loaded).not.toHaveProperty('unknownSetting')
   })
 
@@ -79,12 +77,12 @@ describe('SCM settings', () => {
     const storage = memoryStorage()
     const listener = vi.fn()
     const unsubscribe = subscribeScmSettings(listener)
-    const next = updateScmSettings(DEFAULT_SCM_SETTINGS, { autoFetch: true }, storage)
-    expect(next.autoFetch).toBe(true)
+    const next = updateScmSettings(DEFAULT_SCM_SETTINGS, { smartCommit: 'tracked' }, storage)
+    expect(next.smartCommit).toBe('tracked')
     expect(JSON.parse(storage.values.get(SCM_SETTINGS_STORAGE_KEY)!)).toMatchObject({
-      autoFetch: true
+      smartCommit: 'tracked'
     })
-    expect(listener).toHaveBeenCalledWith(expect.objectContaining({ autoFetch: true }))
+    expect(listener).toHaveBeenCalledWith(expect.objectContaining({ smartCommit: 'tracked' }))
     unsubscribe()
     saveScmSettings(next, storage)
     expect(listener).toHaveBeenCalledTimes(1)

@@ -13,7 +13,7 @@ export type ScmViewMode = 'list' | 'tree'
 export type ScmSortKey = 'name' | 'path' | 'status'
 export type UntrackedMode = 'mixed' | 'separate' | 'hidden'
 
-export type ScmGroupId = 'conflicts' | 'staged' | 'unstaged' | 'untracked'
+export type ScmGroupId = 'conflicts' | 'staged' | 'unstaged' | 'untracked' | 'committed'
 
 export type ScmGroup = {
   id: ScmGroupId
@@ -69,13 +69,14 @@ export const DEFAULT_SCM_TREE_OPTIONS: ScmTreeOptions = {
   collapsed: new Set()
 }
 
-const GROUP_ORDER: ScmGroupId[] = ['conflicts', 'staged', 'unstaged', 'untracked']
+const GROUP_ORDER: ScmGroupId[] = ['conflicts', 'staged', 'unstaged', 'untracked', 'committed']
 
 export const GROUP_LABELS: Record<ScmGroupId, string> = {
   conflicts: 'Merge Changes',
   staged: 'Staged Changes',
   unstaged: 'Changes',
-  untracked: 'Untracked Files'
+  untracked: 'Untracked Files',
+  committed: 'Committed in This Session'
 }
 
 function pathName(path: string): string {
@@ -114,7 +115,8 @@ export function scmGroups(
     conflicts: groups.conflicts.filter((entry) => matches(entry, query)),
     staged: groups.staged.filter((entry) => matches(entry, query)),
     unstaged: groups.unstaged.filter((entry) => matches(entry, query)),
-    untracked: groups.untracked.filter((entry) => matches(entry, query))
+    untracked: groups.untracked.filter((entry) => matches(entry, query)),
+    committed: groups.committed.filter((entry) => matches(entry, query))
   }
   if (options.untrackedMode === 'hidden') byId.untracked = []
   if (options.untrackedMode === 'mixed') {

@@ -1,57 +1,41 @@
 import { useEffect, useState } from 'react'
-import { AlertTriangle, GitBranch, Loader2, RotateCcw, Tag, Undo2 } from 'lucide-react'
+import { AlertTriangle, Loader2, RotateCcw, Undo2 } from 'lucide-react'
 
-export type CommitDialogKind = 'branch' | 'tag' | 'cherry-pick' | 'revert' | 'reset'
+export type CommitDialogKind = 'cherry-pick' | 'revert' | 'reset'
 export type ResetMode = 'soft' | 'mixed' | 'hard'
 
 type Props = {
   kind: CommitDialogKind
   shortOid: string
   subject: string
-  /** Default branch prefix from Source Control settings. */
-  branchPrefix?: string
   busy: boolean
   error: string | null
   onCancel: () => void
-  onSubmit: (value: { name?: string; mode?: ResetMode }) => void
+  onSubmit: (value: { mode?: ResetMode }) => void
 }
 
 const TITLES: Record<CommitDialogKind, string> = {
-  branch: 'Create a branch here',
-  tag: 'Create a tag here',
   'cherry-pick': 'Cherry-pick this commit?',
   revert: 'Revert this commit?',
   reset: 'Reset the current branch here'
 }
 
-function defaultName(kind: CommitDialogKind, shortOid: string, prefix: string): string {
-  if (kind === 'branch') {
-    const value = `${prefix}${shortOid}`
-    return value.startsWith('/') ? value.slice(1) : value
-  }
-  if (kind === 'tag') return `v-${shortOid}`
-  return ''
-}
-
 /**
- * Confirmation and input for a commit action from History.
+ * Confirmation for a commit action from History.
  *
- * Branch/tag creation are additive; cherry-pick and revert create commits;
- * reset can discard work. The dialog names the commit and states the effect
- * before the action runs, and failure text stays inline so the dialog is not
- * lost when Git refuses.
+ * Cherry-pick and revert create commits; reset can discard work. The dialog
+ * names the commit and states the effect before the action runs, and failure
+ * text stays inline so the dialog is not lost when Git refuses.
  */
 export default function ScmCommitDialog({
   kind,
   shortOid,
   subject,
-  branchPrefix = '',
   busy,
   error,
   onCancel,
   onSubmit
 }: Props): React.JSX.Element {
-  const [name, setName] = useState(() => defaultName(kind, shortOid, branchPrefix))
   const [mode, setMode] = useState<ResetMode>('mixed')
 
   useEffect(() => {
@@ -62,11 +46,8 @@ export default function ScmCommitDialog({
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [busy, onCancel])
 
-  const needsName = kind === 'branch' || kind === 'tag'
-  const disabled = busy || (needsName && name.trim().length === 0)
   const danger = kind === 'reset' || kind === 'revert'
-  const Icon =
-    kind === 'branch' ? GitBranch : kind === 'tag' ? Tag : kind === 'reset' ? RotateCcw : Undo2
+  const Icon = kind === 'reset' ? RotateCcw : Undo2
 
   return (
     <div
@@ -87,29 +68,6 @@ export default function ScmCommitDialog({
           </p>
         </div>
         <div className="space-y-3 px-4 py-3">
-          {needsName ? (
-            <label className="block">
-              <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                {kind === 'branch' ? 'Branch name' : 'Tag name'}
-              </span>
-              <input
-                autoFocus
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                className="h-8 w-full rounded border border-border bg-background px-2 font-mono text-[11.5px] text-foreground outline-none focus:border-info"
-                data-testid="scm-commit-name"
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' && !disabled) onSubmit({ name: name.trim() })
-                }}
-              />
-              <span className="mt-1 block text-[10px] leading-relaxed text-muted-foreground">
-                {kind === 'branch'
-                  ? 'The branch starts at this commit and the worktree stays where it is.'
-                  : 'A lightweight local tag. It is not pushed until you push it explicitly.'}
-              </span>
-            </label>
-          ) : null}
-
           {kind === 'cherry-pick' ? (
             <p className="text-[11px] leading-relaxed text-muted-foreground">
               Applies this commit's change on the current branch as a new commit. A conflict leaves
@@ -178,20 +136,16 @@ export default function ScmCommitDialog({
                 ? 'border-destructive/50 bg-destructive/10 text-destructive hover:bg-destructive/15'
                 : 'border-add/50 bg-add-weak text-foreground hover:bg-add/20'
             }`}
-            onClick={() => onSubmit(needsName ? { name: name.trim() } : kind === 'reset' ? { mode } : {})}
-            disabled={disabled}
+            onClick={() => onSubmit(kind === 'reset' ? { mode } : {})}
+            disabled={busy}
             data-testid="scm-commit-confirm"
           >
             {busy ? <Loader2 size={12} className="animate-spin" /> : <Icon size={12} />}
-            {kind === 'branch'
-              ? 'Create branch'
-              : kind === 'tag'
-                ? 'Create tag'
-                : kind === 'cherry-pick'
-                  ? 'Cherry-pick'
-                  : kind === 'revert'
-                    ? 'Revert commit'
-                    : 'Reset branch'}
+            {kind === 'cherry-pick'
+              ? 'Cherry-pick'
+              : kind === 'revert'
+                ? 'Revert commit'
+                : 'Reset branch'}
           </button>
         </div>
       </div>

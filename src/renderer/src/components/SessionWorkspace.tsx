@@ -25,7 +25,6 @@ import type { Notice, PendingAction } from '../state/workspace'
 import TerminalPane from './TerminalPane'
 import ChangesPanel from './ChangesPanel'
 import FilesPanel from './FilesPanel'
-import GitBranchMenu from './GitBranchMenu'
 import RemoveSessionDialog from './RemoveSessionDialog'
 import SessionActionsMenu from './SessionActionsMenu'
 import SleepSessionDialog from './SleepSessionDialog'
@@ -316,8 +315,6 @@ export default function SessionWorkspace({
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [removeOpen, setRemoveOpen] = useState(false)
   const [sleepOpen, setSleepOpen] = useState(false)
-  // Branch/remote operations happen in the header; Changes reloads when they do.
-  const [gitRevision, setGitRevision] = useState(0)
 
   useEffect(() => {
     setDetailsOpen(false)
@@ -409,16 +406,13 @@ export default function SessionWorkspace({
                 data-worktree-status={worktree.status}
                 data-worktree-branch={worktree.branch}
               >
-                <GitBranchMenu
-                  sessionId={session.id}
-                  branch={worktree.branch}
-                  notify={notify}
-                  onChanged={() => {
-                    setGitRevision((current) => current + 1)
-                    onRecheck(session.id)
-                  }}
-                  onOpenTerminal={() => setView('terminal')}
-                />
+                <GitBranch size={11} className="shrink-0" />
+                <span
+                  className="min-w-0 truncate font-mono text-[10.5px]"
+                  title={`${WORKTREE_STATUS_LABEL[worktree.status]} · ${worktree.branch} · ${worktree.path}`}
+                >
+                  {worktree.branch}
+                </span>
               </span>
             ) : (
               <span
@@ -599,8 +593,9 @@ export default function SessionWorkspace({
         <ChangesPanel
           sessionId={session.id}
           sessionState={session.state}
+          harness={session.harness}
+          baseOid={worktree?.baseOid ?? null}
           refreshToken={refreshToken}
-          gitRevision={gitRevision}
           active={view === 'changes'}
           notify={notify}
           onOpenPath={(path) => {

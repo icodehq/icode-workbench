@@ -40,6 +40,7 @@ describe('preload API surface', () => {
     expect(Object.keys(api).sort()).toEqual(
       [
         'activity',
+        'ai',
         'branches',
         'files',
         'getRuntimeInfo',
@@ -81,6 +82,19 @@ describe('preload API surface', () => {
       IPC_CHANNELS.reposRemove
     ])
     expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.reposAdd, { path: '/tmp/repo' })
+  })
+
+  it('routes commit-message generation and cancellation to their channels', async () => {
+    const { api, invoke } = setup()
+    await api.ai.commitMessage({ sessionId, requestId: 'request-123' })
+    await api.ai.cancelCommitMessage({ requestId: 'request-123' })
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.aiCommitMessage, {
+      sessionId,
+      requestId: 'request-123'
+    })
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.aiCancelCommitMessage, {
+      requestId: 'request-123'
+    })
   })
 
   it('routes window controls and maximize events', async () => {

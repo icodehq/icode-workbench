@@ -51,6 +51,10 @@ import {
   taskSettingsInputSchema,
 } from '../../shared/schemas/workspace'
 import { clearActivityUnreadInputSchema } from '../../shared/schemas/activity'
+import {
+  aiCancelCommitMessageInputSchema,
+  aiCommitMessageInputSchema
+} from '../../shared/schemas/ai'
 import type { IpcResult } from '../../shared/schemas/ipc'
 import { makeAppError } from '../../shared/domain/errors'
 import type { AppError } from '../../shared/domain/errors'
@@ -141,6 +145,8 @@ export type DispatcherServices = {
   filesRestoreTrash: (input: { sessionId: string; opId: string }) => Promise<unknown>
   filesListTrash: (input: { sessionId: string }) => Promise<unknown>
   filesWatch: (input: { sessionId: string; active: boolean }) => Promise<unknown>
+  aiCommitMessage: (input: { sessionId: string; requestId: string }) => Promise<unknown>
+  aiCancelCommitMessage: (input: { requestId: string }) => Promise<unknown>
   tasksList: (input: { repoId?: string; statuses?: string[]; limit?: number }) => Promise<unknown>
   tasksCreate: (input: { repoId: string; title?: string; prompt: string; harness: string }) => Promise<unknown>
   tasksCancel: (input: { taskId: string }) => Promise<unknown>
@@ -347,6 +353,18 @@ export function createDispatcher(services: DispatcherServices): Dispatcher {
 
       case IPC_CHANNELS.gitInvoke:
         return run(() => services.gitInvoke(rawInput))
+
+      case IPC_CHANNELS.aiCommitMessage: {
+        const input = parse(aiCommitMessageInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.aiCommitMessage(input))
+      }
+
+      case IPC_CHANNELS.aiCancelCommitMessage: {
+        const input = parse(aiCancelCommitMessageInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.aiCancelCommitMessage(input))
+      }
 
       case IPC_CHANNELS.filesList: {
         const input = parse(filesListInputSchema, rawInput)

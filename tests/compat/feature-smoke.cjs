@@ -414,166 +414,6 @@ async function run() {
     await click('[aria-label="Close notifications"]')
   })
 
-  await step('exercise branch create, fetch, publish and manage in the header', async () => {
-    await click('[data-testid="git-branch-chip"]')
-    await waitForSelector('[data-testid="git-branch-menu"]', 10000)
-    await screenshot('03b-branch-menu')
-    for (const id of ['git-create-branch', 'git-fetch', 'git-publish']) {
-      assert(
-        await cdp.evaluate(`Boolean(document.querySelector('[data-testid="${id}"]'))`),
-        `Branch menu is missing ${id}`
-      )
-    }
-    // The duplicate History and Compare dialogs were removed. History now lives
-    // in the Source Control pane (covered by smoke:scm), and compare is History's
-    // range comparison.
-    for (const id of ['git-history', 'git-compare']) {
-      assert(
-        !(await cdp.evaluate(`Boolean(document.querySelector('[data-testid="${id}"]'))`)),
-        `Branch menu still exposes the removed ${id}`
-      )
-    }
-
-    await click('[data-testid="git-create-branch"]')
-    await setValue('[data-testid="git-new-branch-input"]', 'review/smoke')
-    await click('[data-testid="git-new-branch-create"]')
-    await waitForNotice('Created review/smoke', 20000)
-    await waitFor(
-      `document.querySelector('[data-testid="git-fetch"]') && !document.querySelector('[data-testid="git-fetch"]').disabled`,
-      'fetch enabled after branch creation',
-      10000
-    )
-
-    await click('[data-testid="git-fetch"]')
-    await waitForNotice('Fetched origin', 30000)
-    await waitFor(
-      `document.querySelector('[data-testid="git-publish"]') && !document.querySelector('[data-testid="git-publish"]').disabled`,
-      'publish enabled after fetch',
-      10000
-    )
-
-    await click('[data-testid="git-publish"]')
-    await waitForNotice('Published', 30000)
-
-    if (!(await cdp.evaluate(`Boolean(document.querySelector('[data-testid="git-branch-menu"]'))`))) {
-      await click('[data-testid="git-branch-chip"]')
-      await waitForSelector('[data-testid="git-branch-menu"]', 10000)
-    }
-    await click('[data-testid="git-branch-manage"] summary')
-    await waitFor(
-      `document.querySelector('[data-testid="git-branch-manage"]')?.open === true`,
-      'branch management open',
-      5000
-    )
-    await setValue('[data-testid="git-branch-rename-from"]', 'review/smoke')
-    await setValue('[data-testid="git-branch-rename-to"]', 'review/smoke-renamed')
-    await click('[data-testid="git-branch-rename"]')
-    await waitForNotice('Renamed review/smoke to review/smoke-renamed', 20000)
-
-    await waitFor(
-      `Array.from(document.querySelectorAll('[data-testid="git-branch-merge-target"] option')).some((option) => option.value === 'main')`,
-      'merge target options',
-      10000
-    )
-    await setValue('[data-testid="git-branch-merge-target"]', 'main')
-    await click('[data-testid="git-branch-merge"]')
-    await waitForNotice('Merged main', 20000)
-
-    await waitFor(
-      `Array.from(document.querySelectorAll('[data-testid="git-branch-rebase-target"] option')).some((option) => option.value === 'main')`,
-      'rebase target options',
-      10000
-    )
-    await setValue('[data-testid="git-branch-rebase-target"]', 'main')
-    await click('[data-testid="git-branch-rebase"]')
-    await waitForSelector('[data-testid="git-branch-rebase-confirm"]', 5000)
-    await click('[data-testid="git-branch-rebase-confirm"]')
-    await waitForNotice('Rebased onto main', 20000)
-
-    await click('[data-testid="git-create-branch"]')
-    await setValue('[data-testid="git-new-branch-input"]', 'review/delete-me')
-    await click('[data-testid="git-new-branch-create"]')
-    await waitForNotice('Created review/delete-me', 20000)
-    await waitFor(
-      `Array.from(document.querySelectorAll('[data-testid="git-branch-delete-target"] option')).some((option) => option.value === 'review/delete-me')`,
-      'delete target options',
-      10000
-    )
-    await setValue('[data-testid="git-branch-delete-target"]', 'review/delete-me')
-    await click('[data-testid="git-branch-delete"]')
-    await waitForNotice('Deleted branch review/delete-me', 20000)
-    if (!(await cdp.evaluate(`Boolean(document.querySelector('[data-testid="git-branch-menu"]'))`))) {
-      await click('[data-testid="git-branch-chip"]')
-      await waitForSelector('[data-testid="git-branch-menu"]', 10000)
-    }
-    if (
-      !(await cdp.evaluate(
-        `document.querySelector('[data-testid="git-branch-manage"]')?.open === true`
-      ))
-    ) {
-      await click('[data-testid="git-branch-manage"] summary')
-      await waitFor(
-        `document.querySelector('[data-testid="git-branch-manage"]')?.open === true`,
-        'branch management open for screenshot',
-        5000
-      )
-    }
-    await screenshot('05b-branch-management')
-
-    await click('[data-testid="git-remotes"] summary')
-    await waitFor(
-      `document.querySelector('[data-testid="git-remotes"]')?.open === true`,
-      'remotes management open',
-      5000
-    )
-    await waitForSelector('[data-testid="git-remote-remove-origin"]', 5000)
-    await setValue('[data-testid="git-remote-add-name"]', 'backup')
-    await setValue('[data-testid="git-remote-add-url"]', REMOTE_DIR)
-    await click('[data-testid="git-remote-add"]')
-    await waitForNotice('Added remote backup', 20000)
-    await waitForSelector('[data-testid="git-remote-remove-backup"]', 10000)
-    await click('[data-testid="git-remote-remove-backup"]')
-    await waitForNotice('Removed remote backup', 20000)
-    await waitFor(
-      `!document.querySelector('[data-testid="git-remote-remove-backup"]')`,
-      'backup remote removed',
-      5000
-    )
-    await screenshot('05c-remotes')
-
-    const upstreamOption = await cdp.evaluate(
-      `Array.from(document.querySelectorAll('[data-testid="git-upstream-target"] option')).map((option) => option.value).find((value) => value.startsWith('origin/')) ?? null`
-    )
-    assert(upstreamOption, 'No remote branch was available for the upstream picker')
-    await setValue('[data-testid="git-upstream-target"]', upstreamOption)
-    await click('[data-testid="git-upstream-set"]')
-    await waitForNotice('Set upstream to', 20000)
-
-    if (!(await cdp.evaluate(`Boolean(document.querySelector('[data-testid="git-branch-menu"]'))`))) {
-      await click('[data-testid="git-branch-chip"]')
-      await waitForSelector('[data-testid="git-branch-menu"]', 10000)
-    }
-    await click('[data-testid="git-tags"] summary')
-    await waitFor(
-      `document.querySelector('[data-testid="git-tags"]')?.open === true`,
-      'tags management open',
-      5000
-    )
-    await waitForSelector('[data-testid="git-tag-delete-v-baseline"]', 5000)
-    await click('[data-testid="git-push-tags"]')
-    await waitForNotice('Pushed tags to origin', 30000)
-    await click('[data-testid="git-tag-delete-v-baseline"]')
-    await waitForNotice('Deleted tag v-baseline', 20000)
-    await waitFor(
-      `!document.querySelector('[data-testid="git-tag-delete-v-baseline"]')`,
-      'v-baseline deleted',
-      5000
-    )
-    await screenshot('05d-tags')
-    await click('[data-testid="git-branch-chip"]')
-    return { branch: 'review/smoke-renamed' }
-  })
-
   let sessionId = null
   let worktreePath = null
   await step('commit and amend a change through Changes', async () => {
@@ -626,7 +466,7 @@ async function run() {
     })()`)
     await waitForSelector('[data-testid="working-file-untracked-src/tree-live.txt"]', 8000)
 
-    // The commit input and repository header belong to the SCM sidebar.
+    // The commit input and session strip belong to the SCM sidebar.
     assert(
       await cdp.evaluate(
         `Boolean(document.querySelector('[data-testid="working-tree"] aside [data-testid="git-commit-message"]'))`
@@ -634,8 +474,8 @@ async function run() {
       'commit input must render inside the SCM sidebar'
     )
     assert(
-      await cdp.evaluate(`Boolean(document.querySelector('[data-testid="scm-repo-header"]'))`),
-      'the SCM sidebar is missing its repository header'
+      await cdp.evaluate(`Boolean(document.querySelector('[data-testid="scm-session-strip"]'))`),
+      'the SCM sidebar is missing its session strip'
     )
 
     // Tree/list switching and filtering are part of the Phase 2 surface.
@@ -921,7 +761,7 @@ async function run() {
         text: section?.innerText ?? '',
         smartCommit: smart?.value ?? null,
         untracked: document.querySelector('[data-testid="scm-setting-untracked"]')?.value ?? null,
-        autoFetch: document.querySelector('input[aria-label="Auto-fetch"]')?.checked ?? null,
+        autoFetchPresent: Boolean(document.querySelector('input[aria-label="Auto-fetch"]')),
         autoRefresh: document.querySelector('input[aria-label="Auto-refresh"]')?.checked ?? null
       };
     })()`)
@@ -929,7 +769,7 @@ async function run() {
     assert(card.text.includes('Smart commit'), 'Settings omitted the smart-commit field')
     assert(card.smartCommit === 'off', `smart commit default was ${String(card.smartCommit)}`)
     assert(card.untracked === 'separate', `untracked default was ${String(card.untracked)}`)
-    assert(card.autoFetch === false, 'auto-fetch must default to off')
+    assert(card.autoFetchPresent === false, 'auto-fetch setting must be removed')
     assert(card.autoRefresh === true, 'auto-refresh must default to on')
     await screenshot('09-settings-source-control')
 

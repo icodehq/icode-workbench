@@ -7,7 +7,6 @@ import {
   Copy,
   Folder,
   FolderOpen,
-  GitBranch,
   GitCommitHorizontal,
   History,
   Layers,
@@ -24,16 +23,13 @@ import {
 } from 'lucide-react'
 import { callApi } from '../lib/api'
 import type {
-  GitBranchesPayload,
-  GitBranchPayload,
   GitCommitActionPayload,
   GitCommitDetailPayload,
   GitFileAtRevisionPayload,
   GitLogPayload,
   GitRangeDiffPayload,
   GitResetPayload,
-  GitRevisionFileDiffPayload,
-  GitTagPayload
+  GitRevisionFileDiffPayload
 } from '../../../shared/icode-api'
 import {
   GIT_EMPTY_TREE_OID,
@@ -66,10 +62,10 @@ import {
 
 type Props = {
   sessionId: string
+  /** The commit this session's worktree was created from. */
+  baseOid: string | null
   notify: (notice: Notice) => void
   onClose: () => void
-  /** Default prefix for a branch created from History. */
-  branchPrefix?: string
   /** Restricts History to commits touching this worktree-relative path. */
   initialPath?: string
   /** Asks Source Control to re-read status after a worktree-changing action. */
@@ -92,23 +88,22 @@ type PageState =
 
 export default function ScmHistoryView({
   sessionId,
+  baseOid,
   notify,
   onClose,
-  branchPrefix = '',
   initialPath = '',
   onChanged
 }: Props): React.JSX.Element {
   const [page, setPage] = useState<PageState>({ status: 'loading' })
   const [loadingMore, setLoadingMore] = useState(false)
-  const [scope, setScope] = useState('HEAD')
-  const scopeRef = useRef('HEAD')
+  const [scope, setScope] = useState(baseOid === null ? 'HEAD' : 'SESSION')
+  const scopeRef = useRef(baseOid === null ? 'HEAD' : 'SESSION')
   const [historyView, setHistoryView] = useState<'list' | 'timeline'>('list')
   /** Presents the selected commit's files flat (VS Code's list mode) or as a tree. */
   const [fileView, setFileView] = useState<'list' | 'tree'>('list')
   const [collapsedFolders, setCollapsedFolders] = useState<ReadonlySet<string>>(() => new Set())
   const [pathFilter, setPathFilter] = useState(initialPath)
   const pathRef = useRef(initialPath)
-  const [branches, setBranches] = useState<string[]>([])
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState<GitLogEntry | null>(null)
   const [selectedOids, setSelectedOids] = useState<Set<string>>(() => new Set())
@@ -156,11 +151,7 @@ export default function ScmHistoryView({
           sessionId,
           limit: 50,
           skip,
-          ...(refScope === 'ALL'
-            ? { allRefs: true }
-            : refScope === 'HEAD'
-              ? {}
-              : { ref: refScope }),
+          ...(refScope === 'SESSION' && baseOid !== null ? { ref: `${baseOid}..HEAD` } : {}),
           ...(filterPath.length > 0 ? { path: filterPath } : {})
         })
       )
@@ -208,7 +199,7 @@ export default function ScmHistoryView({
         }
       })
     },
-    [notify, sessionId]
+    [baseOid, notify, sessionId]
   )
 
   useEffect(() => {
@@ -217,23 +208,13 @@ export default function ScmHistoryView({
     setFile(null)
     setFileDiff(null)
     setQuery('')
-    setScope('HEAD')
-    scopeRef.current = 'HEAD'
+    const nextScope = baseOid === null ? 'HEAD' : 'SESSION'
+    setScope(nextScope)
+    scopeRef.current = nextScope
     setPathFilter(initialPath)
     pathRef.current = initialPath
-    void load(0, false, 'HEAD', initialPath)
-  }, [initialPath, load, sessionId])
-
-  useEffect(() => {
-    let cancelled = false
-    void callApi<GitBranchesPayload>(window.icode.git.branches({ sessionId })).then((result) => {
-      if (cancelled) return
-      if (result.ok && result.value.status === 'ok') setBranches(result.value.names)
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [sessionId])
+    void load(0, false, nextScope, initialPath)
+  }, [baseOid, initialPath, load, sessionId])
 
   const changeScope = (next: string): void => {
     setScope(next)
@@ -562,10 +543,7 @@ export default function ScmHistoryView({
     setDialogKind(kind)
   }
 
-  const runCommitAction = async (value: {
-    name?: string
-    mode?: ResetMode
-  }): Promise<void> => {
+  const runCommitAction = async (value: { mode?: ResetMode }): Promise<void> => {
     if (selected === null || dialogKind === null || actionBusy) return
     setActionBusy(true)
     setActionError(null)
@@ -574,39 +552,7 @@ export default function ScmHistoryView({
       setActionBusy(false)
     }
     try {
-      if (dialogKind === 'branch') {
-        const result = await callApi<GitBranchPayload>(
-          window.icode.git.createBranch({
-            sessionId,
-            branch: value.name ?? '',
-            at: selected.oid
-          })
-        )
-        if (!result.ok) return fail(result.error.message)
-        if (result.value.status === 'unavailable') return fail(result.value.detail)
-        notify({
-          tone: 'success',
-          message: `Created branch ${result.value.branch} at ${selected.shortOid}`
-        })
-        setDialogKind(null)
-        void load(0, false)
-      } else if (dialogKind === 'tag') {
-        const result = await callApi<GitTagPayload>(
-          window.icode.git.createTag({
-            sessionId,
-            name: value.name ?? '',
-            oid: selected.oid
-          })
-        )
-        if (!result.ok) return fail(result.error.message)
-        if (result.value.status === 'unavailable') return fail(result.value.detail)
-        notify({
-          tone: 'success',
-          message: `Created tag ${result.value.name} at ${selected.shortOid}`
-        })
-        setDialogKind(null)
-        void load(0, false)
-      } else if (dialogKind === 'cherry-pick' || dialogKind === 'revert') {
+      if (dialogKind === 'cherry-pick' || dialogKind === 'revert') {
         const action = dialogKind
         const result = await callApi<GitCommitActionPayload>(
           action === 'cherry-pick'
@@ -652,24 +598,9 @@ export default function ScmHistoryView({
     if (selected === null) return []
     return [
       {
-        id: 'create-branch',
-        label: 'Create branch here…',
-        icon: <GitBranch size={12} />,
-        testId: 'scm-commit-create-branch',
-        onSelect: () => openDialog('branch')
-      },
-      {
-        id: 'create-tag',
-        label: 'Create tag here…',
-        icon: <Tag size={12} />,
-        testId: 'scm-commit-create-tag',
-        onSelect: () => openDialog('tag')
-      },
-      {
         id: 'cherry-pick',
         label: 'Cherry-pick commit',
         icon: <GitCommitHorizontal size={12} />,
-        separatorBefore: true,
         testId: 'scm-commit-cherry-pick',
         onSelect: () => openDialog('cherry-pick')
       },
@@ -885,13 +816,8 @@ export default function ScmHistoryView({
               className="h-7 max-w-[170px] shrink-0 rounded border border-border bg-transparent px-1 text-[9.5px] text-muted-foreground outline-none"
               data-testid="scm-history-ref"
             >
+              <option value="SESSION">This session</option>
               <option value="HEAD">Current branch</option>
-              <option value="ALL">All refs</option>
-              {branches.map((name) => (
-                <option key={name} value={name}>
-                  {name}
-                </option>
-              ))}
             </select>
             {pathFilter.length > 0 ? (
               <span
@@ -1492,7 +1418,6 @@ export default function ScmHistoryView({
           kind={dialogKind}
           shortOid={selected.shortOid}
           subject={selected.subject}
-          branchPrefix={branchPrefix}
           busy={actionBusy}
           error={actionError}
           onCancel={() => {
