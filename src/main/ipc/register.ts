@@ -3,6 +3,7 @@ import { IPC_CHANNELS, type IpcResult } from '../../shared/schemas/ipc'
 import { makeAppError } from '../../shared/domain/errors'
 import type { AppRuntime } from '../app/runtime'
 import { createDispatcher, type Dispatcher } from './dispatcher'
+import { invokeGitCommand } from './git-commands'
 import { toRepositorySummary } from './repository-summary'
 import { RepositoryFolderPicker } from '../repositories/folder-picker'
 import { pickRepositoryFolderResultSchema } from '../../shared/schemas/ipc'
@@ -35,7 +36,6 @@ export const HANDLED_CHANNELS: readonly string[] = [
   IPC_CHANNELS.sessionsRecoverWorktree,
   IPC_CHANNELS.branchesList,
   IPC_CHANNELS.branchesRemove,
-  IPC_CHANNELS.reviewAreaDiff,
   IPC_CHANNELS.filesList,
   IPC_CHANNELS.filesRead,
   IPC_CHANNELS.filesWrite,
@@ -43,66 +43,7 @@ export const HANDLED_CHANNELS: readonly string[] = [
   IPC_CHANNELS.filesCreate,
   IPC_CHANNELS.filesRename,
   IPC_CHANNELS.filesRemove,
-  IPC_CHANNELS.gitStatus,
-  IPC_CHANNELS.gitCancelStatus,
-  IPC_CHANNELS.gitOperationState,
-  IPC_CHANNELS.gitOperationContinue,
-  IPC_CHANNELS.gitOperationAbort,
-  IPC_CHANNELS.gitRangeDiff,
-  IPC_CHANNELS.gitWatchStatus,
-  IPC_CHANNELS.gitStageAll,
-  IPC_CHANNELS.gitUnstageAll,
-  IPC_CHANNELS.gitCommit,
-  IPC_CHANNELS.gitDiscardPath,
-  IPC_CHANNELS.gitSetPathStaged,
-  IPC_CHANNELS.gitSetPathsStaged,
-  IPC_CHANNELS.gitDiscardPaths,
-  IPC_CHANNELS.gitBranches,
-  IPC_CHANNELS.gitSwitchBranch,
-  IPC_CHANNELS.gitCreateBranch,
-  IPC_CHANNELS.gitCreateTag,
-  IPC_CHANNELS.gitDeleteTag,
-  IPC_CHANNELS.gitTags,
-  IPC_CHANNELS.gitCheckoutRef,
-  IPC_CHANNELS.gitFileAtRevision,
-  IPC_CHANNELS.gitIndexFile,
-  IPC_CHANNELS.gitApplyPatch,
-  IPC_CHANNELS.gitConflictFile,
-  IPC_CHANNELS.gitResolveConflict,
-  IPC_CHANNELS.gitStashList,
-  IPC_CHANNELS.gitStashPush,
-  IPC_CHANNELS.gitStashDiff,
-  IPC_CHANNELS.gitStashAction,
-  IPC_CHANNELS.gitWorktreeList,
-  IPC_CHANNELS.gitWorktreeAction,
-  IPC_CHANNELS.gitSubmoduleList,
-  IPC_CHANNELS.gitSubmoduleAction,
-  IPC_CHANNELS.gitBlame,
-  IPC_CHANNELS.gitRenameBranch,
-  IPC_CHANNELS.gitDeleteBranch,
-  IPC_CHANNELS.gitMergeBranch,
-  IPC_CHANNELS.gitRebaseBranch,
-  IPC_CHANNELS.gitCherryPick,
-  IPC_CHANNELS.gitRevert,
-  IPC_CHANNELS.gitReset,
-  IPC_CHANNELS.gitPush,
-  IPC_CHANNELS.gitPull,
-  IPC_CHANNELS.gitPublish,
-  IPC_CHANNELS.gitFetch,
-  IPC_CHANNELS.gitRemotes,
-  IPC_CHANNELS.gitFetchRemote,
-  IPC_CHANNELS.gitAddRemote,
-  IPC_CHANNELS.gitRemoveRemote,
-  IPC_CHANNELS.gitPushTags,
-  IPC_CHANNELS.gitForcePush,
-  IPC_CHANNELS.gitRemoteBranches,
-  IPC_CHANNELS.gitSetUpstream,
-  IPC_CHANNELS.gitAmend,
-  IPC_CHANNELS.gitHistory,
-  IPC_CHANNELS.gitLog,
-  IPC_CHANNELS.gitCommitDetail,
-  IPC_CHANNELS.gitRevisionFileDiff,
-  IPC_CHANNELS.gitCompare,
+  IPC_CHANNELS.gitInvoke,
   IPC_CHANNELS.tasksList,
   IPC_CHANNELS.tasksCreate,
   IPC_CHANNELS.tasksCancel,
@@ -275,7 +216,6 @@ export function createAppDispatcher(
       runtime.sessionRemovals.removeBranch(input.repoId, input.branch, input.confirmBranch),
     activityList: async () => runtime.activity.list(),
     activityClearUnread: async (input) => runtime.activity.clearUnread(input.sessionId),
-    reviewAreaDiff: (input) => runtime.review.diffArea(input),
     filesList: (input) => runtime.files.list(input.sessionId, input.path),
     filesRead: (input) => runtime.files.read(input.sessionId, input.path),
     filesWrite: (input) => runtime.files.write(input.sessionId, input.path, input.text),
@@ -287,118 +227,7 @@ export function createAppDispatcher(
     filesCreate: (input) => runtime.files.create(input.sessionId, input.path, input.kind),
     filesRename: (input) => runtime.files.rename(input.sessionId, input.from, input.to),
     filesRemove: (input) => runtime.files.remove(input.sessionId, input.path),
-    gitStatus: (input) => runtime.gitWorkspace.status(input.sessionId),
-    gitCancelStatus: async (input) => ({
-      cancelled: runtime.gitWorkspace.cancelReads(input.sessionId)
-    }),
-    gitOperationState: (input) => runtime.gitWorkspace.operationState(input.sessionId),
-    gitOperationContinue: (input) => runtime.gitWorkspace.continueOperation(input.sessionId),
-    gitOperationAbort: (input) => runtime.gitWorkspace.abortOperation(input.sessionId),
-    gitRangeDiff: (input) => runtime.gitWorkspace.rangeDiff(input.sessionId, input.from, input.to),
-    gitWatchStatus: (input) => runtime.gitStatusWatcher.setActive(input.sessionId, input.active),
-    gitStageAll: (input) => runtime.gitWorkspace.stageAll(input.sessionId),
-    gitUnstageAll: (input) => runtime.gitWorkspace.unstageAll(input.sessionId),
-    gitCommit: (input) =>
-      runtime.gitWorkspace.commit(input.sessionId, input.message, {
-        ...(input.all === undefined ? {} : { all: input.all }),
-        ...(input.signOff === undefined ? {} : { signOff: input.signOff })
-      }),
-    gitDiscardPath: (input) => runtime.gitWorkspace.discardPath(input.sessionId, input.path),
-    gitSetPathStaged: (input) =>
-      runtime.gitWorkspace.setPathStaged(input.sessionId, input.path, input.staged),
-    gitSetPathsStaged: (input) =>
-      runtime.gitWorkspace.setPathsStaged(input.sessionId, input.targets, input.staged),
-    gitDiscardPaths: (input) =>
-      runtime.gitWorkspace.discardPaths(input.sessionId, input.targets, input.expectedRevision),
-    gitBranches: (input) => runtime.gitWorkspace.branches(input.sessionId),
-    gitSwitchBranch: (input) => runtime.gitWorkspace.switchBranch(input.sessionId, input.branch),
-    gitCreateBranch: (input) =>
-      runtime.gitWorkspace.createBranch(input.sessionId, input.branch, input.at),
-    gitCreateTag: (input) =>
-      runtime.gitWorkspace.createTag(input.sessionId, input.name, input.oid),
-    gitDeleteTag: (input) => runtime.gitWorkspace.deleteTag(input.sessionId, input.name),
-    gitTags: (input) => runtime.gitWorkspace.tags(input.sessionId),
-    gitCheckoutRef: (input) => runtime.gitWorkspace.checkoutRef(input.sessionId, input.ref),
-    gitFileAtRevision: (input) =>
-      runtime.gitWorkspace.fileAtRevision(input.sessionId, input.rev, input.path),
-    gitIndexFile: (input) => runtime.gitWorkspace.indexFile(input.sessionId, input.path),
-    gitApplyPatch: (input) =>
-      runtime.gitWorkspace.applyPatch(input.sessionId, input.patch, input.path, input.mode),
-    gitConflictFile: (input) => runtime.gitWorkspace.conflictFile(input.sessionId, input.path),
-    gitResolveConflict: (input) =>
-      runtime.gitWorkspace.resolveConflict(input.sessionId, input.path),
-    gitStashList: (input) => runtime.gitWorkspace.stashList(input.sessionId),
-    gitStashPush: (input) =>
-      runtime.gitWorkspace.stashPush(
-        input.sessionId,
-        input.message,
-        input.includeUntracked,
-        input.keepIndex
-      ),
-    gitStashDiff: (input) =>
-      runtime.gitWorkspace.stashDiff(input.sessionId, input.index),
-    gitStashAction: (input) =>
-      runtime.gitWorkspace.stashAction(input.sessionId, input.index, input.action),
-    gitWorktreeList: (input) => runtime.gitWorkspace.worktreeList(input.sessionId),
-    gitWorktreeAction: (input) =>
-      runtime.gitWorkspace.worktreeAction(
-        input.sessionId,
-        input.action,
-        input.path,
-        input.reason
-      ),
-    gitSubmoduleList: (input) => runtime.gitWorkspace.submoduleStatus(input.sessionId),
-    gitSubmoduleAction: (input) =>
-      runtime.gitWorkspace.submoduleAction(input.sessionId, input.action, input.path),
-    gitBlame: (input) => runtime.gitWorkspace.blame(input.sessionId, input.path),
-    gitRenameBranch: (input) =>
-      runtime.gitWorkspace.renameBranch(input.sessionId, input.from, input.to),
-    gitDeleteBranch: (input) =>
-      runtime.gitWorkspace.deleteBranch(input.sessionId, input.branch),
-    gitMergeBranch: (input) => runtime.gitWorkspace.mergeBranch(input.sessionId, input.branch),
-    gitRebaseBranch: (input) => runtime.gitWorkspace.rebaseBranch(input.sessionId, input.branch),
-    gitCherryPick: (input) => runtime.gitWorkspace.cherryPick(input.sessionId, input.oid),
-    gitRevert: (input) => runtime.gitWorkspace.revert(input.sessionId, input.oid),
-    gitReset: (input) =>
-      runtime.gitWorkspace.resetTo(input.sessionId, input.oid, input.mode),
-    gitPush: (input) => runtime.gitWorkspace.push(input.sessionId),
-    gitPull: (input) => runtime.gitWorkspace.pull(input.sessionId, input.rebase === true),
-    gitPublish: (input) => runtime.gitWorkspace.publish(input.sessionId),
-    gitFetch: (input) => runtime.gitWorkspace.fetch(input.sessionId),
-    gitRemotes: (input) => runtime.gitWorkspace.remotes(input.sessionId),
-    gitFetchRemote: (input) =>
-      runtime.gitWorkspace.fetchRemote(input.sessionId, input.remote, input.prune),
-    gitAddRemote: (input) =>
-      runtime.gitWorkspace.addRemote(input.sessionId, input.name, input.url),
-    gitRemoveRemote: (input) =>
-      runtime.gitWorkspace.removeRemote(input.sessionId, input.name),
-    gitPushTags: (input) => runtime.gitWorkspace.pushTags(input.sessionId),
-    gitForcePush: (input) => runtime.gitWorkspace.forcePush(input.sessionId),
-    gitRemoteBranches: (input) => runtime.gitWorkspace.remoteBranches(input.sessionId),
-    gitSetUpstream: (input) =>
-      runtime.gitWorkspace.setUpstream(input.sessionId, input.upstream),
-    gitAmend: (input) =>
-      runtime.gitWorkspace.amend(input.sessionId, input.message, { sign: input.sign }),
-    gitHistory: (input) => runtime.gitWorkspace.history(input.sessionId, input.limit),
-    gitLog: (input) =>
-      runtime.gitWorkspace.log(input.sessionId, {
-        limit: input.limit,
-        skip: input.skip,
-        ...(input.ref === undefined ? {} : { ref: input.ref }),
-        ...(input.allRefs === undefined ? {} : { allRefs: input.allRefs }),
-        ...(input.path === undefined ? {} : { path: input.path })
-      }),
-    gitCommitDetail: (input) =>
-      runtime.gitWorkspace.commitDetail(input.sessionId, input.oid, input.parent),
-    gitRevisionFileDiff: (input) =>
-      runtime.gitWorkspace.revisionFileDiff(
-        input.sessionId,
-        input.from,
-        input.to,
-        input.path,
-        input.oldPath
-      ),
-    gitCompare: (input) => runtime.gitWorkspace.compare(input.sessionId),
+    gitInvoke: (input) => invokeGitCommand(runtime, input),
     tasksList: (input) => Promise.resolve(runtime.tasks.list(input as never)),
     tasksCreate: (input) => Promise.resolve(outcomeOrThrow(runtime.tasks.create(input as never))),
     tasksCancel: (input) => outcomeOrThrowAsync(runtime.tasks.cancel(input.taskId)),

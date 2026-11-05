@@ -31,6 +31,26 @@ export const absolutePathSchema = z
   .max(MAX_PATH_LENGTH)
   .refine(isAbsolutePathLike, 'must be an absolute path')
 
+/**
+ * A path relative to a worktree. The renderer only echoes paths it received
+ * from a validated listing; main re-validates every request: no absolute paths,
+ * no `..`, no NUL, no leading `-` (which Git would read as an option), and no
+ * drive/UNC prefixes.
+ */
+export const worktreeRelativePathSchema = z
+  .string()
+  .min(1)
+  .max(4096)
+  .refine((value) => !value.includes('\u0000'), 'must not contain NUL')
+  .refine((value) => !value.startsWith('-'), 'must not start with a dash')
+  .refine((value) => !value.startsWith('/'), 'must be relative to the worktree')
+  .refine((value) => !/^[A-Za-z]:[\\/]/.test(value), 'must not be a drive path')
+  .refine((value) => !value.startsWith('\\\\'), 'must not be a UNC path')
+  .refine(
+    (value) => !value.split(/[\\/]/u).some((segment) => segment === '..'),
+    'must not contain a parent segment'
+  )
+
 export const dimensionSchema = z.number().int().min(1).max(1000)
 export const timestampSchema = z.number().int().nonnegative()
 

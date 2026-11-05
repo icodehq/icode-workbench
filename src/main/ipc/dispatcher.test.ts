@@ -30,7 +30,6 @@ function services(overrides: Partial<DispatcherServices> = {}): DispatcherServic
     branchesRemove: vi.fn(async () => ({ status: 'removed' })),
     activityList: vi.fn(async () => []),
     activityClearUnread: vi.fn(async () => true),
-    reviewAreaDiff: vi.fn(async () => ({ status: 'available', patch: '' })),
     filesList: vi.fn(async () => ({ status: 'ok', path: '', entries: [], truncated: false })),
     filesRead: vi.fn(async () => ({ status: 'ok', path: 'a', text: '', size: 0, binary: false, tooLarge: false, missingTrailingNewline: false })),
     filesWrite: vi.fn(async () => ({ status: 'ok', size: 1 })),
@@ -38,147 +37,7 @@ function services(overrides: Partial<DispatcherServices> = {}): DispatcherServic
     filesCreate: vi.fn(async () => ({ status: 'ok', path: 'a' })),
     filesRename: vi.fn(async () => ({ status: 'ok', from: 'a', to: 'b' })),
     filesRemove: vi.fn(async () => ({ status: 'ok', path: 'a' })),
-    gitStatus: vi.fn(async () => ({ status: 'ok', snapshot: {} })),
-    gitCancelStatus: vi.fn(async () => ({ cancelled: false })),
-    gitOperationState: vi.fn(async () => ({ status: 'ok', operation: null, marker: null })),
-    gitOperationContinue: vi.fn(async () => ({ status: 'ok', operation: 'merge' })),
-    gitOperationAbort: vi.fn(async () => ({ status: 'ok', operation: 'merge' })),
-    gitRangeDiff: vi.fn(async () => ({
-      status: 'ok',
-      fromOid: 'a'.repeat(40),
-      toOid: 'b'.repeat(40),
-      files: [],
-      truncated: false
-    })),
-    gitWatchStatus: vi.fn(async () => ({ watching: true })),
-    gitStageAll: vi.fn(async () => ({ status: 'ok', staged: 0 })),
-    gitUnstageAll: vi.fn(async () => ({ status: 'ok', unstaged: 0 })),
-    gitCommit: vi.fn(async () => ({ status: 'ok', oid: 'abc1234', subject: 's', files: 1 })),
-    gitDiscardPath: vi.fn(async () => ({ status: 'ok', restored: true })),
-    gitSetPathStaged: vi.fn(async () => ({ status: 'ok', path: 'a', staged: true })),
-    gitSetPathsStaged: vi.fn(async () => ({
-      status: 'ok',
-      result: { outcomes: [], applied: [], skipped: [], failed: [] }
-    })),
-    gitDiscardPaths: vi.fn(async () => ({
-      status: 'ok',
-      result: { outcomes: [], applied: [], skipped: [], failed: [] }
-    })),
-    gitBranches: vi.fn(async () => ({ status: 'ok', current: 'main', names: ['main'] })),
-    gitSwitchBranch: vi.fn(async () => ({ status: 'ok', branch: 'main' })),
-    gitCreateBranch: vi.fn(async () => ({ status: 'ok', branch: 'next' })),
-    gitCreateTag: vi.fn(async () => ({ status: 'ok', name: 'v1', oid: 'abc1234' })),
-    gitDeleteTag: vi.fn(async () => ({ status: 'ok', name: 'v1' })),
-    gitTags: vi.fn(async () => ({ status: 'ok', tags: [] })),
-    gitCheckoutRef: vi.fn(async () => ({ status: 'ok', ref: 'v1', headOid: 'abc1234' })),
-    gitFileAtRevision: vi.fn(async () => ({
-      status: 'ok',
-      rev: 'HEAD',
-      oid: 'abc1234',
-      text: '',
-      binary: false,
-      tooLarge: false
-    })),
-    gitIndexFile: vi.fn(async () => ({
-      status: 'ok',
-      path: 'a',
-      text: '',
-      binary: false,
-      tooLarge: false
-    })),
-    gitApplyPatch: vi.fn(async () => ({ status: 'ok', path: 'a', mode: 'stage' })),
-    gitConflictFile: vi.fn(async () => ({
-      status: 'unavailable',
-      reason: 'not-found',
-      detail: 'none'
-    })),
-    gitResolveConflict: vi.fn(async () => ({ status: 'ok', path: 'a' })),
-    gitStashList: vi.fn(async () => ({ status: 'ok', stashes: [] })),
-    gitStashPush: vi.fn(async () => ({ status: 'ok', created: true })),
-    gitStashDiff: vi.fn(async () => ({ status: 'ok', ref: 'stash@{0}', patch: '', truncated: false })),
-    gitStashAction: vi.fn(async () => ({ status: 'ok', ref: 'stash@{0}', action: 'apply' })),
-    gitWorktreeList: vi.fn(async () => ({ status: 'ok', worktrees: [] })),
-    gitWorktreeAction: vi.fn(async () => ({ status: 'ok', action: 'prune', path: null })),
-    gitSubmoduleList: vi.fn(async () => ({ status: 'ok', submodules: [] })),
-    gitSubmoduleAction: vi.fn(async () => ({ status: 'ok', action: 'sync', path: null })),
-    gitBlame: vi.fn(async () => ({ status: 'ok', lines: [], truncated: false })),
-    gitRenameBranch: vi.fn(async () => ({ status: 'ok', branch: 'next', from: 'main' })),
-    gitDeleteBranch: vi.fn(async () => ({ status: 'ok', branch: 'next' })),
-    gitMergeBranch: vi.fn(async () => ({ status: 'ok', branch: 'next' })),
-    gitRebaseBranch: vi.fn(async () => ({ status: 'ok', branch: 'next' })),
-    gitCherryPick: vi.fn(async () => ({
-      status: 'ok',
-      oid: 'abc1234',
-      shortOid: 'abc1234',
-      subject: 'picked'
-    })),
-    gitRevert: vi.fn(async () => ({
-      status: 'ok',
-      oid: 'abc1234',
-      shortOid: 'abc1234',
-      subject: 'reverted'
-    })),
-    gitReset: vi.fn(async () => ({ status: 'ok', oid: 'abc1234', branch: 'main' })),
-    gitPush: vi.fn(async () => ({ status: 'ok', branch: 'main', upstream: 'origin/main' })),
-    gitPull: vi.fn(async () => ({ status: 'ok', branch: 'main', upstream: 'origin/main' })),
-    gitPublish: vi.fn(async () => ({ status: 'ok', branch: 'main', upstream: 'origin/main' })),
-    gitFetch: vi.fn(async () => ({ status: 'ok', remote: 'origin' })),
-    gitRemotes: vi.fn(async () => ({ status: 'ok', remotes: [] })),
-    gitFetchRemote: vi.fn(async () => ({ status: 'ok', remote: 'origin' })),
-    gitAddRemote: vi.fn(async () => ({ status: 'ok', name: 'origin' })),
-    gitRemoveRemote: vi.fn(async () => ({ status: 'ok', name: 'origin' })),
-    gitPushTags: vi.fn(async () => ({ status: 'ok', remote: 'origin' })),
-    gitForcePush: vi.fn(async () => ({ status: 'ok', branch: 'main', upstream: 'origin/main' })),
-    gitRemoteBranches: vi.fn(async () => ({ status: 'ok', branches: ['origin/main'] })),
-    gitSetUpstream: vi.fn(async () => ({
-      status: 'ok',
-      branch: 'main',
-      upstream: 'origin/main'
-    })),
-    gitAmend: vi.fn(async () => ({ status: 'ok', oid: 'abc1234', subject: 's', files: 0 })),
-    gitHistory: vi.fn(async () => ({ status: 'ok', branch: 'main', commits: [] })),
-    gitLog: vi.fn(async () => ({
-      status: 'ok',
-      branch: 'main',
-      headOid: 'abc1234',
-      commits: [],
-      hasMore: false,
-      nextSkip: 0
-    })),
-    gitCommitDetail: vi.fn(async () => ({
-      status: 'ok',
-      oid: 'abc1234',
-      shortOid: 'abc1234',
-      parents: [],
-      subject: 'init',
-      body: '',
-      author: 'A',
-      authorEmail: 'a@test',
-      authoredAt: 1,
-      parentOid: null,
-      files: [],
-      additions: 0,
-      deletions: 0,
-      truncated: false
-    })),
-    gitRevisionFileDiff: vi.fn(async () => ({
-      status: 'ok',
-      patch: '',
-      truncated: false,
-      binary: false,
-      additions: 0,
-      deletions: 0,
-      fromOid: 'abc1234',
-      toOid: 'def5678'
-    })),
-    gitCompare: vi.fn(async () => ({
-      status: 'ok',
-      baseOid: 'abc1234',
-      ahead: 0,
-      behind: 0,
-      files: [],
-      truncated: false
-    })),
+    gitInvoke: vi.fn(async () => ({ status: 'ok' })),
     tasksList: vi.fn(async () => []),
     tasksCreate: vi.fn(async () => ({ id: 'task_1', status: 'queued' })),
     tasksCancel: vi.fn(async () => ({ id: 'task_1', status: 'cancelled' })),
@@ -374,33 +233,13 @@ describe('dispatcher results', () => {
     expect(activityClearUnread).toHaveBeenCalledTimes(1)
   })
 
-  it('validates working-tree diff requests and never forwards an arbitrary path', async () => {
+  it('forwards a Git command envelope to the registry', async () => {
     const service = services()
     const dispatch = createDispatcher(service)
-    const sessionId = newSessionId()
-    const input = {
-      sessionId,
-      path: 'src/app.ts',
-      scope: 'unstaged' as const,
-      status: 'modified' as const,
-      binary: false,
-      symlink: false,
-      additions: 1,
-      deletions: 0
-    }
+    const envelope = { op: 'changeDiff', input: { sessionId: newSessionId() } }
 
-    expect(await dispatch(IPC_CHANNELS.reviewAreaDiff, input)).toMatchObject({ ok: true })
-    expect(service.reviewAreaDiff).toHaveBeenCalledWith(input)
-
-    for (const bad of ['../escape.ts', '/etc/passwd', '-p', 'src/../../x']) {
-      const result = await dispatch(IPC_CHANNELS.reviewAreaDiff, { ...input, path: bad })
-      expect(result.ok).toBe(false)
-      if (!result.ok) expect(result.error.code).toBe('INVALID_ARGUMENT')
-    }
-    expect(
-      (await dispatch(IPC_CHANNELS.reviewAreaDiff, { ...input, cwd: '/tmp' })).ok
-    ).toBe(false)
-    expect(service.reviewAreaDiff).toHaveBeenCalledTimes(1)
+    expect(await dispatch(IPC_CHANNELS.gitInvoke, envelope)).toMatchObject({ ok: true })
+    expect(service.gitInvoke).toHaveBeenCalledWith(envelope)
   })
 
   it('wraps success values', async () => {
@@ -540,36 +379,15 @@ describe('execution-target aware IPC', () => {
     })
   })
 
-  it('validates and routes the batch stage and discard channels', async () => {
-    const emptyResult = { outcomes: [], applied: [], skipped: [], failed: [] }
-    const setPathsStaged = vi.fn(async () => ({ status: 'ok', result: emptyResult }))
-    const discardPaths = vi.fn(async () => ({ status: 'ok', result: emptyResult }))
-    const dispatch = createDispatcher(
-      services({ gitSetPathsStaged: setPathsStaged, gitDiscardPaths: discardPaths })
-    )
-    const targets = [{ path: 'src/a.ts', area: 'unstaged' as const }]
+  it('passes Git envelopes through and lets the registry validate them', async () => {
+    const service = services()
+    const dispatch = createDispatcher(service)
+    const envelope = {
+      op: 'setPathsStaged',
+      input: { sessionId, targets: [{ path: 'src/a.ts', area: 'unstaged' }], staged: true }
+    }
 
-    expect(
-      await dispatch(IPC_CHANNELS.gitSetPathsStaged, { sessionId, targets, staged: true })
-    ).toMatchObject({ ok: true })
-    expect(setPathsStaged).toHaveBeenCalledWith({ sessionId, targets, staged: true })
-
-    expect(
-      await dispatch(IPC_CHANNELS.gitDiscardPaths, {
-        sessionId,
-        targets,
-        expectedRevision: '0123456789abcdef'
-      })
-    ).toMatchObject({ ok: true })
-    expect(discardPaths).toHaveBeenCalledWith({
-      sessionId,
-      targets,
-      expectedRevision: '0123456789abcdef'
-    })
-
-    expect(
-      await dispatch(IPC_CHANNELS.gitSetPathsStaged, { sessionId, targets: [], staged: true })
-    ).toMatchObject({ ok: false, error: { code: 'INVALID_ARGUMENT' } })
-    expect(setPathsStaged).toHaveBeenCalledTimes(1)
+    expect(await dispatch(IPC_CHANNELS.gitInvoke, envelope)).toMatchObject({ ok: true })
+    expect(service.gitInvoke).toHaveBeenCalledWith(envelope)
   })
 })

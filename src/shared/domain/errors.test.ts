@@ -37,7 +37,7 @@ describe('app error codes', () => {
       'BRANCH_NOT_OWNED',
       'UNBORN_REPOSITORY',
       'GIT_OPERATION_IN_PROGRESS',
-      'REVIEW_PATH_OUTSIDE',
+      'CHANGE_PATH_OUTSIDE',
       'GIT_READ_FAILED',
       'GIT_READ_TIMEOUT',
       'GIT_IDENTITY_MISSING',

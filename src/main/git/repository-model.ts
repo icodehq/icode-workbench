@@ -29,20 +29,6 @@ export function parseOperationMarker(marker: string | null | undefined): GitOper
   return OPERATION_MARKERS[marker] ?? null
 }
 
-export type GitRefKind = 'local' | 'remote' | 'tag'
-
-export type GitRef = {
-  kind: GitRefKind
-  /** Short display name, e.g. `main`, `origin/main`, `v1.0`. */
-  name: string
-  /** Full refname, e.g. `refs/heads/main`. */
-  fullName: string
-  oid: string
-  upstream: string | null
-  /** True for the checked-out local branch. */
-  current: boolean
-}
-
 /**
  * Parses `git remote -v`.
  *
@@ -64,45 +50,6 @@ export function parseRemotes(output: string): GitRemote[] {
     remotes.set(name, current)
   }
   return [...remotes.values()]
-}
-
-/**
- * Parses `git for-each-ref --format=%(refname)%09%(objectname)%09%(upstream:short)%09%(HEAD)`.
- *
- * Refnames cannot contain a tab or newline, so tab-separated fields are safe.
- * `refs/remotes/<remote>/HEAD` is a symbolic alias, not a branch, and is omitted.
- */
-export function parseRefs(output: string): GitRef[] {
-  const refs: GitRef[] = []
-  for (const line of output.split('\n')) {
-    if (line.trim().length === 0) continue
-    const [fullName = '', oid = '', upstream = '', head = ''] = line.split('\t')
-    if (fullName.length === 0 || oid.length === 0) continue
-    let kind: GitRefKind
-    let name: string
-    if (fullName.startsWith('refs/heads/')) {
-      kind = 'local'
-      name = fullName.slice('refs/heads/'.length)
-    } else if (fullName.startsWith('refs/remotes/')) {
-      kind = 'remote'
-      name = fullName.slice('refs/remotes/'.length)
-      if (name.endsWith('/HEAD')) continue
-    } else if (fullName.startsWith('refs/tags/')) {
-      kind = 'tag'
-      name = fullName.slice('refs/tags/'.length)
-    } else {
-      continue
-    }
-    refs.push({
-      kind,
-      name,
-      fullName,
-      oid,
-      upstream: upstream.length > 0 ? upstream : null,
-      current: kind === 'local' && head.trim() === '*'
-    })
-  }
-  return refs
 }
 
 export type GitSubmoduleEntry = {
@@ -200,13 +147,4 @@ export function parseWorktreeList(output: string): GitWorktreeEntry[] {
   }
   commit()
   return entries
-}
-
-/** Branch -> worktree path, for disabling a branch checked out elsewhere. */
-export function worktreeOccupancy(entries: readonly GitWorktreeEntry[]): Map<string, string> {
-  const occupancy = new Map<string, string>()
-  for (const entry of entries) {
-    if (entry.branch !== null) occupancy.set(entry.branch, entry.path)
-  }
-  return occupancy
 }

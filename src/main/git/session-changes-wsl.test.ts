@@ -1,14 +1,18 @@
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, realpathSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, win32 } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { makeRepositoryService, makeTempRoot, openTempDatabase } from '../persistence/persistence-test-fixtures'
 import { WorktreeStore } from '../persistence/worktree-store'
 import { GitWorktreeService } from '../worktrees/git-worktree-service'
 import { SessionService } from '../sessions/session-service'
 import { FakeHostGateway } from '../sessions/fake-host-gateway'
-import { GitReviewReader, type runGitRead } from './git-review-reader'
-import { ReviewService } from './review-service'
+import type { GitReadResult } from './bounded-read'
+import { GitWorkspaceService } from './git-workspace-service'
+import { readChangeList, type ReadContext } from './change-reader'
+import { assertContained, guestContainment, localContainment } from './path-safety'
+import type { ChangeDiffInput } from '../../shared/schemas/changes'
+import type { ChangeDiffOutcome, ChangeListOutcome } from '../../shared/domain/changes'
 import { newSessionId, toPtyIncarnationId } from '../../shared/domain/ids'
 import type { GitExecutorRouter } from '../git/executor'
 import type { ExecutionTarget } from '../../shared/domain/repository'
@@ -45,7 +49,10 @@ type Fixture = {
   repositories: RepositoryStore
   sessionStore: SessionStore
   worktrees: WorktreeStore
-  review: ReviewService
+  changes: {
+    list: (sessionId: string) => Promise<ChangeListOutcome>
+    diffArea: (input: ChangeDiffInput) => Promise<ChangeDiffOutcome>
+  }
   /** Real path standing in for the guest filesystem. */
   guestHome: string
   seedSession: (options?: { dirtyGit?: boolean }) => {
@@ -146,7 +153,16 @@ async function setup(options: { resolveTargetFails?: boolean } = {}): Promise<Fi
         throw new Error('wsl.exe: the distro did not answer')
       }
       return {
-        executor: { exec: guestGit },
+        executor: { exec: guestGit, read: guestRead },
+        read: guestRead,
+        symlinkProbe: async (worktreePath: string, relativePath: string) => {
+          try {
+            execFileSync('test', ['-L', join(toReal(worktreePath), relativePath)], { stdio: 'pipe' })
+            return true
+          } catch {
+            return false
+          }
+        },
         worktreeRoot: `${GUEST_HOST_ROOT}/.icode/worktrees`,
         fs: {
           // The guest filesystem: a guest path *is* present here, even though the
@@ -219,7 +235,7 @@ async function setup(options: { resolveTargetFails?: boolean } = {}): Promise<Fi
 
   // The guest read function, in the same shape the composition root supplies
   // (`createGuestReviewReader`), so this test exercises the real selection path.
-  const guestRead: typeof runGitRead = async (request) => {
+  const guestRead = async (request: { cwd: string; args: string[]; byteBudget?: number }): Promise<GitReadResult> => {
     const result = await guestGit(request)
     return {
       stdout: result.stdout.toString('utf8'),
@@ -231,16 +247,11 @@ async function setup(options: { resolveTargetFails?: boolean } = {}): Promise<Fi
     }
   }
 
-  const review = new ReviewService({
+  const gitWorkspace = new GitWorkspaceService({
     sessions,
     repositories: wslRepositories,
     worktrees,
-    gitWorktrees,
-    reader: new GitReviewReader({
-      // Returning the local reader here would prove nothing: a WSL target must
-      // reach the guest read, and `null` would make the reader refuse loudly.
-      readForTarget: (target) => (target.kind === 'wsl' ? guestRead : null)
-    })
+    gitWorktrees
   })
 
   cleanups.push(() => {
@@ -256,7 +267,10 @@ async function setup(options: { resolveTargetFails?: boolean } = {}): Promise<Fi
     repositories: stores.repositories,
     sessionStore: stores.sessions,
     worktrees,
-    review,
+    changes: {
+      list: (sessionId) => gitWorkspace.sessionChanges(sessionId),
+      diffArea: (input) => gitWorkspace.changeDiff(input)
+    },
     guestHome,
     seedSession: () => {
       const sessionId = newSessionId()
@@ -314,7 +328,7 @@ describe('WSL change listing and working-tree diffs', () => {
     // The premise: the controller genuinely cannot see this path.
     expect(() => execFileSync('test', ['-d', session.guestPath], { stdio: 'pipe' })).toThrow()
 
-    const result = await f.review.list(session.sessionId)
+    const result = await f.changes.list(session.sessionId)
     expect(result.status).toBe('available')
     // The old code answered worktree-missing here; the detail is only produced
     // when the *distro* says the directory is gone.
@@ -326,7 +340,7 @@ describe('WSL change listing and working-tree diffs', () => {
     const session = f.seedSession()
     writeFileSync(join(session.realPath, 'a.txt'), 'one\nTWO\n')
 
-    const result = await f.review.list(session.sessionId)
+    const result = await f.changes.list(session.sessionId)
     if (result.status !== 'available') throw new Error(`expected available, got ${JSON.stringify(result)}`)
     expect(result.baselineOid).toBe(session.baseOid)
     const file = result.files.find((entry) => entry.path === 'a.txt')
@@ -339,7 +353,7 @@ describe('WSL change listing and working-tree diffs', () => {
     const session = f.seedSession()
     writeFileSync(join(session.realPath, 'fresh.txt'), 'hello\n')
 
-    const result = await f.review.list(session.sessionId)
+    const result = await f.changes.list(session.sessionId)
     if (result.status !== 'available') throw new Error('expected available')
     const untracked = result.files.find((entry) => entry.path === 'fresh.txt')
     expect(untracked).toMatchObject({ area: 'untracked', origin: 'untracked', status: 'added' })
@@ -351,7 +365,7 @@ describe('WSL change listing and working-tree diffs', () => {
     writeFileSync(join(session.realPath, 'a.txt'), 'one\nTWO\n')
     writeFileSync(join(session.realPath, 'fresh.txt'), 'hello\n')
 
-    const modified = await f.review.diffArea({
+    const modified = await f.changes.diffArea({
       sessionId: session.sessionId,
       path: 'a.txt',
       oldPath: null,
@@ -366,7 +380,7 @@ describe('WSL change listing and working-tree diffs', () => {
     expect(modified.patch).toContain('+TWO')
     expect(modified.fileStatus).toBe('modified')
 
-    const added = await f.review.diffArea({
+    const added = await f.changes.diffArea({
       sessionId: session.sessionId,
       path: 'fresh.txt',
       oldPath: null,
@@ -388,7 +402,7 @@ describe('WSL change listing and working-tree diffs', () => {
       stdio: 'pipe'
     })
 
-    const result = await f.review.list(session.sessionId)
+    const result = await f.changes.list(session.sessionId)
     expect(result).toMatchObject({ status: 'unavailable', reason: 'worktree-missing' })
     if (result.status === 'unavailable') expect(result.detail).toContain('inside its distro')
   })
@@ -397,7 +411,7 @@ describe('WSL change listing and working-tree diffs', () => {
     const f = await setup({ resolveTargetFails: true })
     const session = f.seedSession()
 
-    const result = await f.review.list(session.sessionId)
+    const result = await f.changes.list(session.sessionId)
     expect(result).toMatchObject({ status: 'unavailable', reason: 'worktree-inconsistent' })
     if (result.status === 'unavailable') {
       expect(result.detail).toContain('could not be inspected inside its distro')
@@ -407,10 +421,7 @@ describe('WSL change listing and working-tree diffs', () => {
 })
 
 describe('guest path containment', () => {
-  it('accepts a guest path that the controller dialect would reject', async () => {
-    const { assertContained, guestContainment } = await import('./git-review-reader')
-    const { win32 } = await import('node:path')
-
+  it('accepts a guest path that the controller dialect would reject', () => {
     // The Windows dialect is what a Windows controller uses by default. On a
     // guest path it resolves `/tmp/x` onto the current drive and rejects the
     // file, which is exactly the bug this dialect exists to prevent.
@@ -426,8 +437,7 @@ describe('guest path containment', () => {
     expect(() => assertContained('/tmp/wt/ses', 'sub/dir/b.txt', guestContainment)).not.toThrow()
   })
 
-  it('still refuses traversal and absolute paths', async () => {
-    const { assertContained, guestContainment } = await import('./git-review-reader')
+  it('still refuses traversal and absolute paths', () => {
     expect(() => assertContained('/tmp/wt/ses', '../etc/passwd', guestContainment)).toThrow()
     expect(() => assertContained('/tmp/wt/ses', '/etc/passwd', guestContainment)).toThrow()
     expect(() => assertContained('/tmp/wt/ses', 'a/../../b', guestContainment)).toThrow()
@@ -443,90 +453,87 @@ describe('guest path containment', () => {
  * The probe now travels with the checkout, and "cannot tell" stays `null`.
  */
 describe('untracked symlink detection', () => {
-  it('asks the checkout\'s own host and reports what it says', async () => {
-    const { GitReviewReader } = await import('./git-review-reader')
+  function emptyRead(): Promise<{
+    stdout: string
+    stderrTail: string
+    exitCode: number
+    signal: null
+    truncated: boolean
+    truncatedReason: null
+  }> {
+    return Promise.resolve({
+      stdout: '',
+      stderrTail: '',
+      exitCode: 0,
+      signal: null,
+      truncated: false,
+      truncatedReason: null
+    })
+  }
+
+  it("asks the checkout's own host and reports what it says", async () => {
     const asked: string[] = []
-    const reader = new GitReviewReader({
+    const context: ReadContext = {
       read: async (options) => {
         const args = options.args.join(' ')
-        if (args.startsWith('diff --raw')) {
-          return { stdout: '', stderrTail: '', exitCode: 0, signal: null, truncated: false, truncatedReason: null }
+        if (args.startsWith('ls-files')) {
+          return {
+            stdout: 'link-to-elsewhere\u0000plain.txt\u0000',
+            stderrTail: '',
+            exitCode: 0,
+            signal: null,
+            truncated: false,
+            truncatedReason: null
+          }
         }
-        if (args.startsWith('diff --numstat')) {
-          return { stdout: '', stderrTail: '', exitCode: 0, signal: null, truncated: false, truncatedReason: null }
-        }
-        if (args.startsWith('status')) {
-          return { stdout: '', stderrTail: '', exitCode: 0, signal: null, truncated: false, truncatedReason: null }
-        }
-        return {
-          stdout: 'link-to-elsewhere\u0000plain.txt\u0000',
-          stderrTail: '',
-          exitCode: 0,
-          signal: null,
-          truncated: false,
-          truncatedReason: null
-        }
+        return emptyRead()
       },
+      containment: localContainment,
       // The probe is the distro's answer: one path is a link, the other is not.
       symlinkProbe: async (_worktreePath, relativePath) => {
         asked.push(relativePath)
         return relativePath === 'link-to-elsewhere' ? true : false
       }
-    })
+    }
 
-    const list = await reader.list({ worktreePath: '/home/u/wt', baseOid: 'a'.repeat(40), sessionId: 'ses_x' })
+    const list = await readChangeList(context, {
+      worktreePath: '/home/u/wt',
+      baseOid: 'a'.repeat(40),
+      sessionId: 'ses_x'
+    })
     expect(asked).toEqual(['link-to-elsewhere', 'plain.txt'])
     expect(list.files.find((file) => file.path === 'link-to-elsewhere')?.symlink).toBe(true)
     expect(list.files.find((file) => file.path === 'plain.txt')?.symlink).toBe(false)
   })
 
   it('reports unknown, never false, when the target cannot answer', async () => {
-    const { GitReviewReader } = await import('./git-review-reader')
-    const reader = new GitReviewReader({
+    const context: ReadContext = {
       read: async (options) => {
         const args = options.args.join(' ')
-        if (args.startsWith('diff') || args.startsWith('status')) {
-          return { stdout: '', stderrTail: '', exitCode: 0, signal: null, truncated: false, truncatedReason: null }
+        if (args.startsWith('ls-files')) {
+          return {
+            stdout: 'maybe-link\u0000',
+            stderrTail: '',
+            exitCode: 0,
+            signal: null,
+            truncated: false,
+            truncatedReason: null
+          }
         }
-        return {
-          stdout: 'maybe-link\u0000',
-          stderrTail: '',
-          exitCode: 0,
-          signal: null,
-          truncated: false,
-          truncatedReason: null
-        }
+        return emptyRead()
       },
+      containment: localContainment,
       // An unreachable distro: the question was never answered.
       symlinkProbe: async () => null
-    })
+    }
 
-    const list = await reader.list({ worktreePath: '/home/u/wt', baseOid: 'a'.repeat(40), sessionId: 'ses_x' })
+    const list = await readChangeList(context, {
+      worktreePath: '/home/u/wt',
+      baseOid: 'a'.repeat(40),
+      sessionId: 'ses_x'
+    })
     const entry = list.files.find((file) => file.path === 'maybe-link')
     expect(entry?.symlink).toBeNull()
     expect(entry?.symlink).not.toBe(false)
-  })
-
-  it('does not fall back to the controller filesystem for a guest checkout', async () => {
-    const { GitReviewReader } = await import('./git-review-reader')
-    let probed = false
-    const reader = new GitReviewReader({
-      read: async () => ({
-        stdout: '',
-        stderrTail: '',
-        exitCode: 0,
-        signal: null,
-        truncated: false,
-        truncatedReason: null
-      })
-    })
-    // A guest target with no probe wired must answer unknown, not stat locally.
-    const guest = reader.forTarget({
-      kind: 'wsl',
-      distro: 'Ubuntu-26.04',
-      distroId: 'a5489bf0-2b9e-49bf-940e-0c19a6caef73'
-    })
-    expect(guest).not.toBe(reader)
-    void probed
   })
 })

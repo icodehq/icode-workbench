@@ -50,7 +50,6 @@ describe('preload API surface', () => {
         'onTaskEvent',
         'onViewCommand',
         'repos',
-        'review',
         'schedules',
         'sessions',
         'tasks',
@@ -130,6 +129,36 @@ describe('preload API surface', () => {
       sessionId,
       incarnationId,
       data: 'ls\r'
+    })
+  })
+
+  it('routes working-tree change operations to the Git channels', async () => {
+    const { api, invoke } = setup()
+    const diffInput = {
+      sessionId,
+      path: 'src/app.ts',
+      oldPath: null,
+      scope: 'unstaged' as const,
+      status: 'modified' as const,
+      binary: false,
+      symlink: false,
+      additions: 1,
+      deletions: 0
+    }
+    await api.git.changeDiff(diffInput)
+    await api.git.sessionChanges({ sessionId })
+
+    expect(invoke.mock.calls.map((call) => call[0])).toEqual([
+      IPC_CHANNELS.gitInvoke,
+      IPC_CHANNELS.gitInvoke
+    ])
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.gitInvoke, {
+      op: 'changeDiff',
+      input: diffInput
+    })
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.gitInvoke, {
+      op: 'sessionChanges',
+      input: { sessionId }
     })
   })
 })

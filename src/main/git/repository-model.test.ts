@@ -1,11 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   parseOperationMarker,
-  parseRefs,
   parseRemotes,
   parseSubmoduleStatus,
   parseWorktreeList,
-  worktreeOccupancy
 } from './repository-model'
 
 describe('parseOperationMarker', () => {
@@ -43,31 +41,6 @@ describe('parseRemotes', () => {
 
   it('ignores blank and malformed lines', () => {
     expect(parseRemotes('\nnot a remote line\n')).toEqual([])
-  })
-})
-
-describe('parseRefs', () => {
-  it('distinguishes local branches, remotes and tags and marks the current branch', () => {
-    const output = [
-      'refs/heads/feature\t' + '1'.repeat(40) + '\torigin/feature\t',
-      'refs/heads/main\t' + '2'.repeat(40) + '\torigin/main\t*',
-      'refs/remotes/origin/HEAD\t' + '2'.repeat(40) + '\t\t',
-      'refs/remotes/origin/main\t' + '2'.repeat(40) + '\t\t',
-      'refs/tags/v1.0\t' + '3'.repeat(40) + '\t\t'
-    ].join('\n')
-    const refs = parseRefs(output)
-    expect(refs.map((ref) => [ref.kind, ref.name, ref.current])).toEqual([
-      ['local', 'feature', false],
-      ['local', 'main', true],
-      ['remote', 'origin/main', false],
-      ['tag', 'v1.0', false]
-    ])
-    expect(refs[0]?.upstream).toBe('origin/feature')
-    expect(refs[2]?.upstream).toBeNull()
-  })
-
-  it('ignores malformed lines and unrelated refs', () => {
-    expect(parseRefs('refs/pull/1/head\t' + 'a'.repeat(40) + '\t\t\n\n')).toEqual([])
   })
 })
 
@@ -115,17 +88,7 @@ describe('parseWorktreeList', () => {
     ])
   })
 
-  it('maps branch occupancy for the branch menu', () => {
-    const entries = parseWorktreeList(
-      'worktree /a\nbranch refs/heads/main\n\nworktree /b\nbranch refs/heads/feature\n'
-    )
-    expect(worktreeOccupancy(entries)).toEqual(
-      new Map([
-        ['main', '/a'],
-        ['feature', '/b']
-      ])
-    )
-  })
+
 })
 
 describe('parseSubmoduleStatus', () => {

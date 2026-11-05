@@ -19,7 +19,6 @@ import { ProjectFolderService } from '../repositories/project-folder-service'
 import { RepositoryPreparationService } from '../repositories/repository-preparation-service'
 import { prepareFirstCommit } from '../repositories/first-commit'
 import { SessionRemovalService } from '../sessions/session-removal-service'
-import { ReviewService } from '../review/review-service'
 import { WorkspaceFilesService } from '../files/workspace-files-service'
 import { GitWorkspaceService } from '../git/git-workspace-service'
 import { GitStatusWatcherService } from '../git/status-watcher'
@@ -37,8 +36,6 @@ import { GitWorktreeService } from '../worktrees/git-worktree-service'
 import { createGitExecutorRouter } from '../git/executor'
 import { WslCommandRunner, resolveWslExecutablePath, resolveWslInteropCwd } from '../wsl/exec'
 import { profileSocketScope } from '../../host/paths'
-import { GitReviewReader } from '../review/git-review-reader'
-import { createGuestReviewReader, createGuestSymlinkProbe } from '../wsl/git/guest-review-reader'
 import { WslHostLifecycle, readGuestHome } from '../wsl/host/lifecycle'
 import { createWslHolder, createHolderRecordStore } from '../wsl/host/holder'
 import { createWindowsProcessQuery } from '../wsl/host/windows-process'
@@ -64,7 +61,6 @@ export type AppRuntime = {
   activityServer: ActivityHookServer
   removals: RepositoryRemovalService
   sessionRemovals: SessionRemovalService
-  review: ReviewService
   /** Worktree-scoped file browsing, editing and search for the tools panel. */
   files: WorkspaceFilesService
   /** Worktree-scoped Git state and stage/commit operations. */
@@ -505,51 +501,9 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     summarise: (sessionId) => sessions.get(sessionId)
   })
 
-  /**
-   * Guest review readers, one per distro.
-   *
-   * `createGuestReviewReader` is the W6 implementation; this only supplies it to
-   * the reader. A WSL target therefore always reads through the distro's Git, and
-   * if a distro cannot be reached the read fails instead of falling back to local.
-   */
-  const guestReviewReaders = new Map<string, ReturnType<typeof createGuestReviewReader>>()
-  const guestSymlinkProbes = new Map<string, ReturnType<typeof createGuestSymlinkProbe>>()
-  const reviewReader = new GitReviewReader({
-    readForTarget: (target) => {
-      if (target.kind !== 'wsl') return null
-      const key = `${target.distro.trim().toLowerCase()}\u0000${target.distroId ?? ''}`
-      let reader = guestReviewReaders.get(key)
-      if (!reader) {
-        reader = createGuestReviewReader(wslRunner, target.distro)
-        guestReviewReaders.set(key, reader)
-      }
-      return reader
-    },
-    // The same distro key, so one probe per distro answers symlink questions
-    // about that distro's filesystem rather than this machine's.
-    symlinkProbeForTarget: (target) => {
-      if (target.kind !== 'wsl') return null
-      const key = `${target.distro.trim().toLowerCase()}\u0000${target.distroId ?? ''}`
-      let probe = guestSymlinkProbes.get(key)
-      if (!probe) {
-        probe = createGuestSymlinkProbe(wslRunner, target.distro)
-        guestSymlinkProbes.set(key, probe)
-      }
-      return probe
-    }
-  })
-
   // The repository list asks a distro about its own checkout; without this the
   // only available answer would be a local stat, which is the wrong machine.
   persistence.repositoryService.useHostFs((target) => gitWorktrees.hostFsFor(target))
-
-  const review = new ReviewService({
-    sessions,
-    repositories: persistence.repositories,
-    worktrees,
-    gitWorktrees,
-    reader: reviewReader
-  })
 
   const files = new WorkspaceFilesService({
     sessions,
@@ -562,7 +516,8 @@ export async function startAppRuntime(): Promise<AppRuntime> {
   const gitWorkspace = new GitWorkspaceService({
     repositories: persistence.repositories,
     worktrees,
-    gitWorktrees
+    gitWorktrees,
+    sessions
   })
   const translateGuestWatchPath = async (distro: string, guestPath: string): Promise<string | null> => {
     const result = await wslRunner.run({
@@ -685,7 +640,7 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     // The existing session-scoped listing, reached through the task's own
     // session. No second diff implementation exists.
     listChanges: async (sessionId) => {
-      const result = await review.list(sessionId)
+      const result = await gitWorkspace.sessionChanges(sessionId)
       return result.status === 'available'
         ? {
             status: 'available',
@@ -782,7 +737,6 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     activityServer,
     removals,
     sessionRemovals,
-    review,
     files,
     gitWorkspace,
     gitStatusWatcher,

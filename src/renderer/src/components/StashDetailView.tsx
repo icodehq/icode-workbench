@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Loader2, X } from 'lucide-react'
 import type { GitStashDiffPayload, GitStashEntry } from '../../../shared/icode-api'
-import type { ReviewDiffPayload } from '../../../shared/schemas/review'
+import type { FileDiffPayload } from '../../../shared/schemas/changes'
 import { callApi } from '../lib/api'
 import { splitStashPatch, type StashPatchFile } from '../review/stash-patch'
 import UnifiedDiffView from './UnifiedDiffView'
@@ -67,7 +67,7 @@ export default function StashDetailView({
   }, [sessionId, stash.index])
 
   const file = files[Math.min(selected, files.length - 1)] ?? null
-  const payload: ReviewDiffPayload | null =
+  const payload: FileDiffPayload | null =
     file === null
       ? null
       : {

@@ -7,7 +7,7 @@ import type {
   GitBlameLine,
   GitBlamePayload
 } from '../../../shared/icode-api'
-import type { ReviewDiffResult } from '../../../shared/schemas/review'
+import type { FileDiffResult } from '../../../shared/schemas/changes'
 import { callApi } from '../lib/api'
 import { shortcutLabel } from '../lib/platform'
 import type { MonacoApi } from '../editor/monaco'
@@ -262,8 +262,8 @@ export default function CodeEditor({
     let cancelled = false
     setPeekState({ phase: 'checking' })
     const request = (scope: 'staged' | 'unstaged') =>
-      callApi<ReviewDiffResult>(
-        window.icode.review.areaDiff({
+      callApi<FileDiffResult>(
+        window.icode.git.changeDiff({
           sessionId,
           path,
           scope,

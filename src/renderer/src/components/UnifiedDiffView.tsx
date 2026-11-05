@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import type { AppError } from '../../../shared/domain/errors'
-import type { ReviewDiffPayload } from '../../../shared/schemas/review'
+import type { FileDiffPayload } from '../../../shared/schemas/changes'
 import type { LineComment } from '../review/drafts'
 import { lineSelectionKey } from '../review/hunk-patch'
 import { collapseContext, parseUnifiedDiff, type DiffHunk } from '../review/parse-unified-diff'
@@ -9,7 +9,7 @@ import { collapseContext, parseUnifiedDiff, type DiffHunk } from '../review/pars
 export type DiffViewState =
   | { phase: 'idle' }
   | { phase: 'loading' }
-  | { phase: 'ready'; diff: ReviewDiffPayload; stale?: boolean }
+  | { phase: 'ready'; diff: FileDiffPayload; stale?: boolean }
   | { phase: 'error'; error: AppError }
 
 export type LineAction = {
@@ -512,7 +512,7 @@ export function DiffHeader({
   headerActions,
   notice
 }: {
-  diff: ReviewDiffPayload
+  diff: FileDiffPayload
   stale: boolean
   scopeLabel?: string
   headerActions?: React.ReactNode
@@ -576,7 +576,7 @@ export function DiffBody({
   hunkAction
 }: {
   path: string
-  diff: ReviewDiffPayload
+  diff: FileDiffPayload
   stale: boolean
   scopeLabel?: string
   comments: LineComment[]

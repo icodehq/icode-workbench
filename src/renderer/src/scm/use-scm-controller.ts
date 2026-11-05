@@ -9,23 +9,16 @@ import type {
   GitFetchPayload,
   GitOpPayload,
   GitOperationActionPayload,
-  GitOperationStatePayload,
-  GitResolveConflictPayload,
-  GitStatusPayload
+  GitResolveConflictPayload
 } from '../../../shared/icode-api'
-import type {
-  GitOperationKind,
-  GitWorkspaceStatus,
-  GitWatchUnavailableReason
-} from '../../../shared/domain/git-workspace'
+import type { GitOperationKind, GitWorkspaceStatus } from '../../../shared/domain/git-workspace'
 import type { Notice } from '../state/workspace'
 import { uncommittedFileCount, workingTreeGroups, type WorkingTreeEntry } from '../review/working-tree'
-import { workspaceUnavailableText } from '../review/workspace-unavailable'
 import { useWorkbenchDraft, type WorkbenchDraftStore } from '../review/drafts'
-import { autoFetchDelayMs } from './auto-fetch'
+import { useScmStatus } from './use-scm-status'
 import { isBranchProtected } from './branch-protection'
 import { scmPrimaryAction, type ScmPrimaryAction } from './scm-primary-action'
-import { loadScmSettings, subscribeScmSettings, type ScmSettings } from './scm-settings'
+import type { ScmSettings } from './scm-settings'
 import { clearScmStatusSummary, setScmStatusSummary } from './scm-status-store'
 
 type ScmControllerOptions = {
@@ -123,16 +116,26 @@ export function useScmController({
 }: ScmControllerOptions): ScmController {
   const draft = useWorkbenchDraft(drafts, sessionId)
   const message = draft.commitMessage
-  const [snapshot, setSnapshot] = useState<GitWorkspaceStatus | null>(null)
-  const [operation, setOperation] = useState<GitOperationKind | null>(null)
-  const [settings, setSettings] = useState<ScmSettings>(() => loadScmSettings())
-  const [watchMode, setWatchMode] = useState<'probing' | 'watch' | 'poll'>('probing')
-  const [diffTick, setDiffTick] = useState(0)
-  const queuedSilentRefresh = useRef(false)
-  const [note, setNote] = useState('')
-  useEffect(() => subscribeScmSettings(setSettings), [])
-  const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
+  const status = useScmStatus({
+    sessionId,
+    sessionState,
+    active,
+    refreshToken,
+    gitRevision,
+    busy
+  })
+  const {
+    snapshot,
+    operation,
+    settings,
+    watchMode,
+    diffTick,
+    note,
+    loading,
+    refresh,
+    reloadOperation
+  } = status
   // The checkbox answers the click immediately; this holds the user's intent
   // until the serialized Git operation refreshes the snapshot.
   const [pendingStage, setPendingStage] = useState<ReadonlyMap<string, boolean>>(() => new Map())
@@ -140,15 +143,9 @@ export function useScmController({
   const [amendOpen, setAmendOpen] = useState(false)
   const [amendBusy, setAmendBusy] = useState(false)
   const [discardTargets, setDiscardTargets] = useState<WorkingTreeEntry[] | null>(null)
-  const gitGeneration = useRef(0)
-  const silentGitInFlight = useRef(false)
   const pendingStageRef = useRef<Map<string, boolean>>(new Map())
   const stageGeneration = useRef(0)
   const stageChain = useRef<Promise<void>>(Promise.resolve())
-  const busyRef = useRef(false)
-  const operationRef = useRef<GitOperationKind | null>(null)
-  const upstreamRef = useRef<string | null>(null)
-  const autoFetchFailures = useRef(0)
 
   const markStagePending = useCallback((path: string, staged: boolean): void => {
     pendingStageRef.current.set(path, staged)
@@ -176,240 +173,17 @@ export function useScmController({
     [drafts, sessionId]
   )
 
-  // A different session is a different working tree. Its draft lives in the
-  // store, so only controller-local state is reset here.
+  // A different session has a different working tree. Status state is reset
+  // by useScmStatus; only mutation bookkeeping remains here.
   useEffect(() => {
-    // In-flight stage calls belong to the previous session. Let them settle
-    // without touching the new session's pending state.
     stageGeneration.current += 1
     pendingStageRef.current.clear()
     setPendingStage(new Map())
     stageChain.current = Promise.resolve()
-    setSnapshot(null)
-    setNote('')
-    setLoading(true)
     setAmendOpen(false)
     setAmendBusy(false)
     setDiscardTargets(null)
-    setOperation(null)
   }, [sessionId])
-
-  const loadGit = useCallback(
-    async (silent = false): Promise<void> => {
-      if (silent && silentGitInFlight.current) {
-        queuedSilentRefresh.current = true
-        return
-      }
-      if (silent) silentGitInFlight.current = true
-      const generation = gitGeneration.current + 1
-      gitGeneration.current = generation
-      if (!silent) setLoading(true)
-      try {
-        const result = await callApi<GitStatusPayload>(window.icode.git.status({ sessionId }))
-        if (generation !== gitGeneration.current) return
-        if (!silent) setLoading(false)
-        if (!result.ok) {
-          // A background poll must not replace a readable surface with a
-          // transient error. An explicit refresh still reports the failure.
-          if (silent) return
-          setSnapshot(null)
-          setNote(result.error.message)
-          return
-        }
-        if (result.value.status === 'unavailable') {
-          if (silent) return
-          setSnapshot(null)
-          setNote(workspaceUnavailableText(result.value))
-          return
-        }
-        const next = result.value.snapshot
-        setSnapshot((current) =>
-          silent && current !== null && JSON.stringify(current) === JSON.stringify(next)
-            ? current
-            : next
-        )
-        if (!silent) setNote('')
-      } finally {
-        if (silent) {
-          silentGitInFlight.current = false
-          if (queuedSilentRefresh.current) {
-            queuedSilentRefresh.current = false
-            // A watcher event arrived while the previous read was in flight;
-            // read once more so the newest write cannot be lost.
-            void loadGit(true)
-          }
-        }
-      }
-    },
-    [sessionId]
-  )
-
-  useEffect(() => {
-    void loadGit()
-  }, [loadGit, refreshToken, gitRevision])
-
-  const loadOperation = useCallback(async (): Promise<void> => {
-    const result = await callApi<GitOperationStatePayload>(
-      window.icode.git.operationState({ sessionId })
-    )
-    if (result.ok && result.value.status === 'ok') setOperation(result.value.operation)
-    else setOperation(null)
-  }, [sessionId])
-
-  /**
-   * The worktree is written by an Agent, not by this panel. Without a live
-   * read, a finished edit stays invisible until the user presses Refresh or
-   * leaves and reopens Source Control. Poll only while the tab is visible and
-   * the session can still write; hidden panels and exited sessions do not
-   * spend work.
-   */
-  useEffect(() => {
-    if (!active || (sessionState !== 'live' && sessionState !== 'starting')) return
-    if (watchMode !== 'poll') return
-    let cancelled = false
-    let timer: number | null = null
-    const tick = async (): Promise<void> => {
-      if (cancelled) return
-      if (document.visibilityState === 'visible') await loadGit(true)
-      if (!cancelled) timer = window.setTimeout(() => void tick(), 2000)
-    }
-    timer = window.setTimeout(() => void tick(), 2000)
-    const onVisibility = (): void => {
-      if (!cancelled && document.visibilityState === 'visible') void loadGit(true)
-    }
-    document.addEventListener('visibilitychange', onVisibility)
-    return () => {
-      cancelled = true
-      if (timer !== null) window.clearTimeout(timer)
-      document.removeEventListener('visibilitychange', onVisibility)
-    }
-  }, [active, loadGit, sessionState, watchMode])
-
-  /**
-   * Live worktree watching.
-   *
-   * The watcher is requested only while Source Control is visible. A local
-   * target gets one coalesced event per write window; the controller then
-   * re-reads status and bumps `diffTick` so the focused diff refreshes. A guest
-   * target reports `watching: false` and keeps the polling fallback until the
-   * Host protocol v2 lands.
-   */
-  useEffect(() => {
-    if (!active) return
-    let cancelled = false
-    const start = async (): Promise<void> => {
-      const result = await callApi<{ watching: boolean; reason?: GitWatchUnavailableReason }>(
-        window.icode.git.watchStatus({ sessionId, active: true })
-      )
-      if (cancelled) {
-        if (result.ok && result.value.watching) {
-          void window.icode.git.watchStatus({ sessionId, active: false })
-        }
-        return
-      }
-      setWatchMode(result.ok && result.value.watching ? 'watch' : 'poll')
-    }
-    const unsubscribe = window.icode.git.onStatusChange((event) => {
-      if (cancelled || event.sessionId !== sessionId) return
-      if (event.failed) {
-        setWatchMode('poll')
-        return
-      }
-      if (document.visibilityState !== 'visible') return
-      setDiffTick((value) => value + 1)
-      void loadGit(true)
-      void loadOperation()
-    })
-    void start()
-    const onVisibility = (): void => {
-      const visible = document.visibilityState === 'visible'
-      void window.icode.git.watchStatus({ sessionId, active: visible })
-      if (visible) void loadGit(true)
-    }
-    document.addEventListener('visibilitychange', onVisibility)
-    return () => {
-      cancelled = true
-      unsubscribe()
-      document.removeEventListener('visibilitychange', onVisibility)
-      setWatchMode('probing')
-      void window.icode.git.watchStatus({ sessionId, active: false })
-    }
-  }, [active, loadGit, loadOperation, sessionId])
-
-  /**
-   * Optional background fetch while Source Control is visible.
-   *
-   * It is renderer-driven, single-flight, paused while the window is hidden or
-   * an operation is running, and backs off quietly on failure. Manual and
-   * automatic fetches share the same Git service, which sets
-   * `GIT_TERMINAL_PROMPT=0`, so this can never prompt for credentials.
-   */
-  useEffect(() => {
-    if (!active || !settings.autoFetch) return
-    let cancelled = false
-    let inFlight = false
-    let timer: number | null = null
-    const schedule = (): void => {
-      if (cancelled) return
-      timer = window.setTimeout(
-        () => void tick(),
-        autoFetchDelayMs(settings.autoFetchIntervalSec, autoFetchFailures.current)
-      )
-    }
-    const tick = async (): Promise<void> => {
-      if (cancelled) return
-      if (
-        document.visibilityState !== 'visible' ||
-        busyRef.current ||
-        operationRef.current !== null ||
-        upstreamRef.current === null
-      ) {
-        schedule()
-        return
-      }
-      if (inFlight) return
-      inFlight = true
-      try {
-        const result = await callApi<GitFetchPayload>(window.icode.git.fetch({ sessionId }))
-        if (cancelled) return
-        if (result.ok && result.value.status === 'ok') {
-          autoFetchFailures.current = 0
-          void loadGit(true)
-          void loadOperation()
-        } else {
-          autoFetchFailures.current = Math.min(3, autoFetchFailures.current + 1)
-        }
-      } finally {
-        inFlight = false
-        schedule()
-      }
-    }
-    schedule()
-    return () => {
-      cancelled = true
-      if (timer !== null) window.clearTimeout(timer)
-    }
-  }, [
-    active,
-    loadGit,
-    loadOperation,
-    sessionId,
-    settings.autoFetch,
-    settings.autoFetchIntervalSec
-  ])
-
-  // This tab stays mounted while Terminal or Files is visible. On entering it,
-  // the Git snapshot must be re-read: a stale snapshot marks a newly edited
-  // file as already committed.
-  useEffect(() => {
-    if (!active) return
-    void loadGit()
-  }, [active, loadGit])
-
-  useEffect(() => {
-    if (!active) return
-    void loadOperation()
-  }, [active, gitRevision, loadOperation, refreshToken])
 
   const groups = useMemo(() => workingTreeGroups(snapshot), [snapshot])
   const protectedBranch = useMemo(
@@ -441,13 +215,6 @@ export function useScmController({
     !amendBusy &&
     !stagePending
 
-  busyRef.current = busy
-  operationRef.current = operation
-  upstreamRef.current = snapshot?.upstream ?? null
-
-  const refresh = useCallback((): void => {
-    void loadGit()
-  }, [loadGit])
 
   const setPathStaged = (path: string, staged: boolean): void => {
     if (busy || commitBusy || amendBusy || pendingStageRef.current.has(path)) return
@@ -474,7 +241,7 @@ export function useScmController({
       } finally {
         if (stageGeneration.current === generation) {
           try {
-            await loadGit()
+            await refresh()
           } finally {
             clearStagePending(path)
             onChanged()
@@ -538,7 +305,7 @@ export function useScmController({
       } finally {
         if (outcome.ok) {
           try {
-            await loadGit()
+            await refresh()
           } catch {
             // The watcher will publish the next real status; the hunk is applied.
           }
@@ -612,7 +379,7 @@ export function useScmController({
       } finally {
         if (outcome.ok) {
           try {
-            await loadGit()
+            await refresh()
           } catch {
             // The watcher will publish the next status.
           }
@@ -668,7 +435,7 @@ export function useScmController({
       return true
     } finally {
       setBusy(false)
-      await loadGit()
+      await refresh()
       onChanged()
     }
   }
@@ -722,7 +489,7 @@ export function useScmController({
     } finally {
       setDiscardTargets(null)
       setBusy(false)
-      await loadGit()
+      await refresh()
       onChanged()
     }
   }
@@ -782,7 +549,7 @@ export function useScmController({
       return true
     } finally {
       setCommitBusy(false)
-      await loadGit()
+      await refresh()
       onChanged()
     }
   }
@@ -820,8 +587,8 @@ export function useScmController({
       })
     } finally {
       setBusy(false)
-      await loadGit()
-      await loadOperation()
+      await refresh()
+      await reloadOperation()
       onChanged()
     }
   }
@@ -868,7 +635,7 @@ export function useScmController({
       })
     } finally {
       setBusy(false)
-      await loadGit()
+      await refresh()
       onChanged()
     }
   }
@@ -890,7 +657,7 @@ export function useScmController({
       notify({ tone: 'success', message: `Fetched ${result.value.remote}` })
     } finally {
       setBusy(false)
-      await loadGit()
+      await refresh()
       onChanged()
     }
   }
@@ -933,7 +700,7 @@ export function useScmController({
       })
     } finally {
       setAmendBusy(false)
-      await loadGit()
+      await refresh()
       onChanged()
     }
   }

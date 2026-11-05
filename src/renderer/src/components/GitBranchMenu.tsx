@@ -4,9 +4,7 @@ import {
   ArrowUpRight,
   Check,
   ChevronDown,
-  Clock,
   Copy,
-  FileDiff,
   GitBranch,
   Loader2,
   Plus,
@@ -21,10 +19,8 @@ import { callApi, errorNotice } from '../lib/api'
 import type {
   GitBranchesPayload,
   GitBranchPayload,
-  GitComparePayload,
   GitCheckoutRefPayload,
   GitFetchPayload,
-  GitHistoryPayload,
   GitRemoteMutationPayload,
   GitRemoteBranchesPayload,
   GitRemotesPayload,
@@ -38,8 +34,6 @@ import type { GitRemote, GitTag } from '../../../shared/domain/git-workspace'
 import type { GitWorkspaceStatus } from '../../../shared/domain/git-workspace'
 import type { Notice } from '../state/workspace'
 import { workspaceUnavailableText } from '../review/workspace-unavailable'
-import GitCompareDialog from './GitCompareDialog'
-import GitHistoryDialog from './GitHistoryDialog'
 
 type Props = {
   sessionId: string
@@ -47,7 +41,6 @@ type Props = {
   notify: (notice: Notice) => void
   onChanged: () => void
   onOpenTerminal: () => void
-  onOpenChanges: () => void
 }
 
 type Branches = { current: string | null; names: string[] }
@@ -56,7 +49,7 @@ type Branches = { current: string | null; names: string[] }
  * Branch and remote controls in the workbench header.
  *
  * The menu exposes the operations the Git service can perform safely here:
- * switch/create, compare, fetch/pull/push/publish and history. Merge, rebase,
+ * switch/create, fetch/pull/push/publish. Merge, rebase,
  * force-push and remote configuration stay in the terminal because they need a
  * decision this menu cannot make on the user's behalf.
  */
@@ -65,8 +58,7 @@ export default function GitBranchMenu({
   branch,
   notify,
   onChanged,
-  onOpenTerminal,
-  onOpenChanges
+  onOpenTerminal
 }: Props): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const [snapshot, setSnapshot] = useState<GitWorkspaceStatus | null>(null)
@@ -74,7 +66,7 @@ export default function GitBranchMenu({
   const [note, setNote] = useState('')
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState<
-    'switch' | 'push' | 'pull' | 'create' | 'fetch' | 'publish' | 'compare' | 'history' | null
+    'switch' | 'push' | 'pull' | 'create' | 'fetch' | 'publish' | null
   >(null)
   const [creating, setCreating] = useState(false)
   const [newBranch, setNewBranch] = useState('')
@@ -99,8 +91,6 @@ export default function GitBranchMenu({
     'add' | 'remove' | 'tags' | 'force' | 'sync' | 'upstream' | 'fetch' | null
   >(null)
   const [forceConfirm, setForceConfirm] = useState(false)
-  const [history, setHistory] = useState<Extract<GitHistoryPayload, { status: 'ok' }> | null>(null)
-  const [compare, setCompare] = useState<Extract<GitComparePayload, { status: 'ok' }> | null>(null)
   const newBranchRef = useRef<HTMLInputElement | null>(null)
   const chipRef = useRef<HTMLButtonElement | null>(null)
   const menuRef = useRef<HTMLDivElement | null>(null)
@@ -305,46 +295,6 @@ export default function GitBranchMenu({
       })
       await load()
       onChanged()
-    } finally {
-      setBusy(null)
-    }
-  }
-
-  const openHistory = async (): Promise<void> => {
-    if (busy !== null) return
-    setBusy('history')
-    try {
-      const result = await callApi<GitHistoryPayload>(window.icode.git.history({ sessionId, limit: 20 }))
-      if (!result.ok) {
-        notify(errorNotice(result.error))
-        return
-      }
-      if (result.value.status === 'unavailable') {
-        notify({ tone: 'error', message: result.value.detail })
-        return
-      }
-      setHistory(result.value)
-      setOpen(false)
-    } finally {
-      setBusy(null)
-    }
-  }
-
-  const openCompare = async (): Promise<void> => {
-    if (busy !== null) return
-    setBusy('compare')
-    try {
-      const result = await callApi<GitComparePayload>(window.icode.git.compare({ sessionId }))
-      if (!result.ok) {
-        notify(errorNotice(result.error))
-        return
-      }
-      if (result.value.status === 'unavailable') {
-        notify({ tone: 'error', message: result.value.detail })
-        return
-      }
-      setCompare(result.value)
-      setOpen(false)
     } finally {
       setBusy(null)
     }
@@ -1225,17 +1175,6 @@ export default function GitBranchMenu({
               <Plus size={10} /> Create branch…
             </button>
           )}
-          <button
-            type="button"
-            className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[11px] text-foreground hover:bg-muted disabled:opacity-40"
-            disabled={busy !== null}
-            onClick={() => void openCompare()}
-            data-testid="git-compare"
-          >
-            {busy === 'compare' ? <Loader2 size={10} className="animate-spin" /> : <FileDiff size={10} />}
-            Compare with baseline
-          </button>
-
           <div className="my-1 border-t border-border" />
           <p className="px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
             Remote
@@ -1289,16 +1228,6 @@ export default function GitBranchMenu({
           <div className="my-1 border-t border-border" />
           <button
             type="button"
-            className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[11px] text-foreground hover:bg-muted disabled:opacity-40"
-            disabled={busy !== null}
-            onClick={() => void openHistory()}
-            data-testid="git-history"
-          >
-            {busy === 'history' ? <Loader2 size={10} className="animate-spin" /> : <Clock size={10} />}
-            Recent commits
-          </button>
-          <button
-            type="button"
             className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[11px] text-foreground hover:bg-muted"
             onClick={() => void copyBranch()}
             data-testid="git-copy-branch"
@@ -1324,19 +1253,6 @@ export default function GitBranchMenu({
           )
         : null}
 
-      {history !== null ? (
-        <GitHistoryDialog data={history} notify={notify} onClose={() => setHistory(null)} />
-      ) : null}
-      {compare !== null ? (
-        <GitCompareDialog
-          data={compare}
-          onClose={() => setCompare(null)}
-          onOpenChanges={() => {
-            setOpen(false)
-            onOpenChanges()
-          }}
-        />
-      ) : null}
     </span>
   )
 }

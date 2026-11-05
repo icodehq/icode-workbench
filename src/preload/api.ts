@@ -1,5 +1,6 @@
-import type { IcodeApi, RuntimeInfo, ViewCommand } from '../shared/icode-api'
+import type { GitApi, IcodeApi, RuntimeInfo, ViewCommand } from '../shared/icode-api'
 import type { GitStatusWatchEvent } from '../shared/domain/git-workspace'
+import { GIT_COMMAND_NAMES } from '../shared/ipc/git-commands'
 import { IPC_CHANNELS } from '../shared/schemas/ipc'
 import type { IpcResult, RendererSessionEvent } from '../shared/schemas/ipc'
 
@@ -11,6 +12,26 @@ export type SubscribeFn = (channel: string, listener: (payload: unknown) => void
  * surface can be tested without Electron. The renderer gets named operations
  * only: no channel strings, no ipcRenderer, no Node primitives.
  */
+
+/**
+ * One renderer method per Git command, generated from the shared registry.
+ * Call sites keep their names; only the transport is unified.
+ */
+function createGitApi(
+  call: <T>(channel: string, input?: unknown) => Promise<IpcResult<T>>,
+  subscribe: SubscribeFn
+): GitApi {
+  const methods: Record<string, unknown> = {}
+  for (const op of GIT_COMMAND_NAMES) {
+    methods[op] = (input?: unknown) => call(IPC_CHANNELS.gitInvoke, { op, input })
+  }
+  methods.onStatusChange = (listener: (event: GitStatusWatchEvent) => void) =>
+    subscribe(IPC_CHANNELS.gitStatusEvent, (payload) =>
+      listener(payload as GitStatusWatchEvent)
+    )
+  return Object.freeze(methods) as unknown as GitApi
+}
+
 export function createIcodeApi(invoke: InvokeFn, subscribe: SubscribeFn): IcodeApi {
   const listeners = new Set<(event: RendererSessionEvent) => void>()
   let disposeChannel: (() => void) | null = null
@@ -63,9 +84,6 @@ export function createIcodeApi(invoke: InvokeFn, subscribe: SubscribeFn): IcodeA
       list: () => call(IPC_CHANNELS.activityList),
       clearUnread: (input) => call(IPC_CHANNELS.activityClearUnread, input)
     },
-    review: {
-      areaDiff: (input) => call(IPC_CHANNELS.reviewAreaDiff, input)
-    },
     files: {
       list: (input) => call(IPC_CHANNELS.filesList, input),
       read: (input) => call(IPC_CHANNELS.filesRead, input),
@@ -75,70 +93,7 @@ export function createIcodeApi(invoke: InvokeFn, subscribe: SubscribeFn): IcodeA
       rename: (input) => call(IPC_CHANNELS.filesRename, input),
       remove: (input) => call(IPC_CHANNELS.filesRemove, input)
     },
-    git: {
-      status: (input) => call(IPC_CHANNELS.gitStatus, input),
-      cancelStatus: (input) => call(IPC_CHANNELS.gitCancelStatus, input),
-      operationState: (input) => call(IPC_CHANNELS.gitOperationState, input),
-      continueOperation: (input) => call(IPC_CHANNELS.gitOperationContinue, input),
-      abortOperation: (input) => call(IPC_CHANNELS.gitOperationAbort, input),
-      rangeDiff: (input) => call(IPC_CHANNELS.gitRangeDiff, input),
-      watchStatus: (input) => call(IPC_CHANNELS.gitWatchStatus, input),
-      onStatusChange: (listener) =>
-        subscribe(IPC_CHANNELS.gitStatusEvent, (payload) => listener(payload as GitStatusWatchEvent)),
-      stageAll: (input) => call(IPC_CHANNELS.gitStageAll, input),
-      unstageAll: (input) => call(IPC_CHANNELS.gitUnstageAll, input),
-      commit: (input) => call(IPC_CHANNELS.gitCommit, input),
-      discardPath: (input) => call(IPC_CHANNELS.gitDiscardPath, input),
-      setPathStaged: (input) => call(IPC_CHANNELS.gitSetPathStaged, input),
-      setPathsStaged: (input) => call(IPC_CHANNELS.gitSetPathsStaged, input),
-      discardPaths: (input) => call(IPC_CHANNELS.gitDiscardPaths, input),
-      branches: (input) => call(IPC_CHANNELS.gitBranches, input),
-      switchBranch: (input) => call(IPC_CHANNELS.gitSwitchBranch, input),
-      createBranch: (input) => call(IPC_CHANNELS.gitCreateBranch, input),
-      createTag: (input) => call(IPC_CHANNELS.gitCreateTag, input),
-      deleteTag: (input) => call(IPC_CHANNELS.gitDeleteTag, input),
-      tags: (input) => call(IPC_CHANNELS.gitTags, input),
-      checkoutRef: (input) => call(IPC_CHANNELS.gitCheckoutRef, input),
-      fileAtRevision: (input) => call(IPC_CHANNELS.gitFileAtRevision, input),
-      indexFile: (input) => call(IPC_CHANNELS.gitIndexFile, input),
-      applyPatch: (input) => call(IPC_CHANNELS.gitApplyPatch, input),
-      conflictFile: (input) => call(IPC_CHANNELS.gitConflictFile, input),
-      resolveConflict: (input) => call(IPC_CHANNELS.gitResolveConflict, input),
-      stashList: (input) => call(IPC_CHANNELS.gitStashList, input),
-      stashPush: (input) => call(IPC_CHANNELS.gitStashPush, input),
-      stashDiff: (input) => call(IPC_CHANNELS.gitStashDiff, input),
-      stashAction: (input) => call(IPC_CHANNELS.gitStashAction, input),
-      worktreeList: (input) => call(IPC_CHANNELS.gitWorktreeList, input),
-      worktreeAction: (input) => call(IPC_CHANNELS.gitWorktreeAction, input),
-      submoduleList: (input) => call(IPC_CHANNELS.gitSubmoduleList, input),
-      submoduleAction: (input) => call(IPC_CHANNELS.gitSubmoduleAction, input),
-      blame: (input) => call(IPC_CHANNELS.gitBlame, input),
-      renameBranch: (input) => call(IPC_CHANNELS.gitRenameBranch, input),
-      deleteBranch: (input) => call(IPC_CHANNELS.gitDeleteBranch, input),
-      mergeBranch: (input) => call(IPC_CHANNELS.gitMergeBranch, input),
-      rebaseBranch: (input) => call(IPC_CHANNELS.gitRebaseBranch, input),
-      cherryPick: (input) => call(IPC_CHANNELS.gitCherryPick, input),
-      revert: (input) => call(IPC_CHANNELS.gitRevert, input),
-      reset: (input) => call(IPC_CHANNELS.gitReset, input),
-      push: (input) => call(IPC_CHANNELS.gitPush, input),
-      pull: (input) => call(IPC_CHANNELS.gitPull, input),
-      publish: (input) => call(IPC_CHANNELS.gitPublish, input),
-      fetch: (input) => call(IPC_CHANNELS.gitFetch, input),
-      remotes: (input) => call(IPC_CHANNELS.gitRemotes, input),
-      fetchRemote: (input) => call(IPC_CHANNELS.gitFetchRemote, input),
-      addRemote: (input) => call(IPC_CHANNELS.gitAddRemote, input),
-      removeRemote: (input) => call(IPC_CHANNELS.gitRemoveRemote, input),
-      pushTags: (input) => call(IPC_CHANNELS.gitPushTags, input),
-      forcePush: (input) => call(IPC_CHANNELS.gitForcePush, input),
-      remoteBranches: (input) => call(IPC_CHANNELS.gitRemoteBranches, input),
-      setUpstream: (input) => call(IPC_CHANNELS.gitSetUpstream, input),
-      amend: (input) => call(IPC_CHANNELS.gitAmend, input),
-      history: (input) => call(IPC_CHANNELS.gitHistory, input),
-      log: (input) => call(IPC_CHANNELS.gitLog, input),
-      commitDetail: (input) => call(IPC_CHANNELS.gitCommitDetail, input),
-      revisionFileDiff: (input) => call(IPC_CHANNELS.gitRevisionFileDiff, input),
-      compare: (input) => call(IPC_CHANNELS.gitCompare, input)
-    },
+    git: createGitApi(call, subscribe),
     tasks: {
       list: (input) => call(IPC_CHANNELS.tasksList, input ?? {}),
       create: (input) => call(IPC_CHANNELS.tasksCreate, input),
@@ -205,7 +160,6 @@ export function createIcodeApi(invoke: InvokeFn, subscribe: SubscribeFn): IcodeA
   Object.freeze(api.sessions)
   Object.freeze(api.harness)
   Object.freeze(api.branches)
-  Object.freeze(api.review)
   Object.freeze(api.files)
   Object.freeze(api.git)
   Object.freeze(api.activity)

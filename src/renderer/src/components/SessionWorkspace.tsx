@@ -416,7 +416,6 @@ export default function SessionWorkspace({
                     onRecheck(session.id)
                   }}
                   onOpenTerminal={() => setView('terminal')}
-                  onOpenChanges={() => setView('changes')}
                 />
               </span>
             ) : (

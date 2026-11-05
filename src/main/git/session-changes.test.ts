@@ -9,7 +9,7 @@ import { GitWorktreeService } from '../worktrees/git-worktree-service'
 import { SessionService } from '../sessions/session-service'
 import { SessionServiceError } from '../sessions/session-errors'
 import { FakeHostGateway } from '../sessions/fake-host-gateway'
-import { ReviewService } from './review-service'
+import { readSessionChanges, type SessionChangesDeps } from './session-changes'
 import { newSessionId } from '../../shared/domain/ids'
 import type { Database } from '../persistence/database'
 import type { RepositoryStore } from '../persistence/repository-store'
@@ -26,7 +26,7 @@ type Fixture = {
   sessionStore: SessionStore
   repositoryService: RepositoryService
   sessions: SessionService
-  review: ReviewService
+  review: { list: (sessionId: string) => ReturnType<typeof readSessionChanges> }
   host: FakeHostGateway
   worktrees: WorktreeStore
   createSession: () => Promise<{ id: string; worktreePath: string; baseOid: string }>
@@ -86,12 +86,12 @@ async function setup(): Promise<Fixture> {
   )
   const added = await stores.service.addRepository(repoPath)
 
-  const review = new ReviewService({
+  const changesDeps: SessionChangesDeps = {
     sessions,
     repositories: stores.repositories,
     worktrees,
     gitWorktrees
-  })
+  }
 
   cleanups.push(() => {
     sessions.dispose()
@@ -108,7 +108,7 @@ async function setup(): Promise<Fixture> {
     sessionStore: stores.sessions,
     repositoryService: stores.service,
     sessions,
-    review,
+    review: { list: (sessionId) => readSessionChanges(changesDeps, sessionId) },
     host,
     worktrees,
     createSession: async () => {

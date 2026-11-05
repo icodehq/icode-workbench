@@ -357,14 +357,23 @@ async function run() {
     await click('[aria-label="Close notifications"]')
   })
 
-  await step('exercise branch create, fetch, publish, history and compare in the header', async () => {
+  await step('exercise branch create, fetch, publish and manage in the header', async () => {
     await click('[data-testid="git-branch-chip"]')
     await waitForSelector('[data-testid="git-branch-menu"]', 10000)
     await screenshot('03b-branch-menu')
-    for (const id of ['git-create-branch', 'git-fetch', 'git-publish', 'git-history', 'git-compare']) {
+    for (const id of ['git-create-branch', 'git-fetch', 'git-publish']) {
       assert(
         await cdp.evaluate(`Boolean(document.querySelector('[data-testid="${id}"]'))`),
         `Branch menu is missing ${id}`
+      )
+    }
+    // The duplicate History and Compare dialogs were removed. History now lives
+    // in the Source Control pane (covered by smoke:scm), and compare is History's
+    // range comparison.
+    for (const id of ['git-history', 'git-compare']) {
+      assert(
+        !(await cdp.evaluate(`Boolean(document.querySelector('[data-testid="${id}"]'))`)),
+        `Branch menu still exposes the removed ${id}`
       )
     }
 
@@ -388,27 +397,6 @@ async function run() {
 
     await click('[data-testid="git-publish"]')
     await waitForNotice('Published', 30000)
-    await waitFor(
-      `document.querySelector('[data-testid="git-history"]') && !document.querySelector('[data-testid="git-history"]').disabled`,
-      'history enabled after publish',
-      10000
-    )
-
-    await click('[data-testid="git-history"]')
-    await waitForSelector('[data-testid="git-history-dialog"]', 20000)
-    const historyText = await cdp.evaluate(`document.querySelector('[data-testid="git-history-dialog"]').innerText`)
-    assert(historyText.includes('baseline'), 'History dialog omitted the initial commit')
-    await sleep(200)
-    await screenshot('04-git-history')
-    await click('[aria-label="Close commit history"]')
-    await click('[data-testid="git-branch-chip"]')
-    await waitForSelector('[data-testid="git-branch-menu"]', 10000)
-
-    await click('[data-testid="git-compare"]')
-    await waitForSelector('[data-testid="git-compare-dialog"]', 20000)
-    await sleep(200)
-    await screenshot('05-git-compare')
-    await click('[aria-label="Close comparison"]')
 
     if (!(await cdp.evaluate(`Boolean(document.querySelector('[data-testid="git-branch-menu"]'))`))) {
       await click('[data-testid="git-branch-chip"]')

@@ -1,9 +1,9 @@
-import type { ReviewFileStatus } from '../../../shared/domain/review'
+import type { ChangeFileStatus } from '../../../shared/domain/changes'
 
 export type StashPatchFile = {
   path: string
   oldPath: string | null
-  status: ReviewFileStatus
+  status: ChangeFileStatus
   binary: boolean
   patch: string
 }
@@ -67,7 +67,7 @@ export function splitStashPatch(patch: string): StashPatchFile[] {
       headerOld
     const path = newPath ?? oldPath
     if (path === null) continue
-    const status: ReviewFileStatus = blockLines.some((line) =>
+    const status: ChangeFileStatus = blockLines.some((line) =>
       line.startsWith('new file mode ')
     )
       ? 'added'

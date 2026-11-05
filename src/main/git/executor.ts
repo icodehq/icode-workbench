@@ -20,6 +20,16 @@ import type { ExecutionTarget } from '../../shared/domain/repository'
 import type { WslCommandRunner } from '../wsl/exec'
 import { isTransportFailure, runIdempotentGuest } from '../wsl/probe'
 import { GuestGitUnavailableError, runGuestGit, type GuestGitResult } from '../wsl/git/guest-git'
+import { runGitRead, type GitReadOptions, type GitReadResult } from './bounded-read'
+import { createGuestBoundedRead } from './bounded-read-guest'
+import {
+  createGuestSymlinkProbe,
+  guestContainment,
+  localContainment,
+  localSymlinkProbe,
+  type ContainmentResolution,
+  type SymlinkProbe
+} from './path-safety'
 
 export type GitExecRequest = {
   /** Working directory: a Windows path for a local target, a guest path otherwise. */
@@ -50,6 +60,11 @@ export type GitExecutor = {
    * the buffer arrives.
    */
   stream?: GitStreamRunner
+  /**
+   * Bounded, read-only Git. Local reads stream and enforce the byte budget as
+   * output arrives; guest reads are bounded after `wsl.exe` buffers the result.
+   */
+  read?: (request: GitReadOptions) => Promise<GitReadResult>
 }
 
 /**
@@ -279,6 +294,9 @@ export function createLocalGitExecutor(
           )
         })
       })
+    },
+    read(request) {
+      return runGitRead(request)
     }
   }
 }
@@ -288,6 +306,7 @@ export function createGuestGitExecutor(
   runner: WslCommandRunner,
   distro: string
 ): GitExecutor {
+  const read = createGuestBoundedRead(runner, distro)
   return {
     exec({ cwd, args, stdin, timeoutMs, signal }) {
       return runGuestGit(runner, {
@@ -298,6 +317,9 @@ export function createGuestGitExecutor(
         timeoutMs,
         ...(signal ? { signal } : {})
       })
+    },
+    read(request) {
+      return read(request)
     }
   }
 }
@@ -314,6 +336,12 @@ export type GitExecutorResolution = {
   /** Where worktrees for this target live; a guest path for WSL. */
   worktreeRoot: string
   fs: HostFileSystem
+  /** Bounded read for this target, when the executor provides one. */
+  read?: (request: GitReadOptions) => Promise<GitReadResult>
+  /** Path dialect used to keep change reads inside the checkout. */
+  containment?: ContainmentResolution
+  /** Symlink question answered by the host that owns the checkout. */
+  symlinkProbe?: SymlinkProbe
 }
 
 export type GitExecutorRouter = {
@@ -332,7 +360,10 @@ export type GitExecutorRouterDeps = {
 export function createGitExecutorRouter(deps: GitExecutorRouterDeps): GitExecutorRouter {
   const local = deps.localExecutor ?? createLocalGitExecutor()
   const localFs = createLocalHostFileSystem()
-  const cache = new Map<string, { executor: GitExecutor; fs: HostFileSystem }>()
+  const cache = new Map<
+    string,
+    { executor: GitExecutor; fs: HostFileSystem; symlinkProbe: SymlinkProbe }
+  >()
   /**
    * `$HOME` is stable for the life of a distro registration. Resolving it on
    * every Git call made an Add-project request pay a fresh `wsl.exe` probe even
@@ -342,7 +373,14 @@ export function createGitExecutorRouter(deps: GitExecutorRouterDeps): GitExecuto
   return {
     async resolve(target) {
       if (target.kind === 'local') {
-        return { executor: local, worktreeRoot: deps.localWorktreeRoot, fs: localFs }
+        return {
+          executor: local,
+          worktreeRoot: deps.localWorktreeRoot,
+          fs: localFs,
+          ...(local.read ? { read: local.read } : {}),
+          containment: localContainment,
+          symlinkProbe: localSymlinkProbe
+        }
       }
       if (target.distroId === null) {
         throw new GitUnavailableError(
@@ -354,7 +392,8 @@ export function createGitExecutorRouter(deps: GitExecutorRouterDeps): GitExecuto
       if (!entry) {
         entry = {
           executor: createGuestGitExecutor(deps.runner, target.distro),
-          fs: createGuestHostFileSystem(deps.runner, target.distro)
+          fs: createGuestHostFileSystem(deps.runner, target.distro),
+          symlinkProbe: createGuestSymlinkProbe(deps.runner, target.distro)
         }
         cache.set(key, entry)
       }
@@ -370,7 +409,14 @@ export function createGitExecutorRouter(deps: GitExecutorRouterDeps): GitExecuto
         root = resolved
         rootCache.set(key, resolved)
       }
-      return { executor: entry.executor, worktreeRoot: root, fs: entry.fs }
+      return {
+        executor: entry.executor,
+        worktreeRoot: root,
+        fs: entry.fs,
+        ...(entry.executor.read ? { read: entry.executor.read } : {}),
+        containment: guestContainment,
+        symlinkProbe: entry.symlinkProbe
+      }
     }
   }
 }

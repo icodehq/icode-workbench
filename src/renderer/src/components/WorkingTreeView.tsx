@@ -21,7 +21,7 @@ import { callApi } from '../lib/api'
 import type { GitStashEntry } from '../../../shared/icode-api'
 import type { Notice } from '../state/workspace'
 import type { GitWorkspaceStatus } from '../../../shared/domain/git-workspace'
-import type { ReviewDiffPayload, ReviewDiffResult } from '../../../shared/schemas/review'
+import type { FileDiffPayload, FileDiffResult } from '../../../shared/schemas/changes'
 import type { AppError } from '../../../shared/domain/errors'
 import { makeAppError } from '../../../shared/domain/errors'
 import type { LineComment } from '../review/drafts'
@@ -36,12 +36,9 @@ import {
 import { countUnifiedDiffChanges } from '../review/parse-unified-diff'
 import { type DiffViewState } from './UnifiedDiffView'
 import WorkingDiffView, { type WorkingDiffMode } from './WorkingDiffView'
-import ScmStashesSection from './ScmStashesSection'
-import ScmWorktreesSection from './ScmWorktreesSection'
-import ScmSubmodulesSection from './ScmSubmodulesSection'
-import ScmTagsSection from './ScmTagsSection'
 import StashDetailView from './StashDetailView'
 import ScmContextMenu, { type ScmMenuItem } from '../scm/ScmContextMenu'
+import ScmAdvancedSections from './scm/ScmAdvancedSections'
 import {
   EMPTY_SELECTION,
   pruneSelection,
@@ -73,7 +70,7 @@ import {
 
 type DiffState = {
   phase: 'idle' | 'loading' | 'ready' | 'error'
-  diff?: ReviewDiffPayload
+  diff?: FileDiffPayload
   error?: AppError
   stale?: boolean
 }
@@ -386,8 +383,8 @@ export default function WorkingTreeView({
 
   const requestDiff = useCallback(
     (entry: WorkingTreeEntry) =>
-      callApi<ReviewDiffResult>(
-        window.icode.review.areaDiff({
+      callApi<FileDiffResult>(
+        window.icode.git.changeDiff({
           sessionId,
           path: entry.entry.path,
           oldPath: entry.entry.oldPath,
@@ -1158,37 +1155,14 @@ export default function WorkingTreeView({
           )}
         </div>
         )}
-        <div className="max-h-[62%] min-h-0 shrink-0 overflow-y-auto">
-          <ScmStashesSection
-            sessionId={sessionId}
-            refreshToken={refreshToken}
-            gitRevision={gitRevision}
-            notify={onNotify}
-            onChanged={onStashChanged}
-            onOpenStash={(stash) => setStashDetail(stash)}
-          />
-          <ScmWorktreesSection
-            sessionId={sessionId}
-            refreshToken={refreshToken}
-            gitRevision={gitRevision}
-            notify={onNotify}
-            onChanged={onStashChanged}
-          />
-          <ScmSubmodulesSection
-            sessionId={sessionId}
-            refreshToken={refreshToken}
-            gitRevision={gitRevision}
-            notify={onNotify}
-            onChanged={onStashChanged}
-          />
-          <ScmTagsSection
-            sessionId={sessionId}
-            refreshToken={refreshToken}
-            gitRevision={gitRevision}
-            notify={onNotify}
-            onChanged={onStashChanged}
-          />
-        </div>
+        <ScmAdvancedSections
+          sessionId={sessionId}
+          refreshToken={refreshToken}
+          gitRevision={gitRevision}
+          notify={onNotify}
+          onChanged={onStashChanged}
+          onOpenStash={(stash) => setStashDetail(stash)}
+        />
       </aside>
       <div
         role="separator"

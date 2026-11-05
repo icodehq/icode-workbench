@@ -147,7 +147,7 @@ async function harness(options: { maxConcurrent?: number } = {}): Promise<Harnes
       return `task_00000000-0000-4000-8000-${String(sequence).padStart(12, '0')}`
     },
     isSessionLive: (sessionId) => sessions.behaviour.get(sessionId)?.state === 'live',
-    // Change listing is exercised through ReviewService; these tests own the
+    // Change listing is exercised through the Git engine; these tests own the
     // queue, so the seam is a stub that must never be reached silently.
     listChanges: async () => ({ status: 'unavailable', reason: 'not-wired', detail: 'test' }),
     onQueueChanged: () => dispatcher.kick()

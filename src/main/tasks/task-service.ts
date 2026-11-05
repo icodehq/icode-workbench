@@ -24,7 +24,7 @@ function fail(code: AppError['code'], message: string, detail?: string): TaskSer
 export type TaskOutcome<T> = { ok: true; value: T } | { ok: false; error: AppError }
 
 /**
- * A task's changes, as reported by the existing review listing.
+ * A task's changes, as reported by the session change listing.
  *
  * `unavailable` is a first-class answer: a task whose worktree is gone must say
  * so rather than falling back to whatever checkout happens to be open.
@@ -76,12 +76,12 @@ export type TaskServiceDeps = {
    */
   isSessionLive: (sessionId: string) => boolean
   /**
-   * The existing session-scoped review listing.
+   * The session-scoped change listing.
    *
    * Injected rather than reimplemented: the comparison baseline, untracked
-   * handling, WSL path semantics and truncation rules all live in
-   * `ReviewService`, and a second implementation here is how two views of the
-   * same diff start disagreeing.
+   * handling, WSL path semantics and truncation rules all live in the Git
+   * engine, and a second implementation here is how two views of the same diff
+   * start disagreeing.
    */
   listChanges: (sessionId: string) => Promise<TaskChangesOutcome>
   /** Called after a mutation that should make the dispatcher look at the queue. */

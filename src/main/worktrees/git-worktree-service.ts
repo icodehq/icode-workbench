@@ -14,6 +14,8 @@ import type {
 } from '../../shared/domain/worktree'
 import { SessionServiceError } from '../sessions/session-errors'
 import type { GuestGitResult } from '../wsl/git/guest-git'
+import type { ReadContext } from '../git/change-reader'
+import { guestContainment, localContainment, localSymlinkProbe } from '../git/path-safety'
 import { samePathResolved } from './worktree-status'
 
 const READ_TIMEOUT_MS = 10_000
@@ -303,6 +305,36 @@ export class GitWorktreeService {
   private async executorFor(target: ExecutionTarget): Promise<GitExecutor> {
     if (target.kind === 'local' || !this.deps.router) return this.localExecutor
     return (await this.deps.router.resolve(target)).executor
+  }
+
+  /**
+   * The bounded-read capabilities of the host that owns this checkout.
+   *
+   * Reads must run where the files exist, and containment must use that host's
+   * path dialect. This is the same routing decision as `executorFor`; it is
+   * exposed as one context so callers never choose a reader by path shape.
+   */
+  async readContextFor(target: ExecutionTarget): Promise<ReadContext> {
+    if (target.kind === 'local' || !this.deps.router) {
+      const read = this.localExecutor.read
+      if (!read) {
+        throw new GitUnavailableError('Bounded Git reads are unavailable on this host.')
+      }
+      return { read, containment: localContainment, symlinkProbe: localSymlinkProbe }
+    }
+    const resolved = await this.deps.router.resolve(target)
+    if (!resolved.read) {
+      throw new GitUnavailableError(
+        'The WSL distro does not provide bounded Git reads.',
+        target.distro
+      )
+    }
+    return {
+      read: resolved.read,
+      containment: resolved.containment ?? guestContainment,
+      // An unwired probe reports unknown, never "not a symlink".
+      symlinkProbe: resolved.symlinkProbe ?? (async () => null)
+    }
   }
 
   /**

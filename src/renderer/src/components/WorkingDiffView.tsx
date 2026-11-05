@@ -6,7 +6,7 @@ import type {
   GitIndexFilePayload
 } from '../../../shared/icode-api'
 import { callApi } from '../lib/api'
-import type { ReviewDiffPayload } from '../../../shared/schemas/review'
+import type { FileDiffPayload } from '../../../shared/schemas/changes'
 import type { LineComment } from '../review/drafts'
 import { buildLinePatch, hunkPatch } from '../review/hunk-patch'
 import type { WorkingTreeEntry } from '../review/working-tree'
@@ -45,8 +45,8 @@ type SideRead = { ok: true; text: string } | { ok: false; error: string }
 
 type SidesState =
   | { phase: 'loading' }
-  | { phase: 'ready'; diff: ReviewDiffPayload; original: string; modified: string }
-  | { phase: 'error'; diff: ReviewDiffPayload; reason: string }
+  | { phase: 'ready'; diff: FileDiffPayload; original: string; modified: string }
+  | { phase: 'error'; diff: FileDiffPayload; reason: string }
 
 async function readRevision(
   sessionId: string,

@@ -1,21 +1,19 @@
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, symlinkSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import {
-  GitReviewReader,
-  ReviewReadError,
-  assertContained,
-  assertSafeRelativePath,
-  cutToLastNewline,
-  parseNumstatZ,
   parseOthersZ,
   parseRawZ,
   parseStatusZ,
-  runGitRead,
-  truncateUtf8
-} from './git-review-reader'
+  readChangeDiff,
+  readChangeList,
+  type ReadContext
+} from './change-reader'
+import { runGitRead } from './bounded-read'
+import { parseNumstatZ } from './git-helpers'
+import { localContainment, localSymlinkProbe } from './path-safety'
 
 const roots: string[] = []
 
@@ -31,38 +29,30 @@ function commit(repo: string, message: string): void {
   )
 }
 
+const context: ReadContext = {
+  read: runGitRead,
+  containment: localContainment,
+  symlinkProbe: localSymlinkProbe
+}
+
 type Fixture = {
   root: string
   repo: string
-  reader: GitReviewReader
   base: string
   sessionId: string
 }
 
-function makeRepo(options: { baseline?: boolean } = {}): Fixture {
-  const root = mkdtempSync(join(tmpdir(), 'icode-review-'))
+function makeRepo(): Fixture {
+  const root = mkdtempSync(join(tmpdir(), 'icode-change-reader-'))
   roots.push(root)
   const repo = join(root, 'atlas')
   mkdirSync(repo)
   execFileSync('git', ['init', '-q', '-b', 'main', repo])
-  if (options.baseline === false) {
-    return { root, repo, reader: new GitReviewReader(), base: '', sessionId: 'ses_test' }
-  }
   writeFileSync(join(repo, 'a.txt'), 'one\ntwo\nthree\n')
   writeFileSync(join(repo, 'gone.txt'), 'delete me\n')
   git(repo, 'add', '.')
   commit(repo, 'init')
-  return {
-    root,
-    repo,
-    reader: new GitReviewReader(),
-    base: git(repo, 'rev-parse', 'HEAD'),
-    sessionId: 'ses_test'
-  }
-}
-
-function codeOf(error: unknown): string | undefined {
-  return error instanceof ReviewReadError ? error.appError.code : undefined
+  return { root, repo, base: git(repo, 'rev-parse', 'HEAD'), sessionId: 'ses_test' }
 }
 
 afterEach(() => {
@@ -92,7 +82,8 @@ describe('decoders', () => {
   })
 
   it('parses status areas, conflicts, and rename ordering', () => {
-    const output = 'MM both.txt\u0000 M unstaged.txt\u0000M  staged.txt\u0000?? new.txt\u0000UU conflict.txt\u0000R  new.txt\u0000old.txt\u0000'
+    const output =
+      'MM both.txt\u0000 M unstaged.txt\u0000M  staged.txt\u0000?? new.txt\u0000UU conflict.txt\u0000R  new.txt\u0000old.txt\u0000'
     expect(parseStatusZ(output)).toEqual([
       { path: 'both.txt', oldPath: null, index: 'M', worktree: 'M', area: 'both' },
       { path: 'unstaged.txt', oldPath: null, index: ' ', worktree: 'M', area: 'unstaged' },
@@ -108,82 +99,6 @@ describe('decoders', () => {
   })
 })
 
-describe('bounded output', () => {
-  it('trims to a UTF-8 boundary instead of emitting replacement characters', () => {
-    const buffer = Buffer.from('héllo', 'utf8')
-    const truncated = truncateUtf8(buffer, 2)
-    expect(truncated.toString('utf8')).toBe('h')
-    expect(truncated.toString('utf8')).not.toContain('\uFFFD')
-  })
-
-  it('cuts a truncated patch to its last complete line', () => {
-    expect(cutToLastNewline('a\nb\npartial')).toBe('a\nb\n')
-    expect(cutToLastNewline('no newline')).toBe('no newline')
-  })
-
-  it('terminates a Git read that exceeds its byte budget', async () => {
-    const f = makeRepo()
-    writeFileSync(join(f.repo, 'big.txt'), 'x\n'.repeat(100_000))
-    const result = await runGitRead({
-      cwd: f.repo,
-      args: ['diff', '--no-index', '--', '/dev/null', 'big.txt'],
-      byteBudget: 4096
-    })
-    expect(result.truncated).toBe(true)
-    expect(result.truncatedReason).toBe('bytes')
-    expect(Buffer.byteLength(result.stdout, 'utf8')).toBeLessThanOrEqual(4096)
-    expect(result.signal === 'SIGTERM' || result.signal === 'SIGKILL').toBe(true)
-  })
-
-  it('times out a stalled read and reports it explicitly', async () => {
-    const f = makeRepo()
-    // A missing object makes Git fail fast; the timeout path is exercised with
-    // a 1ms budget instead so the test stays deterministic.
-    const result = await runGitRead({
-      cwd: f.repo,
-      args: ['diff', '--numstat', f.base, '--'],
-      timeoutMs: 1
-    }).catch((error: unknown) => error)
-    if (result instanceof Error) {
-      expect(codeOf(result)).toBe('GIT_READ_FAILED')
-    } else {
-      const read = result as { truncated: boolean; exitCode: number | null }
-      expect(read.truncated || read.exitCode !== null).toBe(true)
-    }
-  })
-
-  it('refuses a non-read-only Git subcommand', async () => {
-    await expect(
-      runGitRead({ cwd: '/tmp', args: ['commit', '-m', 'nope'] })
-    ).rejects.toSatisfy((error: unknown) => codeOf(error) === 'INVALID_ARGUMENT')
-    await expect(
-      runGitRead({ cwd: '/tmp', args: ['add', '.'] })
-    ).rejects.toSatisfy((error: unknown) => codeOf(error) === 'INVALID_ARGUMENT')
-  })
-})
-
-describe('path validation', () => {
-  it('rejects unsafe relative paths', () => {
-    for (const value of ['/etc/passwd', '../x', 'a/../../b', '-p', 'C:\\x', '\\\\srv\\s', '']) {
-      expect(() => assertSafeRelativePath(value)).toThrow()
-    }
-    expect(() => assertSafeRelativePath('src/app.ts')).not.toThrow()
-  })
-
-  it('rejects escape through a symlinked directory and accepts a symlinked file', () => {
-    const f = makeRepo()
-    const outside = join(f.root, 'outside')
-    mkdirSync(outside)
-    writeFileSync(join(outside, 'secret.txt'), 'secret\n')
-    symlinkSync(outside, join(f.repo, 'escape'))
-
-    expect(() => assertContained(f.repo, 'escape/secret.txt')).toThrow()
-    // A symlink file itself is fine: Git emits its target text, not the content.
-    symlinkSync('/etc/passwd', join(f.repo, 'link.txt'))
-    expect(() => assertContained(f.repo, 'link.txt')).not.toThrow()
-  })
-})
-
 describe('listing changes since the baseline', () => {
   it('includes a committed change (baseline is not HEAD)', async () => {
     const f = makeRepo()
@@ -191,7 +106,7 @@ describe('listing changes since the baseline', () => {
     git(f.repo, 'add', 'a.txt')
     commit(f.repo, 'agent commit')
 
-    const list = await f.reader.list({
+    const list = await readChangeList(context, {
       worktreePath: f.repo,
       baseOid: f.base,
       sessionId: f.sessionId
@@ -209,7 +124,11 @@ describe('listing changes since the baseline', () => {
     git(f.repo, 'add', 'a.txt')
     writeFileSync(join(f.repo, 'a.txt'), 'one\ntwo\nthree\nfour\nfive\n')
 
-    const list = await f.reader.list({ worktreePath: f.repo, baseOid: f.base, sessionId: f.sessionId })
+    const list = await readChangeList(context, {
+      worktreePath: f.repo,
+      baseOid: f.base,
+      sessionId: f.sessionId
+    })
     const rows = list.files.filter((file) => file.path === 'a.txt')
     expect(rows).toHaveLength(1)
     expect(rows[0]!.area).toBe('both')
@@ -224,7 +143,11 @@ describe('listing changes since the baseline', () => {
     writeFileSync(join(f.repo, 'ignored', 'skip.txt'), 'skip\n')
     writeFileSync(join(f.repo, 'fresh.txt'), 'l1\nl2\n')
 
-    const list = await f.reader.list({ worktreePath: f.repo, baseOid: f.base, sessionId: f.sessionId })
+    const list = await readChangeList(context, {
+      worktreePath: f.repo,
+      baseOid: f.base,
+      sessionId: f.sessionId
+    })
     const paths = list.files.map((file) => file.path)
     expect(paths).toContain('fresh.txt')
     expect(paths).not.toContain('ignored/skip.txt')
@@ -239,7 +162,11 @@ describe('listing changes since the baseline', () => {
     rmSync(join(f.repo, 'gone.txt'))
     git(f.repo, 'mv', 'a.txt', 'renamed.txt')
 
-    const list = await f.reader.list({ worktreePath: f.repo, baseOid: f.base, sessionId: f.sessionId })
+    const list = await readChangeList(context, {
+      worktreePath: f.repo,
+      baseOid: f.base,
+      sessionId: f.sessionId
+    })
     expect(list.files.find((file) => file.path === 'gone.txt')).toMatchObject({ status: 'deleted' })
     expect(list.files.find((file) => file.path === 'renamed.txt')).toMatchObject({
       status: 'renamed',
@@ -252,7 +179,11 @@ describe('listing changes since the baseline', () => {
     writeFileSync(join(f.repo, 'blob.bin'), Buffer.from(Array.from({ length: 2048 }, (_v, i) => i % 256)))
     symlinkSync('a.txt', join(f.repo, 'link.txt'))
 
-    const list = await f.reader.list({ worktreePath: f.repo, baseOid: f.base, sessionId: f.sessionId })
+    const list = await readChangeList(context, {
+      worktreePath: f.repo,
+      baseOid: f.base,
+      sessionId: f.sessionId
+    })
     const binary = list.files.find((file) => file.path === 'blob.bin')!
     expect(binary.binary).toBe(true)
     expect(binary.additions).toBeNull()
@@ -275,7 +206,11 @@ describe('listing changes since the baseline', () => {
       // Expected conflict.
     }
 
-    const list = await f.reader.list({ worktreePath: f.repo, baseOid: f.base, sessionId: f.sessionId })
+    const list = await readChangeList(context, {
+      worktreePath: f.repo,
+      baseOid: f.base,
+      sessionId: f.sessionId
+    })
     expect(list.files.find((file) => file.path === 'a.txt')?.area).toBe('conflicted')
   })
 
@@ -284,54 +219,13 @@ describe('listing changes since the baseline', () => {
     for (let index = 0; index < 1001; index += 1) {
       writeFileSync(join(f.repo, `bulk-${String(index)}.txt`), 'x\n')
     }
-    const list = await f.reader.list({ worktreePath: f.repo, baseOid: f.base, sessionId: f.sessionId })
+    const list = await readChangeList(context, {
+      worktreePath: f.repo,
+      baseOid: f.base,
+      sessionId: f.sessionId
+    })
     expect(list.files).toHaveLength(1000)
     expect(list.listTruncated).toBe(true)
-  })
-})
-
-describe('review reader routing by execution target', () => {
-  const WSL = {
-    kind: 'wsl' as const,
-    distro: 'Ubuntu-26.04',
-    distroId: 'a5489bf0-2b9e-49bf-940e-0c19a6caef73'
-  }
-
-  it('keeps the local reader for a local target', () => {
-    const read = vi.fn()
-    const reader = new GitReviewReader({ read: read as never })
-    expect(reader.forTarget({ kind: 'local' })).toBe(reader)
-  })
-
-  it('uses the guest reader for a WSL target', async () => {
-    const guestRead = vi.fn(async () => ({
-      stdout: 'guest output',
-      stderrTail: '',
-      exitCode: 0,
-      signal: null,
-      truncated: false,
-      truncatedReason: null
-    }))
-    const reader = new GitReviewReader({ readForTarget: () => guestRead as never })
-    const routed = reader.forTarget(WSL)
-    expect(routed).not.toBe(reader)
-    // The routed reader's read is the guest one: asserting `toHaveBeenCalled`
-    // after exercising it is what proves the selection, not the object identity.
-    const result = await routed.runReadForTest({
-      cwd: '/home/u/src',
-      args: ['diff', '--stat'],
-      timeoutMs: 1_000
-    })
-    expect(guestRead).toHaveBeenCalledTimes(1)
-    expect(result.stdout).toBe('guest output')
-  })
-
-  it('refuses a WSL read when no guest reader is wired, instead of using local Git', async () => {
-    const reader = new GitReviewReader({})
-    const routed = reader.forTarget(WSL)
-    await expect(
-      routed.runReadForTest({ cwd: '/home/u/src', args: ['diff'], timeoutMs: 1_000 })
-    ).rejects.toMatchObject({ appError: { code: 'GIT_READ_FAILED' } })
   })
 })
 
@@ -348,7 +242,7 @@ describe('conflicted diffs', () => {
     commit(f.repo, 'main')
     expect(() => git(f.repo, 'merge', 'side')).toThrow()
 
-    const diff = await f.reader.diffArea({
+    const diff = await readChangeDiff(context, {
       worktreePath: f.repo,
       sessionId: f.sessionId,
       path: 'a.txt',

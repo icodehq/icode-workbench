@@ -197,7 +197,6 @@ export default function TaskWorkbench({
                       onRecheckSession(session.id)
                     }}
                     onOpenTerminal={() => selectTab('terminal')}
-                    onOpenChanges={() => selectTab('changes')}
                   />
                   <span className="font-mono text-[10px]">base {session.worktree.baseOid.slice(0, 7)}</span>
                 </>

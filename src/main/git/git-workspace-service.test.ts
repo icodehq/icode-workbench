@@ -4,7 +4,6 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { GitWorkspaceService } from './git-workspace-service'
 import { GitWorktreeService } from '../worktrees/git-worktree-service'
-import { samePathResolved } from '../worktrees/worktree-status'
 import { SessionService } from '../sessions/session-service'
 import { FakeHostGateway } from '../sessions/fake-host-gateway'
 import { makeRepositoryService, makeTempRoot, openTempDatabase } from '../persistence/persistence-test-fixtures'
@@ -163,7 +162,8 @@ async function realRepo(): Promise<Fixture> {
     service: new GitWorkspaceService({
       repositories: stores.repositories,
       worktrees,
-      gitWorktrees
+      gitWorktrees,
+      sessions: { get: async () => ({ state: 'live' }) }
     }),
     sessionId,
     worktree: worktreePath,
@@ -299,29 +299,6 @@ describe('git workspace: workflow operations', () => {
 })
 
 describe('git workspace: inspection and history operations', () => {
-  it('reads recent commits newest first', async () => {
-    const f = await realRepo()
-    writeFileSync(join(f.worktree, 'a.txt'), 'changed\n')
-    execFileSync('git', [
-      '-C',
-      f.worktree,
-      '-c',
-      'user.email=w83@test',
-      '-c',
-      'user.name=W83',
-      'commit',
-      '-qam',
-      'Fix the fixture'
-    ])
-
-    const history = await f.service.history(f.sessionId, 10)
-    expect(history.status).toBe('ok')
-    if (history.status !== 'ok') return
-    expect(history.branch).toBe(f.branch)
-    expect(history.commits[0]).toMatchObject({ subject: 'Fix the fixture', author: 'W83' })
-    expect(history.commits[0]?.oid).toHaveLength(7)
-  })
-
   it('pages the History feed with full parents and ref decorations', async () => {
     const f = await realRepo()
     git(f.worktree, 'config', 'user.email', 'w83@test')
@@ -1336,39 +1313,6 @@ describe('git workspace: inspection and history operations', () => {
     expect(readFileSync(join(f.worktree, 'a.txt'), 'utf8')).toBe('one\n')
   })
 
-  it('compares HEAD with the exact session baseline, including renames', async () => {
-    const f = await realRepo()
-    execFileSync('git', ['-C', f.worktree, 'mv', 'b.txt', 'renamed.txt'])
-    writeFileSync(join(f.worktree, 'a.txt'), 'changed\n')
-    execFileSync('git', [
-      '-C',
-      f.worktree,
-      '-c',
-      'user.email=w83@test',
-      '-c',
-      'user.name=W83',
-      'commit',
-      '-qam',
-      'Rename and edit'
-    ])
-
-    const compared = await f.service.compare(f.sessionId)
-    expect(compared.status).toBe('ok')
-    if (compared.status !== 'ok') return
-    expect(compared.ahead).toBe(1)
-    expect(compared.behind).toBe(0)
-    expect(compared.files).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          path: 'renamed.txt',
-          oldPath: 'b.txt',
-          status: 'R',
-          additions: expect.any(Number)
-        })
-      ])
-    )
-  })
-
   it('amends the last commit without touching earlier history', async () => {
     const f = await realRepo()
     writeFileSync(join(f.worktree, 'b.txt'), 'changed\n')
@@ -1528,31 +1472,6 @@ describe('git workspace: inspection and history operations', () => {
     expect(fetched).toMatchObject({ status: 'ok', remote: 'origin' })
   })
 
-  it('lists refs and worktrees for the branch and remote surfaces', async () => {
-    const f = await realRepo()
-    git(f.worktree, 'branch', 'other')
-
-    const refs = await f.service.refs(f.sessionId)
-    expect(refs.status).toBe('ok')
-    if (refs.status === 'ok') {
-      expect(refs.refs.filter((ref) => ref.kind === 'local').map((ref) => ref.name)).toEqual(
-        expect.arrayContaining(['main', 'other', f.branch])
-      )
-      expect(refs.refs.find((ref) => ref.current)?.name).toBe(f.branch)
-    }
-
-    const worktrees = await f.service.worktrees(f.sessionId)
-    expect(worktrees.status).toBe('ok')
-    if (worktrees.status === 'ok') {
-      expect(
-        worktrees.worktrees.some((entry) => samePathResolved(entry.path, f.worktree))
-      ).toBe(true)
-      const entry = worktrees.worktrees.find((candidate) => candidate.branch === f.branch)
-      expect(entry).toBeDefined()
-      expect(samePathResolved(entry!.path, f.worktree)).toBe(true)
-    }
-  })
-
   it('resolves the local worktree and Git directory for the watcher', async () => {
     const f = await realRepo()
     const details = await f.service.watchTargetDetails(f.sessionId)
@@ -1561,10 +1480,6 @@ describe('git workspace: inspection and history operations', () => {
       target: { kind: 'local' }
     })
     expect(details?.gitDir.endsWith('.git')).toBe(true)
-    expect(await f.service.watchTarget(f.sessionId)).toEqual({
-      worktreePath: f.worktree,
-      gitDir: details?.gitDir
-    })
   })
 
   it('reports an in-progress merge marker from the common Git directory', async () => {

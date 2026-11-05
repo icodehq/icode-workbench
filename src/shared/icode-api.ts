@@ -22,10 +22,8 @@ import type {
   terminalWriteInputSchema
 } from './schemas/ipc'
 import type { clearActivityUnreadInputSchema } from './schemas/activity'
-import type {
-  reviewAreaDiffInputSchema,
-  ReviewDiffResult
-} from './schemas/review'
+import type { GitCommandInput, GitCommandName } from './ipc/git-commands'
+import type { ChangeListResult, FileDiffResult } from './schemas/changes'
 import type {
   filesCreateInputSchema,
   filesListInputSchema,
@@ -34,51 +32,6 @@ import type {
   filesRenameInputSchema,
   filesSearchInputSchema,
   filesWriteInputSchema,
-  gitAddRemoteInputSchema,
-  gitAmendInputSchema,
-  gitPullInputSchema,
-  gitBlameInputSchema,
-  gitBranchesInputSchema,
-  gitCommitInputSchema,
-  gitCommitDetailInputSchema,
-  gitCancelStatusInputSchema,
-  gitCommitActionInputSchema,
-  gitCreateBranchInputSchema,
-  gitCheckoutRefInputSchema,
-  gitCreateTagInputSchema,
-  gitDeleteBranchInputSchema,
-  gitDeleteTagInputSchema,
-  gitMergeBranchInputSchema,
-  gitRebaseBranchInputSchema,
-  gitRenameBranchInputSchema,
-  gitResetInputSchema,
-  gitDiscardPathInputSchema,
-  gitDiscardPathsInputSchema,
-  gitFetchRemoteInputSchema,
-  gitFileAtRevisionInputSchema,
-  gitIndexFileInputSchema,
-  gitApplyPatchInputSchema,
-  gitConflictFileInputSchema,
-  gitResolveConflictInputSchema,
-  gitStashPushInputSchema,
-  gitStashTargetInputSchema,
-  gitStashActionInputSchema,
-  gitWorktreeActionInputSchema,
-  gitSubmoduleActionInputSchema,
-  gitHistoryInputSchema,
-  gitLogInputSchema,
-  gitOperationActionInputSchema,
-  gitOperationStateInputSchema,
-  gitRangeDiffInputSchema,
-  gitRevisionFileDiffInputSchema,
-  gitWatchStatusInputSchema,
-  gitStageAllInputSchema,
-  gitRemoteOpInputSchema,
-  gitRemoveRemoteInputSchema,
-  gitSetPathStagedInputSchema,
-  gitSetUpstreamInputSchema,
-  gitSetPathsStagedInputSchema,
-  gitStatusInputSchema,
   scheduleCreateInputSchema,
   scheduleEnabledInputSchema,
   scheduleIdInputSchema,
@@ -91,9 +44,7 @@ import type {
   taskListInputSchema,
   taskRecordSchema,
   taskScheduleSchema,
-  taskSettingsInputSchema,
-  gitSwitchBranchInputSchema,
-  gitUnstageAllInputSchema
+  taskSettingsInputSchema
 } from './schemas/workspace'
 import type { FileContent, FileListing, FileSearchResult } from './domain/workspace-files'
 import type {
@@ -134,6 +85,80 @@ export type RuntimeInfo = {
   node: string
   platform: string
   packaged: boolean
+}
+
+/**
+ * The result payload of every Git command, keyed by the shared command name.
+ * The renderer API is a mapped type over this map and `GIT_COMMAND_INPUTS`, so
+ * adding a command does not require editing another interface.
+ */
+export type GitCommandResultMap = {
+  status: GitStatusPayload
+  changeDiff: FileDiffResult
+  sessionChanges: ChangeListResult
+  operationState: GitOperationStatePayload
+  continueOperation: GitOperationActionPayload
+  abortOperation: GitOperationActionPayload
+  rangeDiff: GitRangeDiffPayload
+  watchStatus: { watching: boolean; reason?: GitWatchUnavailableReason }
+  commit: GitCommitPayload
+  setPathStaged: GitOpPayload
+  setPathsStaged: GitBatchPayload
+  discardPaths: GitBatchPayload
+  branches: GitBranchesPayload
+  switchBranch: GitBranchPayload
+  createBranch: GitBranchPayload
+  createTag: GitTagPayload
+  deleteTag: GitTagPayload
+  tags: GitTagsPayload
+  checkoutRef: GitCheckoutRefPayload
+  fileAtRevision: GitFileAtRevisionPayload
+  indexFile: GitIndexFilePayload
+  applyPatch: GitApplyPatchPayload
+  conflictFile: GitConflictFilePayload
+  resolveConflict: GitResolveConflictPayload
+  stashList: GitStashListPayload
+  stashPush: GitStashPushPayload
+  stashDiff: GitStashDiffPayload
+  stashAction: GitStashActionPayload
+  worktreeList: GitWorktreeListPayload
+  worktreeAction: GitWorktreeActionPayload
+  submoduleList: GitSubmoduleListPayload
+  submoduleAction: GitSubmoduleActionPayload
+  blame: GitBlamePayload
+  renameBranch: GitRenameBranchPayload
+  deleteBranch: GitBranchPayload
+  mergeBranch: GitBranchPayload
+  rebaseBranch: GitBranchPayload
+  cherryPick: GitCommitActionPayload
+  revert: GitCommitActionPayload
+  reset: GitResetPayload
+  push: GitBranchPayload
+  pull: GitBranchPayload
+  publish: GitBranchPayload
+  fetch: GitFetchPayload
+  remotes: GitRemotesPayload
+  fetchRemote: GitFetchPayload
+  addRemote: GitRemoteMutationPayload
+  removeRemote: GitRemoteMutationPayload
+  pushTags: GitPushTagsPayload
+  forcePush: GitBranchPayload
+  remoteBranches: GitRemoteBranchesPayload
+  setUpstream: GitBranchPayload
+  amend: GitCommitPayload
+  log: GitLogPayload
+  commitDetail: GitCommitDetailPayload
+  revisionFileDiff: GitRevisionFileDiffPayload
+}
+
+/** One call per Git command, with inputs and results derived from the registry. */
+export type GitApi = {
+  [K in GitCommandName]: (
+    input: GitCommandInput<K>
+  ) => Promise<IpcResult<GitCommandResultMap[K]>>
+} & {
+  /** Coalesced worktree revisions; the listener re-reads status and diffs. */
+  onStatusChange: (listener: (event: GitStatusWatchEvent) => void) => () => void
 }
 
 /**
@@ -207,23 +232,12 @@ export type IcodeProductApi = {
     list: (input: z.infer<typeof listBranchesInputSchema>) => Promise<IpcResult<OwnedBranchSummary[]>>
     remove: (input: z.infer<typeof removeBranchInputSchema>) => Promise<IpcResult<RemoveBranchResult>>
   }
-  /**
-   * Read-only review of a session's changes since its persisted baseline.
-   * Both calls resolve with a truthful `unavailable` result when no review is
-   * possible; an IpcResult error is reserved for transport or invalid input.
-   */
   activity: {
     /** Snapshot of per-session activity for the sessions this window knows. */
     list: () => Promise<IpcResult<Array<{ sessionId: string; activity: ActivitySummaryPayload }>>>
     clearUnread: (
       input: z.infer<typeof clearActivityUnreadInputSchema>
     ) => Promise<IpcResult<boolean>>
-  }
-  review: {
-    /** One side of the working tree: HEAD→index, index→worktree, or untracked. */
-    areaDiff: (
-      input: z.infer<typeof reviewAreaDiffInputSchema>
-    ) => Promise<IpcResult<ReviewDiffResult>>
   }
   /**
    * Browsing, editing and search inside the selected session's worktree.
@@ -253,174 +267,7 @@ export type IcodeProductApi = {
     ) => Promise<IpcResult<FilesMutatePayload>>
   }
   /** Worktree-scoped Git state and the common change operations. */
-  git: {
-    status: (input: z.infer<typeof gitStatusInputSchema>) => Promise<IpcResult<GitStatusPayload>>
-    cancelStatus: (
-      input: z.infer<typeof gitCancelStatusInputSchema>
-    ) => Promise<IpcResult<{ cancelled: boolean }>>
-    operationState: (
-      input: z.infer<typeof gitOperationStateInputSchema>
-    ) => Promise<IpcResult<GitOperationStatePayload>>
-    continueOperation: (
-      input: z.infer<typeof gitOperationActionInputSchema>
-    ) => Promise<IpcResult<GitOperationActionPayload>>
-    abortOperation: (
-      input: z.infer<typeof gitOperationActionInputSchema>
-    ) => Promise<IpcResult<GitOperationActionPayload>>
-    rangeDiff: (
-      input: z.infer<typeof gitRangeDiffInputSchema>
-    ) => Promise<IpcResult<GitRangeDiffPayload>>
-    /** Enables live worktree watching only while Changes is visible. */
-    watchStatus: (
-      input: z.infer<typeof gitWatchStatusInputSchema>
-    ) => Promise<IpcResult<{ watching: boolean; reason?: GitWatchUnavailableReason }>>
-    /** Coalesced worktree revisions; the listener re-reads status and diffs. */
-    onStatusChange: (listener: (event: GitStatusWatchEvent) => void) => () => void
-    stageAll: (
-      input: z.infer<typeof gitStageAllInputSchema>
-    ) => Promise<IpcResult<GitOpPayload>>
-    unstageAll: (
-      input: z.infer<typeof gitUnstageAllInputSchema>
-    ) => Promise<IpcResult<GitOpPayload>>
-    commit: (
-      input: z.infer<typeof gitCommitInputSchema>
-    ) => Promise<IpcResult<GitCommitPayload>>
-    discardPath: (
-      input: z.infer<typeof gitDiscardPathInputSchema>
-    ) => Promise<IpcResult<{ status: 'ok'; restored: boolean } | WorkspaceUnavailablePayload>>
-    setPathStaged: (
-      input: z.infer<typeof gitSetPathStagedInputSchema>
-    ) => Promise<IpcResult<GitOpPayload>>
-    setPathsStaged: (
-      input: z.infer<typeof gitSetPathsStagedInputSchema>
-    ) => Promise<IpcResult<GitBatchPayload>>
-    discardPaths: (
-      input: z.infer<typeof gitDiscardPathsInputSchema>
-    ) => Promise<IpcResult<GitBatchPayload>>
-    branches: (
-      input: z.infer<typeof gitBranchesInputSchema>
-    ) => Promise<IpcResult<GitBranchesPayload>>
-    switchBranch: (
-      input: z.infer<typeof gitSwitchBranchInputSchema>
-    ) => Promise<IpcResult<GitBranchPayload>>
-    createBranch: (
-      input: z.infer<typeof gitCreateBranchInputSchema>
-    ) => Promise<IpcResult<GitBranchPayload>>
-    createTag: (
-      input: z.infer<typeof gitCreateTagInputSchema>
-    ) => Promise<IpcResult<GitTagPayload>>
-    deleteTag: (
-      input: z.infer<typeof gitDeleteTagInputSchema>
-    ) => Promise<IpcResult<GitTagPayload>>
-    tags: (
-      input: z.infer<typeof gitRemoteOpInputSchema>
-    ) => Promise<IpcResult<GitTagsPayload>>
-    checkoutRef: (
-      input: z.infer<typeof gitCheckoutRefInputSchema>
-    ) => Promise<IpcResult<GitCheckoutRefPayload>>
-    fileAtRevision: (
-      input: z.infer<typeof gitFileAtRevisionInputSchema>
-    ) => Promise<IpcResult<GitFileAtRevisionPayload>>
-    /** Reads stage 0 of one path from the index for a split working-tree diff. */
-    indexFile: (
-      input: z.infer<typeof gitIndexFileInputSchema>
-    ) => Promise<IpcResult<GitIndexFilePayload>>
-    /** Stages or unstages one hunk by applying its patch to the index. */
-    applyPatch: (
-      input: z.infer<typeof gitApplyPatchInputSchema>
-    ) => Promise<IpcResult<GitApplyPatchPayload>>
-    /** Reads the three index stages of a conflicted path. */
-    conflictFile: (
-      input: z.infer<typeof gitConflictFileInputSchema>
-    ) => Promise<IpcResult<GitConflictFilePayload>>
-    /** Adds a fully resolved worktree file to the index. */
-    resolveConflict: (
-      input: z.infer<typeof gitResolveConflictInputSchema>
-    ) => Promise<IpcResult<GitResolveConflictPayload>>
-    stashList: (
-      input: z.infer<typeof gitRemoteOpInputSchema>
-    ) => Promise<IpcResult<GitStashListPayload>>
-    stashPush: (
-      input: z.infer<typeof gitStashPushInputSchema>
-    ) => Promise<IpcResult<GitStashPushPayload>>
-    stashDiff: (
-      input: z.infer<typeof gitStashTargetInputSchema>
-    ) => Promise<IpcResult<GitStashDiffPayload>>
-    stashAction: (
-      input: z.infer<typeof gitStashActionInputSchema>
-    ) => Promise<IpcResult<GitStashActionPayload>>
-    worktreeList: (
-      input: z.infer<typeof gitRemoteOpInputSchema>
-    ) => Promise<IpcResult<GitWorktreeListPayload>>
-    worktreeAction: (
-      input: z.infer<typeof gitWorktreeActionInputSchema>
-    ) => Promise<IpcResult<GitWorktreeActionPayload>>
-    submoduleList: (
-      input: z.infer<typeof gitRemoteOpInputSchema>
-    ) => Promise<IpcResult<GitSubmoduleListPayload>>
-    submoduleAction: (
-      input: z.infer<typeof gitSubmoduleActionInputSchema>
-    ) => Promise<IpcResult<GitSubmoduleActionPayload>>
-    blame: (input: z.infer<typeof gitBlameInputSchema>) => Promise<IpcResult<GitBlamePayload>>
-    renameBranch: (
-      input: z.infer<typeof gitRenameBranchInputSchema>
-    ) => Promise<IpcResult<GitRenameBranchPayload>>
-    deleteBranch: (
-      input: z.infer<typeof gitDeleteBranchInputSchema>
-    ) => Promise<IpcResult<GitBranchPayload>>
-    mergeBranch: (
-      input: z.infer<typeof gitMergeBranchInputSchema>
-    ) => Promise<IpcResult<GitBranchPayload>>
-    rebaseBranch: (
-      input: z.infer<typeof gitRebaseBranchInputSchema>
-    ) => Promise<IpcResult<GitBranchPayload>>
-    cherryPick: (
-      input: z.infer<typeof gitCommitActionInputSchema>
-    ) => Promise<IpcResult<GitCommitActionPayload>>
-    revert: (
-      input: z.infer<typeof gitCommitActionInputSchema>
-    ) => Promise<IpcResult<GitCommitActionPayload>>
-    reset: (input: z.infer<typeof gitResetInputSchema>) => Promise<IpcResult<GitResetPayload>>
-    push: (input: z.infer<typeof gitRemoteOpInputSchema>) => Promise<IpcResult<GitBranchPayload>>
-    pull: (input: z.infer<typeof gitPullInputSchema>) => Promise<IpcResult<GitBranchPayload>>
-    publish: (input: z.infer<typeof gitRemoteOpInputSchema>) => Promise<IpcResult<GitBranchPayload>>
-    fetch: (input: z.infer<typeof gitRemoteOpInputSchema>) => Promise<IpcResult<GitFetchPayload>>
-    remotes: (
-      input: z.infer<typeof gitRemoteOpInputSchema>
-    ) => Promise<IpcResult<GitRemotesPayload>>
-    fetchRemote: (
-      input: z.infer<typeof gitFetchRemoteInputSchema>
-    ) => Promise<IpcResult<GitFetchPayload>>
-    addRemote: (
-      input: z.infer<typeof gitAddRemoteInputSchema>
-    ) => Promise<IpcResult<GitRemoteMutationPayload>>
-    removeRemote: (
-      input: z.infer<typeof gitRemoveRemoteInputSchema>
-    ) => Promise<IpcResult<GitRemoteMutationPayload>>
-    pushTags: (
-      input: z.infer<typeof gitRemoteOpInputSchema>
-    ) => Promise<IpcResult<GitPushTagsPayload>>
-    forcePush: (input: z.infer<typeof gitRemoteOpInputSchema>) => Promise<IpcResult<GitBranchPayload>>
-    remoteBranches: (
-      input: z.infer<typeof gitRemoteOpInputSchema>
-    ) => Promise<IpcResult<GitRemoteBranchesPayload>>
-    setUpstream: (
-      input: z.infer<typeof gitSetUpstreamInputSchema>
-    ) => Promise<IpcResult<GitBranchPayload>>
-    amend: (input: z.infer<typeof gitAmendInputSchema>) => Promise<IpcResult<GitCommitPayload>>
-    history: (input: z.infer<typeof gitHistoryInputSchema>) => Promise<IpcResult<GitHistoryPayload>>
-    /** Paginated History feed with parents and ref decorations. */
-    log: (input: z.infer<typeof gitLogInputSchema>) => Promise<IpcResult<GitLogPayload>>
-    /** One commit plus its first-parent file comparison. */
-    commitDetail: (
-      input: z.infer<typeof gitCommitDetailInputSchema>
-    ) => Promise<IpcResult<GitCommitDetailPayload>>
-    /** Unified patch for one file between two revisions. */
-    revisionFileDiff: (
-      input: z.infer<typeof gitRevisionFileDiffInputSchema>
-    ) => Promise<IpcResult<GitRevisionFileDiffPayload>>
-    compare: (input: z.infer<typeof gitRemoteOpInputSchema>) => Promise<IpcResult<GitComparePayload>>
-  }
+  git: GitApi
   harness: {
     /** `repoId` asks for that repository's execution target; omit for this machine. */
     list: (
@@ -449,7 +296,7 @@ export type IcodeProductApi = {
       cancel: (input: z.infer<typeof taskIdInputSchema>) => Promise<IpcResult<TaskRecordPayload>>
       retry: (input: z.infer<typeof taskIdInputSchema>) => Promise<IpcResult<TaskRecordPayload>>
       history: (input: z.infer<typeof taskIdInputSchema>) => Promise<IpcResult<TaskRecordPayload[]>>
-      /** The changes belonging to this task's own session, from the review layer. */
+      /** The changes belonging to this task's own session, from the Git engine. */
       changes: (input: z.infer<typeof taskIdInputSchema>) => Promise<IpcResult<TaskChangesPayload>>
       decideReview: (
         input: z.infer<typeof taskDecideReviewInputSchema>
@@ -564,15 +411,6 @@ export type GitOperationStatePayload =
 export type GitOperationActionPayload =
   | { status: 'ok'; operation: GitOperationKind }
   | WorkspaceUnavailablePayload
-export type GitCommitSummary = {
-  oid: string
-  subject: string
-  author: string
-  when: string
-}
-export type GitHistoryPayload =
-  | { status: 'ok'; branch: string | null; commits: GitCommitSummary[] }
-  | WorkspaceUnavailablePayload
 export type GitLogPayload = ({ status: 'ok' } & GitLogPage) | WorkspaceUnavailablePayload
 export type GitCommitDetailPayload =
   | ({ status: 'ok' } & GitCommitDetail)
@@ -587,24 +425,6 @@ export type GitRevisionFileDiffPayload =
       deletions: number | null
       fromOid: string
       toOid: string
-    }
-  | WorkspaceUnavailablePayload
-export type GitCompareFile = {
-  path: string
-  oldPath: string | null
-  status: string
-  additions: number | null
-  deletions: number | null
-  binary: boolean
-}
-export type GitComparePayload =
-  | {
-      status: 'ok'
-      baseOid: string
-      ahead: number
-      behind: number
-      files: GitCompareFile[]
-      truncated: boolean
     }
   | WorkspaceUnavailablePayload
 export type GitFetchPayload =
