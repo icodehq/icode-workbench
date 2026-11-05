@@ -21,7 +21,7 @@ export default function AppCloseGuard(): React.JSX.Element | null {
       void window.icode.window.respondClose('ack')
       const summary = openFilesStore.dirtySummary()
       if (summary.files === 0) {
-        void window.icode.window.respondClose('close')
+        void openFilesStore.flush().then(() => window.icode.window.respondClose('close'))
         return
       }
       setFailure(null)
@@ -61,11 +61,17 @@ export default function AppCloseGuard(): React.JSX.Element | null {
       openFilesStore.markSaved(tab.sessionId, tab.path, result.value.etag)
     }
     setBusy(false)
+    await openFilesStore.flush()
     await window.icode.window.respondClose('close')
   }
 
   const discardAndClose = async (): Promise<void> => {
     setBusy(true)
+    // Discard means the dirty buffers must not reappear through hot exit.
+    for (const tab of openFilesStore.allDirtyTabs()) {
+      openFilesStore.closeTab(tab.sessionId, tab.path)
+    }
+    await openFilesStore.flush()
     await window.icode.window.respondClose('close')
     setBusy(false)
   }

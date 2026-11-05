@@ -119,6 +119,30 @@ export type FileBatchResult = {
   results: FileBatchEntry[]
 }
 
+/** One deleted path held in the app-managed session trash. */
+export type FileTrashEntry = {
+  /** Original worktree-relative path. */
+  path: string
+  /** Opaque item name inside the operation directory. */
+  name: string
+  kind: 'file' | 'directory'
+}
+
+/** A restorable delete batch. */
+export type FileTrashOperation = {
+  opId: string
+  createdAt: number
+  entries: FileTrashEntry[]
+}
+
+export type FileTrashResult = {
+  /** Null when nothing could be moved to trash. */
+  opId: string | null
+  results: FileBatchEntry[]
+  /** The successful paths, for the notice/banner. */
+  entries: FileTrashEntry[]
+}
+
 export type FileSearchMatch = {
   path: string
   /** 1-based line number. */

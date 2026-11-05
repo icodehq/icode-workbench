@@ -6,6 +6,8 @@ export type TreeLayoutOptions = {
   sort: EntrySortOptions
   compactFolders: boolean
   fileNesting: boolean
+  /** Extra `parent -> child, child` lines; empty uses only the built-ins. */
+  nestingPatterns?: readonly string[]
   /** Parent file paths whose nested children are collapsed. */
   collapsedNested: ReadonlySet<string>
 }
@@ -27,8 +29,8 @@ function nameOf(path: string): string {
   return index === -1 ? path : path.slice(index + 1)
 }
 
-/** The bounded default nesting patterns; custom patterns are Phase D. */
-export function nestedNamesFor(parentName: string): string[] {
+/** The bounded default nesting patterns; custom patterns extend these. */
+function builtInNestedNames(parentName: string): string[] {
   const ts = /^(.+)\.ts$/u.exec(parentName)
   if (ts !== null) {
     const stem = ts[1] ?? ''
@@ -51,13 +53,95 @@ export function nestedNamesFor(parentName: string): string[] {
   return []
 }
 
+export type NestingPair = {
+  parent: string
+  children: string[]
+}
+
+/**
+ * Parses `*.ts -> $1.test.ts, $1.spec.ts` lines.
+ *
+ * Only one `*` capture is supported in the parent; `$1` in a child is replaced
+ * with it. Invalid lines are returned as errors and ignored by the tree.
+ */
+export function parseNestingPatterns(
+  lines: readonly string[]
+): { pairs: NestingPair[]; errors: string[] } {
+  const pairs: NestingPair[] = []
+  const errors: string[] = []
+  for (const [index, raw] of lines.entries()) {
+    const line = raw.trim()
+    if (line === '') continue
+    const arrow = line.indexOf('->')
+    if (arrow === -1) {
+      errors.push(`Line ${String(index + 1)}: use "parent -> child".`)
+      continue
+    }
+    const parent = line.slice(0, arrow).trim()
+    const children = line
+      .slice(arrow + 2)
+      .split(',')
+      .map((child) => child.trim())
+      .filter((child) => child.length > 0)
+    if (parent === '' || children.length === 0) {
+      errors.push(`Line ${String(index + 1)}: parent and child are required.`)
+      continue
+    }
+    if ((parent.match(/\*/gu) ?? []).length > 1) {
+      errors.push(`Line ${String(index + 1)}: use at most one * in the parent.`)
+      continue
+    }
+    if (
+      !parent.includes('*') &&
+      children.some((child) => child.includes('$1'))
+    ) {
+      errors.push(`Line ${String(index + 1)}: $1 requires a * in the parent.`)
+      continue
+    }
+    pairs.push({ parent, children })
+  }
+  return { pairs, errors }
+}
+
+function parentCapture(pattern: string, name: string): string | null {
+  const star = pattern.indexOf('*')
+  if (star === -1) return pattern === name ? '' : null
+  const before = pattern.slice(0, star)
+  const after = pattern.slice(star + 1)
+  if (!name.startsWith(before) || !name.endsWith(after)) return null
+  const capture = name.slice(before.length, name.length - after.length)
+  return capture.includes('/') ? null : capture
+}
+
+export function nestedNamesFor(
+  parentName: string,
+  customPatterns: readonly string[] = []
+): string[] {
+  const names = new Set(builtInNestedNames(parentName))
+  if (customPatterns.length === 0) return [...names]
+  const { pairs } = parseNestingPatterns(customPatterns)
+  for (const pair of pairs) {
+    const capture = parentCapture(pair.parent, parentName)
+    if (capture === null) continue
+    for (const child of pair.children) {
+      const name = child.replaceAll('$1', capture)
+      if (name !== parentName) names.add(name)
+    }
+  }
+  return [...names]
+}
+
 type DirectoryLayout = {
   top: FileEntry[]
   nestedByParent: Map<string, FileEntry[]>
   nested: Set<string>
 }
 
-function layoutDirectory(entries: readonly FileEntry[], fileNesting: boolean): DirectoryLayout {
+function layoutDirectory(
+  entries: readonly FileEntry[],
+  fileNesting: boolean,
+  customPatterns: readonly string[]
+): DirectoryLayout {
   if (!fileNesting) {
     return {
       top: [...entries],
@@ -71,7 +155,7 @@ function layoutDirectory(entries: readonly FileEntry[], fileNesting: boolean): D
   for (const parent of entries) {
     if (parent.kind !== 'file' || assigned.has(parent.path)) continue
     const children: FileEntry[] = []
-    for (const name of nestedNamesFor(parent.name)) {
+    for (const name of nestedNamesFor(parent.name, customPatterns)) {
       if (name === parent.name) continue
       const child = byName.get(name)
       if (child === undefined || child.kind !== 'file' || child === parent) continue
@@ -107,7 +191,11 @@ export function buildTreeRows(
 
   const walk = (path: string, depth: number): void => {
     const sorted = sortFileEntries(children[path] ?? [], options.sort)
-    const layout = layoutDirectory(sorted, options.fileNesting)
+    const layout = layoutDirectory(
+      sorted,
+      options.fileNesting,
+      options.nestingPatterns ?? []
+    )
 
     for (const entry of layout.top) {
       if (entry.kind === 'directory') {

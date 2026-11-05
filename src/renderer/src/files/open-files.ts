@@ -1,13 +1,14 @@
 import { useCallback, useSyncExternalStore } from 'react'
+import { z } from 'zod'
 
 /**
  * Open files belong to a session, not to the Files panel.
  *
  * `SessionWorkspace` keeps its view state but the Files panel is re-created
  * when the active session changes. A tiny external store keeps each session's
- * tabs, unsaved text and active tab alive across that switch, the same way
- * review drafts survive their panel. It is deliberately in-memory: unsaved
- * text is never invented from persistence after a restart.
+ * tabs, unsaved text and active tab alive across that switch. Phase D adds a
+ * debounced hot-exit backup in IndexedDB so a normal app restart restores the
+ * same tabs and dirty buffers; the in-memory store remains authoritative.
  */
 
 export type OpenFileTab = {
@@ -49,6 +50,95 @@ const EMPTY_STATE: FilesSessionState = Object.freeze({
  */
 export const FILES_MAX_BUFFERED_CHARS = 16 * 1024 * 1024
 
+/** Hot-exit backup contract. Only this version is loaded. */
+export const FILES_TABS_STORAGE_KEY = 'icode.files.tabs.v1'
+
+export type OpenFilesPersistence = {
+  load(): Promise<unknown>
+  save(value: unknown): Promise<void>
+}
+
+const tabSchema = z.object({
+  path: z.string().min(1).max(4096),
+  text: z.string().max(FILES_MAX_BUFFERED_CHARS),
+  savedText: z.string().max(FILES_MAX_BUFFERED_CHARS),
+  original: z.string().max(FILES_MAX_BUFFERED_CHARS).nullable(),
+  etag: z.string().max(512).nullable(),
+  disk: z.enum(['current', 'changed', 'deleted']),
+  load: z.enum(['loading', 'ready', 'failed']),
+  failure: z.string().max(2000).nullable()
+})
+
+const stateSchema = z.object({
+  tabs: z.array(tabSchema).max(200),
+  activePath: z.string().max(4096).nullable()
+})
+
+const payloadSchema = z.object({
+  version: z.literal(1),
+  sessions: z.record(z.string(), stateSchema)
+})
+
+export type PersistedOpenFiles = z.infer<typeof payloadSchema>
+
+/** Turns a stored payload into usable state, dropping malformed tabs whole. */
+export function parsePersistedOpenFiles(raw: unknown): Map<string, FilesSessionState> {
+  const parsed = payloadSchema.safeParse(raw)
+  if (!parsed.success) return new Map()
+  const result = new Map<string, FilesSessionState>()
+  for (const [sessionId, state] of Object.entries(parsed.data.sessions)) {
+    const tabs = state.tabs.map((tab) =>
+      tab.load === 'loading'
+        ? {
+            ...tab,
+            load: 'failed' as const,
+            failure: 'The editor closed before this file finished loading. Reopen it to retry.'
+          }
+        : tab
+    )
+    result.set(sessionId, { tabs, activePath: state.activePath })
+  }
+  return result
+}
+
+/**
+ * IndexedDB has the quota for a real hot-exit buffer; localStorage does not.
+ * The singleton still works without it (tests, non-browser environments).
+ */
+export function createIndexedDbPersistence(): OpenFilesPersistence | null {
+  if (typeof indexedDB === 'undefined') return null
+  const database = new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open('icode-files-hot-exit', 1)
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains('state')) {
+        request.result.createObjectStore('state')
+      }
+    }
+    request.onsuccess = () => resolve(request.result)
+    request.onerror = () => reject(request.error ?? new Error('IndexedDB unavailable'))
+  })
+  return {
+    async load() {
+      const db = await database
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction('state', 'readonly')
+        const request = transaction.objectStore('state').get(FILES_TABS_STORAGE_KEY)
+        request.onsuccess = () => resolve(request.result)
+        request.onerror = () => reject(request.error ?? new Error('Hot-exit read failed'))
+      })
+    },
+    async save(value) {
+      const db = await database
+      await new Promise<void>((resolve, reject) => {
+        const transaction = db.transaction('state', 'readwrite')
+        transaction.objectStore('state').put(value, FILES_TABS_STORAGE_KEY)
+        transaction.oncomplete = () => resolve()
+        transaction.onerror = () => reject(transaction.error ?? new Error('Hot-exit write failed'))
+      })
+    }
+  }
+}
+
 function isDirty(tab: OpenFileTab): boolean {
   return tab.text !== tab.savedText
 }
@@ -71,6 +161,73 @@ function replaceTab(
 export class OpenFilesStore {
   private readonly states = new Map<string, FilesSessionState>()
   private readonly listeners = new Set<() => void>()
+  private saveTimer: ReturnType<typeof setTimeout> | null = null
+  private saveChain: Promise<void> = Promise.resolve()
+  private warning: string | null = null
+  private retained: ReadonlySet<string> | null = null
+  private readonly hydration: Promise<void>
+
+  constructor(
+    private readonly persistence: OpenFilesPersistence | null = null,
+    private readonly saveDelayMs = 300
+  ) {
+    this.hydration = persistence === null ? Promise.resolve() : this.hydrate()
+  }
+
+  private async hydrate(): Promise<void> {
+    if (this.persistence === null) return
+    try {
+      const loaded = parsePersistedOpenFiles(await this.persistence.load())
+      let changed = false
+      for (const [sessionId, state] of loaded) {
+        if (this.states.has(sessionId) || state.tabs.length === 0) continue
+        if (this.retained !== null && !this.retained.has(sessionId)) continue
+        this.states.set(sessionId, state)
+        changed = true
+      }
+      if (changed) this.emit()
+    } catch (error) {
+      this.warning = `Open tabs could not be restored: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+      this.notifyListeners()
+    }
+  }
+
+  /** Reports a hot-exit problem once; Files shows it as a quiet banner. */
+  takeHotExitWarning(): string | null {
+    const value = this.warning
+    this.warning = null
+    return value
+  }
+
+  /** Persists immediately; `pagehide` calls this so the last keystroke survives. */
+  async flush(): Promise<void> {
+    if (this.persistence === null) return
+    // Never overwrite the stored payload before this window has read it.
+    await this.hydration
+    if (this.saveTimer !== null) {
+      clearTimeout(this.saveTimer)
+      this.saveTimer = null
+    }
+    const payload: PersistedOpenFiles = {
+      version: 1,
+      sessions: Object.fromEntries(this.states)
+    }
+    this.saveChain = this.saveChain
+      .catch(() => undefined)
+      .then(async () => {
+        try {
+          await this.persistence!.save(payload)
+        } catch (error) {
+          this.warning = `Open tabs could not be backed up: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+          this.notifyListeners()
+        }
+      })
+    await this.saveChain
+  }
 
   get(sessionId: string): FilesSessionState {
     return this.states.get(sessionId) ?? EMPTY_STATE
@@ -272,6 +429,7 @@ export class OpenFilesStore {
   }
 
   retain(sessionIds: ReadonlySet<string>): void {
+    this.retained = sessionIds
     let changed = false
     for (const sessionId of [...this.states.keys()]) {
       if (sessionIds.has(sessionId)) continue
@@ -332,12 +490,30 @@ export class OpenFilesStore {
     this.emit()
   }
 
-  private emit(): void {
+  private notifyListeners(): void {
     for (const listener of this.listeners) listener()
+  }
+
+  private emit(): void {
+    this.notifyListeners()
+    if (this.persistence === null) return
+    if (this.saveTimer !== null) clearTimeout(this.saveTimer)
+    this.saveTimer = setTimeout(() => {
+      this.saveTimer = null
+      void this.flush()
+    }, this.saveDelayMs)
   }
 }
 
-export const openFilesStore = new OpenFilesStore()
+export const openFilesStore = new OpenFilesStore(createIndexedDbPersistence())
+
+if (typeof window !== 'undefined') {
+  const flush = (): void => {
+    void openFilesStore.flush()
+  }
+  window.addEventListener('pagehide', flush)
+  window.addEventListener('beforeunload', flush)
+}
 
 export function useSessionFiles(sessionId: string): FilesSessionState {
   const subscribe = useCallback((listener: () => void) => openFilesStore.subscribe(listener), [])

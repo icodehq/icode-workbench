@@ -1,6 +1,6 @@
 import type { RepositoryStore } from '../persistence/repository-store'
 import type { WorktreeStore } from '../persistence/worktree-store'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import {
   normalizeRelativePath,
   parentPath,
@@ -12,12 +12,16 @@ import {
   type FileReplaceResult,
   type FileSearchOptions,
   type FileSearchResult,
-  type FileStat
+  type FileStat,
+  type FileTrashEntry,
+  type FileTrashOperation,
+  type FileTrashResult
 } from '../../shared/domain/workspace-files'
 import { replaceLiteralAll } from '../../shared/domain/text-search'
 import { makeAppError } from '../../shared/domain/errors'
 import { createLocalFileBackend, FileAccessError, type FileBackend } from './local-file-backend'
 import { createGuestFileBackend } from './guest-file-backend'
+import { FilesTrashState } from './files-trash-state'
 import type { GitWorktreeService } from '../worktrees/git-worktree-service'
 import { SessionServiceError } from '../sessions/session-errors'
 import type { SessionService } from '../sessions/session-service'
@@ -28,6 +32,8 @@ export type WorkspaceFilesDeps = {
   worktrees: WorktreeStore
   gitWorktrees: GitWorktreeService
   runner: import('../wsl/exec').WslCommandRunner
+  /** Controller-side metadata for the app-managed session trash. */
+  trashStateFile?: string
   /** Test seam: forces a backend without a real distro. */
   backendFor?: (worktreePath: string, target: import('../../shared/domain/repository').ExecutionTarget) => FileBackend
 }
@@ -120,8 +126,11 @@ export function incrementCopyName(name: string, isDirectory: boolean, attempt: n
 export class WorkspaceFilesService {
   private readonly backends = new Map<string, FileBackend>()
   private readonly searchControllers = new Map<string, AbortController>()
+  private readonly trashState: FilesTrashState
 
-  constructor(private readonly deps: WorkspaceFilesDeps) {}
+  constructor(private readonly deps: WorkspaceFilesDeps) {
+    this.trashState = new FilesTrashState(deps.trashStateFile ?? null)
+  }
 
   async list(sessionId: string, path: string): Promise<FilesOutcome<FileListing>> {
     const resolved = await this.resolve(sessionId)
@@ -263,6 +272,183 @@ export class WorkspaceFilesService {
       }
     }
     return { status: 'ok', results }
+  }
+
+  /**
+   * Moves paths into the app-managed session trash.
+   *
+   * Metadata is written before any bytes move, so a failed metadata write
+   * aborts the whole request instead of stranding files in an unreachable
+   * directory. Individual host failures leave the rest of the batch restorable.
+   */
+  async trashMany(
+    sessionId: string,
+    paths: readonly string[]
+  ): Promise<FilesOutcome<FileTrashResult>> {
+    const resolved = await this.resolve(sessionId)
+    if (resolved.status !== 'ok') return resolved
+    const normalized = this.normalizeMany(paths)
+    if (normalized.status === 'unavailable') return normalized
+    const sources = collapseDescendantPaths(normalized.paths)
+    const opId = `op-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+    const opDir = this.trashOperationDir(resolved.worktreePath, sessionId, opId)
+    const outcomes = new Map<string, FileBatchEntry>()
+    const entries: FileTrashEntry[] = []
+    for (const path of sources) {
+      try {
+        const info = await resolved.backend.stat(path)
+        if (info.kind !== 'file' && info.kind !== 'directory') {
+          throw new FileAccessError('not-a-file', 'That path is not a file or folder.')
+        }
+        entries.push({ path, name: `item-${String(entries.length)}`, kind: info.kind })
+      } catch (error) {
+        outcomes.set(path, this.batchFailure(path, error))
+      }
+    }
+    if (entries.length === 0) {
+      return {
+        status: 'ok',
+        opId: null,
+        results: sources.map((path) => outcomes.get(path)!),
+        entries: []
+      }
+    }
+    try {
+      await this.trashState.record(sessionId, {
+        opId,
+        createdAt: Date.now(),
+        entries
+      })
+    } catch (error) {
+      return {
+        status: 'unavailable',
+        reason: 'write-failed',
+        detail:
+          error instanceof Error
+            ? `The Trash metadata could not be saved: ${error.message}`
+            : 'The Trash metadata could not be saved.'
+      }
+    }
+
+    const succeeded: FileTrashEntry[] = []
+    for (const entry of entries) {
+      try {
+        await resolved.backend.trash(entry.path, opDir, entry.name)
+        succeeded.push(entry)
+        outcomes.set(entry.path, { path: entry.path, ok: true })
+      } catch (error) {
+        outcomes.set(entry.path, this.batchFailure(entry.path, error))
+      }
+    }
+    await this.trashState.replaceEntries(sessionId, opId, succeeded).catch(() => undefined)
+    if (succeeded.length === 0) {
+      await resolved.backend.discardTrash(opDir).catch(() => undefined)
+      await this.trashState.remove(sessionId, opId).catch(() => undefined)
+    }
+    return {
+      status: 'ok',
+      opId: succeeded.length > 0 ? opId : null,
+      results: sources.map((path) => outcomes.get(path)!),
+      entries: succeeded
+    }
+  }
+
+  /** Restores one trash batch, leaving failed entries retryable in metadata. */
+  async restoreTrash(
+    sessionId: string,
+    opId: string
+  ): Promise<FilesOutcome<FileBatchResult>> {
+    const resolved = await this.resolve(sessionId)
+    if (resolved.status !== 'ok') return resolved
+    const operation = await this.trashState.find(sessionId, opId)
+    if (operation === null || operation.entries.length === 0) {
+      return {
+        status: 'unavailable',
+        reason: 'not-found',
+        detail: 'That deleted batch is no longer in Trash.'
+      }
+    }
+    const opDir = this.trashOperationDir(resolved.worktreePath, sessionId, operation.opId)
+    if (!(await resolved.backend.trashExists(opDir))) {
+      await this.trashState.remove(sessionId, opId).catch(() => undefined)
+      return {
+        status: 'unavailable',
+        reason: 'not-found',
+        detail: 'That deleted batch is no longer in Trash.'
+      }
+    }
+    const results: FileBatchEntry[] = []
+    const remaining: FileTrashEntry[] = []
+    for (const entry of operation.entries) {
+      try {
+        await resolved.backend.restoreTrash(opDir, entry.name, entry.path)
+        results.push({ path: entry.path, ok: true })
+      } catch (error) {
+        results.push(this.batchFailure(entry.path, error))
+        remaining.push(entry)
+      }
+    }
+    await this.trashState.replaceEntries(sessionId, opId, remaining).catch(() => undefined)
+    if (remaining.length === 0) {
+      await resolved.backend.discardTrash(opDir).catch(() => undefined)
+    }
+    return { status: 'ok', results }
+  }
+
+  /** Throws away trash older than seven days for this session. */
+  async purgeTrash(sessionId?: string): Promise<void> {
+    const entries =
+      sessionId === undefined
+        ? await this.trashState.all()
+        : (await this.trashState.list(sessionId)).map((operation) => ({
+            sessionId,
+            operation
+          }))
+    const now = Date.now()
+    for (const { sessionId: id, operation } of entries) {
+      if (now - operation.createdAt < 7 * 24 * 60 * 60 * 1000) continue
+      const resolved = await this.resolve(id)
+      if (resolved.status === 'ok') {
+        await resolved.backend
+          .discardTrash(this.trashOperationDir(resolved.worktreePath, id, operation.opId))
+          .catch(() => undefined)
+        await this.trashState.remove(id, operation.opId).catch(() => undefined)
+      } else if (resolved.reason !== 'worktree-unavailable') {
+        // The worktree is gone or this is not a session worktree; the trash
+        // directory is unreachable and the metadata would otherwise grow.
+        await this.trashState.remove(id, operation.opId).catch(() => undefined)
+      }
+    }
+  }
+
+  async listTrash(
+    sessionId: string
+  ): Promise<FilesOutcome<{ items: FileTrashOperation[] }>> {
+    const resolved = await this.resolve(sessionId)
+    if (resolved.status !== 'ok') return resolved
+    await this.purgeTrash(sessionId)
+    const items = await this.trashState.list(sessionId)
+    const alive: FileTrashOperation[] = []
+    for (const item of items) {
+      if (
+        await resolved.backend
+          .trashExists(this.trashOperationDir(resolved.worktreePath, sessionId, item.opId))
+          .catch(() => false)
+      ) {
+        alive.push(item)
+      } else {
+        await this.trashState.remove(sessionId, item.opId).catch(() => undefined)
+      }
+    }
+    return { status: 'ok', items: alive }
+  }
+
+  private trashOperationDir(
+    worktreePath: string,
+    sessionId: string,
+    opId: string
+  ): string {
+    return join(dirname(worktreePath), '.icode-files-trash', sessionId, opId)
   }
 
   async moveMany(

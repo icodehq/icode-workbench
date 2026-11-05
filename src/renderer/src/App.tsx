@@ -35,6 +35,7 @@ import { setRendererPlatform } from './lib/platform'
 import { harnessLabel, isAgentHarness } from '../../shared/domain/harness'
 import { WorkbenchDraftStore } from './review/drafts'
 import { openFilesStore } from './files/open-files'
+import { pruneTreeStates } from './files/tree-state'
 import { filesClipboardStore } from './files/files-clipboard'
 
 const NEEDS_ORDER = { Answer: 0, Retry: 1, Review: 2 } as const
@@ -92,6 +93,7 @@ export default function App(): React.JSX.Element {
     if (taskSession !== null) ids.add(taskSession.sessionId)
     if (projectSession !== null) ids.add(projectSession.id)
     openFilesStore.retain(ids)
+    pruneTreeStates(ids)
     const clipboard = filesClipboardStore.get()
     if (clipboard !== null && !ids.has(clipboard.sessionId)) filesClipboardStore.clear()
   }, [projectSession, state.activeSessionId, state.boot, state.sessions, taskSession, tasks.tasks])

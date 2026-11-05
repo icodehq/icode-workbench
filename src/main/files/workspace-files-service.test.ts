@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -39,6 +39,7 @@ function service(options: {
   fsThrows?: boolean
   exists?: boolean
   backend?: ReturnType<typeof createLocalFileBackend>
+  trashStateFile?: string
 } = {}) {
   const deps = {
     sessions: {} as never,
@@ -69,6 +70,9 @@ function service(options: {
       }
     } as never,
     runner: {} as never,
+    ...(options.trashStateFile === undefined
+      ? {}
+      : { trashStateFile: options.trashStateFile }),
     ...(options.backend ? { backendFor: () => options.backend! } : {})
   } satisfies WorkspaceFilesDeps
   return new WorkspaceFilesService(deps)
@@ -558,5 +562,164 @@ describe('workspace files: literal replace', () => {
       await svc.replace('ses_x', 'n.+e', 'pin', { regex: true })
     ).toMatchObject({ status: 'unavailable', reason: 'invalid-query' })
     expect(readFileSync(join(root, 'note.txt'), 'utf8')).toBe('needle\n')
+  })
+})
+
+describe('workspace files: app-managed trash', () => {
+  function trashWorkspace() {
+    const parent = mkdtempSync(join(tmpdir(), 'icode-trash-'))
+    const root = join(parent, 'wt')
+    mkdirSync(root)
+    const state = join(parent, 'trash.json')
+    cleanups.push(() => rmSync(parent, { recursive: true, force: true }))
+    const make = () =>
+      service({
+        target: LOCAL,
+        worktreePath: root,
+        backend: createLocalFileBackend(root),
+        trashStateFile: state
+      })
+    return { parent, root, state, make }
+  }
+
+  it('moves files and folders out of the worktree and restores the batch', async () => {
+    const { root, make } = trashWorkspace()
+    writeFileSync(join(root, 'a.txt'), 'alpha\n')
+    mkdirSync(join(root, 'dir'))
+    writeFileSync(join(root, 'dir', 'inner.txt'), 'inner\n')
+    const svc = make()
+
+    const trashed = await svc.trashMany('ses_x', ['a.txt', 'dir'])
+    expect(trashed).toMatchObject({ status: 'ok' })
+    if (trashed.status !== 'ok') return
+    expect(trashed.opId).toBeTruthy()
+    expect(trashed.results.every((entry) => entry.ok)).toBe(true)
+    expect(trashed.entries.map((entry) => entry.path)).toEqual(['dir', 'a.txt'])
+    expect(existsSync(join(root, 'a.txt'))).toBe(false)
+    expect(existsSync(join(root, 'dir'))).toBe(false)
+
+    const listed = await svc.listTrash('ses_x')
+    expect(listed).toMatchObject({ status: 'ok' })
+    if (listed.status === 'ok') {
+      expect(listed.items[0]?.opId).toBe(trashed.opId)
+      expect(listed.items[0]?.entries.map((entry) => entry.path)).toEqual(['dir', 'a.txt'])
+    }
+
+    const restored = await svc.restoreTrash('ses_x', trashed.opId!)
+    expect(restored).toMatchObject({ status: 'ok' })
+    if (restored.status === 'ok') {
+      expect(restored.results.every((entry) => entry.ok)).toBe(true)
+    }
+    expect(readFileSync(join(root, 'a.txt'), 'utf8')).toBe('alpha\n')
+    expect(readFileSync(join(root, 'dir', 'inner.txt'), 'utf8')).toBe('inner\n')
+    const after = await svc.listTrash('ses_x')
+    if (after.status === 'ok') expect(after.items).toEqual([])
+  })
+
+  it('refuses to overwrite a path recreated before restore', async () => {
+    const { root, make } = trashWorkspace()
+    writeFileSync(join(root, 'a.txt'), 'old\n')
+    const svc = make()
+    const trashed = await svc.trashMany('ses_x', ['a.txt'])
+    expect(trashed.status).toBe('ok')
+    if (trashed.status !== 'ok' || trashed.opId === null) return
+    writeFileSync(join(root, 'a.txt'), 'new\n')
+
+    const blocked = await svc.restoreTrash('ses_x', trashed.opId)
+    expect(blocked).toMatchObject({ status: 'ok' })
+    if (blocked.status === 'ok') {
+      expect(blocked.results[0]).toMatchObject({
+        path: 'a.txt',
+        ok: false,
+        reason: 'already-exists'
+      })
+    }
+    expect(readFileSync(join(root, 'a.txt'), 'utf8')).toBe('new\n')
+    const still = await svc.listTrash('ses_x')
+    if (still.status === 'ok') expect(still.items).toHaveLength(1)
+
+    rmSync(join(root, 'a.txt'))
+    const restored = await svc.restoreTrash('ses_x', trashed.opId)
+    expect(restored.status).toBe('ok')
+    expect(readFileSync(join(root, 'a.txt'), 'utf8')).toBe('old\n')
+  })
+
+  it('keeps metadata across a service restart and rejects unknown batches', async () => {
+    const { root, state, make } = trashWorkspace()
+    writeFileSync(join(root, 'a.txt'), 'alpha\n')
+    const first = make()
+    const trashed = await first.trashMany('ses_x', ['a.txt'])
+    expect(trashed.status).toBe('ok')
+    if (trashed.status !== 'ok' || trashed.opId === null) return
+
+    const second = service({
+      target: LOCAL,
+      worktreePath: root,
+      backend: createLocalFileBackend(root),
+      trashStateFile: state
+    })
+    const listed = await second.listTrash('ses_x')
+    expect(listed.status).toBe('ok')
+    if (listed.status === 'ok') expect(listed.items[0]?.opId).toBe(trashed.opId)
+    expect(await second.restoreTrash('ses_x', 'op-does-not-exist')).toMatchObject({
+      status: 'unavailable',
+      reason: 'not-found'
+    })
+    expect(await second.restoreTrash('ses_x', trashed.opId)).toMatchObject({ status: 'ok' })
+    expect(readFileSync(join(root, 'a.txt'), 'utf8')).toBe('alpha\n')
+  })
+
+  it('reports a failed host move without leaving a restorable batch', async () => {
+    const { root } = trashWorkspace()
+    writeFileSync(join(root, 'a.txt'), 'alpha\n')
+    const local = createLocalFileBackend(root)
+    const failing = {
+      ...local,
+      trash: async (): Promise<void> => {
+        throw new FileAccessError('write-failed', 'blocked')
+      }
+    }
+    const svc = service({
+      target: LOCAL,
+      worktreePath: root,
+      backend: failing,
+      trashStateFile: join(root, '..', 'trash.json')
+    })
+    const result = await svc.trashMany('ses_x', ['a.txt'])
+    expect(result).toMatchObject({ status: 'ok', opId: null })
+    if (result.status === 'ok') {
+      expect(result.results[0]).toMatchObject({ path: 'a.txt', ok: false, reason: 'write-failed' })
+    }
+    expect(readFileSync(join(root, 'a.txt'), 'utf8')).toBe('alpha\n')
+    expect(await svc.listTrash('ses_x')).toMatchObject({ status: 'ok', items: [] })
+  })
+
+  it('purges batches older than seven days', async () => {
+    const { parent, root, state, make } = trashWorkspace()
+    const opId = 'op-old'
+    const opDir = join(parent, '.icode-files-trash', 'ses_x', opId)
+    mkdirSync(opDir, { recursive: true })
+    writeFileSync(join(opDir, 'item-0'), 'old\n')
+    writeFileSync(
+      state,
+      JSON.stringify({
+        version: 1,
+        sessions: {
+          ses_x: [
+            {
+              opId,
+              createdAt: Date.now() - 8 * 24 * 60 * 60 * 1000,
+              entries: [{ path: 'old.txt', name: 'item-0', kind: 'file' }]
+            }
+          ]
+        }
+      })
+    )
+    const svc = make()
+    await svc.purgeTrash('ses_x')
+    expect(existsSync(opDir)).toBe(false)
+    const listed = await svc.listTrash('ses_x')
+    if (listed.status === 'ok') expect(listed.items).toEqual([])
+    expect(existsSync(root)).toBe(true)
   })
 })

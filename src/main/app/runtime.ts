@@ -513,8 +513,11 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     repositories: persistence.repositories,
     worktrees,
     gitWorktrees,
-    runner: wslRunner
+    runner: wslRunner,
+    trashStateFile: join(app.getPath('userData'), 'files-trash.json')
   })
+  // Best-effort retention; never blocks startup or a session.
+  void files.purgeTrash().catch(() => undefined)
 
   const gitWorkspace = new GitWorkspaceService({
     repositories: persistence.repositories,

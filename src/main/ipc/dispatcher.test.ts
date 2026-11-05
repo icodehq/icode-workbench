@@ -58,6 +58,9 @@ function services(overrides: Partial<DispatcherServices> = {}): DispatcherServic
       etag: '0:0',
       modifiedAt: 0
     })),
+    filesTrash: vi.fn(async () => ({ status: 'ok', opId: null, results: [], entries: [] })),
+    filesRestoreTrash: vi.fn(async () => ({ status: 'ok', results: [] })),
+    filesListTrash: vi.fn(async () => ({ status: 'ok', items: [] })),
     filesWatch: vi.fn(async () => ({ watching: true })),
     tasksList: vi.fn(async () => []),
     tasksCreate: vi.fn(async () => ({ id: 'task_1', status: 'queued' })),

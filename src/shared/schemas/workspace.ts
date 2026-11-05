@@ -126,6 +126,20 @@ export const filesMoveManyInputSchema = z.strictObject({
   destination: relativePathSchema.default('')
 })
 
+export const filesTrashInputSchema = z.strictObject({
+  sessionId: sessionIdSchema,
+  paths: filePathListSchema
+})
+
+export const filesRestoreTrashInputSchema = z.strictObject({
+  sessionId: sessionIdSchema,
+  opId: z.string().min(1).max(120)
+})
+
+export const filesListTrashInputSchema = z.strictObject({
+  sessionId: sessionIdSchema
+})
+
 export const filesCopyManyInputSchema = z.strictObject({
   sessionId: sessionIdSchema,
   paths: filePathListSchema,

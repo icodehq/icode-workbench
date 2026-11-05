@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   ClipboardPaste,
   Copy,
@@ -13,6 +13,7 @@ import {
   Scissors,
   Search,
   Trash2,
+  Undo2,
   X
 } from 'lucide-react'
 import { callApi, errorNotice } from '../lib/api'
@@ -25,7 +26,10 @@ import type {
   FilesListingPayload,
   FilesMutatePayload,
   FilesReplacePayload,
+  FilesRestoreTrashPayload,
   FilesStatPayload,
+  FilesTrashListPayload,
+  FilesTrashPayload,
   FilesWritePayload,
   GitCheckIgnorePayload,
   GitFileAtRevisionPayload,
@@ -60,6 +64,19 @@ import {
 } from '../files/selection'
 import { checkEntryName, nameSelectionRange } from '../files/name-validation'
 import { filesClipboardStore, useFilesClipboard } from '../files/files-clipboard'
+import {
+  peekUndo,
+  popUndo,
+  pushUndo,
+  undoLabel,
+  type FileUndoEntry
+} from '../files/undo-stack'
+import {
+  computeVirtualWindow,
+  scrollTopForRow,
+  FILES_ROW_HEIGHT
+} from '../files/virtual-window'
+import { loadTreeState, saveTreeState } from '../files/tree-state'
 import type { Notice } from '../state/workspace'
 import CodeEditor from './CodeEditor'
 import ContextMenu, { type ContextMenuItem } from './ContextMenu'
@@ -111,7 +128,7 @@ type ContextState = {
   target: ContextTarget
 }
 
-type DeletePrompt = { paths: string[] }
+type DeletePrompt = { paths: string[]; permanentOnly: boolean }
 type MovePrompt = { paths: string[]; destination: string }
 
 type UnsavedPrompt =
@@ -250,6 +267,13 @@ export default function FilesPanel({
   const [context, setContext] = useState<ContextState | null>(null)
   const [deletePrompt, setDeletePrompt] = useState<DeletePrompt | null>(null)
   const [movePrompt, setMovePrompt] = useState<MovePrompt | null>(null)
+  const [undoStack, setUndoStack] = useState<FileUndoEntry[]>([])
+  const [undoing, setUndoing] = useState(false)
+  const [trashBanner, setTrashBanner] = useState<{
+    opId: string
+    paths: string[]
+  } | null>(null)
+  const [hotExitNote, setHotExitNote] = useState('')
   const [transferBusy, setTransferBusy] = useState(false)
   const [dropTarget, setDropTarget] = useState<string | null>(null)
   const [unsaved, setUnsaved] = useState<UnsavedPrompt | null>(null)
@@ -257,6 +281,7 @@ export default function FilesPanel({
   const [dialogBusy, setDialogBusy] = useState(false)
   const [closeAfterSave, setCloseAfterSave] = useState<string | null>(null)
   const [liveState, setLiveState] = useState<LiveState>('off')
+  const [viewport, setViewport] = useState({ scrollTop: 0, height: 600, rowsTop: 0 })
 
   const visibleChildren = useMemo(
     () =>
@@ -274,6 +299,7 @@ export default function FilesPanel({
         sort: { order: settings.sortOrder, direction: settings.sortDirection },
         compactFolders: settings.compactFolders,
         fileNesting: settings.fileNesting,
+        nestingPatterns: settings.nestingPatterns,
         collapsedNested
       }),
     [
@@ -291,6 +317,11 @@ export default function FilesPanel({
 
   const searchInput = useRef<HTMLInputElement | null>(null)
   const searchSequence = useRef(0)
+  const treeScrollRef = useRef<HTMLDivElement | null>(null)
+  const rowsContainerRef = useRef<HTMLDivElement | null>(null)
+  const rowsRef = useRef<TreeRow[]>([])
+  const viewportRef = useRef(viewport)
+  const restoreScroll = useRef<number | null>(null)
   const tabRefs = useRef(new Map<string, HTMLDivElement>())
   const rowRefs = useRef(new Map<string, HTMLDivElement>())
   const editInput = useRef<HTMLInputElement | null>(null)
@@ -321,6 +352,60 @@ export default function FilesPanel({
   const scheduleDecorationsRef = useRef<((delay?: number) => void) | null>(null)
   const rootStateRef = useRef(rootState)
   rootStateRef.current = rootState
+  rowsRef.current = rows
+  viewportRef.current = viewport
+
+  const scrollRowIndexIntoView = useCallback((index: number): void => {
+    const element = treeScrollRef.current
+    if (element === null) return
+    const rowsTop = viewportRef.current.rowsTop
+    const localScroll = Math.max(0, element.scrollTop - rowsTop)
+    const next = scrollTopForRow({
+      index,
+      rowCount: Math.max(index + 1, rowsRef.current.length),
+      scrollTop: localScroll,
+      viewportHeight: element.clientHeight
+    })
+    element.scrollTop = Math.max(0, rowsTop + next)
+  }, [])
+
+  const focusRowElement = useCallback((path: string, attempt = 0): void => {
+    const element = rowRefs.current.get(path)
+    if (element !== undefined) {
+      element.focus({ preventScroll: true })
+      return
+    }
+    if (attempt >= 12) return
+    window.setTimeout(() => focusRowElement(path, attempt + 1), 16)
+  }, [])
+
+  useLayoutEffect(() => {
+    const element = treeScrollRef.current
+    if (element === null) return
+    const height = element.clientHeight
+    const rowsTop = rowsContainerRef.current?.offsetTop ?? 0
+    setViewport((current) =>
+      current.height === height && current.rowsTop === rowsTop
+        ? current
+        : { ...current, height, rowsTop }
+    )
+  })
+
+  useEffect(() => {
+    const element = treeScrollRef.current
+    if (element === null || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(() => {
+      const rowsTop = rowsContainerRef.current?.offsetTop ?? 0
+      const height = element.clientHeight
+      setViewport((current) =>
+        current.height === height && current.rowsTop === rowsTop
+          ? current
+          : { ...current, height, rowsTop }
+      )
+    })
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
   /** Invalidates in-flight directory reads when the session or refresh key changes. */
   const treeGeneration = useRef(0)
   const treeResetKey = useRef('')
@@ -434,11 +519,37 @@ export default function FilesPanel({
     [notify, sessionId]
   )
 
+  const refreshTrash = useCallback(async (): Promise<void> => {
+    const result = await callApi<FilesTrashListPayload>(
+      window.icode.files.listTrash({ sessionId })
+    )
+    if (!result.ok || result.value.status !== 'ok') {
+      setTrashBanner(null)
+      return
+    }
+    const latest = result.value.items[0]
+    setTrashBanner(
+      latest === undefined
+        ? null
+        : { opId: latest.opId, paths: latest.entries.map((entry) => entry.path) }
+    )
+  }, [sessionId])
+
+  useEffect(() => {
+    const warning = openFilesStore.takeHotExitWarning()
+    if (warning !== null) setHotExitNote(warning)
+  }, [])
+
   // A different session means a different checkout: reset the tree and the
   // panel-local surfaces. Open tabs are session-keyed and deliberately survive.
   useEffect(() => {
     searchSequence.current += 1
-    setTree({ expanded: { '': true }, children: {}, loading: {} })
+    const persisted = loadTreeState(sessionId)
+    const expanded: Record<string, boolean> = { '': true }
+    for (const path of persisted?.expanded ?? []) {
+      if (path !== '') expanded[path] = true
+    }
+    setTree({ expanded, children: {}, loading: {} })
     setResults(null)
     setQuery('')
     setSearchError(null)
@@ -456,6 +567,9 @@ export default function FilesPanel({
     setRootNote('')
     setFileNote('')
     setGotoLine(null)
+    setUndoStack([])
+    setUndoing(false)
+    setTrashBanner(null)
     const activePath = openFilesStore.get(sessionId).activePath
     setSelection(
       activePath === null
@@ -475,8 +589,62 @@ export default function FilesPanel({
     setConflict(null)
     setDialogBusy(false)
     setCloseAfterSave(null)
-    void loadDirectory('')
-  }, [loadDirectory, sessionId, refreshToken])
+    restoreScroll.current = persisted?.scrollTop ?? null
+    const pendingSelection = persisted
+    const generation = treeGeneration.current
+    void (async () => {
+      await loadDirectory('')
+      const paths = (pendingSelection?.expanded ?? []).filter((path) => path !== '')
+      for (let index = 0; index < paths.length; index += 8) {
+        if (treeGeneration.current !== generation) return
+        await Promise.all(
+          paths
+            .slice(index, index + 8)
+            .map((path) => loadDirectory(path, true, 0, false))
+        )
+      }
+      if (treeGeneration.current !== generation) return
+      if (pendingSelection !== null) {
+        await new Promise<void>((resolve) => {
+          window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve()))
+        })
+        if (treeGeneration.current !== generation) return
+        setSelection({
+          selected: new Set(pendingSelection.selected),
+          anchor: pendingSelection.anchor,
+          focused: pendingSelection.focused
+        })
+        restoreScroll.current = pendingSelection.scrollTop
+      }
+    })()
+    void refreshTrash()
+  }, [loadDirectory, refreshTrash, sessionId, refreshToken])
+
+  // Persist the explorer position after the user stops moving for a moment.
+  useEffect(() => {
+    if (rootState !== 'ready' || query.trim().length > 0) return
+    const timer = window.setTimeout(() => {
+      saveTreeState(sessionId, {
+        expanded: Object.keys(tree.expanded).filter(
+          (path) => path !== '' && tree.expanded[path] === true
+        ),
+        focused: selection.focused,
+        selected: [...selection.selected],
+        anchor: selection.anchor,
+        scrollTop: viewport.scrollTop
+      })
+    }, 300)
+    return () => window.clearTimeout(timer)
+  }, [query, rootState, selection, sessionId, tree.expanded, viewport.scrollTop])
+
+  // A restored scrollTop can only be applied once rows and their heights exist.
+  useEffect(() => {
+    if (restoreScroll.current === null || rootState !== 'ready') return
+    const element = treeScrollRef.current
+    if (element === null) return
+    element.scrollTop = restoreScroll.current
+    restoreScroll.current = null
+  }, [rootState, rows])
 
   // A refresh may remove rows the selection still names.
   useEffect(() => {
@@ -665,10 +833,11 @@ export default function FilesPanel({
     let timer: number | null = null
     const scroll = (): void => {
       if (cancelled) return
-      const row = rowRefs.current.get(path)
-      if (row !== undefined) {
-        row.scrollIntoView({ block: 'nearest' })
+      const index = rowsRef.current.findIndex((row) => row.entry.path === path)
+      if (index !== -1) {
+        scrollRowIndexIntoView(index)
         setSelection({ selected: new Set([path]), anchor: path, focused: path })
+        focusRowElement(path)
         return
       }
       attempts += 1
@@ -1024,10 +1193,19 @@ export default function FilesPanel({
       openFilesStore.renamePath(sessionId, edit.path, to)
       selectOnly(to)
       cancelEdit()
-      notify({ tone: 'success', message: `Renamed to ${to}` })
+      pushUndoEntry({ kind: 'rename', from: edit.path, to, at: Date.now() })
+      notify({
+        tone: 'success',
+        message: `Renamed to ${to}`,
+        action: { label: 'Undo', run: () => void undoLast() }
+      })
       clearWorktreeFileIndex(sessionId)
       await reloadExpanded()
-      window.requestAnimationFrame(() => rowRefs.current.get(to)?.focus())
+      window.requestAnimationFrame(() => {
+        const index = rowsRef.current.findIndex((row) => row.entry.path === to)
+        if (index !== -1) scrollRowIndexIntoView(index)
+        focusRowElement(to)
+      })
       return
     }
 
@@ -1049,7 +1227,17 @@ export default function FilesPanel({
       return
     }
     cancelEdit()
-    notify({ tone: 'success', message: `Created ${path}` })
+    pushUndoEntry({
+      kind: 'create',
+      path,
+      etag: result.value.etag ?? null,
+      at: Date.now()
+    })
+    notify({
+      tone: 'success',
+      message: `Created ${path}`,
+      action: { label: 'Undo', run: () => void undoLast() }
+    })
     clearWorktreeFileIndex(sessionId)
     await reloadExpanded()
     if (kind === 'file') {
@@ -1060,13 +1248,79 @@ export default function FilesPanel({
     }
   }
 
-  const requestDelete = (paths: readonly string[]): void => {
-    const targets = collapseSelectedPaths(paths.filter((path) => path !== ''))
-    if (targets.length === 0) return
-    setDeletePrompt({ paths: targets })
+  const pushUndoEntry = (entry: FileUndoEntry): void => {
+    setUndoStack((current) => pushUndo(current, entry))
   }
 
-  const confirmDelete = async (): Promise<void> => {
+  const closeTabsUnder = (paths: readonly string[]): void => {
+    for (const path of paths) {
+      for (const tab of openFilesStore.get(sessionId).tabs) {
+        if (isUnder(tab.path, path)) openFilesStore.closeTab(sessionId, tab.path)
+      }
+    }
+  }
+
+  const restoreTrashOp = async (opId: string): Promise<boolean> => {
+    setUndoing(true)
+    const result = await callApi<FilesRestoreTrashPayload>(
+      window.icode.files.restoreTrash({ sessionId, opId })
+    )
+    setUndoing(false)
+    if (!result.ok) {
+      notify(errorNotice(result.error))
+      await refreshTrash()
+      return false
+    }
+    if (result.value.status === 'unavailable') {
+      notify({ tone: 'error', message: unavailableText(result.value) })
+      await refreshTrash()
+      return false
+    }
+    const failures = result.value.results.filter((entry) => !entry.ok)
+    const successes = result.value.results.filter((entry) => entry.ok)
+    if (failures.length === 0) {
+      setUndoStack((current) =>
+        current.filter((entry) => entry.kind !== 'delete' || entry.opId !== opId)
+      )
+      const first = successes[0]?.path
+      if (first !== undefined) {
+        selectOnly(first)
+        setEditorMode(successes.length === 1 ? 'tab' : 'folder')
+      }
+      notify({
+        tone: 'success',
+        message: `Restored ${String(successes.length)} item${successes.length === 1 ? '' : 's'}`
+      })
+    } else {
+      const first = failures[0]
+      setSelection({
+        selected: new Set(failures.map((entry) => entry.path)),
+        anchor: first?.path ?? null,
+        focused: first?.path ?? null
+      })
+      setEditorMode('folder')
+      notify({
+        tone: 'error',
+        message: `${String(successes.length)} restored · ${String(failures.length)} failed: ${first?.detail ?? 'unknown error'}`
+      })
+    }
+    clearWorktreeFileIndex(sessionId)
+    await reloadExpanded()
+    scheduleDecorationsRef.current?.(0)
+    await refreshTrash()
+    return failures.length === 0
+  }
+
+  const requestDelete = (
+    paths: readonly string[],
+    permanentOnly = false
+  ): void => {
+    const targets = collapseSelectedPaths(paths.filter((path) => path !== ''))
+    if (targets.length === 0) return
+    setDeletePrompt({ paths: targets, permanentOnly })
+  }
+
+  const confirmPermanentDelete = async (): Promise<void> => {
     if (deletePrompt === null) return
     setTransferBusy(true)
     const result = await callApi<FilesBatchPayload>(
@@ -1086,18 +1340,14 @@ export default function FilesPanel({
     }
     const successes = result.value.results.filter((entry) => entry.ok)
     const failures = result.value.results.filter((entry) => !entry.ok)
-    for (const entry of successes) {
-      for (const tab of openFilesStore.get(sessionId).tabs) {
-        if (isUnder(tab.path, entry.path)) openFilesStore.closeTab(sessionId, tab.path)
-      }
-    }
+    closeTabsUnder(successes.map((entry) => entry.path))
     setDeletePrompt(null)
     if (failures.length === 0) {
       setSelection(EMPTY_SELECTION)
       setEditorMode('tab')
       notify({
         tone: 'success',
-        message: `Deleted ${String(successes.length)} item${successes.length === 1 ? '' : 's'}`
+        message: `Deleted ${String(successes.length)} item${successes.length === 1 ? '' : 's'} permanently`
       })
     } else {
       const first = failures[0]
@@ -1114,13 +1364,347 @@ export default function FilesPanel({
     }
     clearWorktreeFileIndex(sessionId)
     await reloadExpanded()
+    scheduleDecorationsRef.current?.(0)
     setTransferBusy(false)
+  }
+
+  const confirmTrashDelete = async (): Promise<void> => {
+    if (deletePrompt === null) return
+    setTransferBusy(true)
+    const result = await callApi<FilesTrashPayload>(
+      window.icode.files.trashMany({ sessionId, paths: deletePrompt.paths })
+    )
+    if (!result.ok) {
+      setTransferBusy(false)
+      notify(errorNotice(result.error))
+      setDeletePrompt(null)
+      return
+    }
+    if (result.value.status === 'unavailable') {
+      setTransferBusy(false)
+      notify({ tone: 'error', message: unavailableText(result.value) })
+      setDeletePrompt(null)
+      return
+    }
+    const successes = result.value.entries.map((entry) => entry.path)
+    const failures = result.value.results.filter((entry) => !entry.ok)
+    closeTabsUnder(successes)
+    setDeletePrompt(null)
+    if (successes.length > 0) {
+      if (result.value.opId !== null) {
+        const opId = result.value.opId
+        setTrashBanner({ opId, paths: successes })
+        pushUndoEntry({
+          kind: 'delete',
+          opId,
+          paths: successes,
+          at: Date.now()
+        })
+        notify({
+          tone: failures.length === 0 ? 'success' : 'info',
+          message:
+            `Moved ${String(successes.length)} item${successes.length === 1 ? '' : 's'} to Trash` +
+            (failures.length > 0 ? ` · ${String(failures.length)} failed` : ''),
+          action: {
+            label: 'Undo',
+            run: () => {
+              void restoreTrashOp(opId)
+            }
+          }
+        })
+      }
+    } else {
+      notify({
+        tone: 'error',
+        message:
+          failures[0]?.detail ?? 'Nothing could be moved to Trash.'
+      })
+    }
+    if (failures.length > 0) {
+      const first = failures[0]
+      setSelection({
+        selected: new Set(failures.map((entry) => entry.path)),
+        anchor: first?.path ?? null,
+        focused: first?.path ?? null
+      })
+      setEditorMode('folder')
+    } else {
+      setSelection(EMPTY_SELECTION)
+      setEditorMode('tab')
+    }
+    clearWorktreeFileIndex(sessionId)
+    await reloadExpanded()
+    scheduleDecorationsRef.current?.(0)
+    await refreshTrash()
+    setTransferBusy(false)
+  }
+
+  const confirmDelete = async (): Promise<void> => {
+    if (deletePrompt === null) return
+    if (settings.useTrash && !deletePrompt.permanentOnly) {
+      await confirmTrashDelete()
+    } else {
+      await confirmPermanentDelete()
+    }
+  }
+
+  const undoLast = async (): Promise<void> => {
+    if (undoing || transferBusy) return
+    const entry = peekUndo(undoStack)
+    if (entry === null) {
+      notify({ tone: 'info', message: 'Nothing to undo.' })
+      return
+    }
+    setUndoing(true)
+    let ok = false
+    let partial = false
+    let detail = ''
+    try {
+      if (entry.kind === 'create') {
+        const stat = await callApi<FilesStatPayload>(
+          window.icode.files.stat({ sessionId, path: entry.path })
+        )
+        let safe = false
+        if (!stat.ok) {
+          detail = stat.error.message
+        } else if (stat.value.status === 'unavailable') {
+          if (stat.value.reason === 'not-found') safe = true
+          else detail = unavailableText(stat.value)
+        } else if (stat.value.kind === 'directory') {
+          const listing = await callApi<FilesListingPayload>(
+            window.icode.files.list({ sessionId, path: entry.path })
+          )
+          if (listing.ok && listing.value.status === 'ok') {
+            safe = listing.value.entries.length === 0
+            if (!safe) detail = 'The new folder now contains files.'
+          } else if (!listing.ok) {
+            detail = listing.error.message
+          } else if (listing.value.status === 'unavailable') {
+            detail = unavailableText(listing.value)
+          }
+        } else if (entry.etag === null) {
+          detail = 'That file has no recorded version to compare.'
+        } else if (stat.value.etag === entry.etag) {
+          safe = true
+        } else {
+          detail = 'That file changed after it was created.'
+        }
+        if (safe) {
+          const result = await callApi<FilesBatchPayload>(
+            window.icode.files.removeMany({ sessionId, paths: [entry.path] })
+          )
+          if (result.ok && result.value.status === 'ok') {
+            ok = result.value.results.every((item) => item.ok)
+            if (!ok) detail = result.value.results.find((item) => !item.ok)?.detail ?? ''
+          } else if (!result.ok) {
+            detail = result.error.message
+          } else if (result.value.status === 'unavailable') {
+            detail = unavailableText(result.value)
+          }
+        }
+      } else if (entry.kind === 'rename') {
+        const result = await callApi<FilesMutatePayload>(
+          window.icode.files.rename({ sessionId, from: entry.to, to: entry.from })
+        )
+        if (result.ok && result.value.status === 'ok') {
+          ok = true
+          selectOnly(entry.from)
+        } else {
+          detail = !result.ok
+            ? result.error.message
+            : result.value.status === 'unavailable'
+              ? unavailableText(result.value)
+              : ''
+        }
+      } else if (entry.kind === 'move') {
+        const failed: Array<{ from: string; to: string }> = []
+        for (const pair of entry.pairs) {
+          const result = await callApi<FilesMutatePayload>(
+            window.icode.files.rename({
+              sessionId,
+              from: pair.to,
+              to: pair.from
+            })
+          )
+          if (!result.ok) {
+            failed.push(pair)
+            detail = result.error.message
+          } else if (result.value.status === 'unavailable') {
+            failed.push(pair)
+            detail = unavailableText(result.value)
+          }
+        }
+        if (failed.length === 0) ok = true
+        else {
+          partial = true
+          setUndoStack((current) => [
+            { ...entry, pairs: failed },
+            ...current.slice(1)
+          ])
+        }
+      } else if (entry.kind === 'copy') {
+        const safe: string[] = []
+        const unsafe: Array<{ path: string; etag: string | null }> = []
+        for (const item of entry.created) {
+          const stat = await callApi<FilesStatPayload>(
+            window.icode.files.stat({ sessionId, path: item.path })
+          )
+          if (!stat.ok) {
+            unsafe.push(item)
+            detail = stat.error.message
+          } else if (stat.value.status === 'unavailable') {
+            if (stat.value.reason === 'not-found') continue
+            unsafe.push(item)
+            detail = unavailableText(stat.value)
+          } else if (
+            item.etag !== null &&
+            stat.value.kind === 'file' &&
+            stat.value.etag === item.etag
+          ) {
+            safe.push(item.path)
+          } else {
+            unsafe.push(item)
+            detail = 'A copy changed after it was made.'
+          }
+        }
+        if (safe.length > 0) {
+          const result = await callApi<FilesBatchPayload>(
+            window.icode.files.removeMany({ sessionId, paths: safe })
+          )
+          if (result.ok && result.value.status === 'ok') {
+            for (const item of result.value.results) {
+              if (!item.ok) unsafe.push({ path: item.path, etag: null })
+            }
+          } else if (!result.ok) {
+            detail = result.error.message
+            for (const path of safe) unsafe.push({ path, etag: null })
+          } else if (result.value.status === 'unavailable') {
+            detail = unavailableText(result.value)
+            for (const path of safe) unsafe.push({ path, etag: null })
+          }
+        }
+        if (unsafe.length === 0) ok = true
+        else {
+          partial = true
+          setUndoStack((current) => [
+            { ...entry, created: unsafe },
+            ...current.slice(1)
+          ])
+        }
+      } else {
+        const restored = await restoreTrashOp(entry.opId)
+        if (!restored) {
+          // restoreTrashOp reports the conflict and keeps the entry retryable.
+          return
+        }
+        return
+      }
+    } finally {
+      setUndoing(false)
+    }
+    if (ok) setUndoStack((current) => popUndo(current))
+    clearWorktreeFileIndex(sessionId)
+    await reloadExpanded()
+    scheduleDecorationsRef.current?.(0)
+    if (ok) {
+      notify({ tone: 'success', message: `Undid ${undoLabel(entry).replace(/^Undo /u, '')}` })
+    } else if (!partial) {
+      notify({
+        tone: 'error',
+        message: `Could not undo: ${detail || 'the path changed on disk'}`
+      })
+    } else {
+      notify({
+        tone: 'info',
+        message: `Undo partially applied: ${detail || 'some paths were not changed'}`
+      })
+    }
   }
 
   const copySelection = (mode: 'copy' | 'cut', paths = selectedPaths()): void => {
     const targets = collapseSelectedPaths(paths.filter((path) => path !== ''))
     if (targets.length === 0) return
     filesClipboardStore.set({ sessionId, paths: targets, mode })
+  }
+
+  const collectEtags = async (
+    paths: readonly string[]
+  ): Promise<Array<{ path: string; etag: string | null }>> =>
+    Promise.all(
+      paths.map(async (path) => {
+        const stat = await callApi<FilesStatPayload>(
+          window.icode.files.stat({ sessionId, path })
+        )
+        return {
+          path,
+          etag:
+            stat.ok && stat.value.status === 'ok' && stat.value.kind === 'file'
+              ? stat.value.etag
+              : null
+        }
+      })
+    )
+
+  const duplicateSelection = async (paths = selectedPaths()): Promise<void> => {
+    const targets = collapseSelectedPaths(paths.filter((path) => path !== ''))
+    if (targets.length === 0) {
+      notify({ tone: 'info', message: 'Select something to duplicate.' })
+      return
+    }
+    if (transferBusy) return
+    setTransferBusy(true)
+    const created: string[] = []
+    let detail = ''
+    for (const target of targets) {
+      const result = await callApi<FilesBatchPayload>(
+        window.icode.files.copyMany({
+          sessionId,
+          paths: [target],
+          destination: parentPathOf(target)
+        })
+      )
+      if (!result.ok) {
+        detail = result.error.message
+        continue
+      }
+      if (result.value.status === 'unavailable') {
+        detail = unavailableText(result.value)
+        continue
+      }
+      for (const entry of result.value.results) {
+        if (entry.ok && entry.to !== undefined) created.push(entry.to)
+        else if (!entry.ok && detail === '') detail = entry.detail ?? ''
+      }
+    }
+    setTransferBusy(false)
+    if (created.length === 0) {
+      notify({
+        tone: 'error',
+        message: `Nothing could be duplicated${detail ? `: ${detail}` : '.'}`
+      })
+      return
+    }
+    pushUndoEntry({
+      kind: 'copy',
+      created: await collectEtags(created),
+      at: Date.now()
+    })
+    clearWorktreeFileIndex(sessionId)
+    await reloadExpanded()
+    await new Promise<void>((resolve) => {
+      window.requestAnimationFrame(() => resolve())
+    })
+    setSelection({
+      selected: new Set(created),
+      anchor: created[0] ?? null,
+      focused: created[0] ?? null
+    })
+    setEditorMode(created.length === 1 ? 'tab' : 'folder')
+    notify({
+      tone: 'success',
+      message: `Duplicated ${String(created.length)} item${created.length === 1 ? '' : 's'}`,
+      action: { label: 'Undo', run: () => void undoLast() }
+    })
   }
 
   const copyPathsToClipboard = async (
@@ -1190,6 +1774,29 @@ export default function FilesPanel({
 
     const successes = result.value.results.filter((entry) => entry.ok && !entry.skipped)
     const failures = result.value.results.filter((entry) => !entry.ok)
+    if (successes.length > 0) {
+      if (mode === 'move') {
+        pushUndoEntry({
+          kind: 'move',
+          pairs: successes.flatMap((entry) =>
+            entry.from !== undefined && entry.to !== undefined
+              ? [{ from: entry.from, to: entry.to }]
+              : []
+          ),
+          at: Date.now()
+        })
+      } else {
+        pushUndoEntry({
+          kind: 'copy',
+          created: await collectEtags(
+            successes.flatMap((entry) =>
+              entry.to === undefined ? [] : [entry.to]
+            )
+          ),
+          at: Date.now()
+        })
+      }
+    }
     if (mode === 'move') {
       for (const entry of successes) {
         if (entry.from !== undefined && entry.to !== undefined) {
@@ -1219,14 +1826,18 @@ export default function FilesPanel({
       const detail = failures[0]?.detail ?? 'unknown error'
       notify({
         tone: 'error',
-        message: `${String(successes.length)} ${mode === 'move' ? 'moved' : 'copied'} · ${String(failures.length)} failed: ${detail}`
+        message: `${String(successes.length)} ${mode === 'move' ? 'moved' : 'copied'} · ${String(failures.length)} failed: ${detail}`,
+        ...(successes.length === 0
+          ? {}
+          : { action: { label: 'Undo', run: () => void undoLast() } })
       })
     } else if (successes.length === 0) {
       notify({ tone: 'info', message: 'No items needed moving.' })
     } else {
       notify({
         tone: 'success',
-        message: `${mode === 'move' ? 'Moved' : 'Copied'} ${String(successes.length)} item${successes.length === 1 ? '' : 's'}`
+        message: `${mode === 'move' ? 'Moved' : 'Copied'} ${String(successes.length)} item${successes.length === 1 ? '' : 's'}`,
+        action: { label: 'Undo', run: () => void undoLast() }
       })
     }
     setTransferBusy(false)
@@ -1470,7 +2081,8 @@ export default function FilesPanel({
     const row = rows[index]
     if (row === undefined) return
     setSelection((current) => selectRow(current, rows, row.entry.path))
-    rowRefs.current.get(row.entry.path)?.focus()
+    scrollRowIndexIntoView(index)
+    focusRowElement(row.entry.path)
   }
 
   const moveFocus = (delta: number, basePath: string | null = selection.focused): void => {
@@ -1576,10 +2188,15 @@ export default function FilesPanel({
       const targets = selectedPaths()
       if (targets.length === 0) return
       handled()
-      requestDelete(targets)
+      requestDelete(targets, event.shiftKey)
       return
     }
     const command = event.metaKey || event.ctrlKey
+    if (command && !event.shiftKey && event.key.toLowerCase() === 'z') {
+      handled()
+      void undoLast()
+      return
+    }
     if (command && event.key.toLowerCase() === 'a') {
       handled()
       setSelection(selectAll(rows))
@@ -2054,7 +2671,7 @@ export default function FilesPanel({
     const folderCreate = edit?.kind === 'create-directory'
     const note = editError ?? editWarning
     return (
-      <div key="files-inline-edit">
+      <div key="files-inline-edit" className="relative">
         <div
           role="treeitem"
           aria-level={depth + 1}
@@ -2119,7 +2736,7 @@ export default function FilesPanel({
           <div
             id="files-edit-note"
             role="note"
-            className={`px-2 py-0.5 text-[9px] ${editError === null ? 'text-signal' : 'text-destructive'}`}
+            className={`absolute left-0 right-0 top-full z-10 border border-border bg-card px-2 py-0.5 text-[9px] ${editError === null ? 'text-signal' : 'text-destructive'}`}
             style={{ paddingLeft: `${String(depth * 12 + 23)}px` }}
             data-testid="files-edit-note"
           >
@@ -2259,15 +2876,37 @@ export default function FilesPanel({
       : createEdit.parent === '' || createParentIndex === -1
         ? 0
         : createParentIndex + 1
-  const treeElements: React.JSX.Element[] = []
-  if (createIndex !== -1) {
-    for (let index = 0; index <= rows.length; index += 1) {
-      if (index === createIndex) treeElements.push(renderEditRow(createDepth))
-      const row = rows[index]
-      if (row !== undefined) treeElements.push(renderRow(row))
+  useEffect(() => {
+    if (createEdit === null) return
+    const index = createIndex
+    const focusInput = (attempt = 0): void => {
+      if (editInput.current !== null) {
+        editInput.current.focus()
+        return
+      }
+      if (attempt < 12) window.setTimeout(() => focusInput(attempt + 1), 16)
     }
-  } else {
-    for (const row of rows) treeElements.push(renderRow(row))
+    window.requestAnimationFrame(() => {
+      scrollRowIndexIntoView(index)
+      focusInput()
+    })
+  }, [createEdit, createIndex, scrollRowIndexIntoView])
+  const displayCount = rows.length + (createEdit === null ? 0 : 1)
+  const virtualWindow = computeVirtualWindow({
+    rowCount: displayCount,
+    scrollTop: Math.max(0, viewport.scrollTop - viewport.rowsTop),
+    viewportHeight: viewport.height,
+    rowHeight: FILES_ROW_HEIGHT
+  })
+  const treeElements: React.JSX.Element[] = []
+  for (let slot = virtualWindow.start; slot < virtualWindow.end; slot += 1) {
+    if (createEdit !== null && slot === createIndex) {
+      treeElements.push(renderEditRow(createDepth))
+      continue
+    }
+    const rowIndex = createEdit !== null && slot > createIndex ? slot - 1 : slot
+    const row = rows[rowIndex]
+    if (row !== undefined) treeElements.push(renderRow(row))
   }
 
   const buildContextItems = (): ContextMenuItem[] => {
@@ -2342,6 +2981,17 @@ export default function FilesPanel({
         onSelect: () => copySelection('copy', paths)
       },
       {
+        id: 'duplicate',
+        label: 'Duplicate',
+        icon: <Copy size={12} />,
+        disabled: paths.length === 0 || transferBusy,
+        reason: transferBusy
+          ? 'Wait for the current operation to finish.'
+          : 'Select something to duplicate.',
+        testId: 'files-menu-duplicate',
+        onSelect: () => void duplicateSelection(paths)
+      },
+      {
         id: 'copy-path',
         label: paths.length > 1 ? 'Copy Paths' : 'Copy Path',
         icon: <Copy size={12} />,
@@ -2375,7 +3025,7 @@ export default function FilesPanel({
       },
       {
         id: 'delete',
-        label: 'Delete',
+        label: settings.useTrash ? 'Move to Trash' : 'Delete',
         icon: <Trash2 size={12} />,
         shortcut: 'Del',
         danger: true,
@@ -2801,7 +3451,29 @@ export default function FilesPanel({
           </button>
           <button
             type="button"
-            className="ml-auto rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="ml-auto rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
+            title={undoLabel(peekUndo(undoStack))}
+            aria-label="Undo last file operation"
+            disabled={undoStack.length === 0 || undoing || transferBusy}
+            data-testid="files-undo"
+            onClick={() => void undoLast()}
+          >
+            <Undo2 size={11} />
+          </button>
+          <button
+            type="button"
+            className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
+            title="Duplicate selection"
+            aria-label="Duplicate selection"
+            disabled={selectionSummary.total === 0 || transferBusy}
+            data-testid="files-duplicate"
+            onClick={() => void duplicateSelection()}
+          >
+            <Copy size={11} />
+          </button>
+          <button
+            type="button"
+            className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
             title="Refresh the tree"
             aria-label="Refresh tree"
             data-testid="files-refresh"
@@ -2840,15 +3512,61 @@ export default function FilesPanel({
           {transferBusy ? <span className="ml-1 text-signal">· working…</span> : null}
         </div>
 
+        {hotExitNote.length > 0 ? (
+          <div
+            className="flex items-center gap-2 border-b border-border bg-signal-weak px-3 py-1 text-[10px] text-signal"
+            data-testid="files-hot-exit-note"
+          >
+            <span className="min-w-0 flex-1">{hotExitNote}</span>
+            <button
+              type="button"
+              className="shrink-0 rounded px-1 hover:bg-signal/10"
+              aria-label="Dismiss"
+              onClick={() => setHotExitNote('')}
+            >
+              <X size={10} />
+            </button>
+          </div>
+        ) : null}
+
+        {trashBanner !== null ? (
+          <div
+            className="flex items-center gap-2 border-b border-border bg-signal-weak px-3 py-1 text-[10px] text-signal"
+            data-testid="files-trash-banner"
+          >
+            <Trash2 size={10} className="shrink-0" />
+            <span className="min-w-0 flex-1 truncate">
+              {trashBanner.paths.length} deleted item
+              {trashBanner.paths.length === 1 ? '' : 's'} in Trash
+            </span>
+            <button
+              type="button"
+              className="shrink-0 rounded border border-signal/40 px-1.5 py-0.5 hover:bg-signal/10 disabled:opacity-40"
+              disabled={undoing || transferBusy}
+              data-testid="files-trash-restore"
+              onClick={() => void restoreTrashOp(trashBanner.opId)}
+            >
+              Restore
+            </button>
+          </div>
+        ) : null}
+
         <div
+          ref={treeScrollRef}
           role={showSearch ? undefined : 'tree'}
           aria-label={showSearch ? undefined : 'Worktree files'}
           aria-multiselectable={showSearch ? undefined : true}
           tabIndex={-1}
-          className={`min-h-0 flex-1 overflow-auto px-1 py-1 outline-none ${
+          className={`relative min-h-0 flex-1 overflow-auto px-1 py-1 outline-none ${
             dropTarget === '' ? 'bg-accent/5 ring-1 ring-inset ring-accent/40' : ''
           }`}
           data-testid="files-tree"
+          onScroll={(event) => {
+            const scrollTop = event.currentTarget.scrollTop
+            setViewport((current) =>
+              current.scrollTop === scrollTop ? current : { ...current, scrollTop }
+            )
+          }}
           onContextMenu={onTreeContextMenu}
           onKeyDown={showSearch ? undefined : onTreeKeyDown}
           onDragOver={onTreeDragOver}
@@ -2983,7 +3701,16 @@ export default function FilesPanel({
                   <span className="truncate">{rootNote || 'worktree root'}</span>
                 </div>
               ) : null}
-              {treeElements}
+              <div
+                ref={rowsContainerRef}
+                style={{
+                  paddingTop: virtualWindow.paddingTop,
+                  paddingBottom: virtualWindow.paddingBottom
+                }}
+                data-testid="files-virtual-rows"
+              >
+                {treeElements}
+              </div>
               {rootState === 'ready' && rows.length === 0 && edit === null ? (
                 <p role="presentation" className="px-2 py-1 text-[11px] text-muted-foreground" data-testid="files-folder-empty">
                   This folder is empty.
@@ -3176,8 +3903,10 @@ export default function FilesPanel({
         <DeleteFilesDialog
           paths={deletePrompt.paths}
           dirtyCount={deleteDirtyCount}
+          useTrash={settings.useTrash && !deletePrompt.permanentOnly}
           busy={transferBusy}
           onConfirm={() => void confirmDelete()}
+          onConfirmPermanent={() => void confirmPermanentDelete()}
           onCancel={() => setDeletePrompt(null)}
         />
       ) : null}

@@ -1,7 +1,7 @@
 import { cp, lstat, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import type { Stats } from 'node:fs'
 import { createHash } from 'node:crypto'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import {
   FILES_MAX_ENTRIES_PER_DIRECTORY,
   FILES_MAX_SEARCH_FILES,
@@ -57,6 +57,14 @@ export type FileBackend = {
   copy(from: string, to: string): Promise<void>
   /** Deletes one file or one empty-or-not directory tree. */
   remove(relativePath: string): Promise<void>
+  /** Moves one path out of the checkout into an app-owned operation directory. */
+  trash(relativePath: string, opDir: string, name: string): Promise<void>
+  /** Moves one trashed item back to its original worktree-relative path. */
+  restoreTrash(opDir: string, name: string, relativePath: string): Promise<void>
+  /** Deletes one trash operation directory. */
+  discardTrash(opDir: string): Promise<void>
+  /** True when the trash operation directory still exists on this host. */
+  trashExists(opDir: string): Promise<boolean>
 }
 
 /** Raised when the backend could not read at all, distinct from "no such file". */
@@ -118,6 +126,17 @@ function errnoOf(error: unknown): string {
 
 function joinRelative(root: string, relative: string): string {
   return relative === '' ? root : join(root, relative)
+}
+
+/** Same-filesystem rename, with a copy+remove fallback for a different volume. */
+async function moveAbsolute(from: string, to: string): Promise<void> {
+  try {
+    await rename(from, to)
+  } catch (error) {
+    if (errnoOf(error) !== 'EXDEV') throw error
+    await cp(from, to, { recursive: true, errorOnExist: true, force: false })
+    await rm(from, { recursive: true, force: true })
+  }
 }
 
 function nameOf(relative: string): string {
@@ -478,6 +497,53 @@ export function createLocalFileBackend(root: string): FileBackend {
       } catch (error) {
         if (errnoOf(error) === 'ENOENT') throw new FileAccessError('not-found', 'That path does not exist.')
         throw new FileAccessError('write-failed', 'That path could not be deleted.')
+      }
+    },
+    async trash(relative, opDir, name) {
+      const source = joinRelative(root, relative)
+      try {
+        await mkdir(opDir, { recursive: true })
+        await moveAbsolute(source, join(opDir, name))
+      } catch (error) {
+        if (errnoOf(error) === 'ENOENT') {
+          throw new FileAccessError('not-found', 'That path does not exist.')
+        }
+        throw new FileAccessError('write-failed', 'That path could not be moved to Trash.')
+      }
+    },
+    async restoreTrash(opDir, name, relative) {
+      const target = joinRelative(root, relative)
+      try {
+        await mkdir(dirname(target), { recursive: true })
+        await lstat(target)
+        throw new FileAccessError('already-exists', 'Something already exists at the original path.')
+      } catch (error) {
+        if (error instanceof FileAccessError) throw error
+        if (errnoOf(error) !== 'ENOENT') {
+          throw new FileAccessError('write-failed', 'The original path could not be prepared.')
+        }
+      }
+      try {
+        await moveAbsolute(join(opDir, name), target)
+      } catch (error) {
+        if (errnoOf(error) === 'ENOENT') {
+          throw new FileAccessError('not-found', 'The Trash item is no longer there.')
+        }
+        throw new FileAccessError('write-failed', 'That item could not be restored.')
+      }
+    },
+    async discardTrash(opDir) {
+      try {
+        await rm(opDir, { recursive: true, force: true })
+      } catch {
+        throw new FileAccessError('write-failed', 'That Trash directory could not be removed.')
+      }
+    },
+    async trashExists(opDir) {
+      try {
+        return (await stat(opDir)).isDirectory()
+      } catch {
+        return false
       }
     }
   }

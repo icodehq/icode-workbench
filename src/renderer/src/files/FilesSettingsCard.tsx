@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import SettingsCard from '../components/SettingsCard'
 import { updateFilesSettings, useFilesSettings } from './files-settings'
+import { parseNestingPatterns } from './tree-layout'
 
 const parseExclude = (value: string): string[] =>
   value
@@ -50,6 +51,10 @@ export default function FilesSettingsCard(): React.JSX.Element {
   // by the trimmed setting that is saved.
   const [excludeDraft, setExcludeDraft] = useState(() => settings.exclude.join('\n'))
   const savedExclude = settings.exclude.join('\n')
+  const [nestingDraft, setNestingDraft] = useState(() =>
+    settings.nestingPatterns.join('\n')
+  )
+  const savedNesting = settings.nestingPatterns.join('\n')
   useEffect(() => {
     if (parseExclude(excludeDraft).join('\n') !== savedExclude) {
       setExcludeDraft(savedExclude)
@@ -58,6 +63,13 @@ export default function FilesSettingsCard(): React.JSX.Element {
     // own keystrokes already set it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [savedExclude])
+  useEffect(() => {
+    if (nestingDraft.trim() !== savedNesting.trim()) {
+      setNestingDraft(savedNesting)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedNesting])
+  const nestingCheck = parseNestingPatterns(nestingDraft.split('\n'))
   const update = (patch: Parameters<typeof updateFilesSettings>[1]): void => {
     updateFilesSettings(settings, patch)
   }
@@ -135,6 +147,14 @@ export default function FilesSettingsCard(): React.JSX.Element {
           testId="files-setting-auto-reveal"
         />
         <Toggle
+          id="files-setting-trash"
+          label="Move deleted items to Trash"
+          description="Keep deleted files/folders restorable for seven days. Off means permanent delete after confirmation."
+          checked={settings.useTrash}
+          onChange={(next) => update({ useTrash: next })}
+          testId="files-setting-trash"
+        />
+        <Toggle
           id="files-setting-gitignore"
           label="Respect .gitignore"
           description="Hide files ignored by Git. Failures leave entries visible."
@@ -162,6 +182,38 @@ export default function FilesSettingsCard(): React.JSX.Element {
           }}
           data-testid="files-setting-exclude"
         />
+      </label>
+
+      <label className="mt-3 block">
+        <span className="text-[11.5px] font-medium text-foreground">
+          Custom nesting pairs
+        </span>
+        <span className="mt-0.5 block text-[10px] leading-relaxed text-muted-foreground">
+          One pair per line: `*.ts → $1.test.ts, $1.spec.ts`. `*` captures the
+          parent name; `$1` inserts it. Built-in JS/TS/package rules stay active.
+        </span>
+        <textarea
+          className="mt-1.5 h-20 w-full resize-y rounded border border-border bg-background px-2 py-1.5 font-mono text-[10.5px] text-foreground outline-none"
+          value={nestingDraft}
+          placeholder="*.ts -> $1.test.ts"
+          onChange={(event) => {
+            const raw = event.target.value
+            setNestingDraft(raw)
+            update({ nestingPatterns: raw.split('\n').map((line) => line.trim()) })
+          }}
+          data-testid="files-setting-nesting-patterns"
+        />
+        {nestingCheck.errors.length > 0 ? (
+          <span
+            className="mt-1 block text-[10px] text-destructive"
+            data-testid="files-setting-nesting-errors"
+          >
+            {nestingCheck.errors[0]}
+            {nestingCheck.errors.length > 1
+              ? ` (+${String(nestingCheck.errors.length - 1)} more)`
+              : ''}
+          </span>
+        ) : null}
       </label>
     </SettingsCard>
   )

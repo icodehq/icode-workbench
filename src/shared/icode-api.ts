@@ -38,6 +38,9 @@ import type {
   filesRenameInputSchema,
   filesSearchInputSchema,
   filesStatInputSchema,
+  filesTrashInputSchema,
+  filesRestoreTrashInputSchema,
+  filesListTrashInputSchema,
   filesWatchInputSchema,
   filesWriteInputSchema,
   scheduleCreateInputSchema,
@@ -61,6 +64,8 @@ import type {
   FileReplaceResult,
   FileSearchResult,
   FileStat,
+  FileTrashOperation,
+  FileTrashResult,
   FilesChangedEvent,
   FilesWatchOutcome
 } from './domain/workspace-files'
@@ -293,6 +298,16 @@ export type IcodeProductApi = {
     removeMany: (
       input: z.infer<typeof filesRemoveManyInputSchema>
     ) => Promise<IpcResult<FilesBatchPayload>>
+    /** Move paths to the app-managed session trash; returns the restore batch. */
+    trashMany: (
+      input: z.infer<typeof filesTrashInputSchema>
+    ) => Promise<IpcResult<FilesTrashPayload>>
+    restoreTrash: (
+      input: z.infer<typeof filesRestoreTrashInputSchema>
+    ) => Promise<IpcResult<FilesRestoreTrashPayload>>
+    listTrash: (
+      input: z.infer<typeof filesListTrashInputSchema>
+    ) => Promise<IpcResult<FilesTrashListPayload>>
     moveMany: (
       input: z.infer<typeof filesMoveManyInputSchema>
     ) => Promise<IpcResult<FilesBatchPayload>>
@@ -421,6 +436,15 @@ export type FilesStatPayload =
   | WorkspaceUnavailablePayload
 export type FilesBatchPayload =
   | ({ status: 'ok' } & FileBatchResult)
+  | WorkspaceUnavailablePayload
+export type FilesTrashPayload =
+  | ({ status: 'ok' } & FileTrashResult)
+  | WorkspaceUnavailablePayload
+export type FilesRestoreTrashPayload =
+  | ({ status: 'ok' } & FileBatchResult)
+  | WorkspaceUnavailablePayload
+export type FilesTrashListPayload =
+  | { status: 'ok'; items: FileTrashOperation[] }
   | WorkspaceUnavailablePayload
 export type FilesCopyPathsPayload =
   | { status: 'ok'; count: number }

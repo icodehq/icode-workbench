@@ -1,5 +1,21 @@
 import { describe, expect, it } from 'vitest'
-import { FILES_MAX_BUFFERED_CHARS, OpenFilesStore } from './open-files'
+import {
+  FILES_MAX_BUFFERED_CHARS,
+  OpenFilesStore,
+  parsePersistedOpenFiles,
+  type OpenFilesPersistence
+} from './open-files'
+
+function memoryPersistence(initial: unknown = null) {
+  let value = initial
+  const persistence: OpenFilesPersistence = {
+    load: async () => value,
+    save: async (next) => {
+      value = next
+    }
+  }
+  return { persistence, read: () => value }
+}
 
 describe('open files store', () => {
   it('keeps tabs per session and preserves unsaved text', () => {
@@ -88,5 +104,72 @@ describe('open files store', () => {
     expect(store.canStore('ses_a', 'b.ts', FILES_MAX_BUFFERED_CHARS - 9)).toBe(false)
     store.retain(new Set(['ses_b']))
     expect(store.get('ses_a').tabs).toEqual([])
+  })
+
+  it('restores tabs, dirty text and the active path after a hot exit', async () => {
+    const memory = memoryPersistence()
+    const first = new OpenFilesStore(memory.persistence, 0)
+    first.open('ses_a', 'a.ts')
+    first.setContent('ses_a', 'a.ts', { text: 'saved\n', etag: 'sha256:one' })
+    first.updateText('ses_a', 'a.ts', 'dirty\n')
+    first.open('ses_a', 'b.ts')
+    first.setContent('ses_a', 'b.ts', { text: 'b\n', etag: 'sha256:two' })
+    first.setActive('ses_a', 'a.ts')
+    await first.flush()
+
+    const second = new OpenFilesStore(memory.persistence, 0)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(second.get('ses_a').tabs.map((tab) => tab.path)).toEqual(['a.ts', 'b.ts'])
+    expect(second.get('ses_a').activePath).toBe('a.ts')
+    expect(second.find('ses_a', 'a.ts')).toMatchObject({
+      text: 'dirty\n',
+      savedText: 'saved\n',
+      etag: 'sha256:one',
+      load: 'ready'
+    })
+    expect(second.dirtyCount('ses_a')).toBe(1)
+  })
+
+  it('removes persisted tabs when a session is retained away', async () => {
+    const memory = memoryPersistence()
+    const first = new OpenFilesStore(memory.persistence, 0)
+    first.open('ses_a', 'a.ts')
+    first.setContent('ses_a', 'a.ts', { text: 'a\n', etag: '1:2' })
+    await first.flush()
+    first.retain(new Set())
+    await first.flush()
+
+    const second = new OpenFilesStore(memory.persistence, 0)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(second.get('ses_a').tabs).toEqual([])
+  })
+
+  it('rejects malformed hot-exit payloads and repairs an interrupted load', () => {
+    expect(parsePersistedOpenFiles({ version: 2, sessions: {} }).size).toBe(0)
+    expect(parsePersistedOpenFiles('nope').size).toBe(0)
+    const parsed = parsePersistedOpenFiles({
+      version: 1,
+      sessions: {
+        ses_a: {
+          tabs: [
+            {
+              path: 'a.ts',
+              text: '',
+              savedText: '',
+              original: null,
+              etag: null,
+              disk: 'current',
+              load: 'loading',
+              failure: null
+            }
+          ],
+          activePath: 'a.ts'
+        }
+      }
+    })
+    expect(parsed.get('ses_a')?.tabs[0]).toMatchObject({
+      load: 'failed',
+      failure: expect.stringContaining('closed before')
+    })
   })
 })

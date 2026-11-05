@@ -143,3 +143,63 @@ describe('guest files: writes', () => {
     })
   })
 })
+
+describe('guest files: trash', () => {
+  it('passes absolute operation directories as data, never into the script text', async () => {
+    const calls: string[][] = []
+    const runner = {
+      runBytes: async (request: { argv: readonly string[] }) => {
+        calls.push([...request.argv])
+        return bytes('')
+      },
+      run: async () => {
+        throw new Error('unexpected run() call')
+      }
+    } as unknown as WslCommandRunner
+    const backend = createGuestFileBackend(runner, 'Ubuntu', '/wt')
+    await backend.trash('src/a b.ts', '/tmp/.icode-files-trash/ses_x/op-1', 'item-0')
+    expect(calls[0]?.slice(-4)).toEqual([
+      '/wt',
+      'src/a b.ts',
+      '/tmp/.icode-files-trash/ses_x/op-1',
+      'item-0'
+    ])
+    await backend.restoreTrash(
+      '/tmp/.icode-files-trash/ses_x/op-1',
+      'item-0',
+      'src/a b.ts'
+    )
+    expect(calls[1]?.slice(-4)).toEqual([
+      '/wt',
+      '/tmp/.icode-files-trash/ses_x/op-1',
+      'item-0',
+      'src/a b.ts'
+    ])
+    expect(await backend.trashExists('/tmp/op')).toBe(true)
+  })
+
+  it('maps restore conflicts and discard failures', async () => {
+    const conflict = createGuestFileBackend(
+      fakeRunner(() => bytes('', 10)),
+      'Ubuntu',
+      '/wt'
+    )
+    await expect(conflict.restoreTrash('/tmp/op', 'item-0', 'a.ts')).rejects.toMatchObject({
+      reason: 'already-exists'
+    })
+    const failed = createGuestFileBackend(
+      fakeRunner(() => bytes('', 8), () => ({
+        status: 'exit_failure',
+        code: 8,
+        signal: null,
+        stdout: 'FAILED\n',
+        stderr: ''
+      })),
+      'Ubuntu',
+      '/wt'
+    )
+    await expect(failed.discardTrash('/tmp/op')).rejects.toMatchObject({
+      reason: 'write-failed'
+    })
+  })
+})

@@ -34,6 +34,9 @@ import {
   filesReplaceInputSchema,
   filesSearchInputSchema,
   filesStatInputSchema,
+  filesTrashInputSchema,
+  filesRestoreTrashInputSchema,
+  filesListTrashInputSchema,
   filesWatchInputSchema,
   filesWriteInputSchema,
   scheduleCreateInputSchema,
@@ -134,6 +137,9 @@ export type DispatcherServices = {
     format: 'absolute' | 'relative'
   }) => Promise<unknown>
   filesStat: (input: { sessionId: string; path: string }) => Promise<unknown>
+  filesTrash: (input: { sessionId: string; paths: string[] }) => Promise<unknown>
+  filesRestoreTrash: (input: { sessionId: string; opId: string }) => Promise<unknown>
+  filesListTrash: (input: { sessionId: string }) => Promise<unknown>
   filesWatch: (input: { sessionId: string; active: boolean }) => Promise<unknown>
   tasksList: (input: { repoId?: string; statuses?: string[]; limit?: number }) => Promise<unknown>
   tasksCreate: (input: { repoId: string; title?: string; prompt: string; harness: string }) => Promise<unknown>
@@ -424,6 +430,24 @@ export function createDispatcher(services: DispatcherServices): Dispatcher {
         const input = parse(filesStatInputSchema, rawInput)
         if ('code' in input) return { ok: false, error: input }
         return run(() => services.filesStat(input))
+      }
+
+      case IPC_CHANNELS.filesTrash: {
+        const input = parse(filesTrashInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.filesTrash(input))
+      }
+
+      case IPC_CHANNELS.filesRestoreTrash: {
+        const input = parse(filesRestoreTrashInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.filesRestoreTrash(input))
+      }
+
+      case IPC_CHANNELS.filesListTrash: {
+        const input = parse(filesListTrashInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.filesListTrash(input))
       }
 
       case IPC_CHANNELS.filesWatch: {

@@ -27,7 +27,8 @@ describe('files settings', () => {
       gitDecorations: true,
       autoReveal: true,
       exclude: ['.DS_Store', 'Thumbs.db'],
-      excludeGitIgnore: false
+      excludeGitIgnore: false,
+      useTrash: true
     })
   })
 

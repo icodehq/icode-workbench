@@ -15,13 +15,16 @@ export const filesSettingsSchema = z.object({
   sortDirection: z.enum(['asc', 'desc']).default('asc'),
   compactFolders: z.boolean().default(true),
   fileNesting: z.boolean().default(false),
+  /** Extra `parent -> child` lines; empty uses only the built-in rules. */
+  nestingPatterns: z.array(z.string().max(400)).max(100).default([]),
   gitDecorations: z.boolean().default(true),
   autoReveal: z.boolean().default(true),
   exclude: z
     .array(z.string().min(1).max(400))
     .max(200)
     .default(['.DS_Store', 'Thumbs.db']),
-  excludeGitIgnore: z.boolean().default(false)
+  excludeGitIgnore: z.boolean().default(false),
+  useTrash: z.boolean().default(true)
 })
 
 export type FilesSettings = z.infer<typeof filesSettingsSchema>

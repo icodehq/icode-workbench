@@ -200,6 +200,45 @@ rm -rf -- "$rel" || { echo "FAILED"; exit 8; }
 exit 0
 `
 
+const TRASH_SCRIPT = `
+root=$1
+rel=$2
+op=$3
+name=$4
+cd "$root" 2>/dev/null || { echo "NOTFOUND"; exit 4; }
+if [ ! -e "$rel" ]; then echo "NOTFOUND"; exit 4; fi
+mkdir -p -- "$op" || { echo "FAILED"; exit 8; }
+if [ -e "$op/$name" ]; then echo "EXISTS"; exit 10; fi
+mv -- "$rel" "$op/$name" || { echo "FAILED"; exit 8; }
+exit 0
+`
+
+const RESTORE_TRASH_SCRIPT = `
+root=$1
+op=$2
+name=$3
+rel=$4
+cd "$root" 2>/dev/null || { echo "NOTFOUND"; exit 4; }
+if [ -e "$rel" ]; then echo "EXISTS"; exit 10; fi
+if [ ! -e "$op/$name" ]; then echo "NOTFOUND"; exit 4; fi
+parent=$(dirname -- "$rel")
+if [ "$parent" != "." ]; then mkdir -p -- "$parent" || { echo "FAILED"; exit 8; }; fi
+mv -- "$op/$name" "$rel" || { echo "FAILED"; exit 8; }
+exit 0
+`
+
+const DISCARD_TRASH_SCRIPT = `
+op=$1
+case "$op" in ""|"/") echo "FAILED"; exit 8;; esac
+rm -rf -- "$op" || { echo "FAILED"; exit 8; }
+exit 0
+`
+
+const TRASH_EXISTS_SCRIPT = `
+if [ -d "$1" ]; then exit 0; fi
+exit 1
+`
+
 function decode(buffer: Buffer): string {
   return buffer.toString('utf8')
 }
@@ -536,6 +575,38 @@ export function createGuestFileBackend(
       const result = await run(REMOVE_SCRIPT, [worktreePath, relative])
       if (result.code === 4) throw new FileAccessError('not-found', 'That path does not exist.')
       if (result.code !== 0) throw new FileAccessError('write-failed', 'That path could not be deleted.')
+    },
+    async trash(relative, opDir, name) {
+      const result = await run(TRASH_SCRIPT, [worktreePath, relative, opDir, name])
+      if (result.code === 4) throw new FileAccessError('not-found', 'That path does not exist.')
+      if (result.code === 10) {
+        throw new FileAccessError('already-exists', 'That Trash item already exists.')
+      }
+      if (result.code !== 0) {
+        throw new FileAccessError('write-failed', 'That path could not be moved to Trash.')
+      }
+    },
+    async restoreTrash(opDir, name, relative) {
+      const result = await run(RESTORE_TRASH_SCRIPT, [worktreePath, opDir, name, relative])
+      if (result.code === 4) {
+        throw new FileAccessError('not-found', 'The Trash item is no longer there.')
+      }
+      if (result.code === 10) {
+        throw new FileAccessError('already-exists', 'Something already exists at the original path.')
+      }
+      if (result.code !== 0) {
+        throw new FileAccessError('write-failed', 'That item could not be restored.')
+      }
+    },
+    async discardTrash(opDir) {
+      const result = await run(DISCARD_TRASH_SCRIPT, [opDir])
+      if (result.code !== 0) {
+        throw new FileAccessError('write-failed', 'That Trash directory could not be removed.')
+      }
+    },
+    async trashExists(opDir) {
+      const result = await run(TRASH_EXISTS_SCRIPT, [opDir])
+      return result.code === 0
     }
   }
 }

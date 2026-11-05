@@ -173,8 +173,10 @@ export function SaveConflictDialog({
 type DeleteFilesDialogProps = {
   paths: readonly string[]
   dirtyCount: number
+  useTrash: boolean
   busy?: boolean
   onConfirm: () => void
+  onConfirmPermanent: () => void
   onCancel: () => void
 }
 
@@ -182,8 +184,10 @@ type DeleteFilesDialogProps = {
 export function DeleteFilesDialog({
   paths,
   dirtyCount,
+  useTrash,
   busy = false,
   onConfirm,
+  onConfirmPermanent,
   onCancel
 }: DeleteFilesDialogProps): React.JSX.Element {
   const names = paths.slice(0, 10)
@@ -195,8 +199,10 @@ export function DeleteFilesDialog({
       testId="files-delete-dialog"
     >
       <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground">
-        This deletes from the session worktree. Git history is unchanged and the
-        action cannot be undone here.
+        {useTrash
+          ? 'Deleted items move to the session Trash and can be restored for seven days.'
+          : 'This deletes from the session worktree and cannot be undone.'}{' '}
+        Git history is unchanged.
       </p>
       <ul className="mt-2 max-h-40 overflow-auto rounded border border-border bg-background p-2 font-mono text-[10px] text-foreground">
         {names.map((path) => (
@@ -223,6 +229,17 @@ export function DeleteFilesDialog({
         >
           Cancel
         </button>
+        {useTrash ? (
+          <button
+            type="button"
+            className="h-9 rounded-md border border-border px-3 text-[12px] text-destructive hover:bg-destructive/10"
+            onClick={onConfirmPermanent}
+            disabled={busy}
+            data-testid="files-delete-permanent"
+          >
+            Delete permanently
+          </button>
+        ) : null}
         <button
           type="button"
           className="h-9 rounded-md bg-destructive px-3.5 text-[12px] font-medium text-black hover:opacity-90"
@@ -230,7 +247,13 @@ export function DeleteFilesDialog({
           disabled={busy}
           data-testid="files-delete-confirm"
         >
-          {busy ? 'Deleting…' : paths.length === 1 ? 'Delete' : `Delete ${String(paths.length)} items`}
+          {busy
+            ? 'Deleting…'
+            : useTrash
+              ? 'Move to Trash'
+              : paths.length === 1
+                ? 'Delete'
+                : `Delete ${String(paths.length)} items`}
         </button>
       </div>
     </DialogShell>

@@ -1240,6 +1240,18 @@ async function run() {
       10000
     )
     await click('[data-testid="files-rename"]')
+    try {
+      await waitForSelector('[data-testid="files-pending-input"]', 2500)
+    } catch {
+      const state = await cdp.evaluate(`(() => ({
+        selection: document.querySelector('[data-testid="files-selection"]')?.innerText ?? '',
+        pending: Boolean(document.querySelector('[data-testid="files-pending-input"]')),
+        active: document.activeElement?.getAttribute('data-testid') ?? '',
+        focusedRow: document.querySelector('[data-testid="files-entry-phase-b/two.txt"]') ? 'row' : 'missing'
+      }))()`)
+      log(`phase-b: inline rename retry after ${JSON.stringify(state)}`)
+      await click('[data-testid="files-rename"]')
+    }
     await waitForSelector('[data-testid="files-pending-input"]', 10000)
     await setValue('[data-testid="files-pending-input"]', 'renamed.txt')
     await click('[data-testid="files-pending-confirm"]')
@@ -1591,6 +1603,168 @@ async function run() {
       'auto-reveal focused the active file row',
       15000
     )
+  })
+
+  await step('Files phase D: trash undo, duplicate, hot exit, persisted tree and virtualized rows', async () => {
+    await cdp.evaluate(`(async () => {
+      const sessionId = ${JSON.stringify(sessionId)};
+      const create = async (path, kind) => {
+        const result = await window.icode.files.create({ sessionId, path, kind });
+        if (!result.ok) throw new Error(result.error.message);
+        if (result.value.status === 'unavailable' && result.value.reason !== 'already-exists') {
+          throw new Error(result.value.detail);
+        }
+      };
+      const write = async (path, text) => {
+        const result = await window.icode.files.write({ sessionId, path, text });
+        if (!result.ok) throw new Error(result.error.message);
+        if (result.value.status === 'unavailable') throw new Error(result.value.detail);
+      };
+      await create('phase-d', 'directory');
+      await create('phase-d/large', 'directory');
+      await write('phase-d/trash.txt', 'restore me\\n');
+      await write('phase-d/dup.txt', 'duplicate me\\n');
+      return true;
+    })()`)
+    // A real large folder; empty files keep the fixture cheap on disk.
+    for (let index = 0; index < 1000; index += 1) {
+      writeFileSync(join(worktreePath, 'phase-d', 'large', `file-${String(index)}.txt`), '')
+    }
+    await click('[data-testid="files-refresh"]')
+    await waitForSelector('[data-testid="files-entry-phase-d"]', 20000)
+    if (
+      !(await cdp.evaluate(
+        `document.querySelector('[data-testid="files-entry-phase-d"]')?.getAttribute('aria-expanded') === 'true'`
+      ))
+    ) {
+      await click('[data-testid="files-entry-phase-d"]')
+    }
+    await waitForSelector('[data-testid="files-entry-phase-d/trash.txt"]', 20000)
+
+    log('phase-d: delete to Trash and Undo')
+    await click('[data-testid="files-entry-phase-d/trash.txt"]')
+    await click('[data-testid="files-delete"]')
+    await waitForSelector('[data-testid="files-delete-dialog"]', 10000)
+    const deleteText = await cdp.evaluate(
+      `document.querySelector('[data-testid="files-delete-dialog"]')?.innerText ?? ''`
+    )
+    assert(deleteText.includes('Trash'), 'the delete dialog did not offer Trash')
+    await click('[data-testid="files-delete-confirm"]')
+    await waitForNotice('Moved 1 item to Trash', 20000)
+    await waitFor(
+      `(async () => {
+        const result = await window.icode.files.read({ sessionId: ${JSON.stringify(sessionId)}, path: 'phase-d/trash.txt' });
+        return result.ok && result.value.status === 'unavailable' && result.value.reason === 'not-found';
+      })()`,
+      'the deleted path left the worktree',
+      15000
+    )
+    await click('[data-testid="notice-action"]')
+    await waitForNotice('Restored 1 item', 20000)
+    await waitFor(
+      `(async () => {
+        const result = await window.icode.files.read({ sessionId: ${JSON.stringify(sessionId)}, path: 'phase-d/trash.txt' });
+        return result.ok && result.value.status === 'ok' && result.value.text === 'restore me\\n';
+      })()`,
+      'Undo restored the deleted file',
+      15000
+    )
+
+    log('phase-d: duplicate and undo')
+    await click('[data-testid="files-entry-phase-d/dup.txt"]')
+    await click('[data-testid="files-duplicate"]')
+    await waitForSelector('[data-testid="files-entry-phase-d/dup copy.txt"]', 20000)
+    await waitFor(
+      `document.querySelector('[data-testid="files-undo"]')?.disabled === false`,
+      'Duplicate became undoable',
+      10000
+    )
+    await click('[data-testid="files-undo"]')
+    await waitFor(
+      `!document.querySelector('[data-testid="files-entry-phase-d/dup copy.txt"]')`,
+      'Undo removed the duplicate',
+      15000
+    )
+
+    log('phase-d: dirty tab survives a renderer reload')
+    await click('[data-testid="files-entry-phase-d/dup.txt"]')
+    await waitForSelector('[data-testid="monaco-editor"]', 20000)
+    await cdp.evaluate(
+      `document.querySelector('[data-testid="monaco-editor"]')?.__icodeEditor?.focus()`
+    )
+    await cdp.send('Input.insertText', { text: 'phase-d dirty text\\n' })
+    await waitForSelector('[data-testid="files-tab-dirty"]', 10000)
+    await sleep(800)
+    await cdp.evaluate('location.reload()')
+    await sleep(1200)
+    await waitForSelector('[data-testid="app-rail"]', 30000)
+    await waitFor(
+      `Boolean(document.querySelector('[data-testid="projects-wall"]')) || Boolean(document.querySelector('[data-testid="empty-workspace"]')) || Boolean(document.querySelector('[data-testid="project-sessions-list"]'))`,
+      'workspace after reload',
+      30000
+    )
+    await openSessionWorkspace()
+    await click(`[data-testid="session-item-${sessionId}"]`)
+    await waitForSelector('[data-testid="session-title"]', 20000)
+    await click('[data-testid="view-files"]')
+    await waitForSelector('[data-testid="files-panel"]', 15000)
+    await waitForSelector('[data-testid="files-tab-phase-d/dup.txt"]', 20000)
+    await waitFor(
+      `document.querySelector('[data-testid="monaco-editor"]')?.__icodeEditor?.getValue().includes('phase-d dirty text') === true`,
+      'hot-exit dirty text restored',
+      20000
+    )
+    await waitForSelector('[data-testid="files-entry-phase-d/trash.txt"]', 20000)
+    assert(
+      await cdp.evaluate(
+        `document.querySelector('[data-testid="files-entry-phase-d"]')?.getAttribute('aria-expanded') === 'true'`
+      ),
+      'expanded folders were not restored'
+    )
+    await waitForSelector('[data-testid="files-entry-phase-c/alpha.ts"]', 15000)
+    assert(
+      await cdp.evaluate(
+        `document.querySelector('[data-testid="files-entry-phase-c"]')?.getAttribute('aria-expanded') === 'true'`
+      ),
+      'a folder outside the active tab was not restored'
+    )
+    await click('[data-testid="files-tab-close-phase-d/dup.txt"]')
+    await waitForSelector('[data-testid="files-unsaved-dialog"]', 10000)
+    await click('[data-testid="files-unsaved-discard"]')
+
+    log('phase-d: virtualized large folder')
+    await waitForSelector('[data-testid="files-entry-phase-d/large"]', 15000)
+    await click('[data-testid="files-entry-phase-d/large"]')
+    await cdp.evaluate(
+      `document.querySelector('[data-testid="files-entry-phase-d/large"]')?.scrollIntoView({ block: 'start' })`
+    )
+    await waitForSelector('[data-testid^="files-entry-phase-d/large/file-"]', 20000)
+    const mountedTop = await cdp.evaluate(
+      `document.querySelectorAll('[data-testid^="files-entry-phase-d/large/file-"]').length`
+    )
+    assert(mountedTop < 100, `the large folder mounted ${String(mountedTop)} rows at the top`)
+    await cdp.evaluate(`(() => {
+      const element = document.querySelector('[data-testid="files-tree"]');
+      if (!element) return false;
+      element.scrollTop = element.scrollHeight;
+      element.dispatchEvent(new Event('scroll', { bubbles: true }));
+      return true;
+    })()`)
+    await waitFor(
+      `document.querySelector('[data-testid="files-tree"]')?.scrollTop > 0`,
+      'the large folder scrolled',
+      10000
+    )
+    await sleep(250)
+    const mountedBottom = await cdp.evaluate(
+      `document.querySelectorAll('[data-testid^="files-entry-phase-d/large/file-"]').length`
+    )
+    assert(mountedBottom < 100, `the large folder mounted ${String(mountedBottom)} rows at the bottom`)
+    assert(
+      mountedBottom > 0,
+      'the large folder rendered no rows after scrolling to the end'
+    )
+    await screenshot('14-files-phase-d')
   })
 
   await quit()

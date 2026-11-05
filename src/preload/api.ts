@@ -100,6 +100,9 @@ export function createIcodeApi(invoke: InvokeFn, subscribe: SubscribeFn): IcodeA
       copyMany: (input) => call(IPC_CHANNELS.filesCopyMany, input),
       copyPaths: (input) => call(IPC_CHANNELS.filesCopyPaths, input),
       stat: (input) => call(IPC_CHANNELS.filesStat, input),
+      trashMany: (input) => call(IPC_CHANNELS.filesTrash, input),
+      restoreTrash: (input) => call(IPC_CHANNELS.filesRestoreTrash, input),
+      listTrash: (input) => call(IPC_CHANNELS.filesListTrash, input),
       watch: (input) => call(IPC_CHANNELS.filesWatch, input),
       onChanged: (listener) =>
         subscribe(IPC_CHANNELS.filesChangedEvent, (payload) =>
