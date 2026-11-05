@@ -38,7 +38,7 @@ export function harnessLabel(id: HarnessId): string {
  * Shell is a terminal, not an agent. Review notes typed into it would be
  * executed as shell input, so only the coding-agent harnesses can receive them.
  */
-export function isAgentHarness(id: HarnessId): boolean {
+export function isAgentHarness(id: HarnessId): id is Exclude<HarnessId, 'shell'> {
   return id !== 'shell'
 }
 

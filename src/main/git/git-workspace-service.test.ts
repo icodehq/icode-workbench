@@ -1,5 +1,5 @@
-import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { execFileSync, spawnSync } from 'node:child_process'
+import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { GitWorkspaceService } from './git-workspace-service'
@@ -32,6 +32,14 @@ function git(cwd: string, ...args: string[]): string {
 
 function gitRaw(cwd: string, ...args: string[]): string {
   return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' })
+}
+
+/** Leaves a real merge conflict in the worktree for the conflict-reader tests. */
+function mergeExpectingConflict(cwd: string, branch: string): void {
+  const result = spawnSync('git', ['-C', cwd, 'merge', '--no-edit', branch], {
+    encoding: 'utf8'
+  })
+  expect(result.status).not.toBe(0)
 }
 
 /** Mirrors the renderer's raw hunk splitter so the service consumes real patches. */
@@ -242,41 +250,6 @@ describe('git workspace: workflow operations', () => {
     expect(committed).toMatchObject({ status: 'unavailable', reason: 'nothing-to-commit' })
   })
 
-  it('lists branches and switches to a clean one', async () => {
-    const f = await realRepo()
-    git(f.worktree, 'branch', 'other')
-
-    const branches = await f.service.branches(f.sessionId)
-    expect(branches.status).toBe('ok')
-    if (branches.status === 'ok') {
-      expect(branches.names).toEqual(expect.arrayContaining(['other']))
-      expect(branches.current).toBe(f.branch)
-    }
-
-    const switched = await f.service.switchBranch(f.sessionId, 'other')
-    expect(switched).toMatchObject({ status: 'ok', branch: 'other' })
-    expect(git(f.worktree, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('other')
-  })
-
-  it('refuses to switch a dirty worktree and preserves the changes', async () => {
-    const f = await realRepo()
-    git(f.worktree, 'branch', 'other')
-    writeFileSync(join(f.worktree, 'a.txt'), 'uncommitted work\n')
-
-    const result = await f.service.switchBranch(f.sessionId, 'other')
-    expect(result).toMatchObject({ status: 'unavailable', reason: 'dirty-worktree' })
-    if (result.status === 'unavailable') expect(result.detail).toContain('a.txt')
-    // Still on the original branch, with the edit intact.
-    expect(git(f.worktree, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe(f.branch)
-    expect(readFileSync(join(f.worktree, 'a.txt'), 'utf8')).toBe('uncommitted work\n')
-  })
-
-  it('refuses to switch to the branch it is already on', async () => {
-    const f = await realRepo()
-    const result = await f.service.switchBranch(f.sessionId, f.branch)
-    expect(result.status).toBe('unavailable')
-  })
-
   it('explains a missing upstream instead of failing opaquely', async () => {
     const f = await realRepo()
     const push = await f.service.push(f.sessionId)
@@ -354,11 +327,6 @@ describe('git workspace: inspection and history operations', () => {
     expect(headOnly.status).toBe('ok')
     if (headOnly.status !== 'ok') return
     expect(headOnly.commits.some((commit) => commit.subject === 'side only')).toBe(false)
-
-    const all = await f.service.log(f.sessionId, { limit: 10, allRefs: true })
-    expect(all.status).toBe('ok')
-    if (all.status !== 'ok') return
-    expect(all.commits.some((commit) => commit.subject === 'side only')).toBe(true)
   })
 
   it('reads a commit detail with first-parent files and stats', async () => {
@@ -687,308 +655,6 @@ describe('git workspace: inspection and history operations', () => {
     expect(diff.deletions).toBeNull()
   })
 
-  it('creates a local branch at HEAD without switching the checkout', async () => {
-    const f = await realRepo()
-    const created = await f.service.createBranch(f.sessionId, 'review/next')
-    expect(created).toMatchObject({ status: 'ok', branch: 'review/next' })
-    expect(git(f.worktree, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe(f.branch)
-    expect(git(f.worktree, 'branch', '--list', 'review/next')).toContain('review/next')
-
-    const duplicate = await f.service.createBranch(f.sessionId, 'review/next')
-    expect(duplicate.status).toBe('unavailable')
-  })
-
-  it('creates a branch at an older commit and a local tag', async () => {
-    const f = await realRepo()
-    git(f.worktree, 'config', 'user.email', 'w83@test')
-    git(f.worktree, 'config', 'user.name', 'W83')
-    writeFileSync(join(f.worktree, 'a.txt'), 'first change\n')
-    git(f.worktree, 'commit', '-qam', 'first')
-    const first = git(f.worktree, 'rev-parse', 'HEAD')
-    writeFileSync(join(f.worktree, 'a.txt'), 'second change\n')
-    git(f.worktree, 'commit', '-qam', 'second')
-
-    const branch = await f.service.createBranch(f.sessionId, 'review/older', first)
-    expect(branch).toMatchObject({ status: 'ok', branch: 'review/older' })
-    expect(git(f.worktree, 'rev-parse', 'review/older')).toBe(first)
-
-    const tag = await f.service.createTag(f.sessionId, 'v-test', first)
-    expect(tag).toMatchObject({ status: 'ok', name: 'v-test', oid: first })
-    expect(git(f.worktree, 'tag', '--list', 'v-test')).toBe('v-test')
-
-    const duplicate = await f.service.createTag(f.sessionId, 'v-test', first)
-    expect(duplicate.status).toBe('unavailable')
-    const invalid = await f.service.createTag(f.sessionId, 'bad name', first)
-    expect(invalid.status).toBe('unavailable')
-  })
-
-  it('renames and deletes merged branches but refuses the current branch', async () => {
-    const f = await realRepo()
-    const created = await f.service.createBranch(f.sessionId, 'old-name')
-    expect(created.status).toBe('ok')
-
-    const renamed = await f.service.renameBranch(f.sessionId, 'old-name', 'new-name')
-    expect(renamed).toMatchObject({ status: 'ok', from: 'old-name', branch: 'new-name' })
-    expect(git(f.worktree, 'branch', '--list', 'old-name')).toBe('')
-    expect(git(f.worktree, 'branch', '--list', 'new-name')).toContain('new-name')
-
-    const deleted = await f.service.deleteBranch(f.sessionId, 'new-name')
-    expect(deleted).toMatchObject({ status: 'ok', branch: 'new-name' })
-    expect(git(f.worktree, 'branch', '--list', 'new-name')).toBe('')
-    expect(await f.service.deleteBranch(f.sessionId, f.branch)).toMatchObject({
-      status: 'unavailable'
-    })
-  })
-
-  it('refuses to delete a branch with unmerged commits', async () => {
-    const f = await realRepo()
-    git(f.worktree, 'config', 'user.email', 'w83@test')
-    git(f.worktree, 'config', 'user.name', 'W83')
-    git(f.worktree, 'checkout', '-q', '-b', 'unmerged')
-    writeFileSync(join(f.worktree, 'b.txt'), 'unmerged work\n')
-    git(f.worktree, 'commit', '-qam', 'unmerged work')
-    git(f.worktree, 'checkout', '-q', f.branch)
-
-    expect(await f.service.deleteBranch(f.sessionId, 'unmerged')).toMatchObject({
-      status: 'unavailable'
-    })
-    expect(git(f.worktree, 'branch', '--list', 'unmerged')).toContain('unmerged')
-  })
-
-  it('merges a local branch and leaves a conflict marker on refusal', async () => {
-    const f = await realRepo()
-    git(f.worktree, 'config', 'user.email', 'w83@test')
-    git(f.worktree, 'config', 'user.name', 'W83')
-    const base = git(f.worktree, 'rev-parse', 'HEAD')
-
-    git(f.worktree, 'checkout', '-q', '-b', 'feature')
-    writeFileSync(join(f.worktree, 'b.txt'), 'feature work\n')
-    git(f.worktree, 'commit', '-qam', 'feature work')
-    git(f.worktree, 'checkout', '-q', f.branch)
-    const merged = await f.service.mergeBranch(f.sessionId, 'feature')
-    expect(merged).toMatchObject({ status: 'ok', branch: 'feature' })
-    expect(readFileSync(join(f.worktree, 'b.txt'), 'utf8')).toBe('feature work\n')
-
-    git(f.worktree, 'checkout', '-q', '-b', 'conflict', base)
-    writeFileSync(join(f.worktree, 'a.txt'), 'conflict side\n')
-    git(f.worktree, 'commit', '-qam', 'conflict side')
-    git(f.worktree, 'checkout', '-q', f.branch)
-    writeFileSync(join(f.worktree, 'a.txt'), 'current side\n')
-    git(f.worktree, 'commit', '-qam', 'current side')
-
-    const conflicted = await f.service.mergeBranch(f.sessionId, 'conflict')
-    expect(conflicted.status).toBe('unavailable')
-    const state = await f.service.operationState(f.sessionId)
-    if (state.status === 'ok') expect(state.operation).toBe('merge')
-    expect(await f.service.abortOperation(f.sessionId)).toMatchObject({ status: 'ok' })
-  })
-
-  it('reads submodule state and initializes, updates, syncs and stages pointers', async () => {
-    const f = await realRepo()
-    git(f.worktree, 'config', 'user.email', 'w83@test')
-    git(f.worktree, 'config', 'user.name', 'W83')
-    const subrepo = join(f.worktree, '..', 'sub-repo')
-    mkdirSync(subrepo, { recursive: true })
-    execFileSync('git', ['init', '-q', '-b', 'main', subrepo], { stdio: 'pipe' })
-    writeFileSync(join(subrepo, 'lib.txt'), 'submodule one\n')
-    execFileSync(
-      'git',
-      ['-C', subrepo, '-c', 'user.email=w83@test', '-c', 'user.name=W83', 'add', '.'],
-      { stdio: 'pipe' }
-    )
-    execFileSync(
-      'git',
-      [
-        '-C',
-        subrepo,
-        '-c',
-        'user.email=w83@test',
-        '-c',
-        'user.name=W83',
-        'commit',
-        '-qm',
-        'sub init'
-      ],
-      { stdio: 'pipe' }
-    )
-    execFileSync(
-      'git',
-      [
-        '-C',
-        f.worktree,
-        '-c',
-        'protocol.file.allow=always',
-        'submodule',
-        'add',
-        subrepo,
-        'vendor/lib'
-      ],
-      { stdio: 'pipe' }
-    )
-    git(f.worktree, 'add', '.gitmodules', 'vendor/lib')
-    git(f.worktree, 'commit', '-qm', 'add submodule')
-
-    const clean = await f.service.submoduleStatus(f.sessionId)
-    expect(clean.status).toBe('ok')
-    if (clean.status === 'ok') {
-      expect(clean.submodules).toMatchObject([{ path: 'vendor/lib', state: 'clean' }])
-    }
-
-    git(f.worktree, 'submodule', 'deinit', '-f', '--', 'vendor/lib')
-    const uninitialized = await f.service.submoduleStatus(f.sessionId)
-    if (uninitialized.status === 'ok') {
-      expect(uninitialized.submodules[0]?.state).toBe('uninitialized')
-    }
-    expect(
-      await f.service.submoduleAction(f.sessionId, 'init', 'vendor/lib')
-    ).toMatchObject({ status: 'ok', action: 'init' })
-    expect(
-      await f.service.submoduleAction(f.sessionId, 'update', 'vendor/lib')
-    ).toMatchObject({ status: 'ok', action: 'update' })
-    expect(
-      await f.service.submoduleAction(f.sessionId, 'sync', 'vendor/lib')
-    ).toMatchObject({ status: 'ok', action: 'sync' })
-    const reinitialized = await f.service.submoduleStatus(f.sessionId)
-    if (reinitialized.status === 'ok') {
-      expect(reinitialized.submodules[0]?.state).toBe('clean')
-    }
-
-    const subPath = join(f.worktree, 'vendor', 'lib')
-    execFileSync('git', ['-C', subPath, 'config', 'user.email', 'w83@test'], { stdio: 'pipe' })
-    execFileSync('git', ['-C', subPath, 'config', 'user.name', 'W83'], { stdio: 'pipe' })
-    writeFileSync(join(subPath, 'lib.txt'), 'submodule two\n')
-    execFileSync('git', ['-C', subPath, 'commit', '-qam', 'sub two'], { stdio: 'pipe' })
-    const modified = await f.service.submoduleStatus(f.sessionId)
-    if (modified.status === 'ok') {
-      expect(modified.submodules[0]?.state).toBe('modified')
-    }
-    expect(
-      await f.service.submoduleAction(f.sessionId, 'stage', 'vendor/lib')
-    ).toMatchObject({ status: 'ok', action: 'stage' })
-    const staged = await f.service.submoduleStatus(f.sessionId)
-    if (staged.status === 'ok') {
-      expect(staged.submodules[0]?.state).toBe('clean')
-    }
-    expect(
-      await f.service.submoduleAction(f.sessionId, 'sync', '../escape')
-    ).toMatchObject({ status: 'unavailable' })
-  }, 60_000)
-
-  it('lists worktrees, locks and unlocks an extra one, and protects session checkouts', async () => {
-    const f = await realRepo()
-    const extra = join(f.worktree, '..', 'extra-worktree')
-    git(f.worktree, 'worktree', 'add', '--detach', extra, 'HEAD')
-
-    const listed = await f.service.worktreeList(f.sessionId)
-    expect(listed.status).toBe('ok')
-    if (listed.status !== 'ok') return
-    expect(listed.worktrees.length).toBeGreaterThanOrEqual(3)
-    const primary = listed.worktrees.find((entry) => entry.primary)
-    const sessionEntry = listed.worktrees.find(
-      (entry) => entry.sessionId === f.sessionId
-    )
-    const extraEntry = listed.worktrees.find(
-      (entry) => entry.path.replace(/\\/gu, '/').endsWith('/extra-worktree')
-    )
-    expect(primary?.active).toBe(false)
-    expect(sessionEntry?.active).toBe(true)
-    expect(extraEntry?.active).toBe(false)
-    expect(extraEntry?.primary).toBe(false)
-
-    expect(
-      await f.service.worktreeAction(f.sessionId, 'remove', sessionEntry!.path)
-    ).toMatchObject({ status: 'unavailable' })
-    expect(
-      await f.service.worktreeAction(f.sessionId, 'lock', sessionEntry!.path)
-    ).toMatchObject({ status: 'unavailable' })
-    expect(
-      await f.service.worktreeAction(f.sessionId, 'remove', primary!.path)
-    ).toMatchObject({ status: 'unavailable' })
-
-    expect(
-      await f.service.worktreeAction(f.sessionId, 'lock', extraEntry!.path, 'smoke lock')
-    ).toMatchObject({ status: 'ok', action: 'lock' })
-    const locked = await f.service.worktreeList(f.sessionId)
-    if (locked.status === 'ok') {
-      const entry = locked.worktrees.find((candidate) => candidate.path === extraEntry!.path)
-      expect(entry?.locked).toBe('smoke lock')
-    }
-    expect(
-      await f.service.worktreeAction(f.sessionId, 'unlock', extraEntry!.path)
-    ).toMatchObject({ status: 'ok', action: 'unlock' })
-    expect(await f.service.worktreeAction(f.sessionId, 'prune')).toMatchObject({
-      status: 'ok',
-      action: 'prune'
-    })
-    expect(
-      await f.service.worktreeAction(f.sessionId, 'remove', extraEntry!.path)
-    ).toMatchObject({ status: 'ok', action: 'remove' })
-    expect(existsSync(extra)).toBe(false)
-  })
-
-  it('creates, lists, inspects, applies, pops and drops stashes', async () => {
-    const f = await realRepo()
-    git(f.worktree, 'config', 'user.email', 'w83@test')
-    git(f.worktree, 'config', 'user.name', 'W83')
-    writeFileSync(join(f.worktree, 'a.txt'), 'stashed work\n')
-
-    expect(await f.service.stashPush(f.sessionId, 'work in progress', false, false)).toMatchObject({
-      status: 'ok',
-      created: true
-    })
-    expect(gitRaw(f.worktree, 'status', '--porcelain')).toBe('')
-    const listed = await f.service.stashList(f.sessionId)
-    expect(listed.status).toBe('ok')
-    if (listed.status === 'ok') {
-      expect(listed.stashes).toHaveLength(1)
-      expect(listed.stashes[0]).toMatchObject({ index: 0, ref: 'stash@{0}' })
-      expect(listed.stashes[0]?.subject).toContain('work in progress')
-    }
-    const diff = await f.service.stashDiff(f.sessionId, 0)
-    expect(diff.status).toBe('ok')
-    if (diff.status === 'ok') expect(diff.patch).toContain('stashed work')
-
-    expect(await f.service.stashAction(f.sessionId, 0, 'apply')).toMatchObject({
-      status: 'ok',
-      action: 'apply'
-    })
-    expect(readFileSync(join(f.worktree, 'a.txt'), 'utf8')).toBe('stashed work\n')
-    git(f.worktree, 'checkout', '--', 'a.txt')
-
-    expect(await f.service.stashAction(f.sessionId, 0, 'pop')).toMatchObject({
-      status: 'ok',
-      action: 'pop'
-    })
-    expect(readFileSync(join(f.worktree, 'a.txt'), 'utf8')).toBe('stashed work\n')
-    const empty = await f.service.stashList(f.sessionId)
-    if (empty.status === 'ok') expect(empty.stashes).toHaveLength(0)
-    git(f.worktree, 'checkout', '--', 'a.txt')
-
-    expect(await f.service.stashPush(f.sessionId, '', false, false)).toMatchObject({
-      status: 'ok',
-      created: false
-    })
-    expect(await f.service.stashAction(f.sessionId, 0, 'drop')).toMatchObject({
-      status: 'unavailable'
-    })
-    expect(await f.service.stashDiff(f.sessionId, -1)).toMatchObject({ status: 'unavailable' })
-  })
-
-  it('stashes untracked files when requested', async () => {
-    const f = await realRepo()
-    git(f.worktree, 'config', 'user.email', 'w83@test')
-    git(f.worktree, 'config', 'user.name', 'W83')
-    writeFileSync(join(f.worktree, 'new.txt'), 'untracked stash\n')
-    expect(await f.service.stashPush(f.sessionId, 'untracked', true, false)).toMatchObject({
-      status: 'ok',
-      created: true
-    })
-    expect(existsSync(join(f.worktree, 'new.txt'))).toBe(false)
-    const diff = await f.service.stashDiff(f.sessionId, 0)
-    if (diff.status === 'ok') expect(diff.patch).toContain('untracked stash')
-    expect(await f.service.stashAction(f.sessionId, 0, 'drop')).toMatchObject({ status: 'ok' })
-  })
-
   it('reads conflict stages and resolves the path before continuing', async () => {
     const f = await realRepo()
     git(f.worktree, 'config', 'user.email', 'w83@test')
@@ -1001,9 +667,7 @@ describe('git workspace: inspection and history operations', () => {
     git(f.worktree, 'checkout', '-q', f.branch)
     writeFileSync(join(f.worktree, 'a.txt'), 'current\n')
     git(f.worktree, 'commit', '-qam', 'current')
-    expect(await f.service.mergeBranch(f.sessionId, 'side')).toMatchObject({
-      status: 'unavailable'
-    })
+    mergeExpectingConflict(f.worktree, 'side')
 
     const conflict = await f.service.conflictFile(f.sessionId, 'a.txt')
     expect(conflict.status).toBe('ok')
@@ -1057,9 +721,7 @@ describe('git workspace: inspection and history operations', () => {
     writeFileSync(join(f.worktree, 'bin.dat'), Buffer.from([0, 7, 2]))
     writeFileSync(join(f.worktree, 'crlf.txt'), 'current\r\n')
     git(f.worktree, 'commit', '-qam', 'binary current')
-    expect(await f.service.mergeBranch(f.sessionId, 'binary-side')).toMatchObject({
-      status: 'unavailable'
-    })
+    mergeExpectingConflict(f.worktree, 'binary-side')
 
     const binary = await f.service.conflictFile(f.sessionId, 'bin.dat')
     expect(binary.status).toBe('ok')
@@ -1102,9 +764,7 @@ describe('git workspace: inspection and history operations', () => {
     symlinkSync('three', join(f.worktree, 'link'))
     git(f.worktree, 'add', 'link')
     git(f.worktree, 'commit', '-qm', 'link current')
-    expect(await f.service.mergeBranch(f.sessionId, 'link-side')).toMatchObject({
-      status: 'unavailable'
-    })
+    mergeExpectingConflict(f.worktree, 'link-side')
 
     const conflict = await f.service.conflictFile(f.sessionId, 'link')
     expect(conflict.status).toBe('ok')
@@ -1131,9 +791,7 @@ describe('git workspace: inspection and history operations', () => {
     git(f.worktree, 'checkout', '-q', f.branch)
     git(f.worktree, 'mv', 'renamed.txt', 'current-name.txt')
     git(f.worktree, 'commit', '-qm', 'current rename')
-    expect(await f.service.mergeBranch(f.sessionId, 'rename-side')).toMatchObject({
-      status: 'unavailable'
-    })
+    mergeExpectingConflict(f.worktree, 'rename-side')
 
     // The sides live on different paths (current-name.txt stage 2, side-name.txt
     // stage 3), so a single-path merge editor must fall back to the file/terminal.
@@ -1144,78 +802,6 @@ describe('git workspace: inspection and history operations', () => {
       status: 'unavailable'
     })
     await f.service.abortOperation(f.sessionId)
-  })
-
-  it('rebases the current branch and leaves a rebase marker on conflict', async () => {
-    const f = await realRepo()
-    git(f.worktree, 'config', 'user.email', 'w83@test')
-    git(f.worktree, 'config', 'user.name', 'W83')
-    const base = git(f.worktree, 'rev-parse', 'HEAD')
-
-    writeFileSync(join(f.worktree, 'b.txt'), 'local work\n')
-    git(f.worktree, 'commit', '-qam', 'local work')
-    git(f.worktree, 'checkout', '-q', '-b', 'upstream-line', base)
-    writeFileSync(join(f.worktree, 'a.txt'), 'upstream work\n')
-    git(f.worktree, 'commit', '-qam', 'upstream work')
-    git(f.worktree, 'checkout', '-q', f.branch)
-
-    const rebased = await f.service.rebaseBranch(f.sessionId, 'upstream-line')
-    expect(rebased).toMatchObject({ status: 'ok', branch: 'upstream-line' })
-    expect(git(f.worktree, 'log', '--pretty=%s', '-2')).toContain('local work')
-    expect(readFileSync(join(f.worktree, 'a.txt'), 'utf8')).toBe('upstream work\n')
-    expect(readFileSync(join(f.worktree, 'b.txt'), 'utf8')).toBe('local work\n')
-
-    git(f.worktree, 'checkout', '-q', '-b', 'conflict-line', base)
-    writeFileSync(join(f.worktree, 'a.txt'), 'conflict upstream\n')
-    git(f.worktree, 'commit', '-qam', 'conflict upstream')
-    git(f.worktree, 'checkout', '-q', f.branch)
-    writeFileSync(join(f.worktree, 'a.txt'), 'conflict local\n')
-    git(f.worktree, 'commit', '-qam', 'conflict local')
-
-    const conflicted = await f.service.rebaseBranch(f.sessionId, 'conflict-line')
-    expect(conflicted.status).toBe('unavailable')
-    const state = await f.service.operationState(f.sessionId)
-    if (state.status === 'ok') expect(state.operation).toBe('rebase')
-    expect(await f.service.abortOperation(f.sessionId)).toMatchObject({ status: 'ok' })
-    expect(git(f.worktree, 'status', '--porcelain')).toBe('')
-  })
-
-  it('deletes only a local tag', async () => {
-    const f = await realRepo()
-    const tag = await f.service.createTag(f.sessionId, 'v-delete', git(f.worktree, 'rev-parse', 'HEAD'))
-    expect(tag.status).toBe('ok')
-    expect(await f.service.deleteTag(f.sessionId, 'v-delete')).toMatchObject({
-      status: 'ok',
-      name: 'v-delete'
-    })
-    expect(git(f.worktree, 'tag', '--list', 'v-delete')).toBe('')
-    expect(await f.service.deleteTag(f.sessionId, 'v-delete')).toMatchObject({
-      status: 'unavailable'
-    })
-  })
-
-  it('lists tags and checks one out detached, refusing dirty work', async () => {
-    const f = await realRepo()
-    git(f.worktree, 'config', 'user.email', 'w83@test')
-    git(f.worktree, 'config', 'user.name', 'W83')
-    const head = git(f.worktree, 'rev-parse', 'HEAD')
-    expect(await f.service.createTag(f.sessionId, 'v-check', head)).toMatchObject({ status: 'ok' })
-
-    const list = await f.service.tags(f.sessionId)
-    expect(list.status).toBe('ok')
-    if (list.status !== 'ok') return
-    expect(list.tags).toContainEqual({ name: 'v-check', oid: head })
-
-    const checked = await f.service.checkoutRef(f.sessionId, 'v-check')
-    expect(checked).toMatchObject({ status: 'ok', ref: 'v-check', headOid: head })
-    expect(git(f.worktree, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('HEAD')
-    expect((await f.service.switchBranch(f.sessionId, f.branch)).status).toBe('ok')
-
-    writeFileSync(join(f.worktree, 'a.txt'), 'dirty\n')
-    expect(await f.service.checkoutRef(f.sessionId, 'v-check')).toMatchObject({
-      status: 'unavailable'
-    })
-    expect(git(f.worktree, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe(f.branch)
   })
 
   it('cherry-picks and reverts a commit through the operation queue', async () => {
@@ -1338,126 +924,7 @@ describe('git workspace: inspection and history operations', () => {
     expect(git(f.worktree, 'rev-list', '--count', 'HEAD')).toBe('2')
   })
 
-  it('lists, adds and removes remotes with name and URL validation', async () => {
-    const f = await realRepo()
-    const bare = join(f.worktree, '..', 'remote.git')
-    const backup = join(f.worktree, '..', 'backup.git')
-    execFileSync('git', ['init', '-q', '--bare', bare], { stdio: 'pipe' })
-    execFileSync('git', ['init', '-q', '--bare', backup], { stdio: 'pipe' })
-
-    const added = await f.service.addRemote(f.sessionId, 'origin', bare)
-    expect(added).toMatchObject({ status: 'ok', name: 'origin' })
-    const addedBackup = await f.service.addRemote(f.sessionId, 'backup', backup)
-    expect(addedBackup.status).toBe('ok')
-
-    const list = await f.service.remotes(f.sessionId)
-    expect(list.status).toBe('ok')
-    if (list.status !== 'ok') return
-    expect(list.remotes.map((remote) => remote.name)).toEqual(['backup', 'origin'])
-    expect(list.remotes.find((remote) => remote.name === 'origin')?.url).toBe(bare)
-
-    expect(await f.service.removeRemote(f.sessionId, 'backup')).toMatchObject({
-      status: 'ok',
-      name: 'backup'
-    })
-    expect(await f.service.addRemote(f.sessionId, 'bad name', '/tmp/x')).toMatchObject({
-      status: 'unavailable'
-    })
-    expect(await f.service.addRemote(f.sessionId, 'safe', '-upload-pack=evil')).toMatchObject({
-      status: 'unavailable'
-    })
-  })
-
-  it('fetches one named remote and reports an unknown remote', async () => {
-    const f = await realRepo()
-    const bare = join(f.worktree, '..', 'remote.git')
-    execFileSync('git', ['init', '-q', '--bare', bare], { stdio: 'pipe' })
-    git(f.worktree, 'remote', 'add', 'origin', bare)
-    expect((await f.service.publish(f.sessionId)).status).toBe('ok')
-
-    const fetched = await f.service.fetchRemote(f.sessionId, 'origin')
-    expect(fetched).toMatchObject({ status: 'ok', remote: 'origin' })
-    const pruned = await f.service.fetchRemote(f.sessionId, 'origin', true)
-    expect(pruned).toMatchObject({ status: 'ok', remote: 'origin' })
-    expect(await f.service.fetchRemote(f.sessionId, 'missing')).toMatchObject({
-      status: 'unavailable'
-    })
-  })
-
-  it('pushes tags explicitly and only to the default remote', async () => {
-    const f = await realRepo()
-    const bare = join(f.worktree, '..', 'remote.git')
-    execFileSync('git', ['init', '-q', '--bare', bare], { stdio: 'pipe' })
-    git(f.worktree, 'remote', 'add', 'origin', bare)
-    const published = await f.service.publish(f.sessionId)
-    expect(published.status).toBe('ok')
-    const head = git(f.worktree, 'rev-parse', 'HEAD')
-    expect(await f.service.createTag(f.sessionId, 'v-push', head)).toMatchObject({ status: 'ok' })
-
-    const pushed = await f.service.pushTags(f.sessionId)
-    expect(pushed).toMatchObject({ status: 'ok', remote: 'origin' })
-    expect(git(bare, 'tag', '--list', 'v-push')).toBe('v-push')
-  })
-
-  it('lists remote branches and sets the current branch upstream', async () => {
-    const f = await realRepo()
-    const bare = join(f.worktree, '..', 'remote.git')
-    execFileSync('git', ['init', '-q', '--bare', bare], { stdio: 'pipe' })
-    git(f.worktree, 'remote', 'add', 'origin', bare)
-    expect((await f.service.publish(f.sessionId)).status).toBe('ok')
-    git(f.worktree, 'branch', 'other')
-    git(f.worktree, 'push', '-q', 'origin', 'other')
-
-    const remoteBranches = await f.service.remoteBranches(f.sessionId)
-    expect(remoteBranches.status).toBe('ok')
-    if (remoteBranches.status !== 'ok') return
-    expect(remoteBranches.branches).toEqual(
-      expect.arrayContaining([`origin/${f.branch}`, 'origin/other'])
-    )
-
-    const changed = await f.service.setUpstream(f.sessionId, 'origin/other')
-    expect(changed).toMatchObject({ status: 'ok', branch: f.branch, upstream: 'origin/other' })
-    expect(git(f.worktree, 'rev-parse', '--abbrev-ref', '@{upstream}')).toBe('origin/other')
-    expect(await f.service.setUpstream(f.sessionId, 'origin/missing')).toMatchObject({
-      status: 'unavailable'
-    })
-    expect(await f.service.setUpstream(f.sessionId, '-bad')).toMatchObject({
-      status: 'unavailable'
-    })
-  })
-
-  it('force-pushes with a lease and refuses a stale remote', async () => {
-    const f = await realRepo()
-    git(f.worktree, 'config', 'user.email', 'w83@test')
-    git(f.worktree, 'config', 'user.name', 'W83')
-    const bare = join(f.worktree, '..', 'remote.git')
-    execFileSync('git', ['init', '-q', '--bare', bare], { stdio: 'pipe' })
-    git(f.worktree, 'remote', 'add', 'origin', bare)
-    expect((await f.service.publish(f.sessionId)).status).toBe('ok')
-
-    writeFileSync(join(f.worktree, 'a.txt'), 'local\n')
-    git(f.worktree, 'commit', '-qam', 'local')
-    expect((await f.service.push(f.sessionId)).status).toBe('ok')
-
-    const clone = join(f.worktree, '..', 'other')
-    execFileSync('git', ['clone', '-q', '-b', f.branch, bare, clone], { stdio: 'pipe' })
-    git(clone, 'config', 'user.email', 'other@test')
-    git(clone, 'config', 'user.name', 'Other')
-    writeFileSync(join(clone, 'a.txt'), 'remote\n')
-    git(clone, 'commit', '-qam', 'remote')
-    git(clone, 'push', '-q', 'origin', f.branch)
-
-    writeFileSync(join(f.worktree, 'a.txt'), 'rewritten\n')
-    git(f.worktree, 'commit', '-qam', 'rewritten')
-    const stale = await f.service.forcePush(f.sessionId)
-    expect(stale.status).toBe('unavailable')
-
-    expect((await f.service.fetch(f.sessionId)).status).toBe('ok')
-    const forced = await f.service.forcePush(f.sessionId)
-    expect(forced).toMatchObject({ status: 'ok', branch: f.branch })
-  })
-
-  it('publishes the branch by setting its upstream, then fetches the remote', async () => {
+  it('publishes the branch by setting its upstream', async () => {
     const f = await realRepo()
     const bare = join(f.worktree, '..', 'remote.git')
     execFileSync('git', ['init', '-q', '--bare', bare], { stdio: 'pipe' })
@@ -1468,8 +935,6 @@ describe('git workspace: inspection and history operations', () => {
     if (published.status === 'ok') expect(published.upstream).toBe(`origin/${f.branch}`)
     expect(git(f.worktree, 'rev-parse', '--abbrev-ref', '@{upstream}')).toBe(`origin/${f.branch}`)
 
-    const fetched = await f.service.fetch(f.sessionId)
-    expect(fetched).toMatchObject({ status: 'ok', remote: 'origin' })
   })
 
   it('resolves the local worktree and Git directory for the watcher', async () => {
@@ -1515,9 +980,17 @@ describe('git workspace: inspection and history operations', () => {
     expect(changed.status).toBe('ok')
     if (changed.status !== 'ok') return
     expect(changed.truncated).toBe(false)
+    expect(changed.commitCount).toBe(1)
     expect(changed.files).toEqual([
       expect.objectContaining({ path: 'a.txt', status: 'modified', additions: 1, deletions: 1 })
     ])
+
+    const sameCommit = await f.service.rangeDiff(f.sessionId, 'HEAD', 'HEAD')
+    expect(sameCommit.status).toBe('ok')
+    if (sameCommit.status === 'ok') {
+      expect(sameCommit.commitCount).toBe(0)
+      expect(sameCommit.files).toEqual([])
+    }
 
     const beforeRename = git(f.worktree, 'rev-parse', 'HEAD')
     execFileSync('git', ['-C', f.worktree, 'mv', 'a.txt', 'renamed.txt'], { stdio: 'pipe' })
@@ -1529,6 +1002,7 @@ describe('git workspace: inspection and history operations', () => {
     const renamed = await f.service.rangeDiff(f.sessionId, beforeRename, 'HEAD')
     expect(renamed.status).toBe('ok')
     if (renamed.status !== 'ok') return
+    expect(renamed.commitCount).toBe(1)
     expect(renamed.files).toEqual([
       expect.objectContaining({ path: 'renamed.txt', oldPath: 'a.txt', status: 'renamed' })
     ])

@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import type { GitStatusEntry, GitWorkspaceStatus } from '../../../shared/domain/git-workspace'
+import type {
+  GitRangeFile,
+  GitStatusEntry,
+  GitWorkspaceStatus
+} from '../../../shared/domain/git-workspace'
 import {
+  committedTreeEntries,
   diffScopeFor,
   reviewStatusFor,
   uncommittedFileCount,
@@ -56,9 +61,37 @@ describe('working tree projection', () => {
     expect(diffScopeFor('unstaged')).toBe('unstaged')
     expect(diffScopeFor('untracked')).toBe('untracked')
     expect(diffScopeFor('conflicts')).toBe('conflict')
+    expect(diffScopeFor('committed')).toBeNull()
     expect(reviewStatusFor(entry('a', 'untracked'))).toBe('added')
     expect(reviewStatusFor(entry('a', 'unstaged', { status: 'deleted' }))).toBe('deleted')
     expect(reviewStatusFor(entry('a', 'staged', { status: 'renamed' }))).toBe('renamed')
     expect(reviewStatusFor(entry('a', 'conflicted', { status: 'unmerged' }))).toBe('modified')
+  })
+
+  it('projects committed files as read-only rows with their range metadata', () => {
+    const files: GitRangeFile[] = [
+      {
+        path: 'src/new.ts',
+        oldPath: 'src/old.ts',
+        status: 'renamed',
+        additions: 3,
+        deletions: 1,
+        binary: false
+      }
+    ]
+    const [row] = committedTreeEntries(files)
+    expect(row).toMatchObject({
+      key: 'committed:src/new.ts',
+      area: 'committed',
+      added: 3,
+      removed: 1,
+      range: files[0]
+    })
+    expect(row?.entry).toMatchObject({
+      path: 'src/new.ts',
+      oldPath: 'src/old.ts',
+      status: 'renamed'
+    })
+    expect(uncommittedFileCount(workingTreeGroups(snapshot()))).toBe(0)
   })
 })

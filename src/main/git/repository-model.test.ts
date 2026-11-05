@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
   parseOperationMarker,
-  parseRemotes,
-  parseSubmoduleStatus,
   parseWorktreeList,
 } from './repository-model'
 
@@ -16,31 +14,6 @@ describe('parseOperationMarker', () => {
     expect(parseOperationMarker('BISECT_LOG')).toBe('bisect')
     expect(parseOperationMarker('config')).toBeNull()
     expect(parseOperationMarker(null)).toBeNull()
-  })
-})
-
-describe('parseRemotes', () => {
-  it('pairs fetch and push URLs and falls back to the fetch URL', () => {
-    const output = [
-      'origin\thttps://example.test/atlas.git (fetch)',
-      'origin\tgit@example.test:atlas.git (push)',
-      'backup\t/tmp/backup.git (fetch)',
-      'backup\t/tmp/backup.git (push)',
-      'fetch-only\t/tmp/other.git (fetch)'
-    ].join('\n')
-    expect(parseRemotes(output)).toEqual([
-      {
-        name: 'origin',
-        url: 'https://example.test/atlas.git',
-        pushUrl: 'git@example.test:atlas.git'
-      },
-      { name: 'backup', url: '/tmp/backup.git', pushUrl: '/tmp/backup.git' },
-      { name: 'fetch-only', url: '/tmp/other.git', pushUrl: null }
-    ])
-  })
-
-  it('ignores blank and malformed lines', () => {
-    expect(parseRemotes('\nnot a remote line\n')).toEqual([])
   })
 })
 
@@ -89,51 +62,4 @@ describe('parseWorktreeList', () => {
   })
 
 
-})
-
-describe('parseSubmoduleStatus', () => {
-  it('reads state, object id, path and configured branch', () => {
-    const output = [
-      ' ' + 'a'.repeat(40) + ' vendor/lib (heads/main)',
-      '-' + 'b'.repeat(40) + ' vendor/uninit',
-      '+' + 'c'.repeat(40) + ' vendor/modified',
-      'U' + 'd'.repeat(40) + ' vendor/conflict (heads/next)',
-      'garbage',
-      ''
-    ].join('\n')
-    expect(parseSubmoduleStatus(output)).toEqual([
-      {
-        path: 'vendor/lib',
-        oid: 'a'.repeat(40),
-        state: 'clean',
-        branch: 'heads/main'
-      },
-      {
-        path: 'vendor/uninit',
-        oid: 'b'.repeat(40),
-        state: 'uninitialized',
-        branch: null
-      },
-      {
-        path: 'vendor/modified',
-        oid: 'c'.repeat(40),
-        state: 'modified',
-        branch: null
-      },
-      {
-        path: 'vendor/conflict',
-        oid: 'd'.repeat(40),
-        state: 'conflict',
-        branch: 'heads/next'
-      }
-    ])
-  })
-
-  it('handles empty output and CRLF', () => {
-    expect(parseSubmoduleStatus('')).toEqual([])
-    const line = ' ' + 'e'.repeat(40) + ' vendor/lib (main)\r\n'
-    expect(parseSubmoduleStatus(line)).toMatchObject([
-      { path: 'vendor/lib', state: 'clean', branch: 'main' }
-    ])
-  })
 })

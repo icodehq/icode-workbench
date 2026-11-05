@@ -20,7 +20,7 @@ const entry = (
     path,
     oldPath: null,
     code: area === 'staged' ? 'M ' : ' M',
-    area: area === 'conflicts' ? 'conflicted' : area,
+    area: area === 'conflicts' ? 'conflicted' : area === 'committed' ? 'staged' : area,
     status
   }
   return { key: selectionKey({ area, entry: statusEntry }), area, entry: statusEntry, added: 1, removed: 0 }
@@ -30,7 +30,8 @@ const groups = (entries: WorkingTreeEntry[]): WorkingTreeGroups => ({
   conflicts: entries.filter((item) => item.area === 'conflicts'),
   staged: entries.filter((item) => item.area === 'staged'),
   unstaged: entries.filter((item) => item.area === 'unstaged'),
-  untracked: entries.filter((item) => item.area === 'untracked')
+  untracked: entries.filter((item) => item.area === 'untracked'),
+  committed: entries.filter((item) => item.area === 'committed')
 })
 
 const options = (overrides: Partial<ScmTreeOptions> = {}): ScmTreeOptions => ({
@@ -56,6 +57,26 @@ describe('scmGroups', () => {
       'Changes',
       'Untracked Files'
     ])
+  })
+
+  it('renders committed rows as a trailing read-only group', () => {
+    const combined: WorkingTreeGroups = {
+      ...sample,
+      committed: [entry('src/done.ts', 'committed')]
+    }
+    const result = scmGroups(combined, options())
+    expect(result.map((group) => group.id)).toEqual([
+      'conflicts',
+      'staged',
+      'unstaged',
+      'untracked',
+      'committed'
+    ])
+    expect(result.at(-1)).toMatchObject({
+      id: 'committed',
+      label: 'Committed in This Session',
+      entries: [expect.objectContaining({ key: 'committed:src/done.ts' })]
+    })
   })
 
   it('filters by path and can hide or mix untracked files', () => {

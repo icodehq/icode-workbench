@@ -26,7 +26,7 @@ import { FILES_MAX_FILE_BYTES } from '../../../shared/domain/workspace-files'
    * `truncated` flag tells the history view to paginate instead of pretending
    * the range ended.
    */
-export async function rangeDiff(ctx: GitWorkspaceContext, sessionId: string, from: string, to = 'HEAD'): Promise<GitOutcome<{ fromOid: string; toOid: string; files: GitRangeFile[]; truncated: boolean }>> {
+export async function rangeDiff(ctx: GitWorkspaceContext, sessionId: string, from: string, to = 'HEAD'): Promise<GitOutcome<{ fromOid: string; toOid: string; commitCount: number; files: GitRangeFile[]; truncated: boolean }>> {
     const resolved = await ctx.resolve(sessionId)
     if (resolved.status !== 'ok') return resolved
     const { git, worktreePath } = resolved
@@ -50,10 +50,17 @@ export async function rangeDiff(ctx: GitWorkspaceContext, sessionId: string, fro
     }
 
     try {
-      const [nameStatus, numstat] = await Promise.all([
+      const [nameStatus, numstat, commitCountOutput] = await Promise.all([
         git(worktreePath, ['diff', '--name-status', '-z', '-M', fromOid, toOid, '--']),
-        git(worktreePath, ['diff', '--numstat', '-z', '-M', fromOid, toOid, '--'])
+        git(worktreePath, ['diff', '--numstat', '-z', '-M', fromOid, toOid, '--']),
+        // The empty tree is a valid diff endpoint but not a commit, so it has
+        // no revision range to count. A count failure must not fail the diff.
+        fromOid === EMPTY_TREE_OID || toOid === EMPTY_TREE_OID
+          ? Promise.resolve('0')
+          : git(worktreePath, ['rev-list', '--count', `${fromOid}..${toOid}`]).catch(() => '0')
       ])
+      const counted = Number.parseInt(commitCountOutput.trim(), 10)
+      const commitCount = Number.isFinite(counted) && counted > 0 ? counted : 0
       const counts = new Map(parseNumstatZ(numstat).map((entry) => [entry.path, entry]))
       const files: GitRangeFile[] = parseNameStatusZ(nameStatus).map((entry) => {
         const count = counts.get(entry.path)
@@ -81,6 +88,7 @@ export async function rangeDiff(ctx: GitWorkspaceContext, sessionId: string, fro
         status: 'ok',
         fromOid,
         toOid,
+        commitCount,
         files: files.slice(0, limit),
         truncated: files.length > limit
       }
@@ -107,7 +115,6 @@ export async function log(ctx: GitWorkspaceContext, sessionId: string, options: 
       limit?: number
       skip?: number
       ref?: string
-      allRefs?: boolean
       path?: string
     } = {}): Promise<GitOutcome<GitLogPage>> {
     const limit = Math.min(200, Math.max(1, Math.floor(options.limit ?? 50)))
@@ -184,7 +191,6 @@ export async function log(ctx: GitWorkspaceContext, sessionId: string, options: 
       `--pretty=format:${LOG_PRETTY_FORMAT}`
     ]
     if (ref.length > 0) args.push(ref)
-    else if (options.allRefs === true) args.push('--all')
     args.push('--')
     if (path.length > 0) args.push(path)
 

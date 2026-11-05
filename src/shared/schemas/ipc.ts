@@ -79,6 +79,8 @@ export const IPC_CHANNELS = {
   terminalWrite: 'icode:terminal:write',
   terminalResize: 'icode:terminal:resize',
   harnessList: 'icode:harness:list',
+  aiCommitMessage: 'icode:ai:commit-message',
+  aiCancelCommitMessage: 'icode:ai:cancel-commit-message',
   wslListDistros: 'icode:wsl:list-distros',
   sessionEvent: 'icode:session-event'
 } as const

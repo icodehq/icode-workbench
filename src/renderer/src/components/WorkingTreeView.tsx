@@ -18,14 +18,16 @@ import {
   Trash2
 } from 'lucide-react'
 import { callApi } from '../lib/api'
-import type { GitStashEntry } from '../../../shared/icode-api'
-import type { Notice } from '../state/workspace'
-import type { GitWorkspaceStatus } from '../../../shared/domain/git-workspace'
+import type {
+  GitRangeFile,
+  GitWorkspaceStatus
+} from '../../../shared/domain/git-workspace'
 import type { FileDiffPayload, FileDiffResult } from '../../../shared/schemas/changes'
 import type { AppError } from '../../../shared/domain/errors'
 import { makeAppError } from '../../../shared/domain/errors'
 import type { LineComment } from '../review/drafts'
 import {
+  committedTreeEntries,
   diffScopeFor,
   reviewStatusFor,
   workingTreeGroups,
@@ -36,9 +38,8 @@ import {
 import { countUnifiedDiffChanges } from '../review/parse-unified-diff'
 import { type DiffViewState } from './UnifiedDiffView'
 import WorkingDiffView, { type WorkingDiffMode } from './WorkingDiffView'
-import StashDetailView from './StashDetailView'
+import CommittedFileDiff from './history/CommittedFileDiff'
 import ScmContextMenu, { type ScmMenuItem } from '../scm/ScmContextMenu'
-import ScmAdvancedSections from './scm/ScmAdvancedSections'
 import {
   EMPTY_SELECTION,
   pruneSelection,
@@ -78,11 +79,16 @@ type DiffState = {
 type Props = {
   sessionId: string
   sessionState: string
+  /** The commit this session's worktree was created from. */
+  baseOid: string | null
+  /** Read-only rows committed between the baseline and HEAD. */
+  committed: GitRangeFile[] | null
   snapshot: GitWorkspaceStatus | null
   loading: boolean
   active: boolean
   refreshToken: number
-  gitRevision: number
+  /** Bumped whenever the watcher saw a write, so the focused diff can refresh. */
+  diffTick: number
   /** True when main's worktree watcher is driving refreshes. */
   watchActive: boolean
   /** The SCM sidebar's upper block (repository header and commit input). */
@@ -111,10 +117,6 @@ type Props = {
     path: string,
     text: string
   ) => Promise<{ ok: boolean; message?: string }>
-  /** Notices for stash actions, which live in this sidebar section. */
-  onNotify: (notice: Notice) => void
-  /** Refreshes status after a stash action changed the worktree or index. */
-  onStashChanged: () => void
 }
 
 const SECTION_ORDER: WorkingTreeArea[] = ['conflicts', 'staged', 'unstaged', 'untracked']
@@ -197,11 +199,13 @@ function diffViewState(state: DiffState | undefined): DiffViewState {
 export default function WorkingTreeView({
   sessionId,
   sessionState,
+  baseOid,
+  committed,
   snapshot,
   loading,
   active,
   refreshToken,
-  gitRevision,
+  diffTick,
   watchActive,
   sidebarHeader,
   editorOverride,
@@ -217,11 +221,17 @@ export default function WorkingTreeView({
   onAddComment,
   onRemoveComment,
   onApplyHunk,
-  onResolveConflict,
-  onNotify,
-  onStashChanged
+  onResolveConflict
 }: Props): React.JSX.Element {
-  const groups = useMemo(() => workingTreeGroups(snapshot), [snapshot])
+  const statusGroups = useMemo(() => workingTreeGroups(snapshot), [snapshot])
+  const committedEntries = useMemo(
+    () => (committed === null ? [] : committedTreeEntries(committed)),
+    [committed]
+  )
+  const groups = useMemo(
+    () => ({ ...statusGroups, committed: committedEntries }),
+    [committedEntries, statusGroups]
+  )
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const rowButtonRefs = useRef(new Map<string, HTMLButtonElement>())
   const [selection, setSelection] = useState<ScmSelection>(EMPTY_SELECTION)
@@ -232,7 +242,6 @@ export default function WorkingTreeView({
     label: string
   } | null>(null)
   const [settings, setSettings] = useState<ScmSettings>(() => loadScmSettings())
-  const [stashDetail, setStashDetail] = useState<GitStashEntry | null>(null)
   const [viewMode, setViewMode] = useState<ScmViewMode>(settings.viewMode)
   const [sort, setSort] = useState<ScmSortKey>(settings.sort)
   const [sidebarWidth, setSidebarWidth] = useState(settings.sidebarWidth)
@@ -370,37 +379,57 @@ export default function WorkingTreeView({
     setSelection(EMPTY_SELECTION)
     setQuery('')
     setCollapsed(new Set())
-    setStashDetail(null)
   }, [sessionId])
 
   // Selection keys survive a snapshot refresh only while the row still exists.
   useEffect(() => {
     const available = new Set(
-      [...groups.conflicts, ...groups.staged, ...groups.unstaged, ...groups.untracked].map(selectionKey)
+      [
+        ...groups.conflicts,
+        ...groups.staged,
+        ...groups.unstaged,
+        ...groups.untracked,
+        ...groups.committed
+      ].map(selectionKey)
     )
     setSelection((current) => pruneSelection(current, available))
   }, [groups])
 
   const requestDiff = useCallback(
-    (entry: WorkingTreeEntry) =>
-      callApi<FileDiffResult>(
+    (entry: WorkingTreeEntry) => {
+      const scope = diffScopeFor(entry.area)
+      if (scope === null) {
+        // Committed rows never call this; their diff is read from base..HEAD
+        // by CommittedFileDiff. Keep the contract total for the callback.
+        return Promise.resolve({
+          ok: true as const,
+          value: {
+            status: 'unavailable' as const,
+            reason: 'invalid-baseline' as const,
+            detail: 'This row is committed work, not a working-tree change.'
+          }
+        })
+      }
+      return callApi<FileDiffResult>(
         window.icode.git.changeDiff({
           sessionId,
           path: entry.entry.path,
           oldPath: entry.entry.oldPath,
-          scope: diffScopeFor(entry.area),
+          scope,
           status: reviewStatusFor(entry.entry),
           binary: entry.entry.binary ?? false,
           symlink: null,
           additions: entry.added,
           deletions: entry.removed
         })
-      ),
+      )
+    },
     [sessionId]
   )
 
   const loadDiff = useCallback(
     (entry: WorkingTreeEntry, force = false): void => {
+      if (entry.area === 'committed') return
       const current = diffs[entry.key]
       if (!force && current?.phase === 'ready' && current.stale !== true) return
       if (inFlight.current.has(entry.key)) return
@@ -451,6 +480,7 @@ export default function WorkingTreeView({
    */
   const refreshDiff = useCallback(
     (entry: WorkingTreeEntry): void => {
+      if (entry.area === 'committed') return
       if (inFlight.current.has(entry.key)) return
       const gen = generation.current
       const run = (async (): Promise<void> => {
@@ -485,13 +515,13 @@ export default function WorkingTreeView({
   )
 
   useEffect(() => {
-    if (!active || selected === null) return
+    if (!active || selected === null || selected.area === 'committed') return
     loadDiff(selected)
-  }, [active, loadDiff, refreshToken, gitRevision, selected])
+  }, [active, diffTick, loadDiff, refreshToken, selected])
 
   useEffect(() => {
-    if (!active || selected === null) return
-    // With a live watcher, the status event bumps gitRevision and the effect
+    if (!active || selected === null || selected.area === 'committed') return
+    // With a live watcher, the status event bumps diffTick and the effect
     // above reloads the selected diff. The polling fallback remains for guest
     // targets and any watcher that failed.
     if (watchActive) return
@@ -511,7 +541,9 @@ export default function WorkingTreeView({
   const selectedActions = selectionActions(selection, groups)
 
   const openMenu = (entry: WorkingTreeEntry, x: number, y: number): void => {
-    if (!selection.selected.has(entry.key)) setSelection(selectOnly(entry.key))
+    if (entry.area !== 'committed' && !selection.selected.has(entry.key)) {
+      setSelection(selectOnly(entry.key))
+    }
     setSelectedKey(entry.key)
     setMenu({
       x,
@@ -527,7 +559,9 @@ export default function WorkingTreeView({
       (entry) => entry.area === 'unstaged' || entry.area === 'untracked'
     )
     const unstageable = entries.filter((entry) => entry.area === 'staged')
-    const discardable = entries.filter((entry) => entry.area !== 'conflicts')
+    const discardable = entries.filter(
+      (entry) => entry.area !== 'conflicts' && entry.area !== 'committed'
+    )
     const selectFolder = (): void => {
       setSelection({ selected: new Set(row.resourceKeys), anchor: row.resourceKeys[0] ?? null })
     }
@@ -572,13 +606,44 @@ export default function WorkingTreeView({
     const copy = (text: string): void => {
       void navigator.clipboard?.writeText(text).catch(() => undefined)
     }
+    if (entry.area === 'committed') {
+      return [
+        {
+          id: 'open-changes',
+          label: 'Open Changes',
+          icon: <FileSearch size={12} />,
+          onSelect: () => setSelectedKey(entry.key)
+        },
+        {
+          id: 'open-files',
+          label: 'Open in Files',
+          icon: <FolderOpen size={12} />,
+          onSelect: () => onOpenPath(entry.entry.path)
+        },
+        {
+          id: 'copy-path',
+          label: 'Copy Path',
+          icon: <Copy size={12} />,
+          onSelect: () => copy(entry.entry.path)
+        },
+        {
+          id: 'open-terminal',
+          label: 'Open in Agent Terminal',
+          icon: <TerminalSquare size={12} />,
+          separatorBefore: true,
+          onSelect: onOpenTerminal
+        }
+      ]
+    }
     const inSelection = selection.selected.has(entry.key) && selectedRows.length > 1
     const targets = inSelection ? selectedRows : [entry]
     const stageTargets = targets.filter(
       (target) => target.area === 'unstaged' || target.area === 'untracked'
     )
     const unstageTargets = targets.filter((target) => target.area === 'staged')
-    const discardTargets = targets.filter((target) => target.area !== 'conflicts')
+    const discardTargets = targets.filter(
+      (target) => target.area !== 'conflicts' && target.area !== 'committed'
+    )
     const suffix = inSelection ? ` ${String(targets.length)} Selected` : ''
     return [
       {
@@ -665,8 +730,10 @@ export default function WorkingTreeView({
     entry: WorkingTreeEntry,
     event: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean }
   ): void => {
-    setStashDetail(null)
     setSelectedKey(entry.key)
+    // Committed rows are read-only: they open their diff but never join the
+    // staging/discard selection.
+    if (entry.area === 'committed') return
     if (event.shiftKey) {
       setSelection((current) => selectRange(current, visibleKeys, entry.key))
       return
@@ -678,10 +745,12 @@ export default function WorkingTreeView({
     setSelection(selectOnly(entry.key))
   }
 
-  const selectedState = selected ? diffs[selected.key] : undefined
+  const selectedState =
+    selected !== null && selected.area !== 'committed' ? diffs[selected.key] : undefined
 
-  const total =
+  const uncommittedTotal =
     groups.conflicts.length + groups.staged.length + groups.unstaged.length + groups.untracked.length
+  const hasAnyChanges = uncommittedTotal + committedEntries.length > 0
 
   return (
     <div className="flex min-h-0 flex-1" data-testid="working-tree" data-session-state={sessionState}>
@@ -689,7 +758,7 @@ export default function WorkingTreeView({
         className="flex shrink-0 flex-col border-r border-border bg-card"
         style={{ width: `${String(sidebarWidth)}px` }}
         role="tree"
-        aria-label="Uncommitted files"
+        aria-label="Changed files in this worktree"
         aria-multiselectable="true"
         onKeyDown={(event) => {
           const target = event.target
@@ -734,13 +803,13 @@ export default function WorkingTreeView({
           }
           if (event.key === ' ') {
             if (selected === null) return
-            if (selected.area === 'conflicts') return
+            if (selected.area === 'conflicts' || selected.area === 'committed') return
             event.preventDefault()
             if (selected.area === 'staged') onUnstage(selected.entry.path)
             else onStage(selected.entry.path)
             return
           }
-          if (event.key === 'Delete' && selected !== null) {
+          if (event.key === 'Delete' && selected !== null && selected.area !== 'committed') {
             event.preventDefault()
             onDiscard(selected)
           }
@@ -849,9 +918,11 @@ export default function WorkingTreeView({
               'Git state is unavailable for this worktree.'
             )}
           </div>
-        ) : total === 0 ? (
+        ) : !hasAnyChanges ? (
           <p className="px-3 py-4 text-[11px] text-muted-foreground">
-            No uncommitted changes.
+            {baseOid === null
+              ? 'No uncommitted changes.'
+              : `No changes since base ${baseOid.slice(0, 7)}.`}
           </p>
         ) : (
         <div className="min-h-0 flex-1 overflow-auto">
@@ -880,7 +951,7 @@ export default function WorkingTreeView({
                       <span className="font-mono text-[9px] text-muted-foreground">{group.count}</span>
                     </button>
                     <span className="flex shrink-0 items-center gap-0.5">
-                      {group.id === 'conflicts' ? (
+                      {group.id === 'committed' ? null : group.id === 'conflicts' ? (
                         <button
                           type="button"
                           className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -917,7 +988,11 @@ export default function WorkingTreeView({
                             className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                             title="Discard all changes"
                             onClick={() =>
-                              onDiscardEntries(groupEntries.filter((entry) => entry.area !== 'conflicts'))
+                              onDiscardEntries(
+                                groupEntries.filter(
+                                  (entry) => entry.area !== 'conflicts' && entry.area !== 'committed'
+                                )
+                              )
                             }
                           >
                             <Trash2 size={11} />
@@ -943,29 +1018,32 @@ export default function WorkingTreeView({
                               style={{ paddingLeft: `${String(6 + row.depth * 12)}px` }}
                               data-testid={`scm-folder-${row.group}-${row.path}`}
                               onContextMenu={(event) => {
+                                if (row.group === 'committed') return
                                 event.preventDefault()
                                 openFolderMenu(row, event.clientX, event.clientY)
                               }}
                             >
-                              <input
-                                type="checkbox"
-                                className="h-3 w-3 shrink-0 accent-signal"
-                                checked={allSelected}
-                                aria-label={`Select folder ${row.path}`}
-                                data-testid={`scm-folder-check-${row.group}-${row.path}`}
-                                onClick={(event) => event.stopPropagation()}
-                                onChange={() => {
-                                  setSelection((current) => {
-                                    const selected = new Set(current.selected)
-                                    if (allSelected) {
-                                      for (const key of row.resourceKeys) selected.delete(key)
-                                    } else {
-                                      for (const key of row.resourceKeys) selected.add(key)
-                                    }
-                                    return { selected, anchor: row.resourceKeys[0] ?? null }
-                                  })
-                                }}
-                              />
+                              {row.group === 'committed' ? null : (
+                                <input
+                                  type="checkbox"
+                                  className="h-3 w-3 shrink-0 accent-signal"
+                                  checked={allSelected}
+                                  aria-label={`Select folder ${row.path}`}
+                                  data-testid={`scm-folder-check-${row.group}-${row.path}`}
+                                  onClick={(event) => event.stopPropagation()}
+                                  onChange={() => {
+                                    setSelection((current) => {
+                                      const selected = new Set(current.selected)
+                                      if (allSelected) {
+                                        for (const key of row.resourceKeys) selected.delete(key)
+                                      } else {
+                                        for (const key of row.resourceKeys) selected.add(key)
+                                      }
+                                      return { selected, anchor: row.resourceKeys[0] ?? null }
+                                    })
+                                  }}
+                                />
+                              )}
                               <button
                                 type="button"
                                 role="treeitem"
@@ -986,19 +1064,21 @@ export default function WorkingTreeView({
                                   {row.resourceKeys.length}
                                 </span>
                               </button>
-                              <button
-                                type="button"
-                                className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-                                title="Folder actions"
-                                aria-label={`Actions for ${row.path}`}
-                                data-testid={`scm-folder-more-${row.group}-${row.path}`}
-                                onClick={(event) => {
-                                  const rect = event.currentTarget.getBoundingClientRect()
-                                  openFolderMenu(row, rect.left - 180, rect.bottom + 4)
-                                }}
-                              >
-                                <MoreHorizontal size={11} />
-                              </button>
+                              {row.group === 'committed' ? null : (
+                                <button
+                                  type="button"
+                                  className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                                  title="Folder actions"
+                                  aria-label={`Actions for ${row.path}`}
+                                  data-testid={`scm-folder-more-${row.group}-${row.path}`}
+                                  onClick={(event) => {
+                                    const rect = event.currentTarget.getBoundingClientRect()
+                                    openFolderMenu(row, rect.left - 180, rect.bottom + 4)
+                                  }}
+                                >
+                                  <MoreHorizontal size={11} />
+                                </button>
+                              )}
                             </li>
                           )
                         }
@@ -1034,18 +1114,20 @@ export default function WorkingTreeView({
                               }
                             }}
                           >
-                            <input
-                              type="checkbox"
-                              className="h-3 w-3 shrink-0 accent-signal"
-                              checked={isChecked}
-                              aria-label={`Select ${entry.entry.path}`}
-                              data-testid={`scm-check-${entry.area}-${entry.entry.path}`}
-                              onClick={(event) => event.stopPropagation()}
-                              onChange={() => {
-                                setSelectedKey(entry.key)
-                                setSelection((current) => toggleSelection(current, entry.key))
-                              }}
-                            />
+                            {entry.area === 'committed' ? null : (
+                              <input
+                                type="checkbox"
+                                className="h-3 w-3 shrink-0 accent-signal"
+                                checked={isChecked}
+                                aria-label={`Select ${entry.entry.path}`}
+                                data-testid={`scm-check-${entry.area}-${entry.entry.path}`}
+                                onClick={(event) => event.stopPropagation()}
+                                onChange={() => {
+                                  setSelectedKey(entry.key)
+                                  setSelection((current) => toggleSelection(current, entry.key))
+                                }}
+                              />
+                            )}
                             <span className={`w-3 shrink-0 text-center font-mono text-[10px] font-semibold ${statusTone(entry)}`}>
                               {statusLetter(entry)}
                             </span>
@@ -1077,7 +1159,7 @@ export default function WorkingTreeView({
                               </span>
                             </button>
                             <span className="flex shrink-0 items-center gap-0.5">
-                              {entry.area === 'conflicts' ? (
+                              {entry.area === 'committed' ? null : entry.area === 'conflicts' ? (
                                 <button
                                   type="button"
                                   className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -1109,7 +1191,7 @@ export default function WorkingTreeView({
                                   <Plus size={11} />
                                 </button>
                               )}
-                              {entry.area === 'conflicts' ? null : (
+                              {entry.area === 'committed' || entry.area === 'conflicts' ? null : (
                                 <button
                                   type="button"
                                   className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
@@ -1155,14 +1237,6 @@ export default function WorkingTreeView({
           )}
         </div>
         )}
-        <ScmAdvancedSections
-          sessionId={sessionId}
-          refreshToken={refreshToken}
-          gitRevision={gitRevision}
-          notify={onNotify}
-          onChanged={onStashChanged}
-          onOpenStash={(stash) => setStashDetail(stash)}
-        />
       </aside>
       <div
         role="separator"
@@ -1185,12 +1259,6 @@ export default function WorkingTreeView({
       <div className="min-w-0 flex-1">
         {editorOverride !== undefined && editorOverride !== null ? (
           editorOverride
-        ) : stashDetail !== null ? (
-          <StashDetailView
-            sessionId={sessionId}
-            stash={stashDetail}
-            onClose={() => setStashDetail(null)}
-          />
         ) : snapshot === null ? (
           loading ? (
             <div className="flex h-full items-center justify-center text-[11px] text-muted-foreground">
@@ -1205,49 +1273,59 @@ export default function WorkingTreeView({
               Git state is unavailable for this worktree.
             </div>
           )
-        ) : total === 0 ? (
+        ) : !hasAnyChanges ? (
           <div
             className="flex h-full items-center justify-center px-6 text-center"
             data-testid="working-tree-empty"
           >
             <div>
-              <p className="text-[13px] font-medium text-foreground">No uncommitted changes</p>
+              <p className="text-[13px] font-medium text-foreground">
+                {baseOid === null ? 'No uncommitted changes' : 'No changes since base'}
+              </p>
               <p className="mt-1 text-[11px] text-muted-foreground">
-                Nothing is staged, modified or untracked.
+                {baseOid === null
+                  ? 'Nothing is staged, modified or untracked.'
+                  : `This worktree matches ${baseOid.slice(0, 7)}.`}
               </p>
             </div>
           </div>
         ) : selected ? (
-          <WorkingDiffView
-            sessionId={sessionId}
-            entry={selected}
-            state={diffViewState(selectedState)}
-            onRetry={() => loadDiff(selected, true)}
-            comments={comments.filter((comment) => comment.path === selected.entry.path)}
-            onAddComment={onAddComment}
-            onRemoveComment={onRemoveComment}
-            scopeLabel={
-              selected.area === 'staged'
-                ? 'staged'
-                : selected.area === 'untracked'
-                  ? 'untracked'
-                  : selected.area === 'conflicts'
-                    ? 'conflict'
-                    : 'unstaged'
-            }
-            mode={settings.diffView}
-            onModeChange={updateDiffView}
-            onApplyHunk={
-              onApplyHunk === undefined
-                ? undefined
-                : (patch, mode) => onApplyHunk(selected.entry.path, patch, mode)
-            }
-            onResolveConflict={
-              onResolveConflict === undefined
-                ? undefined
-                : (text) => onResolveConflict(selected.entry.path, text)
-            }
-          />
+          selected.area === 'committed' &&
+          selected.range !== undefined &&
+          baseOid !== null ? (
+            <CommittedFileDiff sessionId={sessionId} baseOid={baseOid} file={selected.range} />
+          ) : (
+            <WorkingDiffView
+              sessionId={sessionId}
+              entry={selected}
+              state={diffViewState(selectedState)}
+              onRetry={() => loadDiff(selected, true)}
+              comments={comments.filter((comment) => comment.path === selected.entry.path)}
+              onAddComment={onAddComment}
+              onRemoveComment={onRemoveComment}
+              scopeLabel={
+                selected.area === 'staged'
+                  ? 'staged'
+                  : selected.area === 'untracked'
+                    ? 'untracked'
+                    : selected.area === 'conflicts'
+                      ? 'conflict'
+                      : 'unstaged'
+              }
+              mode={settings.diffView}
+              onModeChange={updateDiffView}
+              onApplyHunk={
+                onApplyHunk === undefined
+                  ? undefined
+                  : (patch, mode) => onApplyHunk(selected.entry.path, patch, mode)
+              }
+              onResolveConflict={
+                onResolveConflict === undefined
+                  ? undefined
+                  : (text) => onResolveConflict(selected.entry.path, text)
+              }
+            />
+          )
         ) : (
           <div className="flex h-full items-center justify-center px-4 text-center text-[11px] text-muted-foreground">
             Select a file to see its change.

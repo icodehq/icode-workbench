@@ -98,8 +98,8 @@ export default function ScmSettingsCard(): React.JSX.Element {
   return (
     <SettingsCard title="Source Control">
       <p className="mb-2 max-w-2xl text-[10.5px] leading-relaxed text-muted-foreground">
-        These settings affect the Source Control tab. Smart commit and auto-fetch are off by
-        default, so staging and network access stay explicit until you opt in.
+        These settings affect the Source Control tab. Smart commit is off by default, so
+        staging stays explicit until you opt in.
       </p>
       <div className="grid gap-x-6 md:grid-cols-2">
         <div>
@@ -116,30 +116,6 @@ export default function ScmSettingsCard(): React.JSX.Element {
               <option value="off">Off</option>
               <option value="all">All changes</option>
               <option value="tracked">Tracked changes</option>
-            </select>
-          </Field>
-          <Field label="Auto-fetch" hint="Fetch while Source Control is visible. Never prompts for credentials.">
-            <Toggle
-              checked={settings.autoFetch}
-              onChange={(next) => update({ autoFetch: next })}
-              label="Auto-fetch"
-              testId="scm-setting-auto-fetch"
-            />
-          </Field>
-          <Field label="Auto-fetch interval" hint="Backs off quietly after failures.">
-            <select
-              className="h-7 rounded border border-border bg-card px-1.5 text-[10.5px]"
-              value={settings.autoFetchIntervalSec}
-              onChange={(event) =>
-                update({ autoFetchIntervalSec: Number(event.target.value) })
-              }
-              data-testid="scm-setting-auto-fetch-interval"
-            >
-              <option value={30}>30 seconds</option>
-              <option value={60}>60 seconds</option>
-              <option value={180}>3 minutes</option>
-              <option value={300}>5 minutes</option>
-              <option value={900}>15 minutes</option>
             </select>
           </Field>
           <Field label="Untracked files" hint="Mixed shows untracked rows in Changes; hidden omits them.">
@@ -224,14 +200,6 @@ export default function ScmSettingsCard(): React.JSX.Element {
               onChange={(next) => update({ pullRebase: next })}
               label="Pull with rebase"
               testId="scm-setting-pull-rebase"
-            />
-          </Field>
-          <Field label="Confirm force push">
-            <Toggle
-              checked={settings.confirmForcePush}
-              onChange={(next) => update({ confirmForcePush: next })}
-              label="Confirm force push"
-              testId="scm-setting-confirm-force-push"
             />
           </Field>
           <Field label="Sign commits" hint="Uses the Git/GPG configuration on this machine.">

@@ -22,6 +22,12 @@ import type {
   terminalWriteInputSchema
 } from './schemas/ipc'
 import type { clearActivityUnreadInputSchema } from './schemas/activity'
+import type {
+  aiCancelCommitMessageInputSchema,
+  aiCommitMessageInputSchema,
+  AiCancelCommitMessageResult,
+  AiCommitMessageResult
+} from './schemas/ai'
 import type { GitCommandInput, GitCommandName } from './ipc/git-commands'
 import type { ChangeListResult, FileDiffResult } from './schemas/changes'
 import type {
@@ -49,8 +55,6 @@ import type {
 import type { FileContent, FileListing, FileSearchResult } from './domain/workspace-files'
 import type {
   GitBatchResult,
-  GitRemote,
-  GitTag,
   GitCommitDetail,
   GitCommitResult,
   GitLogPage,
@@ -105,46 +109,18 @@ export type GitCommandResultMap = {
   setPathStaged: GitOpPayload
   setPathsStaged: GitBatchPayload
   discardPaths: GitBatchPayload
-  branches: GitBranchesPayload
-  switchBranch: GitBranchPayload
-  createBranch: GitBranchPayload
-  createTag: GitTagPayload
-  deleteTag: GitTagPayload
-  tags: GitTagsPayload
-  checkoutRef: GitCheckoutRefPayload
   fileAtRevision: GitFileAtRevisionPayload
   indexFile: GitIndexFilePayload
   applyPatch: GitApplyPatchPayload
   conflictFile: GitConflictFilePayload
   resolveConflict: GitResolveConflictPayload
-  stashList: GitStashListPayload
-  stashPush: GitStashPushPayload
-  stashDiff: GitStashDiffPayload
-  stashAction: GitStashActionPayload
-  worktreeList: GitWorktreeListPayload
-  worktreeAction: GitWorktreeActionPayload
-  submoduleList: GitSubmoduleListPayload
-  submoduleAction: GitSubmoduleActionPayload
   blame: GitBlamePayload
-  renameBranch: GitRenameBranchPayload
-  deleteBranch: GitBranchPayload
-  mergeBranch: GitBranchPayload
-  rebaseBranch: GitBranchPayload
   cherryPick: GitCommitActionPayload
   revert: GitCommitActionPayload
   reset: GitResetPayload
   push: GitBranchPayload
   pull: GitBranchPayload
   publish: GitBranchPayload
-  fetch: GitFetchPayload
-  remotes: GitRemotesPayload
-  fetchRemote: GitFetchPayload
-  addRemote: GitRemoteMutationPayload
-  removeRemote: GitRemoteMutationPayload
-  pushTags: GitPushTagsPayload
-  forcePush: GitBranchPayload
-  remoteBranches: GitRemoteBranchesPayload
-  setUpstream: GitBranchPayload
   amend: GitCommitPayload
   log: GitLogPayload
   commitDetail: GitCommitDetailPayload
@@ -274,6 +250,16 @@ export type IcodeProductApi = {
       input?: z.infer<typeof harnessListInputSchema>
     ) => Promise<IpcResult<HarnessDetection[]>>
   }
+  ai: {
+    /** Drafts a commit message from the staged diff with the session's agent. */
+    commitMessage: (
+      input: z.infer<typeof aiCommitMessageInputSchema>
+    ) => Promise<IpcResult<AiCommitMessageResult>>
+    /** Stops one in-flight generation. */
+    cancelCommitMessage: (
+      input: z.infer<typeof aiCancelCommitMessageInputSchema>
+    ) => Promise<IpcResult<AiCancelCommitMessageResult>>
+  }
   wsl: {
     /**
      * Registered distros for the repository dialog.
@@ -372,17 +358,8 @@ export type ScheduleFirePayload = {
   trigger?: string
   note?: string
 }
-export type GitBranchesPayload =
-  | { status: 'ok'; current: string | null; names: string[] }
-  | WorkspaceUnavailablePayload
 export type GitBranchPayload =
   | { status: 'ok'; branch: string; upstream?: string }
-  | WorkspaceUnavailablePayload
-export type GitTagPayload =
-  | { status: 'ok'; name: string; oid?: string }
-  | WorkspaceUnavailablePayload
-export type GitRenameBranchPayload =
-  | { status: 'ok'; branch: string; from: string }
   | WorkspaceUnavailablePayload
 export type GitCommitActionPayload =
   | { status: 'ok'; oid: string; shortOid: string; subject: string }
@@ -401,6 +378,7 @@ export type GitRangeDiffPayload =
       status: 'ok'
       fromOid: string
       toOid: string
+      commitCount: number
       files: GitRangeFile[]
       truncated: boolean
     }
@@ -426,21 +404,6 @@ export type GitRevisionFileDiffPayload =
       fromOid: string
       toOid: string
     }
-  | WorkspaceUnavailablePayload
-export type GitFetchPayload =
-  | { status: 'ok'; remote: string }
-  | WorkspaceUnavailablePayload
-export type GitRemotesPayload =
-  | { status: 'ok'; remotes: GitRemote[] }
-  | WorkspaceUnavailablePayload
-export type GitRemoteMutationPayload =
-  | { status: 'ok'; name: string }
-  | WorkspaceUnavailablePayload
-export type GitTagsPayload =
-  | { status: 'ok'; tags: GitTag[] }
-  | WorkspaceUnavailablePayload
-export type GitCheckoutRefPayload =
-  | { status: 'ok'; ref: string; headOid: string }
   | WorkspaceUnavailablePayload
 export type GitBlameLine = {
   line: number
@@ -492,61 +455,6 @@ export type GitConflictFilePayload =
   | WorkspaceUnavailablePayload
 export type GitResolveConflictPayload =
   | { status: 'ok'; path: string }
-  | WorkspaceUnavailablePayload
-export type GitStashEntry = {
-  index: number
-  ref: string
-  subject: string
-  date: string
-  oid: string
-}
-export type GitStashListPayload =
-  | { status: 'ok'; stashes: GitStashEntry[] }
-  | WorkspaceUnavailablePayload
-export type GitStashPushPayload =
-  | { status: 'ok'; created: boolean }
-  | WorkspaceUnavailablePayload
-export type GitStashDiffPayload =
-  | { status: 'ok'; ref: string; patch: string; truncated: boolean }
-  | WorkspaceUnavailablePayload
-export type GitStashActionPayload =
-  | { status: 'ok'; ref: string; action: 'apply' | 'pop' | 'drop' }
-  | WorkspaceUnavailablePayload
-export type GitWorktreeInfo = {
-  path: string
-  head: string | null
-  branch: string | null
-  bare: boolean
-  detached: boolean
-  locked: string | null
-  prunable: string | null
-  sessionId: string | null
-  active: boolean
-  primary: boolean
-}
-export type GitWorktreeListPayload =
-  | { status: 'ok'; worktrees: GitWorktreeInfo[] }
-  | WorkspaceUnavailablePayload
-export type GitWorktreeActionPayload =
-  | { status: 'ok'; action: 'lock' | 'unlock' | 'prune' | 'remove'; path: string | null }
-  | WorkspaceUnavailablePayload
-export type GitSubmoduleInfo = {
-  path: string
-  oid: string
-  state: 'clean' | 'uninitialized' | 'modified' | 'conflict'
-  branch: string | null
-}
-export type GitSubmoduleListPayload =
-  | { status: 'ok'; submodules: GitSubmoduleInfo[] }
-  | WorkspaceUnavailablePayload
-export type GitSubmoduleActionPayload =
-  | { status: 'ok'; action: 'init' | 'update' | 'sync' | 'stage'; path: string | null }
-  | WorkspaceUnavailablePayload
-export type GitPushTagsPayload =
-  | { status: 'ok'; remote: string }
-  | WorkspaceUnavailablePayload
-export type GitRemoteBranchesPayload =
-  | { status: 'ok'; branches: string[] }
   | WorkspaceUnavailablePayload
 
 export type { FileContent, FileListing, FileSearchResult, GitCommitResult, GitStatusEntry, GitWorkspaceStatus }

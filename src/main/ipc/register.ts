@@ -62,6 +62,8 @@ export const HANDLED_CHANNELS: readonly string[] = [
   IPC_CHANNELS.activityList,
   IPC_CHANNELS.activityClearUnread,
   IPC_CHANNELS.harnessList,
+  IPC_CHANNELS.aiCommitMessage,
+  IPC_CHANNELS.aiCancelCommitMessage,
   IPC_CHANNELS.wslListDistros,
   IPC_CHANNELS.terminalAttach,
   IPC_CHANNELS.terminalWrite,
@@ -256,6 +258,11 @@ export function createAppDispatcher(
     // Detection is per execution target: a WSL repository's Harnesses live in its
     // distro, so the repository is part of the question, not just a UI detail.
     harnessList: (input) => runtime.listHarnesses(input?.repoId === undefined ? {} : { repoId: input.repoId }),
+    aiCommitMessage: (input) =>
+      runtime.commitMessages.generate(input.sessionId, input.requestId),
+    aiCancelCommitMessage: async (input) => ({
+      cancelled: runtime.commitMessages.cancel(input.requestId)
+    }),
     wslListDistros: () => runtime.listWslDistros(),
     terminalAttach: (input) => runtime.sessions.attach(input.sessionId),
     terminalWrite: async (input) => {

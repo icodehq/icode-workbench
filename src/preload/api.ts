@@ -116,6 +116,10 @@ export function createIcodeApi(invoke: InvokeFn, subscribe: SubscribeFn): IcodeA
     harness: {
       list: (input) => call(IPC_CHANNELS.harnessList, input ?? {})
     },
+    ai: {
+      commitMessage: (input) => call(IPC_CHANNELS.aiCommitMessage, input),
+      cancelCommitMessage: (input) => call(IPC_CHANNELS.aiCancelCommitMessage, input)
+    },
     wsl: {
       listDistros: () => call(IPC_CHANNELS.wslListDistros)
     },

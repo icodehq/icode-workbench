@@ -1,17 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { callApi } from '../lib/api'
 import type {
-  GitFetchPayload,
   GitOperationStatePayload,
+  GitRangeDiffPayload,
   GitStatusPayload
 } from '../../../shared/icode-api'
 import type {
   GitOperationKind,
+  GitRangeFile,
   GitWorkspaceStatus,
   GitWatchUnavailableReason
 } from '../../../shared/domain/git-workspace'
 import { workspaceUnavailableText } from '../review/workspace-unavailable'
-import { autoFetchDelayMs } from './auto-fetch'
 import {
   loadScmSettings,
   subscribeScmSettings,
@@ -21,19 +21,23 @@ import {
 type ScmStatusOptions = {
   sessionId: string
   sessionState: string
+  /** The commit this session's worktree was created from. */
+  baseOid: string | null
   /** The Source Control tab is visible. Hidden panes hold stale Git status. */
   active: boolean
   /** Bumped by the global refresh action; reloads Git status. */
   refreshToken: number
-  /** Bumped when the header branch menu changed the checkout. */
-  gitRevision: number
-  /** Mutations pause the optional background fetch. */
-  busy: boolean
 }
 
 type ScmStatus = {
   snapshot: GitWorkspaceStatus | null
   operation: GitOperationKind | null
+  /** Files committed between the session baseline and HEAD. */
+  committed: GitRangeFile[] | null
+  commitCount: number
+  committedLoading: boolean
+  /** Explains why the committed slice is unavailable; empty when healthy. */
+  baseNote: string
   settings: ScmSettings
   watchMode: 'probing' | 'watch' | 'poll'
   diffTick: number
@@ -51,13 +55,16 @@ type ScmStatus = {
 export function useScmStatus({
   sessionId,
   sessionState,
+  baseOid,
   active,
-  refreshToken,
-  gitRevision,
-  busy
+  refreshToken
 }: ScmStatusOptions): ScmStatus {
   const [snapshot, setSnapshot] = useState<GitWorkspaceStatus | null>(null)
   const [operation, setOperation] = useState<GitOperationKind | null>(null)
+  const [committed, setCommitted] = useState<GitRangeFile[] | null>(null)
+  const [commitCount, setCommitCount] = useState(0)
+  const [committedLoading, setCommittedLoading] = useState(false)
+  const [baseNote, setBaseNote] = useState('')
   const [settings, setSettings] = useState<ScmSettings>(() => loadScmSettings())
   const [watchMode, setWatchMode] = useState<'probing' | 'watch' | 'poll'>('probing')
   const [diffTick, setDiffTick] = useState(0)
@@ -66,14 +73,8 @@ export function useScmStatus({
   useEffect(() => subscribeScmSettings(setSettings), [])
   const [loading, setLoading] = useState(true)
   const gitGeneration = useRef(0)
+  const committedGeneration = useRef(0)
   const silentGitInFlight = useRef(false)
-  const busyRef = useRef(busy)
-  const operationRef = useRef<GitOperationKind | null>(null)
-  const upstreamRef = useRef<string | null>(null)
-  const autoFetchFailures = useRef(0)
-  busyRef.current = busy
-  operationRef.current = operation
-  upstreamRef.current = snapshot?.upstream ?? null
 
   // A different session has a different checkout; drop the previous status
   // immediately rather than showing another worktree's files.
@@ -82,6 +83,10 @@ export function useScmStatus({
     setNote('')
     setLoading(true)
     setOperation(null)
+    setCommitted(null)
+    setCommitCount(0)
+    setBaseNote('')
+    setCommittedLoading(false)
   }, [sessionId])
 
   const loadGit = useCallback(
@@ -134,9 +139,64 @@ export function useScmStatus({
     [sessionId]
   )
 
+  const loadCommitted = useCallback(
+    async (silent = false): Promise<void> => {
+      if (baseOid === null) {
+        committedGeneration.current += 1
+        setCommitted(null)
+        setCommitCount(0)
+        setBaseNote('')
+        setCommittedLoading(false)
+        return
+      }
+      const generation = committedGeneration.current + 1
+      committedGeneration.current = generation
+      if (!silent) setCommittedLoading(true)
+      try {
+        const result = await callApi<GitRangeDiffPayload>(
+          window.icode.git.rangeDiff({ sessionId, from: baseOid, to: 'HEAD' })
+        )
+        if (generation !== committedGeneration.current) return
+        if (!result.ok) {
+          // Like status, a background read must not erase a readable list.
+          if (silent) return
+          setCommitted(null)
+          setCommitCount(0)
+          setBaseNote(result.error.message)
+          return
+        }
+        if (result.value.status === 'unavailable') {
+          if (silent) return
+          setCommitted(null)
+          setCommitCount(0)
+          setBaseNote(result.value.detail)
+          return
+        }
+        const files = result.value.files
+        const count = result.value.commitCount
+        setCommitted((current) =>
+          current !== null && JSON.stringify(current) === JSON.stringify(files) ? current : files
+        )
+        setCommitCount((current) => (current === count ? current : count))
+        setBaseNote('')
+      } finally {
+        if (generation === committedGeneration.current) setCommittedLoading(false)
+      }
+    },
+    [baseOid, sessionId]
+  )
+
+  // The committed slice changes only when HEAD moves. Status polling catches
+  // working-tree writes; this keeps base..HEAD from being re-read on each one.
+  const headOid = snapshot?.headOid ?? null
+  useEffect(() => {
+    if (!active || headOid === null) return
+    void loadCommitted()
+  }, [active, headOid, loadCommitted])
+
   useEffect(() => {
     void loadGit()
-  }, [loadGit, refreshToken, gitRevision])
+  }, [loadGit, refreshToken])
 
   const loadOperation = useCallback(async (): Promise<void> => {
     const result = await callApi<GitOperationStatePayload>(
@@ -160,12 +220,16 @@ export function useScmStatus({
     let timer: number | null = null
     const tick = async (): Promise<void> => {
       if (cancelled) return
-      if (document.visibilityState === 'visible') await loadGit(true)
+      if (document.visibilityState === 'visible') {
+        await loadGit(true)
+      }
       if (!cancelled) timer = window.setTimeout(() => void tick(), 2000)
     }
     timer = window.setTimeout(() => void tick(), 2000)
     const onVisibility = (): void => {
-      if (!cancelled && document.visibilityState === 'visible') void loadGit(true)
+      if (!cancelled && document.visibilityState === 'visible') {
+        void loadGit(true)
+      }
     }
     document.addEventListener('visibilitychange', onVisibility)
     return () => {
@@ -214,7 +278,9 @@ export function useScmStatus({
     const onVisibility = (): void => {
       const visible = document.visibilityState === 'visible'
       void window.icode.git.watchStatus({ sessionId, active: visible })
-      if (visible) void loadGit(true)
+      if (visible) {
+        void loadGit(true)
+      }
     }
     document.addEventListener('visibilitychange', onVisibility)
     return () => {
@@ -225,68 +291,6 @@ export function useScmStatus({
       void window.icode.git.watchStatus({ sessionId, active: false })
     }
   }, [active, loadGit, loadOperation, sessionId])
-
-  /**
-   * Optional background fetch while Source Control is visible.
-   *
-   * It is renderer-driven, single-flight, paused while the window is hidden or
-   * an operation is running, and backs off quietly on failure. Manual and
-   * automatic fetches share the same Git service, which sets
-   * `GIT_TERMINAL_PROMPT=0`, so this can never prompt for credentials.
-   */
-  useEffect(() => {
-    if (!active || !settings.autoFetch) return
-    let cancelled = false
-    let inFlight = false
-    let timer: number | null = null
-    const schedule = (): void => {
-      if (cancelled) return
-      timer = window.setTimeout(
-        () => void tick(),
-        autoFetchDelayMs(settings.autoFetchIntervalSec, autoFetchFailures.current)
-      )
-    }
-    const tick = async (): Promise<void> => {
-      if (cancelled) return
-      if (
-        document.visibilityState !== 'visible' ||
-        busyRef.current ||
-        operationRef.current !== null ||
-        upstreamRef.current === null
-      ) {
-        schedule()
-        return
-      }
-      if (inFlight) return
-      inFlight = true
-      try {
-        const result = await callApi<GitFetchPayload>(window.icode.git.fetch({ sessionId }))
-        if (cancelled) return
-        if (result.ok && result.value.status === 'ok') {
-          autoFetchFailures.current = 0
-          void loadGit(true)
-          void loadOperation()
-        } else {
-          autoFetchFailures.current = Math.min(3, autoFetchFailures.current + 1)
-        }
-      } finally {
-        inFlight = false
-        schedule()
-      }
-    }
-    schedule()
-    return () => {
-      cancelled = true
-      if (timer !== null) window.clearTimeout(timer)
-    }
-  }, [
-    active,
-    loadGit,
-    loadOperation,
-    sessionId,
-    settings.autoFetch,
-    settings.autoFetchIntervalSec
-  ])
 
   // This tab stays mounted while Terminal or Files is visible. On entering it,
   // the Git snapshot must be re-read: a stale snapshot marks a newly edited
@@ -299,14 +303,20 @@ export function useScmStatus({
   useEffect(() => {
     if (!active) return
     void loadOperation()
-  }, [active, gitRevision, loadOperation, refreshToken])
+  }, [active, loadOperation, refreshToken])
 
 
-  const refresh = useCallback((): Promise<void> => loadGit(), [loadGit])
+  const refresh = useCallback(async (): Promise<void> => {
+    await Promise.all([loadGit(), loadCommitted()])
+  }, [loadCommitted, loadGit])
 
   return {
     snapshot,
     operation,
+    committed,
+    commitCount,
+    committedLoading,
+    baseNote,
     settings,
     watchMode,
     diffTick,

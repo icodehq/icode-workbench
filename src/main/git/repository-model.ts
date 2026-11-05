@@ -7,10 +7,7 @@
  * output its own way.
  */
 
-import type {
-  GitOperationKind as SharedGitOperationKind,
-  GitRemote
-} from '../../shared/domain/git-workspace'
+import type { GitOperationKind as SharedGitOperationKind } from '../../shared/domain/git-workspace'
 
 export type GitOperationKind = SharedGitOperationKind
 
@@ -27,67 +24,6 @@ const OPERATION_MARKERS: Record<string, GitOperationKind> = {
 export function parseOperationMarker(marker: string | null | undefined): GitOperationKind | null {
   if (!marker) return null
   return OPERATION_MARKERS[marker] ?? null
-}
-
-/**
- * Parses `git remote -v`.
- *
- * Git prints one line per direction, e.g. `origin\t<url> (fetch)`. A remote
- * without a separate push URL reuses the fetch URL.
- */
-export function parseRemotes(output: string): GitRemote[] {
-  const remotes = new Map<string, GitRemote>()
-  for (const rawLine of output.split('\n')) {
-    const line = rawLine.replace(/\r$/u, '')
-    const match = /^(\S+)\t(.+) \((fetch|push)\)$/u.exec(line)
-    if (match === null) continue
-    const name = match[1]!
-    const url = match[2]!
-    const direction = match[3]!
-    const current = remotes.get(name) ?? { name, url, pushUrl: null }
-    if (direction === 'fetch') current.url = url
-    else current.pushUrl = url
-    remotes.set(name, current)
-  }
-  return [...remotes.values()]
-}
-
-export type GitSubmoduleEntry = {
-  path: string
-  oid: string
-  /** Space = checked-out commit matches the index; `-` = not initialized. */
-  state: 'clean' | 'uninitialized' | 'modified' | 'conflict'
-  /** Configured branch in parentheses after the path, when present. */
-  branch: string | null
-}
-
-const SUBMODULE_LINE = /^([ +\-U])([0-9a-f]{40,64}) (.+?)(?: \(([^)]*)\))?$/u
-
-/** Parses `git submodule status` (non-recursive). */
-export function parseSubmoduleStatus(output: string): GitSubmoduleEntry[] {
-  const submodules: GitSubmoduleEntry[] = []
-  for (const rawLine of output.split('\n')) {
-    const line = rawLine.replace(/\r$/u, '')
-    const match = SUBMODULE_LINE.exec(line)
-    if (match === null) continue
-    const marker = match[1]!
-    const path = match[3]!.trim()
-    if (path.length === 0) continue
-    submodules.push({
-      path,
-      oid: match[2]!,
-      state:
-        marker === '-'
-          ? 'uninitialized'
-          : marker === '+'
-            ? 'modified'
-            : marker === 'U'
-              ? 'conflict'
-              : 'clean',
-      branch: match[4] ?? null
-    })
-  }
-  return submodules
 }
 
 export type GitWorktreeEntry = {

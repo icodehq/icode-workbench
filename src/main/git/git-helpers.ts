@@ -4,7 +4,7 @@ import { STATUS_V2_ARGS, type ParsedRepositoryStatus } from './status-reader'
 /** A commit message is one line of intent; blank messages are refused. */
 export const MAX_MESSAGE_LENGTH = 4000
 
-/** Patch cap shared by apply, revision and stash diffs. */
+/** Patch cap shared by apply and revision diffs. */
 export const MAX_PATCH_BYTES = 2 * 1024 * 1024 + 64 * 1024
 
 export const STATUS_ARGS: string[] = [...STATUS_V2_ARGS]

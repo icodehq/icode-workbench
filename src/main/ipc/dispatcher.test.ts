@@ -54,6 +54,8 @@ function services(overrides: Partial<DispatcherServices> = {}): DispatcherServic
     schedulesRunNow: vi.fn(async () => ({ result: 'created', taskId: 'task_1', occurrenceAt: 1, trigger: 'manual' })),
     schedulesRemove: vi.fn(async () => undefined),
     harnessList: vi.fn(async () => []),
+    aiCommitMessage: vi.fn(async () => ({ status: 'ok', message: 'test', agent: 'claude' })),
+    aiCancelCommitMessage: vi.fn(async () => ({ cancelled: true })),
     wslListDistros: vi.fn(async () => ({ status: 'ok', distros: [], defaultRegistrationId: null })),
     terminalAttach: vi.fn(async () => ({})),
     terminalWrite: vi.fn(async () => null),
@@ -71,6 +73,32 @@ describe('dispatcher validation', () => {
     const dispatch = createDispatcher(services())
     const result = await dispatch('icode:exec', { command: 'rm -rf /' })
     expect(result).toMatchObject({ ok: false, error: { code: 'INVALID_ARGUMENT' } })
+  })
+
+  it('validates and routes AI commit-message generation', async () => {
+    const generate = vi.fn(async () => ({
+      status: 'ok' as const,
+      message: 'feat: generated',
+      agent: 'claude' as const
+    }))
+    const cancel = vi.fn(async () => ({ cancelled: true }))
+    const dispatch = createDispatcher(
+      services({ aiCommitMessage: generate, aiCancelCommitMessage: cancel })
+    )
+
+    expect(
+      await dispatch(IPC_CHANNELS.aiCommitMessage, { sessionId: 'not-a-session', requestId: 'x' })
+    ).toMatchObject({ ok: false, error: { code: 'INVALID_ARGUMENT' } })
+    expect(generate).not.toHaveBeenCalled()
+
+    expect(
+      await dispatch(IPC_CHANNELS.aiCommitMessage, { sessionId, requestId: 'request-123' })
+    ).toMatchObject({ ok: true })
+    expect(generate).toHaveBeenCalledWith({ sessionId, requestId: 'request-123' })
+
+    expect(
+      await dispatch(IPC_CHANNELS.aiCancelCommitMessage, { requestId: 'request-123' })
+    ).toMatchObject({ ok: true, value: { cancelled: true } })
   })
 
   it('rejects a relative repository path before calling the service', async () => {
