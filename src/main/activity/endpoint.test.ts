@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, existsSync } from 'node:fs'
+import { mkdtempSync, rmSync, existsSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createConnection } from 'node:net'
@@ -50,6 +50,13 @@ describe('activity endpoint selection', () => {
     const host = activitySocketPath({ userDataDir: '/profiles/alpha', platform: 'win32' })
     expect(host).toContain('icode-activity-')
   })
+
+  it('falls back to a short per-profile temp socket for a long user-data dir', () => {
+    const dir = join('/profiles', 'p'.repeat(120))
+    const endpoint = activitySocketPath({ userDataDir: dir, platform: 'linux' })
+    expect(Buffer.byteLength(endpoint)).toBeLessThanOrEqual(100)
+    expect(endpoint.startsWith(tmpdir())).toBe(true)
+  })
 })
 
 describe('activity hook server startup and delivery', () => {
@@ -69,6 +76,8 @@ describe('activity hook server startup and delivery', () => {
     })
     await server.start()
     expect(existsSync(socketPath)).toBe(true)
+    // Hook delivery is user-private even when the socket's parent is shared.
+    expect(statSync(socketPath).mode & 0o777).toBe(0o600)
 
     await new Promise<void>((resolve, reject) => {
       const socket = createConnection(socketPath, () => {

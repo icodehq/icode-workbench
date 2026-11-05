@@ -22,7 +22,11 @@ if (process.env[WSL_HOLDER_READY_ENV]) {
     // Platform-appropriate default; SHELL is honoured first when a user sets it.
     const shell =
       process.env.SHELL ||
-      (process.platform === 'win32' ? (process.env.COMSPEC ?? 'cmd.exe') : '/bin/bash')
+      (process.platform === 'win32'
+        ? (process.env.COMSPEC ?? 'cmd.exe')
+        : process.platform === 'darwin'
+          ? '/bin/zsh'
+          : '/bin/bash')
     createTerminalHost({ paths, shell })
   } catch (error) {
     // A failed host must be diagnosable from its own log directory.

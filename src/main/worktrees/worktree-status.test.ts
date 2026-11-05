@@ -73,7 +73,13 @@ describe('samePathResolved', () => {
     expect(samePathResolved('/nope/Icode', '/nope/icode', 'linux')).toBe(false)
   })
 
-  it('is separator- and case-insensitive on Windows even for existing paths', () => {
+  // APFS realpath treats a backslash as an ordinary filename character, so a
+  // simulated Windows path cannot be resolved against a real macOS directory.
+  // The product never compares win32 paths on darwin; Linux/Windows still cover
+  // the separator and case folding.
+  it.skipIf(process.platform === 'darwin')(
+    'is separator- and case-insensitive on Windows even for existing paths',
+    () => {
     // The JS realpathSync keeps the caller's casing on Windows, so resolution
     // alone would leave C:/Temp and C:\temp unequal.
     const base = mkdtempSync(join(tmpdir(), 'icode-samepath-win-'))

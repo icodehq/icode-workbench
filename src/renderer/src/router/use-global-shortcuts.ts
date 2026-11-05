@@ -1,10 +1,12 @@
 import { useEffect, useRef, type Dispatch, type SetStateAction } from 'react'
+import { isFocusTerminalShortcut } from '../lib/platform'
 import type { ViewName } from './use-app-navigation'
 
 type UseGlobalShortcutsInput = {
   hasActiveSession: boolean
   hasQuickOpenSession: boolean
   focusableSessionId: string | null
+  platform: string | null
   requestView: (view: ViewName) => void
   setPaletteOpen: Dispatch<SetStateAction<boolean>>
   setQuickOpenOpen: Dispatch<SetStateAction<boolean>>
@@ -22,6 +24,7 @@ export function useGlobalShortcuts({
   hasActiveSession,
   hasQuickOpenSession,
   focusableSessionId,
+  platform,
   requestView,
   setPaletteOpen,
   setQuickOpenOpen,
@@ -34,7 +37,13 @@ export function useGlobalShortcuts({
   useEffect(() => {
     if (focusableSessionId === null) return
     const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key !== 'F11') return
+      // Cmd+J / Ctrl+J is the primary shortcut; F11 stays as the always-captured
+      // fallback. Inside the terminal, the chord belongs to the shell, so only
+      // F11 is intercepted there.
+      const inTerminal =
+        event.target instanceof Element && event.target.closest('.xterm') !== null
+      const focusShortcut = !inTerminal && isFocusTerminalShortcut(event, platform)
+      if (event.key !== 'F11' && !focusShortcut) return
       // Capture before xterm: the terminal should not receive a function key
       // whose whole purpose here is to give the terminal more room.
       event.preventDefault()
@@ -43,7 +52,7 @@ export function useGlobalShortcuts({
     }
     window.addEventListener('keydown', onKeyDown, true)
     return () => window.removeEventListener('keydown', onKeyDown, true)
-  }, [focusableSessionId])
+  }, [focusableSessionId, platform])
 
   useEffect(() => {
     activeSessionRef.current = hasActiveSession

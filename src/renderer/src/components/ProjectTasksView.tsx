@@ -16,6 +16,7 @@ import type { HarnessDetection } from '../../../shared/domain/harness'
 import type { AppError } from '../../../shared/domain/errors'
 import type { RepositorySummary, SessionSummary } from '../../../shared/schemas/ipc'
 import { callApi, errorNotice } from '../lib/api'
+import { shortcutLabel } from '../lib/platform'
 import { repositoryPreparationView } from '../lib/repository-preparation'
 import type { AgentSendResult } from '../lib/agent-send'
 import type { WorkbenchDraftStore } from '../review/drafts'
@@ -472,7 +473,7 @@ export default function ProjectTasksView({
                 <Plus size={10} />
                 Add to queue
               </button>
-              <span className="text-[9px] text-muted-foreground">Ctrl+Enter</span>
+              <span className="text-[9px] text-muted-foreground">{shortcutLabel('Enter')}</span>
               <button
                 type="button"
                 className="ml-auto text-[9px] text-muted-foreground hover:text-foreground"

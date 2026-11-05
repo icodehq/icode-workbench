@@ -30,6 +30,12 @@ function main() {
   const arch = parseArch(process.argv.slice(2))
   const force = process.env.ICODE_FORCE_NATIVE_BUILD === '1'
 
+  if (process.platform === 'darwin') {
+    // The npm tarball omits the executable bit on spawn-helper; repair it now
+    // so both development and the unit suite can start a PTY.
+    require('./native/mac-pty-modes.cjs').ensureMacPtyModes()
+  }
+
   if (process.platform !== 'linux' && !force) {
     process.stdout.write(
       `[icode] using node-pty prebuilds for ${process.platform}-${arch}; ` +

@@ -2,6 +2,7 @@ import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, rmSync, stat
 import { connect } from 'node:net'
 import { dirname, join, resolve } from 'node:path'
 import { createHash, randomBytes } from 'node:crypto'
+import { tmpdir } from 'node:os'
 import { isNamedPipe, namedPipe } from '../shared/domain/endpoint'
 
 export type HostPaths = {
@@ -84,7 +85,15 @@ export function hostSocketPath(options: {
     const scoped = join(xdg, 'icode', profileSocketScope(profileDir), HOST_SOCKET_NAME)
     if (Buffer.byteLength(scoped) <= MAX_SOCKET_PATH_BYTES) return scoped
   }
-  return join(profileDir, HOST_SOCKET_NAME)
+  const fallback = join(profileDir, HOST_SOCKET_NAME)
+  if (Buffer.byteLength(fallback) <= MAX_SOCKET_PATH_BYTES) return fallback
+  // macOS sun_path is 104 bytes and a long `--user-data-dir` can exceed it.
+  // A per-profile directory keeps the parent owner-only; the flat name is the
+  // last resort when even the system temp root is unusually long.
+  const scope = profileSocketScope(profileDir)
+  const scopedTemp = join(tmpdir(), 'icode', scope, HOST_SOCKET_NAME)
+  if (Buffer.byteLength(scopedTemp) <= MAX_SOCKET_PATH_BYTES) return scopedTemp
+  return join(tmpdir(), `icode-${scope}.sock`)
 }
 
 export function hostPathsFromEnv(env: NodeJS.ProcessEnv): HostPaths {
@@ -123,10 +132,14 @@ export function prepareHostDirectory(paths: HostPaths, options: PrepareOptions =
   // A named pipe has no parent directory to create: `\\.\pipe` is a kernel
   // namespace, not a folder. Only the host's own directory exists on disk.
   const pipe = isNamedPipe(paths.socket)
-  if (!pipe) mkdirSync(dirname(paths.socket), { recursive: true, mode: 0o700 })
+  const socketParent = dirname(paths.socket)
+  if (!pipe) mkdirSync(socketParent, { recursive: true, mode: 0o700 })
+  // The emergency endpoint may be a flat file directly under the shared system
+  // temp directory. Never chmod that directory on the user's machine.
+  const sharedTempParent = !pipe && resolve(socketParent) === resolve(tmpdir())
   try {
     chmod(paths.dir, 0o700)
-    if (!pipe) chmod(dirname(paths.socket), 0o700)
+    if (!pipe && !sharedTempParent) chmod(socketParent, 0o700)
   } catch {
     // chmod support varies; verification below decides whether it is safe
   }

@@ -1,4 +1,5 @@
 import { app } from 'electron'
+import { spawn } from 'node:child_process'
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -7,6 +8,11 @@ import { randomUUID } from 'node:crypto'
 import { HostSupervisor } from '../host/host-supervisor'
 import type { HostClient } from '../host/host-client'
 import type { HostEvent } from '../../shared/host-protocol'
+import type { ActivityHookEvent } from '../../shared/domain/activity'
+import { activitySocketPath } from '../activity/endpoint'
+import { installClaudeHooks } from '../activity/claude-hooks'
+import { ActivityHookServer } from '../activity/hook-server'
+import { createHarnessDetector } from '../harness/harness-detector'
 import { resolvedShellCommand } from '../harness/default-shell'
 
 const SHELL = resolvedShellCommand()
@@ -209,9 +215,14 @@ async function startHostSession(
   }
 }
 
-function failed(error: unknown): { error: string; stack?: string } {
+function failed(error: unknown): { error: string; detail?: string; stack?: string } {
+  const detail =
+    error && typeof error === 'object' && 'detail' in error
+      ? (error as { detail?: unknown }).detail
+      : undefined
   return {
     error: error instanceof Error ? error.message : String(error),
+    ...(typeof detail === 'string' && detail.length > 0 ? { detail } : {}),
     ...(error instanceof Error && error.stack ? { stack: error.stack } : {})
   }
 }
@@ -331,6 +342,112 @@ export async function gateReattach(): Promise<void> {
   await new Promise<void>(() => {})
 }
 
+async function detectClaudeForGate(): Promise<{
+  state: string
+  version: string | null
+  resolvedPath: string
+}> {
+  const detection = await createHarnessDetector().detect('claude')
+  if (detection.state !== 'available') {
+    const message = (detection as { message?: string }).message ?? 'unavailable'
+    throw new Error(`Claude was not discovered through the login environment: ${message}`)
+  }
+  const resolvedPath = detection.resolvedPath ?? ''
+  assert(resolvedPath.length > 0, 'Claude detection returned no resolved path')
+  const expected = process.env.ICODE_GATE_HARNESS_DIR
+  if (expected && expected.length > 0) {
+    assert(
+      resolvedPath.startsWith(expected),
+      `Claude resolved outside the fake bin directory: ${resolvedPath}`
+    )
+  }
+  return { state: detection.state, version: detection.version, resolvedPath }
+}
+
+type ActivityHookEvidence = {
+  event: string
+  sessionId: string
+  incarnationId: string
+  claudeSessionId: string | null
+  delivered: boolean
+  socket: string
+}
+
+/**
+ * Runs the actual packaged hook command from the generated settings file.
+ *
+ * This proves the part a unit test cannot: a packaged Electron executable is
+ * started as Node, reads Claude's stdin, and reaches the activity socket. The
+ * turn-end command detaches with nohup on macOS, so the parent shell exits
+ * before the event arrives.
+ */
+async function runActivityHookProbe(): Promise<ActivityHookEvidence> {
+  const sessionId = `gate-activity-${Date.now()}`
+  const incarnationId = `gate-incarnation-${randomUUID().slice(0, 8)}`
+  const socketPath = activitySocketPath({ userDataDir: app.getPath('userData') })
+  const installed = installClaudeHooks({
+    directory: join(app.getPath('userData'), 'agent-hooks'),
+    execPath: process.execPath,
+    electronRunAsNode: true,
+    platform: process.platform
+  })
+  const settings = JSON.parse(readFileSync(installed.settingsPath, 'utf8')) as {
+    hooks?: Record<string, Array<{ hooks?: Array<{ command?: string }> }>>
+  }
+  const command = settings.hooks?.Stop?.[0]?.hooks?.[0]?.command
+  assert(typeof command === 'string' && command.length > 0, 'Hook settings have no Stop command')
+
+  let resolveEvent: ((event: ActivityHookEvent) => void) | null = null
+  const received = new Promise<ActivityHookEvent>((resolve) => {
+    resolveEvent = resolve
+  })
+  const server = new ActivityHookServer({
+    socketPath,
+    ingest: (event) => {
+      resolveEvent?.(event)
+      return 'accepted'
+    }
+  })
+  await server.start()
+  try {
+    const child = spawn('sh', ['-c', command], {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        ICODE_ACTIVITY_SOCKET: socketPath,
+        ICODE_SESSION_ID: sessionId,
+        ICODE_SESSION_INCARNATION: incarnationId
+      },
+      stdio: ['pipe', 'ignore', 'ignore']
+    })
+    child.stdin.end(
+      JSON.stringify({ session_id: 'gate-claude-session', prompt_id: 'gate-prompt' })
+    )
+    const event = await Promise.race([
+      received,
+      new Promise<never>((_, reject) => {
+        setTimeout(
+          () => reject(new Error('Turn-end hook did not reach the activity socket')),
+          5000
+        ).unref()
+      })
+    ])
+    assert(event.event === 'Stop', `Expected a Stop hook, got ${event.event}`)
+    assert(event.sessionId === sessionId, 'Hook reported the wrong session')
+    assert(event.incarnationId === incarnationId, 'Hook reported the wrong incarnation')
+    return {
+      event: event.event,
+      sessionId,
+      incarnationId,
+      claudeSessionId: event.claudeSessionId ?? null,
+      delivered: true,
+      socket: socketPath
+    }
+  } finally {
+    await server.stop()
+  }
+}
+
 /** Check 5: packaged executable runs SQLite, native PTY, and the unpacked host. */
 export async function runPackagedSmoke(): Promise<void> {
   const evidencePath = process.env.ICODE_GATE_EVIDENCE ?? join(artifactDir(), 'packaged-smoke.json')
@@ -344,10 +461,53 @@ export async function runPackagedSmoke(): Promise<void> {
     assert(directPty.exitCode === 7, `Packaged PTY exited ${directPty.exitCode}, expected 7`)
     assert(directPty.output.includes('GOT:hello'), 'Packaged PTY did not echo the marker')
 
+    // macOS acceptance adds the Finder-launched login environment, a second
+    // client that reattaches to the same PTY, and the real hook command.
+    const loginEnvironment = {
+      shell: process.env.SHELL ?? null,
+      path: process.env.PATH ?? null,
+      lang: process.env.LANG ?? null
+    }
+    const claude =
+      process.env.ICODE_GATE_EXPECT_CLAUDE === '1' ? await detectClaudeForGate() : null
+    const activity =
+      process.env.ICODE_GATE_EXPECT_ACTIVITY === '1' ? await runActivityHookProbe() : null
+
     const supervisor = new HostSupervisor()
     const sessionId = `gate-packaged-${Date.now()}`
     const marker = `ICODE_GATE_PACKAGED_MARKER_${randomUUID().slice(0, 8)}`
     const { client, session } = await startHostSession(supervisor, sessionId, marker)
+
+    let reattach: { created: boolean; incarnationId: string; ptyPid: number } | null = null
+    if (process.env.ICODE_GATE_EXPECT_REATTACH === '1') {
+      const second = new HostSupervisor()
+      const secondClient = await second.ensure()
+      try {
+        const attached = await secondClient.createOrAttach({
+          sessionId,
+          cwd: process.cwd(),
+          command: SHELL,
+          args: SHELL_ARGS,
+          cols: 100,
+          rows: 30,
+          attachOnly: true
+        })
+        assert(attached.created === false, 'Reattach created a new PTY')
+        assert(
+          attached.incarnationId === session.incarnationId,
+          'Reattach changed the PTY incarnation'
+        )
+        assert(attached.ptyPid === session.ptyPid, 'Reattach changed the PTY pid')
+        reattach = {
+          created: attached.created,
+          incarnationId: attached.incarnationId,
+          ptyPid: attached.ptyPid
+        }
+      } finally {
+        secondClient.close()
+      }
+    }
+
     await client.kill(sessionId)
     await client.shutdown()
 
@@ -359,6 +519,9 @@ export async function runPackagedSmoke(): Promise<void> {
           ok: true,
           runtime: runtimeFacts(),
           sqlite,
+          loginEnvironment,
+          claude,
+          activity,
           directPty: {
             shell: directPty.shell,
             ptyPid: directPty.ptyPid,
@@ -372,7 +535,8 @@ export async function runPackagedSmoke(): Promise<void> {
             incarnationId: session.incarnationId,
             ptyPid: session.ptyPid,
             marker: session.marker,
-            hostEntry: supervisor.hostEntryPath
+            hostEntry: supervisor.hostEntryPath,
+            reattach
           },
           evidencePath
         },

@@ -19,6 +19,7 @@ const {
   openSync,
   readFileSync,
   readSync,
+  readdirSync,
   statSync
 } = require('node:fs')
 const { execFileSync } = require('node:child_process')
@@ -147,7 +148,16 @@ function main(argv) {
   const dir = packageDirectory(options)
   check(existsSync(dir), `package directory not found: ${dir}`)
 
-  const resources = join(dir, 'resources')
+  // macOS keeps the payload inside the .app bundle; Linux/Windows unpack a
+  // plain directory with a top-level resources folder.
+  let resources = join(dir, 'resources')
+  if (options.platform === 'mac') {
+    const app = readdirSync(dir, { withFileTypes: true }).find(
+      (entry) => entry.isDirectory() && entry.name.endsWith('.app')
+    )
+    check(app !== undefined, `no .app bundle found in ${dir}`)
+    resources = join(dir, app.name, 'Contents', 'Resources')
+  }
   const asar = join(resources, 'app.asar')
   check(existsSync(asar), `app.asar is missing from ${dir}`)
   check(statSync(asar).size > 0, `app.asar is empty in ${dir}`)
@@ -159,6 +169,16 @@ function main(argv) {
 
   const ptyDir = join(unpacked, 'node_modules', 'node-pty')
   check(existsSync(ptyDir), 'unpacked node-pty module is missing')
+  // The detached Host runs without asar support, so node-pty's JS is unpacked
+  // and its helper path must not be expanded twice. afterPack applies the
+  // anchored replacement; refuse a package that lost it.
+  const unixTerminal = join(ptyDir, 'lib', 'unixTerminal.js')
+  if (existsSync(unixTerminal)) {
+    check(
+      readFileSync(unixTerminal, 'utf8').includes('app\\.asar(?!\\.unpacked)'),
+      'node-pty asar helper-path fix is missing from the package'
+    )
+  }
 
   const nativePath =
     options.platform === 'linux'
@@ -186,9 +206,13 @@ function main(argv) {
     )
     check(!existsSync(join(ptyDir, 'bin')), `${options.platform} package must not ship Electron-ABI bin copies`)
     if (options.platform === 'mac') {
+      const helper = join(ptyDir, 'prebuilds', `darwin-${options.arch}`, 'spawn-helper')
+      check(existsSync(helper), 'macOS package is missing node-pty spawn-helper')
+      // node-pty's tarball omits the executable bit; a non-executable helper
+      // makes every PTY fail with "posix_spawnp failed".
       check(
-        existsSync(join(ptyDir, 'prebuilds', `darwin-${options.arch}`, 'spawn-helper')),
-        'macOS package is missing node-pty spawn-helper'
+        (statSync(helper).mode & 0o111) !== 0,
+        `macOS node-pty spawn-helper is not executable: ${helper}`
       )
     }
   }

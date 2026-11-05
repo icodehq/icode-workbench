@@ -18,6 +18,7 @@ import type {
   WslDistroSummary
 } from '../../../shared/schemas/ipc'
 import { callApi, isAbsolutePathLike } from '../lib/api'
+import { detectedPlatform } from '../lib/platform'
 import { makeAppError } from '../../../shared/domain/errors'
 
 type Dirs = { kind: 'local' } | { kind: 'wsl'; distro: WslDistroSummary | null }
@@ -32,6 +33,8 @@ type Props = {
     target: ExecutionTarget
     identity?: { name: string; email: string }
   }) => Promise<AppError | null>
+  /** Host platform; WSL is offered only on Windows. */
+  platform: string | null
 }
 
 type DistroState =
@@ -53,8 +56,10 @@ function reasonText(reason: 'not_windows' | 'registry_unreadable' | 'undecodable
 export default function AddRepositoryDialog({
   onClose,
   onSubmit,
-  onInitialize
+  onInitialize,
+  platform
 }: Props): React.JSX.Element {
+  const isWindows = (platform ?? detectedPlatform()) === 'win32'
   const [choice, setChoice] = useState<Dirs>({ kind: 'local' })
   const [path, setPath] = useState('')
   const [busy, setBusy] = useState(false)
@@ -418,28 +423,30 @@ export default function AddRepositoryDialog({
               <span>
                 <span className="block text-[12.5px] font-medium">This machine</span>
                 <span className="mt-0.5 block text-[10.5px] text-muted-foreground">
-                  Run sessions in Windows
+                  {isWindows ? 'Run sessions in Windows' : 'Run sessions on this machine'}
                 </span>
               </span>
             </button>
-            <button
-              type="button"
-              role="radio"
-              aria-checked={choice.kind === 'wsl'}
-              className={`flex items-start gap-2 rounded-md border px-3 py-2 text-left ${
-                choice.kind === 'wsl' ? 'border-accent/70 bg-accent/10' : 'border-border bg-background'
-              } disabled:opacity-50`}
-              onClick={selectWsl}
-              data-testid="target-wsl"
-            >
-              <Server size={13} className="mt-0.5 shrink-0 text-muted-foreground" />
-              <span>
-                <span className="block text-[12.5px] font-medium">WSL distro</span>
-                <span className="mt-0.5 block text-[10.5px] text-muted-foreground">
-                  Run sessions in Linux; use a folder in the distro or on a Windows drive
+            {isWindows ? (
+              <button
+                type="button"
+                role="radio"
+                aria-checked={choice.kind === 'wsl'}
+                className={`flex items-start gap-2 rounded-md border px-3 py-2 text-left ${
+                  choice.kind === 'wsl' ? 'border-accent/70 bg-accent/10' : 'border-border bg-background'
+                } disabled:opacity-50`}
+                onClick={selectWsl}
+                data-testid="target-wsl"
+              >
+                <Server size={13} className="mt-0.5 shrink-0 text-muted-foreground" />
+                <span>
+                  <span className="block text-[12.5px] font-medium">WSL distro</span>
+                  <span className="mt-0.5 block text-[10.5px] text-muted-foreground">
+                    Run sessions in Linux; use a folder in the distro or on a Windows drive
+                  </span>
                 </span>
-              </span>
-            </button>
+              </button>
+            ) : null}
           </div>
         </fieldset>
 
@@ -589,7 +596,9 @@ export default function AddRepositoryDialog({
                 className="mt-1.5 w-full rounded-md border border-border bg-background px-3 py-2.5 font-mono text-[12.5px] outline-none focus:border-accent"
                 placeholder={
                   choice.kind === 'local'
-                    ? 'D:\\projects\\my-repo'
+                    ? isWindows
+                      ? 'D:\\projects\\my-repo'
+                      : '/home/you/projects/my-repo'
                     : '/home/you/projects/my-repo or D:\\projects\\my-repo'
                 }
                 value={path}

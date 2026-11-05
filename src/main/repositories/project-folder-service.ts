@@ -147,9 +147,10 @@ function normalizeLocal(value: string, platform: NodeJS.Platform): string {
     // Non-existent paths still compare by their normalized spelling.
   }
   const withoutTrailing = resolved.replace(/[\\/]+$/u, '') || resolved
-  return platform === 'win32'
-    ? withoutTrailing.replace(/\\/gu, '/').toLowerCase()
-    : withoutTrailing
+  if (platform === 'win32') return withoutTrailing.replace(/\\/gu, '/').toLowerCase()
+  // Default APFS is case-insensitive; compare the same folder consistently.
+  if (platform === 'darwin') return withoutTrailing.toLowerCase()
+  return withoutTrailing
 }
 
 function normalizePosix(value: string): string {

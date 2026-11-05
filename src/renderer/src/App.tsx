@@ -31,6 +31,7 @@ import { hostStatus } from './state/host-status'
 import type { Surface } from './router/routes'
 import { callApi } from './lib/api'
 import { sendAgentText, type AgentSendResult } from './lib/agent-send'
+import { setRendererPlatform } from './lib/platform'
 import { harnessLabel, isAgentHarness } from '../../shared/domain/harness'
 import { WorkbenchDraftStore } from './review/drafts'
 
@@ -91,6 +92,7 @@ export default function App(): React.JSX.Element {
     hasActiveSession: state.activeSessionId !== null,
     hasQuickOpenSession: quickOpenSession !== null,
     focusableSessionId,
+    platform: workspace.runtime?.platform ?? null,
     requestView: commands.requestView,
     setPaletteOpen,
     setQuickOpenOpen,
@@ -190,6 +192,10 @@ export default function App(): React.JSX.Element {
       }),
     [focusableSessionId]
   )
+
+  useEffect(() => {
+    setRendererPlatform(workspace.runtime?.platform ?? null)
+  }, [workspace.runtime?.platform])
 
   const sendToAgent = useCallback(
     async (
@@ -459,6 +465,7 @@ export default function App(): React.JSX.Element {
           themePreference={theme.preference}
           resolvedTheme={theme.resolved}
           onSetTheme={theme.setPreference}
+          platform={workspace.runtime?.platform ?? null}
         />
       }
       rail={
@@ -539,7 +546,8 @@ export default function App(): React.JSX.Element {
               ? {
                   onClose: () => setAddOpen(false),
                   onSubmit: addRepository,
-                  onInitialize: initializeRepository
+                  onInitialize: initializeRepository,
+                  platform: workspace.runtime?.platform ?? null
                 }
               : null
           }

@@ -69,6 +69,42 @@ jobs:
       - run: pnpm test
       - run: pnpm build
 
+  unit-macos:
+    name: Unit and build (macOS ${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    env:
+      VITEST_MAX_WORKERS: '2'
+      VITEST_TEST_TIMEOUT: '15000'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15-intel
+            arch: x64
+          - runner: macos-15
+            arch: arm64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - name: Configure Git for tests
+        run: |
+          git config --global user.name "iCode CI"
+          git config --global user.email "ci@icode.invalid"
+          git config --global init.defaultBranch main
+          git config --global core.autocrlf false
+          git config --global core.longpaths true
+          git config --global protocol.file.allow always
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm check:brand
+      - run: pnpm test
+      - run: pnpm build
+
   package-linux:
     name: Package (Linux x64)
     runs-on: ubuntu-22.04
@@ -151,4 +187,54 @@ jobs:
           path: |
             dist/*.exe
             dist/*.exe.blockmap
+          if-no-files-found: error
+
+  package-macos:
+    name: Package (macOS ${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    needs: unit-macos
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15-intel
+            arch: x64
+            unpacked: dist/mac
+          - runner: macos-15
+            arch: arm64
+            unpacked: dist/mac-arm64
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build application
+        run: pnpm build
+      - name: Package dmg and zip
+        run: node config/scripts/package.cjs mac --${{ matrix.arch }}
+      - name: Verify packaged payload
+        run: node config/scripts/verify-package.cjs --platform mac --arch ${{ matrix.arch }} --dir ${{ matrix.unpacked }}
+      - name: Inspect packaged app
+        run: |
+          ls -leO@ "${{ matrix.unpacked }}/iCode.app/Contents/MacOS" || true
+          file "${{ matrix.unpacked }}/iCode.app/Contents/MacOS/iCode" || true
+          codesign -dv --verbose=4 "${{ matrix.unpacked }}/iCode.app" 2>&1 || true
+          codesign -dv --verbose=4 "${{ matrix.unpacked }}/iCode.app/Contents/Resources/app.asar.unpacked/node_modules/node-pty/prebuilds/darwin-${{ matrix.arch }}/spawn-helper" 2>&1 || true
+          spctl -a -vv "${{ matrix.unpacked }}/iCode.app" 2>&1 || true
+      - name: Packaged smoke
+        run: node tests/compat/packaged-smoke-mac.cjs --app ${{ matrix.unpacked }}/iCode.app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch }}
+          path: |
+            dist/*.dmg
+            dist/*.zip
+            dist/*.blockmap
+            dist/*.yml
           if-no-files-found: error

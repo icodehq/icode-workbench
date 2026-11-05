@@ -59,7 +59,14 @@ export function spawnSpec(
  * The shim therefore becomes one raw cmd.exe command line, which node-pty hands
  * to cmd.exe verbatim; `withLaunchArgs` knows how to extend it.
  */
-function launchCommandFor(file: string, platform: NodeJS.Platform): LaunchCommand {
+function launchCommandFor(
+  file: string,
+  platform: NodeJS.Platform,
+  harness: HarnessId
+): LaunchCommand {
+  // A Shell pane on macOS should see the same login environment a terminal
+  // would: Homebrew/nvm PATH additions from .zprofile/.zshrc.
+  if (platform === 'darwin' && harness === 'shell') return { command: file, args: ['-l'] }
   if (platform !== 'win32' || !WINDOWS_CMD_SHIM.test(file)) return { command: file, args: [] }
   const comspec = process.env.ComSpec
   return {
@@ -170,7 +177,7 @@ export class HarnessDetector {
         version: null,
         resolvedPath: winShell,
         diagnostics,
-        command: launchCommandFor(winShell, platform)
+        command: launchCommandFor(winShell, platform, harness)
       }
     }
 
@@ -208,7 +215,7 @@ export class HarnessDetector {
     if (classification.state === 'available') {
       return {
         ...classification,
-        command: launchCommandFor(resolvedPath ?? executableName, platform)
+        command: launchCommandFor(resolvedPath ?? executableName, platform, harness)
       }
     }
     return { ...classification, command: null }

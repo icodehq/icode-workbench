@@ -75,29 +75,35 @@ type TestPair = { serverSide: Socket; client: Socket; guestReceived: () => Buffe
 
 async function clientServer(): Promise<TestPair> {
   let accepted: Socket | null = null
+  let resolveAccepted: () => void = () => {}
   const acceptedReady = new Promise<void>((resolve) => {
-    // Half-open, matching the listener: otherwise the accepted socket ends its
-    // writable half on the client's EOF and half-close cannot be tested.
-    const server = createServer({ allowHalfOpen: true }, (socket) => {
-      accepted = socket
-      resolve()
-    })
-    void new Promise<void>((listen) =>
-      server.listen({ host: '127.0.0.1', port: 0 }, () => listen())
-    ).then(() => {
-      const address = server.address()
-      const port = typeof address === 'object' && address !== null ? address.port : 0
-      client = netConnect({ host: '127.0.0.1', port })
-    })
-    cleanups.push(() => {
-      client?.destroy()
-      accepted?.destroy()
-      server.close()
-    })
+    resolveAccepted = resolve
   })
+  // Half-open, matching the listener: otherwise the accepted socket ends its
+  // writable half on the client's EOF and half-close cannot be tested.
+  const server = createServer({ allowHalfOpen: true }, (socket) => {
+    accepted = socket
+    resolveAccepted()
+  })
+  await new Promise<void>((resolve) => server.listen({ host: '127.0.0.1', port: 0 }, resolve))
+  const address = server.address()
+  const port = typeof address === 'object' && address !== null ? address.port : 0
+
   let client: Socket | null = null
-  await acceptedReady
-  await new Promise<void>((resolve) => client!.once('connect', resolve))
+  // Attach the connect listener at creation time. The old code attached it
+  // after awaiting the server's accept event; on macOS the connection could
+  // complete first, leaving the test waiting until its timeout.
+  const clientReady = new Promise<void>((resolve, reject) => {
+    client = netConnect({ host: '127.0.0.1', port }, () => resolve())
+    client.once('error', reject)
+  })
+  cleanups.push(() => {
+    client?.destroy()
+    accepted?.destroy()
+    server.close()
+  })
+
+  await Promise.all([acceptedReady, clientReady])
   const chunks: Buffer[] = []
   accepted!.on('data', (chunk: Buffer) => chunks.push(chunk))
   return { serverSide: accepted!, client: client!, guestReceived: () => Buffer.concat(chunks) }

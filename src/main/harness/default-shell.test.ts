@@ -36,6 +36,15 @@ describe('shell selection on POSIX', () => {
     expect(choice).toEqual({ kind: 'command', command: '/bin/bash' })
   })
 
+  it('uses the platform shell on macOS when SHELL is unset', () => {
+    const choice = chooseShellCommand({
+      platform: 'darwin',
+      env: {},
+      resolve: resolver({})
+    })
+    expect(choice).toEqual({ kind: 'command', command: '/bin/zsh' })
+  })
+
   it('passes an unresolvable SHELL through so the probe reports it', () => {
     // Behaviour must not change on Linux: the version probe produces the
     // evidence (ENOENT), rather than this function guessing.
@@ -150,7 +159,11 @@ describe('string helper', () => {
     expect(
       resolvedShellCommand({ platform: 'linux', env: {}, resolve: resolver({}) })
     ).toBe('/bin/bash')
+    expect(
+      resolvedShellCommand({ platform: 'darwin', env: {}, resolve: resolver({}) })
+    ).toBe('/bin/zsh')
     expect(fallbackShellCommand('win32')).toBe('cmd.exe')
     expect(fallbackShellCommand('linux')).toBe('/bin/bash')
+    expect(fallbackShellCommand('darwin')).toBe('/bin/zsh')
   })
 })

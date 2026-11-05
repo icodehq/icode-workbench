@@ -2,8 +2,8 @@
  * Which shell the "Shell" harness launches, and what to tell the user when none
  * can be found.
  *
- * POSIX behaviour is deliberately unchanged: `SHELL`, else `/bin/bash`, and a
- * missing binary is reported by the existing version probe.
+ * POSIX: `SHELL`, else the platform's conventional shell (`/bin/zsh` on macOS,
+ * `/bin/bash` elsewhere). A missing binary is reported by the version probe.
  *
  * Windows has no `/bin/bash`, so it is discovered in preference order and the
  * resolution itself is the evidence. A shell is never probed with `--version`:
@@ -71,7 +71,11 @@ export function chooseShellCommand(options: ChooseShellOptions): ShellChoice {
     }
   }
 
-  return { kind: 'command', command: '/bin/bash' }
+  return { kind: 'command', command: posixFallback(platform) }
+}
+
+function posixFallback(platform: NodeJS.Platform): string {
+  return platform === 'darwin' ? '/bin/zsh' : '/bin/bash'
 }
 
 /**
@@ -79,7 +83,7 @@ export function chooseShellCommand(options: ChooseShellOptions): ShellChoice {
  * but is never executed (an attach-only request carries a placeholder).
  */
 export function fallbackShellCommand(platform: NodeJS.Platform = process.platform): string {
-  return platform === 'win32' ? 'cmd.exe' : '/bin/bash'
+  return platform === 'win32' ? 'cmd.exe' : posixFallback(platform)
 }
 
 /** Convenience wrapper for callers that need a string, never an error object. */

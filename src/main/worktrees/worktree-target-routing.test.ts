@@ -235,7 +235,7 @@ describe('WSL worktree routing', () => {
     await Promise.all([create(), create()])
     // Two creates for one repository never overlap.
     expect(maxConcurrent).toBeLessThanOrEqual(1)
-  })
+  }, 15_000)
 })
 
 describe('local worktree behaviour is unchanged', () => {

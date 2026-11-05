@@ -4,10 +4,10 @@ An agent development environment for local Coding Agent TUIs.
 
 **Status:** The terminal workspace, detached Host, SQLite persistence, packaged
 WSL2/WSLg support, session worktrees, changes review, agent activity, and full
-Source Control parity are implemented. Linux x64 under WSL2/WSLg and Windows x64
-(NSIS, including native PowerShell sessions and a packaged smoke) are verified in
-CI. macOS, other architectures, code signing, and auto-updates are not yet
-supported by this build.
+Source Control parity are implemented. Linux x64 under WSL2/WSLg, Windows x64
+(NSIS, including native PowerShell sessions and a packaged smoke), and macOS
+x64/arm64 (separate dmg/zip with a packaged smoke) are verified in CI. Installers
+are unsigned; code signing, notarization, and auto-updates are not yet enabled.
 
 ## Stack
 
@@ -384,6 +384,8 @@ Packaged runs use the normal Electron user-data path, not test overrides:
 Quitting the window leaves the detached Host and its PTYs alive; relaunching
 reattaches to the same session incarnation.
 
-Only Linux x64 with WSLg has been verified. Native Windows, macOS, other Linux
-distributions/architectures, code signing, and auto-updates are not supported by
-this build.
+Platform coverage is verified in CI for Linux x64 under WSL2/WSLg, Windows x64
+(NSIS), and macOS x64/arm64 (dmg/zip). The macOS and Windows artifacts are
+unsigned, so Gatekeeper/SmartScreen warnings are expected until signing and
+notarization are configured. Other architectures and auto-updates are not yet
+supported by this build.
