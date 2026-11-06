@@ -21,54 +21,112 @@
 
 ## Features
 
-<table>
-<tr>
-<td width="50%" valign="middle">
+### One wall for every project
 
-<h3>Review where the agent worked</h3>
+The Projects wall is the operational view. Each row separates three questions
+that a terminal mixes together: **In flight** shows live direct sessions plus
+running and queued tasks; **Needs** aggregates setup failures, tasks waiting for
+an answer, failed tasks to retry, completed tasks awaiting review, and direct
+agents waiting for input; **Last active** uses agent, task, and setup timestamps
+rather than summary refresh time. Filter by Needs you, Live, or Idle, pin
+projects, and open a waiting task or session directly from the attention list.
 
-<p>Every session owns a checkout. Review changes against its baseline, stage by
-file, folder, hunk, or line, then commit or push without leaving the worktree.</p>
+### Isolated sessions by default
 
-</td>
-<td width="50%">
+Every new session gets its own Git worktree and branch at the current HEAD, so
+two agents in the same repository never edit the same checkout. Restart a
+session without moving its worktree; sleep a direct session to stop the process
+while keeping the checkout and resume token; wake it to continue the harness
+conversation where the harness supports it. Removal is guarded by live PTYs, host
+reachability, uncommitted changes, unmerged commits, and missing worktrees; a
+clean removal deletes the checkout and keeps the branch.
+
+### Terminals that survive the app
+
+A detached host owns the PTYs, terminal emulation, and exit truth. Closing the
+window or quitting iCode does not stop a live session; reopening the app
+reattaches to the same PTY incarnation. Attach returns a serialized snapshot with
+scrollback and alternate-screen state, and flow control keeps a slow UI from
+blocking the agent's process.
+
+### Attention, not terminal scraping
+
+Claude Code hooks report session start, prompts, tool calls, permission requests,
+and turn endings. iCode turns those events into `Working · <tool>`, `Needs you`,
+`Done`, and `Done · failed`, with unread markers and OS notifications only when
+no window is focused. Activity is advisory: it never changes process state, and a
+relaunch resets it to `unknown` rather than showing stale work. Only Claude Code
+reports activity today; Codex, OpenCode, and shell sessions stay `unknown` by
+design.
+
+### Tasks and schedules
+
+Tasks are durable units of work, not terminal tabs. Queue work with a global 1–4
+slot limit; statuses move through `queued`, `dispatching`, `running`, `waiting`,
+`completed`, `failed`, and `cancelled`. A retry is a new attempt; cancellation
+leaves the worktree for inspection; the workbench shows the instruction, live
+session, changes against the task baseline, and a review decision separate from
+process exit. Schedules create ordinary queued tasks on a cadence — once, daily,
+weekdays, weekly, or every few hours — with queue-or-skip overlap handling and
+run-now.
+
+### Review where the agent worked
+
+Source Control is scoped to the session's checkout. **Changes** shows conflicts,
+staged, unstaged, untracked, and commits made in this session; diffs are
+area-scoped; stage or unstage by file, folder, hunk, or line; discard by file,
+folder, or hunk; and a three-way merge editor handles conflicts. Add notes to
+exact changed lines and send them back to the agent's terminal. Commit, commit
+all tracked changes, amend, commit & push, pull, push, sync, or publish the
+current branch, with paginated history and cherry-pick, revert, and reset
+actions. Draft a commit message with the installed harness in one-shot mode; the
+result only fills the draft.
+
+<p align="center">
   <a href="docs/assets/session-review.png"><img src="docs/assets/session-review.png" alt="Source Control inside a session, showing staged and untracked changes with an inline diff" width="100%" /></a>
-</td>
-</tr>
-<tr>
-<td width="50%" valign="middle">
+</p>
 
-<h3>Edit in the same checkout</h3>
+### Edit in the same checkout
 
-<p>Browse, edit, and search the worktree with Monaco, quick diffs, inline blame,
-and hot exit — beside the terminal the agent is using.</p>
+Open Files beside the terminal and work in the same worktree the agent is
+editing. The explorer supports create, rename, delete, duplicate, and move, with
+app-managed trash and undo; Monaco provides editing, quick diffs against HEAD,
+inline blame, and file history. Search the workspace, quick-open files, handle
+external changes with reload/keep, and keep unsaved buffers across an ordinary
+restart through hot exit.
 
-</td>
-<td width="50%">
+<p align="center">
   <a href="docs/assets/files-editor.png"><img src="docs/assets/files-editor.png" alt="The Files panel with a worktree explorer and Monaco editor open on a TypeScript component" width="100%" /></a>
-</td>
-</tr>
-</table>
+</p>
+
+### Run where your code lives
+
+Repositories can target this machine or a WSL distro. Local sessions run on
+Linux, macOS, or native Windows over ConPTY; WSL agent sessions run on a managed
+guest host reached through a relay, and shell sessions open through `wsl.exe`.
+Harness detection is tri-state and target-aware, so a CLI installed on Windows
+but missing inside the distro is reported correctly.
+
+### Local-first, no cloud dependency
+
+State is local: SQLite holds projects, sessions, worktrees, tasks, and schedules;
+a detached host owns terminal truth; there is no telemetry and no hosted service.
+iCode does not call model APIs — your harness does — and the renderer is
+sandboxed behind a typed preload and validated IPC.
 
 **Also in the box:**
 
-- **One wall for every project**: see what is in flight, what needs a person, and
-  when each repository was last active.
-- **Isolated sessions**: one worktree and branch per session, with guarded removal
-  that keeps the branch.
-- **Detached terminal host**: PTYs survive app exit; relaunching reattaches to the
-  same session incarnation.
-- **Tasks and schedules**: a durable queue with 1–4 slots, retries, a workbench,
-  and recurring cadences.
-- **Agent activity**: Claude Code hooks drive `Working`, `Needs you`, and `Done`
-  without scraping terminal text.
-- **Source Control**: commit, amend, draft a commit message with the installed
-  harness, browse history, and pull, push, sync, or publish the current branch.
-- **Files and search**: explorer, Monaco, workspace search, trash and undo, and
-  hot exit.
-- **Local and WSL**: run on Linux, macOS, native Windows, or inside a WSL distro.
 - **Command palette**: `Ctrl/Cmd+K` for projects, sessions, tasks, and Source
-  Control actions.
+  Control actions; `Ctrl/Cmd+P` for quick open.
+- **Themes**: system, dark, and light, applied before first paint.
+- **Configurable workflow**: task concurrency, Source Control, and Files
+  preferences.
+- **Session diagnostics**: host authority, PTY incarnation, worktree state, exit
+  codes, and orphan terminal reporting.
+- **Retained branches**: iCode-owned branches survive session removal; deletion
+  is separate and requires the exact name when unmerged.
+- **Native window chrome**: native traffic lights on macOS; custom controls on
+  Windows and Linux.
 
 ## How it works
 
