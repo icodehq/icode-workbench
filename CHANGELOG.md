@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Manage repositories directly from the All projects wall: a primary **Add
   project** action and a per-row **Remove repository** action, still guarded by
   the removal confirmation and worktree checks.
+- Project rows now open a shared actions menu from either the `⋯` button or a
+  right-click, with Open project, Pin/Unpin, Copy path, Retry preparation (when
+  setup failed), and Remove repository. `Shift+F10` opens it from the keyboard.
 - Files: VS Code-style explorer with live editing and search.
 - Files: trash, undo, hot exit, and a virtualized explorer.
 - Source Control: focused session changes view and AI-generated commit messages.
@@ -20,7 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Repository registration is part of the All projects wall rather than a separate
   Repositories surface.
-- The wall's per-project actions menu is compact and portal-based.
+- Project, Source Control, and Files menus now share one floating-surface
+  treatment: translucent background with a solid fallback, 10 px radius, tonal
+  hover, muted icons, and a 150 ms entrance animation.
+- The wall's per-project actions menu is compact (192 px) and portal-based.
 
 ### Removed
 

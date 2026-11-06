@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   CheckCircle2,
   ChevronRight,
+  Copy,
+  FolderGit2,
   LayoutGrid,
   MoreHorizontal,
   Pin,
@@ -14,8 +15,10 @@ import {
 } from 'lucide-react'
 import type { TaskRecordPayload } from '../../../shared/icode-api'
 import type { RepositorySummary, SessionSummary } from '../../../shared/schemas/ipc'
+import type { Notice } from '../state/workspace'
 import type { ProjectMode } from '../router/routes'
 import { repositoryPreparationView } from '../lib/repository-preparation'
+import ContextMenu, { type ContextMenuItem, type MenuAnchor } from './ContextMenu'
 import {
   attentionEntries,
   attentionLabel,
@@ -42,6 +45,23 @@ type Props = {
   onAddRepository: () => void
   onRemoveRepository: (repoId: string) => void
   onRetryPreparation: (repoId: string) => void
+  notify: (notice: Notice) => void
+}
+
+type ProjectMenuRequest = {
+  repoId: string
+  x?: number
+  y?: number
+  anchor?: MenuAnchor
+  returnFocus: HTMLElement | null
+  opener?: HTMLElement | null
+}
+
+const PROJECT_MENU_WIDTH = 192
+
+function rectOf(element: Element): MenuAnchor {
+  const rect = element.getBoundingClientRect()
+  return { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right }
 }
 
 const DIRECTORY_FILTERS: Array<{ id: ProjectDirectoryFilter; label: string }> = [
@@ -150,18 +170,22 @@ function ProjectRow({
   stats,
   pinned,
   now,
+  menuOpen,
   onOpenProject,
   onTogglePin,
   onRetryPreparation,
-  onRemoveRepository
+  onRequestMenu,
+  onCloseMenu
 }: {
   stats: ProjectStats
   pinned: boolean
   now: number
+  menuOpen: boolean
   onOpenProject: (repoId: string, mode?: ProjectMode) => void
   onTogglePin: (repoId: string) => void
   onRetryPreparation: (repoId: string) => void
-  onRemoveRepository: (repoId: string) => void
+  onRequestMenu: (request: ProjectMenuRequest) => void
+  onCloseMenu: () => void
 }): React.JSX.Element {
   const repo = stats.repo
   const preparation = repositoryPreparationView(repo)
@@ -178,7 +202,34 @@ function ProjectRow({
     <div
       className={`icode-project-row ${rowClass}`}
       data-testid={`project-row-${repo.id}`}
+      tabIndex={-1}
       onClick={open}
+      onContextMenu={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        onRequestMenu({
+          repoId: repo.id,
+          x: event.clientX,
+          y: event.clientY,
+          returnFocus: event.currentTarget
+        })
+      }}
+      onKeyDown={(event) => {
+        if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
+        event.preventDefault()
+        event.stopPropagation()
+        const trigger = event.currentTarget.querySelector<HTMLElement>(
+          `[data-testid="project-menu-${repo.id}"]`
+        )
+        onRequestMenu({
+          repoId: repo.id,
+          anchor: rectOf(trigger ?? event.currentTarget),
+          returnFocus:
+            document.activeElement instanceof HTMLElement
+              ? document.activeElement
+              : event.currentTarget
+        })
+      }}
     >
       <div className="icode-project-project flex min-w-0 items-center gap-1.5">
         <span className={`h-[7px] w-[7px] shrink-0 rounded-full ${projectDotClass(stats)}`} />
@@ -252,7 +303,30 @@ function ProjectRow({
         >
           <Pin size={12} fill={pinned ? 'currentColor' : 'none'} />
         </button>
-        <ProjectRowMenu repo={repo} onRemove={() => onRemoveRepository(repo.id)} />
+        <button
+          type="button"
+          className="grid h-[23px] w-[23px] place-items-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          aria-label={`Project actions for ${repo.displayName}`}
+          title="Project actions"
+          onClick={(event) => {
+            event.stopPropagation()
+            if (menuOpen) {
+              onCloseMenu()
+              return
+            }
+            onRequestMenu({
+              repoId: repo.id,
+              anchor: rectOf(event.currentTarget),
+              returnFocus: event.currentTarget,
+              opener: event.currentTarget
+            })
+          }}
+          data-testid={`project-menu-${repo.id}`}
+        >
+          <MoreHorizontal size={12} />
+        </button>
       </div>
       <span className="icode-project-mobile">
         {branch} · {work.text}
@@ -262,115 +336,56 @@ function ProjectRow({
   )
 }
 
-/**
- * Per-project administrative actions stay behind a menu so removal is a
- * deliberate second click on the wall's most-used row surface.
- */
-/** The menu floats above the wall's scroll container, so its height is estimated. */
-const PROJECT_MENU_HEIGHT = 42
-
-function ProjectRowMenu({
-  repo,
-  onRemove
-}: {
-  repo: RepositorySummary
-  onRemove: () => void
-}): React.JSX.Element {
-  const [open, setOpen] = useState(false)
-  const [position, setPosition] = useState<{ top: number; right: number } | null>(null)
-  const rootRef = useRef<HTMLSpanElement | null>(null)
-  const menuRef = useRef<HTMLDivElement | null>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const onPointerDown = (event: PointerEvent): void => {
-      const target = event.target as Node
-      if (!rootRef.current?.contains(target) && !menuRef.current?.contains(target)) {
-        setOpen(false)
-      }
-    }
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') setOpen(false)
-    }
-    // Fixed positioning cannot follow the wall's scroll port; close instead.
-    const onViewportChange = (): void => setOpen(false)
-    window.addEventListener('pointerdown', onPointerDown)
-    window.addEventListener('keydown', onKeyDown)
-    window.addEventListener('scroll', onViewportChange, true)
-    window.addEventListener('resize', onViewportChange)
-    return () => {
-      window.removeEventListener('pointerdown', onPointerDown)
-      window.removeEventListener('keydown', onKeyDown)
-      window.removeEventListener('scroll', onViewportChange, true)
-      window.removeEventListener('resize', onViewportChange)
-    }
-  }, [open])
-
-  const toggle = (event: React.MouseEvent<HTMLButtonElement>): void => {
-    event.stopPropagation()
-    if (open) {
-      setOpen(false)
-      return
-    }
-    const rect = event.currentTarget.getBoundingClientRect()
-    const below = rect.bottom + 4
-    setPosition({
-      top:
-        below + PROJECT_MENU_HEIGHT > window.innerHeight
-          ? Math.max(8, rect.top - PROJECT_MENU_HEIGHT - 4)
-          : below,
-      right: Math.max(8, window.innerWidth - rect.right)
-    })
-    setOpen(true)
+function projectMenuItems(
+  stats: ProjectStats,
+  pinned: boolean,
+  handlers: {
+    onOpen: () => void
+    onTogglePin: () => void
+    onCopyPath: () => void
+    onRetry: () => void
+    onRemove: () => void
   }
-
-  return (
-    <span
-      ref={rootRef}
-      className="inline-flex shrink-0"
-      onClick={(event) => event.stopPropagation()}
-    >
-      <button
-        type="button"
-        className="grid h-[23px] w-[23px] place-items-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-label={`Project actions for ${repo.displayName}`}
-        title="Project actions"
-        onClick={toggle}
-        data-testid={`project-menu-${repo.id}`}
-      >
-        <MoreHorizontal size={12} />
-      </button>
-      {open && position !== null
-        ? createPortal(
-            <div
-              ref={menuRef}
-              role="menu"
-              aria-label={`Project actions for ${repo.displayName}`}
-              style={{ position: 'fixed', top: position.top, right: position.right }}
-              className="z-50 w-44 rounded-md border border-border bg-card p-1 shadow-xl"
-              data-testid={`project-menu-popover-${repo.id}`}
-            >
-              <button
-                type="button"
-                role="menuitem"
-                className="flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left text-[11px] text-destructive hover:bg-destructive/10"
-                onClick={() => {
-                  setOpen(false)
-                  onRemove()
-                }}
-                data-testid={`repository-remove-${repo.id}`}
-              >
-                <Trash2 size={12} className="shrink-0" />
-                Remove repository…
-              </button>
-            </div>,
-            document.body
-          )
-        : null}
-    </span>
-  )
+): ContextMenuItem[] {
+  const preparation = repositoryPreparationView(stats.repo)
+  const items: ContextMenuItem[] = [
+    {
+      id: 'open',
+      label: 'Open project',
+      icon: <FolderGit2 size={12} />,
+      onSelect: handlers.onOpen
+    },
+    {
+      id: 'pin',
+      label: pinned ? 'Unpin from top' : 'Pin to top',
+      icon: <Pin size={12} fill={pinned ? 'currentColor' : 'none'} />,
+      onSelect: handlers.onTogglePin
+    },
+    {
+      id: 'copy-path',
+      label: 'Copy path',
+      icon: <Copy size={12} />,
+      onSelect: handlers.onCopyPath
+    }
+  ]
+  if (preparation?.kind === 'failed') {
+    items.push({
+      id: 'retry-preparation',
+      label: 'Retry preparation',
+      icon: <RotateCcw size={12} />,
+      onSelect: handlers.onRetry
+    })
+  }
+  items.push({
+    id: 'remove',
+    label: 'Remove repository…',
+    icon: <Trash2 size={12} />,
+    danger: true,
+    separatorBefore: true,
+    testId: `repository-remove-${stats.repo.id}`,
+    onSelect: handlers.onRemove
+  })
+  return items
 }
 
 export default function ProjectsWall({
@@ -382,13 +397,16 @@ export default function ProjectsWall({
   onOpenTask,
   onAddRepository,
   onRemoveRepository,
-  onRetryPreparation
+  onRetryPreparation,
+  notify
 }: Props): React.JSX.Element {
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<ProjectDirectoryFilter>('all')
   const [pinnedIds, setPinnedIds] = useState<string[]>(() => readPinnedProjectIds())
   const [now, setNow] = useState(() => Date.now())
+  const [menu, setMenu] = useState<ProjectMenuRequest | null>(null)
   const directoryRef = useRef<HTMLDivElement | null>(null)
+  const closeMenu = useCallback(() => setMenu(null), [])
 
   useEffect(() => {
     writePinnedProjectIds(pinnedIds)
@@ -409,6 +427,19 @@ export default function ProjectsWall({
   const projects = useMemo(
     () => repos.map((repo) => projectStats(repo, sessions, tasks)),
     [repos, sessions, tasks]
+  )
+  const menuStats =
+    menu === null ? null : projects.find((entry) => entry.repo.id === menu.repoId) ?? null
+  const copyProjectPath = useCallback(
+    async (path: string): Promise<void> => {
+      try {
+        await navigator.clipboard.writeText(path)
+        notify({ tone: 'success', message: 'Project path copied.' })
+      } catch {
+        notify({ tone: 'error', message: 'Clipboard is unavailable.' })
+      }
+    },
+    [notify]
   )
   const attention = useMemo(() => attentionEntries(tasks, repos), [tasks, repos])
   const filtered = useMemo(
@@ -596,12 +627,14 @@ export default function ProjectsWall({
                     stats={stats}
                     pinned={pinnedIds.includes(stats.repo.id)}
                     now={now}
+                    menuOpen={menu?.repoId === stats.repo.id}
                     onOpenProject={onOpenProject}
                     onTogglePin={(repoId) =>
                       setPinnedIds((current) => togglePinnedProject(current, repoId))
                     }
                     onRetryPreparation={onRetryPreparation}
-                    onRemoveRepository={onRemoveRepository}
+                    onRequestMenu={setMenu}
+                    onCloseMenu={closeMenu}
                   />
                 ))
               )}
@@ -609,6 +642,29 @@ export default function ProjectsWall({
           </div>
         </section>
       </div>
+      {menu !== null && menuStats !== null ? (
+        <ContextMenu
+          key={menu.repoId}
+          items={projectMenuItems(menuStats, pinnedIds.includes(menuStats.repo.id), {
+            onOpen: () => onOpenProject(menuStats.repo.id, menuStats.openMode),
+            onTogglePin: () =>
+              setPinnedIds((current) => togglePinnedProject(current, menuStats.repo.id)),
+            onCopyPath: () => void copyProjectPath(menuStats.repo.path),
+            onRetry: () => onRetryPreparation(menuStats.repo.id),
+            onRemove: () => onRemoveRepository(menuStats.repo.id)
+          })}
+          ariaLabel={`Project actions for ${menuStats.repo.displayName}`}
+          testId={`project-menu-popover-${menu.repoId}`}
+          width={PROJECT_MENU_WIDTH}
+          x={menu.x}
+          y={menu.y}
+          anchor={menu.anchor}
+          align="end"
+          returnFocus={menu.returnFocus}
+          opener={menu.opener}
+          onClose={closeMenu}
+        />
+      ) : null}
     </div>
   )
 }

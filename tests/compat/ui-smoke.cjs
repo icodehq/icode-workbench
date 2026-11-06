@@ -123,6 +123,26 @@ async function click(selector) {
   assert(clicked, `Could not click ${selector}`)
 }
 
+async function rightClick(selector, x = null, y = null) {
+  const clicked = await cdp.evaluate(`(() => {
+    const element = document.querySelector(${JSON.stringify(selector)});
+    if (!element) return false;
+    const rect = element.getBoundingClientRect();
+    const clientX = ${x === null ? 'rect.left + rect.width / 2' : String(x)};
+    const clientY = ${y === null ? 'rect.top + rect.height / 2' : String(y)};
+    element.dispatchEvent(new MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+      view: window,
+      button: 2,
+      clientX,
+      clientY
+    }));
+    return true;
+  })()`)
+  assert(clicked, `Could not right-click ${selector}`)
+}
+
 async function pressF11() {
   await cdp.send('Input.dispatchKeyEvent', {
     type: 'keyDown',
@@ -1153,6 +1173,35 @@ async function main() {
       'reachable Host status',
       30000
     )
+    await openProjectsWall()
+    await rightClick(`[data-testid="project-row-${repoId}"]`)
+    await waitForSelector(`[data-testid="project-menu-popover-${repoId}"]`, 10000)
+    const rightClickMenuText = await cdp.evaluate(
+      `document.querySelector('[data-testid="project-menu-popover-${repoId}"]').innerText`
+    )
+    assert(
+      rightClickMenuText.includes('Remove repository'),
+      'Right-click menu is missing Remove repository'
+    )
+    assert(rightClickMenuText.includes('Copy path'), 'Right-click menu is missing Copy path')
+    assert(
+      await cdp.evaluate(`Boolean(document.querySelector('[data-testid="projects-wall"]'))`),
+      'Right-click opened the project instead of its menu'
+    )
+    await cdp.evaluate(
+      `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`
+    )
+    await waitFor(
+      `!document.querySelector('[data-testid="project-menu-popover-${repoId}"]')`,
+      'right-click menu to close',
+      5000
+    )
+    await waitFor(
+      `document.activeElement?.getAttribute('data-testid') === 'project-row-${repoId}'`,
+      'focus to return to the project row',
+      5000
+    )
+
     await removeRepositoryFromWall(repoId)
     await waitForSelector('[data-testid="confirm-remove-repo"]', 20000)
     const dialogText = await cdp.evaluate(

@@ -351,6 +351,7 @@ export default function App(): React.JSX.Element {
         onAddRepository={() => setAddOpen(true)}
         onRemoveRepository={(repoId) => void workspace.removeRepository(repoId)}
         onRetryPreparation={(repoId) => void workspace.retryPreparation(repoId)}
+        notify={workspace.notify}
       />
     ),
     sessions: (

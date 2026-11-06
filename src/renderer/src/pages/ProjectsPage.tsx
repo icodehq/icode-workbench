@@ -1,6 +1,7 @@
 import { FolderGit2, Plus } from 'lucide-react'
 import type { TaskRecordPayload } from '../../../shared/icode-api'
 import type { RepositorySummary, SessionSummary } from '../../../shared/schemas/ipc'
+import type { Notice } from '../state/workspace'
 import type { ProjectMode } from '../router/routes'
 import ProjectsWall from '../components/ProjectsWall'
 
@@ -14,6 +15,7 @@ export type ProjectsPageProps = {
   onAddRepository: () => void
   onRemoveRepository: (repoId: string) => void
   onRetryPreparation: (repoId: string) => void
+  notify: (notice: Notice) => void
 }
 
 export default function ProjectsPage({
@@ -25,7 +27,8 @@ export default function ProjectsPage({
   onOpenTask,
   onAddRepository,
   onRemoveRepository,
-  onRetryPreparation
+  onRetryPreparation,
+  notify
 }: ProjectsPageProps): React.JSX.Element {
   if (repos.length === 0) {
     return (
@@ -64,6 +67,7 @@ export default function ProjectsPage({
       onAddRepository={onAddRepository}
       onRemoveRepository={onRemoveRepository}
       onRetryPreparation={onRetryPreparation}
+      notify={notify}
     />
   )
 }
