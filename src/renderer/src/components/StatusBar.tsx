@@ -205,7 +205,7 @@ export default function StatusBar({
         className="hidden shrink-0 font-mono text-[9px] text-muted-foreground lg:inline"
         title={runtime ? `Electron ${runtime.electron ?? '?'} · Node ${runtime.node}` : undefined}
       >
-        v{runtime?.appVersion ?? '0.1.0'}
+        v{runtime?.appVersion ?? '—'}
       </span>
     </footer>
   )

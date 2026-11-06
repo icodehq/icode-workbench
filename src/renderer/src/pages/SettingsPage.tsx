@@ -201,7 +201,7 @@ export default function SettingsPage({
                 <span className="font-mono">{state.repos.length}</span>
               </Row>
               <Row label="App">
-                <span className="font-mono">v{runtime?.appVersion ?? '0.1.0'}</span>
+                <span className="font-mono">v{runtime?.appVersion ?? '—'}</span>
               </Row>
               <Row label="Electron">
                 <span className="font-mono">{runtime?.electron ?? '—'}</span>

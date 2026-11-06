@@ -98,6 +98,28 @@ twice in independent containers and both hashes must match. Docker is required.
 selftests and smokes exercise the verifier's rejection paths and a materialized
 copy outside the repository.
 
+## Versioning and changelog
+
+iCode uses [Semantic Versioning](https://semver.org/). Before 1.0, each shipped
+iteration bumps the minor version (`0.2.0`, `0.3.0`, …) and a fix-only release
+bumps the patch version. `package.json` is the single source of truth: Electron's
+`app.getVersion()` and the NSIS/DMG artifact names read it, so never duplicate the
+version in source.
+
+Every user-visible change updates `CHANGELOG.md` in the same commit, under
+`## [Unreleased]`, using Keep a Changelog headings (`Added`, `Changed`,
+`Deprecated`, `Removed`, `Fixed`, `Security`). The iteration flow is:
+
+1. Bump `version` in `package.json` when starting an iteration.
+2. Accumulate changes under `[Unreleased]` as they land.
+3. On release, rename `[Unreleased]` to `[X.Y.Z] - YYYY-MM-DD`, add a fresh
+   `[Unreleased]`, tag the release commit `vX.Y.Z`, and bump `package.json` to the
+   next iteration.
+
+The guest Host protocol version (`HOST_VERSION` in `src/host/server.ts`) is
+independent of the product version; bump it only when the Host wire protocol
+changes.
+
 ## Packaging
 
 ```bash
