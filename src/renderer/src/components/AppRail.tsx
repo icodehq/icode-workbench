@@ -51,7 +51,7 @@ export default function AppRail({
   onSettings
 }: Props): React.JSX.Element {
   const projectsActive =
-    surface === 'projects' || surface === 'sessions' || surface === 'tasks' || surface === 'repositories'
+    surface === 'projects' || surface === 'sessions' || surface === 'tasks'
 
   return (
     <nav

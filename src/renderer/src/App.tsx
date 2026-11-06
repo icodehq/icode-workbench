@@ -9,7 +9,6 @@ import {
   projectHeaderStats,
   projectStats as computeProjectStats
 } from './components/projects-wall-model'
-import RepositoriesView from './components/RepositoriesView'
 import SchedulesView from './components/SchedulesView'
 import ProjectsPage from './pages/ProjectsPage'
 import SessionsPage from './pages/SessionsPage'
@@ -325,8 +324,8 @@ export default function App(): React.JSX.Element {
         maxConcurrent={tasks.maxConcurrent}
         onOpenProject={commands.openProject}
         onOpenTask={commands.openTask}
-        onManageRepositories={commands.showRepositories}
         onAddRepository={() => setAddOpen(true)}
+        onRemoveRepository={(repoId) => void workspace.removeRepository(repoId)}
         onRetryPreparation={(repoId) => void workspace.retryPreparation(repoId)}
       />
     ),
@@ -409,17 +408,6 @@ export default function App(): React.JSX.Element {
         onReload={() => tasks.reload()}
       />
     ),
-    repositories: (
-      <RepositoriesView
-        repos={state.repos}
-        sessions={state.sessions}
-        tasks={tasks.tasks}
-        onBack={commands.backToProjects}
-        onAdd={() => setAddOpen(true)}
-        onRemove={(repoId) => void workspace.removeRepository(repoId)}
-        onOpenProject={commands.openProject}
-      />
-    ),
     settings: (
       <SettingsPage
         state={state}
@@ -442,9 +430,7 @@ export default function App(): React.JSX.Element {
         ? `All projects · ${state.repos.length} repo${state.repos.length === 1 ? '' : 's'}`
         : displaySurface === 'schedules'
           ? 'Schedules · all projects'
-          : displaySurface === 'repositories'
-            ? 'Repositories · all projects'
-            : 'Settings'
+          : 'Settings'
 
   return (
     <AppLayout
@@ -517,7 +503,6 @@ export default function App(): React.JSX.Element {
             onQueueTask: openQueueTask,
             onProjects: commands.showProjects,
             onSchedules: commands.showSchedules,
-            onRepositories: commands.showRepositories,
             onSettings: commands.showSettings,
             onSourceControl: () => commands.requestView('changes'),
             onToggleTheme: () =>

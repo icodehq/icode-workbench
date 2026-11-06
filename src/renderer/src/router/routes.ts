@@ -3,7 +3,7 @@
  * project mode. Keeping this tiny union in one place prevents a component from
  * inventing a second "all projects" route.
  */
-export type Surface = 'projects' | 'sessions' | 'tasks' | 'schedules' | 'repositories' | 'settings'
+export type Surface = 'projects' | 'sessions' | 'tasks' | 'schedules' | 'settings'
 
 export type ProjectMode = 'sessions' | 'tasks'
 

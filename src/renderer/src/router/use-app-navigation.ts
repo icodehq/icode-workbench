@@ -58,10 +58,8 @@ export type AppNavigation = {
   commands: {
     showProjects: () => void
     showSchedules: () => void
-    showRepositories: () => void
     showSettings: () => void
     showSessions: () => void
-    backToProjects: () => void
     backToTasks: () => void
     openProject: (repoId: string, mode?: ProjectMode) => void
     switchProject: (repoId: string) => void
@@ -203,11 +201,6 @@ export function useAppNavigation({
     setSurface('schedules')
   }, [clearProjectView])
 
-  const showRepositories = useCallback((): void => {
-    clearProjectView()
-    setSurface('repositories')
-  }, [clearProjectView])
-
   const showSettings = useCallback((): void => {
     clearProjectView()
     setSurface('settings')
@@ -217,10 +210,6 @@ export function useAppNavigation({
     setSurface('sessions')
     setTaskSession(null)
     setViewRequest(null)
-  }, [])
-
-  const backToProjects = useCallback((): void => {
-    setSurface('projects')
   }, [])
 
   const backToTasks = useCallback((): void => {
@@ -373,10 +362,8 @@ export function useAppNavigation({
     () => ({
       showProjects,
       showSchedules,
-      showRepositories,
       showSettings,
       showSessions,
-      backToProjects,
       backToTasks,
       openProject,
       switchProject,
@@ -393,7 +380,6 @@ export function useAppNavigation({
       openFileFromPalette
     }),
     [
-      backToProjects,
       backToTasks,
       changeMode,
       clearOpenRequest,
@@ -408,7 +394,6 @@ export function useAppNavigation({
       requestOpenInFiles,
       requestView,
       showProjects,
-      showRepositories,
       showSchedules,
       showSessions,
       showSettings,

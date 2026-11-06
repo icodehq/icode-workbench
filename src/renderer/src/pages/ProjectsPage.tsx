@@ -11,8 +11,8 @@ export type ProjectsPageProps = {
   maxConcurrent: number
   onOpenProject: (repoId: string, mode?: ProjectMode) => void
   onOpenTask: (task: TaskRecordPayload) => void
-  onManageRepositories: () => void
   onAddRepository: () => void
+  onRemoveRepository: (repoId: string) => void
   onRetryPreparation: (repoId: string) => void
 }
 
@@ -23,8 +23,8 @@ export default function ProjectsPage({
   maxConcurrent,
   onOpenProject,
   onOpenTask,
-  onManageRepositories,
   onAddRepository,
+  onRemoveRepository,
   onRetryPreparation
 }: ProjectsPageProps): React.JSX.Element {
   if (repos.length === 0) {
@@ -61,7 +61,8 @@ export default function ProjectsPage({
       maxConcurrent={maxConcurrent}
       onOpenProject={onOpenProject}
       onOpenTask={onOpenTask}
-      onManageRepositories={onManageRepositories}
+      onAddRepository={onAddRepository}
+      onRemoveRepository={onRemoveRepository}
       onRetryPreparation={onRetryPreparation}
     />
   )

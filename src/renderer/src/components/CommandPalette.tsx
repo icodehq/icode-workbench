@@ -72,7 +72,6 @@ type Props = {
   onQueueTask: () => void
   onProjects: () => void
   onSchedules: () => void
-  onRepositories: () => void
   onSettings: () => void
   /** Focuses the active session's Source Control tab. */
   onSourceControl: () => void
@@ -130,7 +129,6 @@ export default function CommandPalette({
   onQueueTask,
   onProjects,
   onSchedules,
-  onRepositories,
   onSettings,
   onSourceControl,
   onToggleTheme,
@@ -269,14 +267,6 @@ export default function CommandPalette({
         run: onSchedules
       },
       {
-        id: 'repositories',
-        kind: 'action',
-        label: 'Go to Repositories',
-        hint: 'registration and targets',
-        icon: FolderGit2,
-        run: onRepositories
-      },
-      {
         id: 'settings',
         kind: 'action',
         label: 'Go to Settings',
@@ -301,7 +291,6 @@ export default function CommandPalette({
     onNewSession,
     onProjects,
     onQueueTask,
-    onRepositories,
     onSchedules,
     onSettings,
     onSourceControl,

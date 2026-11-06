@@ -252,9 +252,7 @@ async function main() {
   })
 
   await step('offer child repositories when the selected folder is only a container', async () => {
-    await click('[data-testid="manage-repositories"]')
-    await waitForSelector('[data-testid="repositories-add"]')
-    await click('[data-testid="repositories-add"]')
+    await click('[data-testid="add-project"]')
     await waitForSelector('[data-testid="add-repo-form"]')
     await setValue('[data-testid="add-repo-input"]', PARENT)
     await click('[data-testid="add-repo-submit"]')

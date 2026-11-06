@@ -237,22 +237,21 @@ async function openProjectSessions() {
   await waitForSelector('[data-testid="project-sessions-list"]', 20000)
 }
 
-async function openRepositories() {
+async function openProjectsWall() {
   if (
-    await cdp.evaluate(
-      `Boolean(document.querySelector('[data-testid="repositories-view"]'))`
-    )
+    await cdp.evaluate(`Boolean(document.querySelector('[data-testid="projects-wall"]'))`)
   ) {
     return
   }
-  if (
-    !(await cdp.evaluate(`Boolean(document.querySelector('[data-testid="projects-wall"]'))`))
-  ) {
-    await click('[data-testid="rail-projects"]')
-    await waitForSelector('[data-testid="projects-wall"]', 20000)
-  }
-  await click('[data-testid="manage-repositories"]')
-  await waitForSelector('[data-testid="repositories-view"]', 20000)
+  await click('[data-testid="rail-projects"]')
+  await waitForSelector('[data-testid="projects-wall"]', 20000)
+}
+
+async function removeRepositoryFromWall(repoId) {
+  await openProjectsWall()
+  await click(`[data-testid="project-menu-${repoId}"]`)
+  await waitForSelector(`[data-testid="repository-remove-${repoId}"]`, 20000)
+  await click(`[data-testid="repository-remove-${repoId}"]`)
 }
 
 async function activeState() {
@@ -925,13 +924,12 @@ async function main() {
   })
 
   await step('block repository removal while a PTY is live', async () => {
-    await openRepositories()
-    await click(`[data-testid="repository-remove-${repoId}"]`)
+    await removeRepositoryFromWall(repoId)
     await waitForNotice('live sessions', 20000)
     const feedback = await notice()
     assert(feedback.tone === 'error', 'Blocked removal was not reported as an error')
     const repoStillRegistered = await cdp.evaluate(
-      `Boolean(document.querySelector('[data-testid="repository-row-${repoId}"]'))`
+      `Boolean(document.querySelector('[data-testid="project-row-${repoId}"]'))`
     )
     assert(repoStillRegistered, 'Repository disappeared after a blocked removal')
     await openProjectSessions()
@@ -1031,12 +1029,11 @@ async function main() {
     const text = await bodyText()
     assert(text.toLowerCase().includes('unreachable'), 'No unreachable Host explanation in the UI')
 
-    await openRepositories()
-    await click(`[data-testid="repository-remove-${repoId}"]`)
+    await removeRepositoryFromWall(repoId)
     await waitForNotice('Could not verify live sessions', 30000)
     const feedback = await notice()
     const repoStillRegistered = await cdp.evaluate(
-      `Boolean(document.querySelector('[data-testid="repository-row-${repoId}"]'))`
+      `Boolean(document.querySelector('[data-testid="project-row-${repoId}"]'))`
     )
     assert(repoStillRegistered, 'Repository was removed without host verification')
     await screenshot('12-host-unreachable')
@@ -1156,8 +1153,7 @@ async function main() {
       'reachable Host status',
       30000
     )
-    await openRepositories()
-    await click(`[data-testid="repository-remove-${repoId}"]`)
+    await removeRepositoryFromWall(repoId)
     await waitForSelector('[data-testid="confirm-remove-repo"]', 20000)
     const dialogText = await cdp.evaluate(
       `document.querySelector('[role="dialog"]').innerText`
@@ -1167,11 +1163,10 @@ async function main() {
     await screenshot('15-removal-confirmation')
     await click('[data-testid="confirm-remove-repo"]')
     await waitFor(
-      `!document.querySelector('[data-testid="repository-row-${repoId}"]')`,
-      'repository removed from the Repositories page',
+      `!document.querySelector('[data-testid="project-row-${repoId}"]')`,
+      'repository removed from All projects',
       20000
     )
-    await click('[data-testid="rail-projects"]')
     await waitForSelector('[data-testid="empty-workspace"]', 20000)
     assert(
       (await bodyText()).includes('Add a project'),

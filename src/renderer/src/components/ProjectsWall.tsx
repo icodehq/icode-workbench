@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   AlertTriangle,
-  ArrowUpRight,
   CheckCircle2,
   ChevronRight,
   LayoutGrid,
+  MoreHorizontal,
   Pin,
+  Plus,
   RotateCcw,
   Search,
-  Settings
+  Trash2
 } from 'lucide-react'
 import type { TaskRecordPayload } from '../../../shared/icode-api'
 import type { RepositorySummary, SessionSummary } from '../../../shared/schemas/ipc'
@@ -37,7 +39,8 @@ type Props = {
   maxConcurrent: number
   onOpenProject: (repoId: string, mode?: ProjectMode) => void
   onOpenTask: (task: TaskRecordPayload) => void
-  onManageRepositories: () => void
+  onAddRepository: () => void
+  onRemoveRepository: (repoId: string) => void
   onRetryPreparation: (repoId: string) => void
 }
 
@@ -149,7 +152,8 @@ function ProjectRow({
   now,
   onOpenProject,
   onTogglePin,
-  onRetryPreparation
+  onRetryPreparation,
+  onRemoveRepository
 }: {
   stats: ProjectStats
   pinned: boolean
@@ -157,6 +161,7 @@ function ProjectRow({
   onOpenProject: (repoId: string, mode?: ProjectMode) => void
   onTogglePin: (repoId: string) => void
   onRetryPreparation: (repoId: string) => void
+  onRemoveRepository: (repoId: string) => void
 }): React.JSX.Element {
   const repo = stats.repo
   const preparation = repositoryPreparationView(repo)
@@ -192,6 +197,9 @@ function ProjectRow({
           <span className="block truncate font-mono text-[8.5px] text-muted-foreground">
             {repo.path}
           </span>
+          {repo.availability === 'missing' ? (
+            <span className="block text-[8.5px] text-signal">Path is missing on disk</span>
+          ) : null}
         </button>
         <TargetBadge repo={repo} compact />
       </div>
@@ -244,25 +252,124 @@ function ProjectRow({
         >
           <Pin size={12} fill={pinned ? 'currentColor' : 'none'} />
         </button>
-        <button
-          type="button"
-          className="grid h-[23px] w-[23px] place-items-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
-          onClick={(event) => {
-            event.stopPropagation()
-            open()
-          }}
-          title={`Open ${repo.displayName}`}
-          aria-label={`Open ${repo.displayName}`}
-          data-testid={`open-project-row-${repo.id}`}
-        >
-          <ArrowUpRight size={12} />
-        </button>
+        <ProjectRowMenu repo={repo} onRemove={() => onRemoveRepository(repo.id)} />
       </div>
       <span className="icode-project-mobile">
         {branch} · {work.text}
         {needs === '—' ? '' : ` · ${needs}`} · {updated}
       </span>
     </div>
+  )
+}
+
+/**
+ * Per-project administrative actions stay behind a menu so removal is a
+ * deliberate second click on the wall's most-used row surface.
+ */
+/** The menu floats above the wall's scroll container, so its height is estimated. */
+const PROJECT_MENU_HEIGHT = 42
+
+function ProjectRowMenu({
+  repo,
+  onRemove
+}: {
+  repo: RepositorySummary
+  onRemove: () => void
+}): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  const [position, setPosition] = useState<{ top: number; right: number } | null>(null)
+  const rootRef = useRef<HTMLSpanElement | null>(null)
+  const menuRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onPointerDown = (event: PointerEvent): void => {
+      const target = event.target as Node
+      if (!rootRef.current?.contains(target) && !menuRef.current?.contains(target)) {
+        setOpen(false)
+      }
+    }
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    // Fixed positioning cannot follow the wall's scroll port; close instead.
+    const onViewportChange = (): void => setOpen(false)
+    window.addEventListener('pointerdown', onPointerDown)
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('scroll', onViewportChange, true)
+    window.addEventListener('resize', onViewportChange)
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('scroll', onViewportChange, true)
+      window.removeEventListener('resize', onViewportChange)
+    }
+  }, [open])
+
+  const toggle = (event: React.MouseEvent<HTMLButtonElement>): void => {
+    event.stopPropagation()
+    if (open) {
+      setOpen(false)
+      return
+    }
+    const rect = event.currentTarget.getBoundingClientRect()
+    const below = rect.bottom + 4
+    setPosition({
+      top:
+        below + PROJECT_MENU_HEIGHT > window.innerHeight
+          ? Math.max(8, rect.top - PROJECT_MENU_HEIGHT - 4)
+          : below,
+      right: Math.max(8, window.innerWidth - rect.right)
+    })
+    setOpen(true)
+  }
+
+  return (
+    <span
+      ref={rootRef}
+      className="inline-flex shrink-0"
+      onClick={(event) => event.stopPropagation()}
+    >
+      <button
+        type="button"
+        className="grid h-[23px] w-[23px] place-items-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={`Project actions for ${repo.displayName}`}
+        title="Project actions"
+        onClick={toggle}
+        data-testid={`project-menu-${repo.id}`}
+      >
+        <MoreHorizontal size={12} />
+      </button>
+      {open && position !== null
+        ? createPortal(
+            <div
+              ref={menuRef}
+              role="menu"
+              aria-label={`Project actions for ${repo.displayName}`}
+              style={{ position: 'fixed', top: position.top, right: position.right }}
+              className="z-50 w-44 rounded-md border border-border bg-card p-1 shadow-xl"
+              data-testid={`project-menu-popover-${repo.id}`}
+            >
+              <button
+                type="button"
+                role="menuitem"
+                className="flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left text-[11px] text-destructive hover:bg-destructive/10"
+                onClick={() => {
+                  setOpen(false)
+                  onRemove()
+                }}
+                data-testid={`repository-remove-${repo.id}`}
+              >
+                <Trash2 size={12} className="shrink-0" />
+                Remove repository…
+              </button>
+            </div>,
+            document.body
+          )
+        : null}
+    </span>
   )
 }
 
@@ -273,7 +380,8 @@ export default function ProjectsWall({
   maxConcurrent,
   onOpenProject,
   onOpenTask,
-  onManageRepositories,
+  onAddRepository,
+  onRemoveRepository,
   onRetryPreparation
 }: Props): React.JSX.Element {
   const [query, setQuery] = useState('')
@@ -359,12 +467,12 @@ export default function ProjectsWall({
           </label>
           <button
             type="button"
-            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-3 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
-            onClick={onManageRepositories}
-            data-testid="manage-repositories"
+            className="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-3 text-[11px] font-medium text-accent-ink hover:opacity-90"
+            onClick={onAddRepository}
+            data-testid="add-project"
           >
-            <Settings size={11} />
-            Manage repositories
+            <Plus size={11} />
+            Add project
           </button>
         </div>
       </div>
@@ -493,6 +601,7 @@ export default function ProjectsWall({
                       setPinnedIds((current) => togglePinnedProject(current, repoId))
                     }
                     onRetryPreparation={onRetryPreparation}
+                    onRemoveRepository={onRemoveRepository}
                   />
                 ))
               )}
