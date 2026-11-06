@@ -1,6 +1,6 @@
 # iCode
 
-An agent development environment for local Coding Agent TUIs.
+The next-gen agentic development environment (ADE) for local coding agents.
 
 **Status:** The terminal workspace, detached Host, SQLite persistence, packaged
 WSL2/WSLg support, session worktrees, changes review, agent activity, and full

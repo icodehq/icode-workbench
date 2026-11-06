@@ -34,7 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.0] - 2026-11-06
 
-Initial release: a local agent development environment for Coding Agent TUIs.
+Initial release: the next-gen agentic development environment (ADE).
 
 ### Added
 
