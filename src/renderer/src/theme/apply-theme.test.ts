@@ -9,14 +9,15 @@ import {
 
 describe('appearance preference', () => {
   it('resolves System from the OS and lets an explicit choice win', () => {
+    expect(resolveTheme(false)).toBe('light')
     expect(resolveTheme(false, 'system')).toBe('dark')
     expect(resolveTheme(true, 'system')).toBe('light')
     expect(resolveTheme(false, 'light')).toBe('light')
     expect(resolveTheme(true, 'dark')).toBe('dark')
   })
 
-  it('defaults to System when storage is unavailable', () => {
-    expect(getThemePreference()).toBe('system')
+  it('defaults to Light when storage is unavailable', () => {
+    expect(getThemePreference()).toBe('light')
   })
 
   it('reads the resolved attribute rather than re-querying the OS', () => {

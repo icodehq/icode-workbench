@@ -2,8 +2,9 @@
  * iCode appearance resolution.
  *
  * The renderer starts before React, so this module applies the stored preference
- * (or the OS preference when none is stored) before the first application paint.
- * The same module owns the in-app System / Dark / Light switch.
+ * (or Light when none is stored) before the first application paint. System is
+ * an explicit choice that follows the OS. The same module owns the in-app
+ * System / Dark / Light switch.
  *
  * `main.css` keeps the dark palette on `:root` and the light palette under
  * `[data-theme='light']`. Explicit dark is also written as the attribute so the
@@ -25,7 +26,7 @@ function notify(): void {
 /** The one decision this module makes. Kept pure so it can be checked directly. */
 export function resolveTheme(
   prefersLight: boolean,
-  preference: ThemePreference = 'system'
+  preference: ThemePreference = 'light'
 ): ThemeName {
   if (preference === 'system') return prefersLight ? 'light' : 'dark'
   return preference
@@ -33,12 +34,12 @@ export function resolveTheme(
 
 /** Reads the user's choice without requiring a browser in tests. */
 export function getThemePreference(): ThemePreference {
-  if (typeof window === 'undefined') return 'system'
+  if (typeof window === 'undefined') return 'light'
   try {
     const value = window.localStorage.getItem(STORAGE_KEY)
-    return value === 'dark' || value === 'light' || value === 'system' ? value : 'system'
+    return value === 'dark' || value === 'light' || value === 'system' ? value : 'light'
   } catch {
-    return 'system'
+    return 'light'
   }
 }
 

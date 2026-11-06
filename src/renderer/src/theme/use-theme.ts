@@ -25,7 +25,7 @@ export function useThemePreference(): ThemeState {
   const preference = useSyncExternalStore(
     subscribeTheme,
     getThemePreference,
-    () => 'system' as const
+    () => 'light' as const
   )
   const resolved = useSyncExternalStore(
     subscribeTheme,
