@@ -12,7 +12,7 @@
 <h3 align="center"><a href="#install"><ins>Get started</ins></a></h3>
 
 <p align="center">
-  <img src="docs/assets/projects-wall.png" alt="The iCode All projects wall showing in-flight work, needs, and last activity across three repositories" width="960" />
+  <img src=".github/assets/projects-wall.png" alt="The iCode All projects wall showing in-flight work, needs, and last activity across three repositories" width="960" />
 </p>
 
 <p align="center">
@@ -49,6 +49,13 @@ reattaches to the same PTY incarnation. Attach returns a serialized snapshot wit
 scrollback and alternate-screen state, and flow control keeps a slow UI from
 blocking the agent's process.
 
+<p align="center">
+  <a href=".github/assets/session-terminal.png"><img src=".github/assets/session-terminal.png" alt="A real shell session in its worktree, showing git status and recent commits" width="100%" /></a>
+</p>
+
+*A real PTY in the session worktree; the detached host keeps it alive. The
+terminal keeps its own dark palette in both appearances.*
+
 ### Attention, not terminal scraping
 
 Claude Code hooks report session start, prompts, tool calls, permission requests,
@@ -70,6 +77,19 @@ process exit. Schedules create ordinary queued tasks on a cadence — once, dail
 weekdays, weekly, or every few hours — with queue-or-skip overlap handling and
 run-now.
 
+<p align="center">
+  <a href=".github/assets/tasks.png"><img src=".github/assets/tasks.png" alt="The task workbench showing a running task, its instruction, live session, changes, and review decision" width="100%" /></a>
+</p>
+
+*Task workbench: the instruction, the live session, changes against the task
+baseline, and a review decision.*
+
+<p align="center">
+  <a href=".github/assets/schedules.png"><img src=".github/assets/schedules.png" alt="The Schedules page with daily, weekly paused, and six-hour schedules" width="100%" /></a>
+</p>
+
+*Recurring tasks with queue-or-skip overlap handling.*
+
 ### Review where the agent worked
 
 Source Control is scoped to the session's checkout. **Changes** shows conflicts,
@@ -83,8 +103,16 @@ actions. Draft a commit message with the installed harness in one-shot mode; the
 result only fills the draft.
 
 <p align="center">
-  <a href="docs/assets/session-review.png"><img src="docs/assets/session-review.png" alt="Source Control inside a session, showing staged and untracked changes with an inline diff" width="100%" /></a>
+  <a href=".github/assets/session-review.png"><img src=".github/assets/session-review.png" alt="Source Control inside a session, showing staged and untracked changes with an inline diff" width="100%" /></a>
 </p>
+
+*Review, stage, and commit in the session worktree.*
+
+<p align="center">
+  <a href=".github/assets/history.png"><img src=".github/assets/history.png" alt="Source Control history with a commit list and the files changed by a selected commit" width="100%" /></a>
+</p>
+
+*Commit history, scoped to the current branch or the session.*
 
 ### Edit in the same checkout
 
@@ -96,8 +124,10 @@ external changes with reload/keep, and keep unsaved buffers across an ordinary
 restart through hot exit.
 
 <p align="center">
-  <a href="docs/assets/files-editor.png"><img src="docs/assets/files-editor.png" alt="The Files panel with a worktree explorer and Monaco editor open on a TypeScript component" width="100%" /></a>
+  <a href=".github/assets/files-editor.png"><img src=".github/assets/files-editor.png" alt="The Files panel with a worktree explorer and Monaco editor open on a TypeScript component" width="100%" /></a>
 </p>
+
+*Files and Monaco beside the terminal, in the same worktree.*
 
 ### Run where your code lives
 
@@ -118,7 +148,8 @@ sandboxed behind a typed preload and validated IPC.
 
 - **Command palette**: `Ctrl/Cmd+K` for projects, sessions, tasks, and Source
   Control actions; `Ctrl/Cmd+P` for quick open.
-- **Themes**: system, dark, and light, applied before first paint.
+- **Themes**: light by default, with System and Dark available, applied before
+  first paint.
 - **Configurable workflow**: task concurrency, Source Control, and Files
   preferences.
 - **Session diagnostics**: host authority, PTY incarnation, worktree state, exit
@@ -127,6 +158,12 @@ sandboxed behind a typed preload and validated IPC.
   is separate and requires the exact name when unmerged.
 - **Native window chrome**: native traffic lights on macOS; custom controls on
   Windows and Linux.
+
+<p align="center">
+  <a href=".github/assets/settings.png"><img src=".github/assets/settings.png" alt="Settings for appearance, Source Control, Files, and host runtime" width="100%" /></a>
+</p>
+
+*Settings for appearance, task concurrency, Source Control, and Files.*
 
 ## How it works
 
