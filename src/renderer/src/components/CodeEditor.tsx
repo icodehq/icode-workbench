@@ -60,6 +60,38 @@ type MonacoHandle = {
   monaco: MonacoApi
 }
 
+type CachedMonacoModel = {
+  model: MonacoTypes.editor.ITextModel
+  monaco: MonacoApi
+}
+
+/**
+ * Models outlive the editor instance so switching tabs keeps undo history.
+ *
+ * Monaco stores the undo stack on the model, not the editor. Recreating a model
+ * for every tab switch would silently throw that history away. Carets are kept
+ * beside the models for the same reason.
+ */
+const monacoModels = new Map<string, CachedMonacoModel>()
+const monacoCarets = new Map<string, { line: number; column: number }>()
+const MONACO_MODEL_LIMIT = 20
+
+function modelKey(sessionId: string | undefined, path: string): string {
+  return `${sessionId ?? ''}\u0000${path}`
+}
+
+function evictOldMonacoModels(keep: string): void {
+  if (monacoModels.size < MONACO_MODEL_LIMIT) return
+  for (const key of monacoModels.keys()) {
+    if (key === keep) continue
+    const cached = monacoModels.get(key)
+    monacoModels.delete(key)
+    monacoCarets.delete(key)
+    cached?.model.dispose()
+    if (monacoModels.size < MONACO_MODEL_LIMIT) return
+  }
+}
+
 type QuickPeekState = {
   phase: 'idle' | 'checking' | 'ready' | 'error'
   reason?: string
@@ -117,7 +149,7 @@ export default function CodeEditor({
   const textarea = useRef<HTMLTextAreaElement | null>(null)
   const gutter = useRef<HTMLDivElement | null>(null)
   const handle = useRef<MonacoHandle | null>(null)
-  const instanceId = useRef(Math.random().toString(36).slice(2))
+  const contentListenerRef = useRef<MonacoTypes.IDisposable | null>(null)
   const suppressChange = useRef(false)
   const onChangeRef = useRef(onChange)
   const onSaveRef = useRef(onSave)
@@ -132,8 +164,9 @@ export default function CodeEditor({
     [lineCount]
   )
 
-  // Monaco lifecycle: one editor/model per path. Callbacks and the latest value
-  // live in refs so typing does not recreate the editor on every parent render.
+  // Monaco lifecycle: one editor per component, one cached model per file.
+  // Callbacks and the latest value live in refs so typing does not recreate the
+  // editor on every parent render; the model cache preserves undo per tab.
   useEffect(() => {
     if (engine !== 'monaco') {
       setMonacoState('failed')
@@ -141,14 +174,27 @@ export default function CodeEditor({
     }
     let cancelled = false
     setMonacoState('loading')
+    const key = modelKey(sessionId, path)
     void import('../editor/monaco')
       .then(({ getMonaco, languageForPath }) => {
         if (cancelled || container.current === null) return
         const monaco = getMonaco()
-        const uri = monaco.Uri.parse(
-          `inmemory://icode/${encodeURIComponent(path)}#${instanceId.current}`
-        )
-        const model = monaco.editor.createModel(value, languageForPath(path), uri)
+        let cached = monacoModels.get(key)
+        if (cached === undefined) {
+          evictOldMonacoModels(key)
+          const uri = monaco.Uri.parse(`inmemory://icode/${encodeURIComponent(key)}`)
+          cached = {
+            monaco,
+            model: monaco.editor.createModel(valueRef.current, languageForPath(path), uri)
+          }
+          monacoModels.set(key, cached)
+        }
+        const model = cached.model
+        if (valueRef.current !== model.getValue()) {
+          suppressChange.current = true
+          model.setValue(valueRef.current)
+          suppressChange.current = false
+        }
         const editor = monaco.editor.create(container.current, {
           model,
           theme: themeFromDocument(),
@@ -169,12 +215,22 @@ export default function CodeEditor({
           glyphMargin: true,
           folding: true
         })
-        model.onDidChangeContent(() => {
+        const contentListener = model.onDidChangeContent(() => {
           if (!suppressChange.current) onChangeRef.current(model.getValue())
         })
         editor.onDidChangeCursorPosition((event) => {
-          setCaret({ line: event.position.lineNumber, column: event.position.column })
+          const position = { line: event.position.lineNumber, column: event.position.column }
+          monacoCarets.set(key, position)
+          setCaret(position)
         })
+        const rememberedCaret = monacoCarets.get(key)
+        if (rememberedCaret !== undefined) {
+          editor.setPosition({
+            lineNumber: rememberedCaret.line,
+            column: rememberedCaret.column
+          })
+          setCaret(rememberedCaret)
+        }
         editor.onMouseDown((event) => {
           if (event.target.type !== monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN) return
           const line = event.target.position?.lineNumber ?? event.target.range?.startLineNumber
@@ -185,15 +241,11 @@ export default function CodeEditor({
         editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
           onSaveRef.current()
         })
-        if (valueRef.current !== model.getValue()) {
-          suppressChange.current = true
-          model.setValue(valueRef.current)
-          suppressChange.current = false
-        }
         handle.current = { editor, model, monaco }
         decorationIds.current = []
         blameDecorationIds.current = []
         ;(container.current as HTMLElement & { __icodeEditor?: unknown }).__icodeEditor = editor
+        contentListenerRef.current = contentListener
         setMonacoState('ready')
       })
       .catch(() => {
@@ -203,15 +255,17 @@ export default function CodeEditor({
       cancelled = true
       const current = handle.current
       handle.current = null
+      contentListenerRef.current?.dispose()
+      contentListenerRef.current = null
       if (container.current !== null) {
         delete (container.current as HTMLElement & { __icodeEditor?: unknown }).__icodeEditor
       }
       decorationIds.current = []
       blameDecorationIds.current = []
       current?.editor.dispose()
-      current?.model.dispose()
+      // The model is owned by the cache, not the editor instance.
     }
-  }, [engine, path])
+  }, [engine, path, sessionId])
 
   // Parent-driven value changes (reload, save) update the model without
   // re-running the editor lifecycle or losing the caret.

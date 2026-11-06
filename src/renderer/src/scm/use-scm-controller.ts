@@ -6,12 +6,15 @@ import type {
   GitBatchPayload,
   GitBranchPayload,
   GitCommitPayload,
-  GitFetchPayload,
   GitOpPayload,
   GitOperationActionPayload,
   GitResolveConflictPayload
 } from '../../../shared/icode-api'
-import type { GitOperationKind, GitWorkspaceStatus } from '../../../shared/domain/git-workspace'
+import type {
+  GitOperationKind,
+  GitRangeFile,
+  GitWorkspaceStatus
+} from '../../../shared/domain/git-workspace'
 import type { Notice } from '../state/workspace'
 import { uncommittedFileCount, workingTreeGroups, type WorkingTreeEntry } from '../review/working-tree'
 import { useWorkbenchDraft, type WorkbenchDraftStore } from '../review/drafts'
@@ -24,12 +27,12 @@ import { clearScmStatusSummary, setScmStatusSummary } from './scm-status-store'
 type ScmControllerOptions = {
   sessionId: string
   sessionState: string
+  /** The commit this session's worktree was created from. */
+  baseOid: string | null
   /** The Source Control tab is visible. Hidden panes hold stale Git status. */
   active: boolean
   /** Bumped by the global refresh action; reloads Git status. */
   refreshToken: number
-  /** Bumped when the header branch menu changed the checkout. */
-  gitRevision: number
   notify: (notice: Notice) => void
   /** Notes and the commit message belong to the session. */
   drafts: WorkbenchDraftStore
@@ -43,6 +46,10 @@ export type ScmController = {
   loading: boolean
   note: string
   operation: GitOperationKind | null
+  committed: GitRangeFile[] | null
+  commitCount: number
+  committedLoading: boolean
+  baseNote: string
   watchMode: 'probing' | 'watch' | 'poll'
   /** Bumped whenever the watcher saw a write, so diffs can refresh. */
   diffTick: number
@@ -86,8 +93,6 @@ export type ScmController = {
   /** `git commit -a` for tracked changes, used by the sidebar menu. */
   commitAll: () => Promise<void>
   runRemoteAction: (kind: 'push' | 'pull' | 'publish' | 'sync') => Promise<void>
-  /** An explicit fetch (the palette command); auto-fetch stays quiet. */
-  fetchNow: () => Promise<void>
   amend: () => Promise<void>
   runPrimary: () => void
 }
@@ -107,9 +112,9 @@ function plural(count: number, singular: string, pluralForm = `${singular}s`): s
 export function useScmController({
   sessionId,
   sessionState,
+  baseOid,
   active,
   refreshToken,
-  gitRevision,
   notify,
   drafts,
   onChanged
@@ -120,14 +125,17 @@ export function useScmController({
   const status = useScmStatus({
     sessionId,
     sessionState,
+    baseOid,
     active,
-    refreshToken,
-    gitRevision,
-    busy
+    refreshToken
   })
   const {
     snapshot,
     operation,
+    committed,
+    commitCount,
+    committedLoading,
+    baseNote,
     settings,
     watchMode,
     diffTick,
@@ -402,12 +410,17 @@ export function useScmController({
     if (entries.length === 0 || busy) return false
     setBusy(true)
     try {
-      const targets = entries.map((entry) => ({
-        path: entry.entry.path,
-        area: entry.area === 'conflicts' ? ('conflicted' as const) : entry.area,
-        ...(entry.entry.oldPath ? { oldPath: entry.entry.oldPath } : {}),
-        status: entry.entry.status
-      }))
+      const targets = entries.flatMap((entry) => {
+        if (entry.area === 'committed') return []
+        return [
+          {
+            path: entry.entry.path,
+            area: entry.area === 'conflicts' ? ('conflicted' as const) : entry.area,
+            ...(entry.entry.oldPath ? { oldPath: entry.entry.oldPath } : {}),
+            status: entry.entry.status
+          }
+        ]
+      })
       const result = await callApi<GitBatchPayload>(
         window.icode.git.setPathsStaged({ sessionId, targets, staged })
       )
@@ -452,12 +465,17 @@ export function useScmController({
     if (busy || pendingStageRef.current.size > 0 || discardTargets === null) return
     setBusy(true)
     try {
-      const targets = discardTargets.map((target) => ({
-        path: target.entry.path,
-        area: target.area === 'conflicts' ? ('conflicted' as const) : target.area,
-        ...(target.entry.oldPath ? { oldPath: target.entry.oldPath } : {}),
-        status: target.entry.status
-      }))
+      const targets = discardTargets.flatMap((target) => {
+        if (target.area === 'committed') return []
+        return [
+          {
+            path: target.entry.path,
+            area: target.area === 'conflicts' ? ('conflicted' as const) : target.area,
+            ...(target.entry.oldPath ? { oldPath: target.entry.oldPath } : {}),
+            status: target.entry.status
+          }
+        ]
+      })
       const result = await callApi<GitBatchPayload>(
         window.icode.git.discardPaths({
           sessionId,
@@ -641,27 +659,6 @@ export function useScmController({
   }
 
   /** Explicit fetch from the command palette; auto-fetch stays quiet. */
-  const fetchNow = async (): Promise<void> => {
-    if (busy) return
-    setBusy(true)
-    try {
-      const result = await callApi<GitFetchPayload>(window.icode.git.fetch({ sessionId }))
-      if (!result.ok) {
-        notify(errorNotice(result.error))
-        return
-      }
-      if (result.value.status === 'unavailable') {
-        notify({ tone: 'error', message: result.value.detail })
-        return
-      }
-      notify({ tone: 'success', message: `Fetched ${result.value.remote}` })
-    } finally {
-      setBusy(false)
-      await refresh()
-      onChanged()
-    }
-  }
-
   const amend = async (): Promise<void> => {
     if (!canAmend || amendBusy || pendingStageRef.current.size > 0) return
     if (protectedBranch) {
@@ -774,6 +771,10 @@ export function useScmController({
     loading,
     note,
     operation,
+    committed,
+    commitCount,
+    committedLoading,
+    baseNote,
     watchMode,
     diffTick,
     settings,
@@ -806,7 +807,6 @@ export function useScmController({
     commit,
     commitAll,
     runRemoteAction,
-    fetchNow,
     amend,
     runPrimary
   }

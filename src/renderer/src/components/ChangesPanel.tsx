@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   AlertTriangle,
-  ArrowDown,
-  ArrowUp,
   ArrowUpRight,
   GitBranch,
   GitCommitHorizontal,
@@ -10,14 +8,18 @@ import {
   Loader2,
   MoreHorizontal,
   RefreshCw,
+  Sparkles,
   TerminalSquare,
   Undo2
 } from 'lucide-react'
 import type { AgentSendResult } from '../lib/agent-send'
 import type { Notice } from '../state/workspace'
+import type { HarnessId } from '../../../shared/domain/harness'
+import { isAgentHarness } from '../../../shared/domain/harness'
 import type { WorkingTreeEntry } from '../review/working-tree'
 import { afterAgentSend, useWorkbenchDraft, type WorkbenchDraftStore } from '../review/drafts'
 import { useScmController } from '../scm/use-scm-controller'
+import { useCommitMessageGeneration } from '../scm/use-commit-message-generation'
 import { registerScmCommand, type ScmCommandId } from '../scm/scm-commands'
 import AmendDialog from './AmendDialog'
 import ScmHistoryView from './ScmHistoryView'
@@ -27,10 +29,12 @@ import WorkingTreeView from './WorkingTreeView'
 type Props = {
   sessionId: string
   sessionState: string
+  /** The session's harness; generation is hidden for Shell sessions. */
+  harness: HarnessId
+  /** The commit this session's worktree was created from. */
+  baseOid: string | null
   /** Bumped by the global refresh action; reloads Git status. */
   refreshToken: number
-  /** Bumped when the header branch menu changed the checkout. */
-  gitRevision: number
   /** The Source Control tab is visible; hidden panes may hold stale Git status. */
   active: boolean
   notify: (notice: Notice) => void
@@ -94,8 +98,9 @@ function MenuAction({
 export default function ChangesPanel({
   sessionId,
   sessionState,
+  harness,
+  baseOid,
   refreshToken,
-  gitRevision,
   active,
   notify,
   onOpenPath,
@@ -112,9 +117,9 @@ export default function ChangesPanel({
   const controller = useScmController({
     sessionId,
     sessionState,
+    baseOid,
     active,
     refreshToken,
-    gitRevision,
     notify,
     drafts,
     onChanged
@@ -143,9 +148,12 @@ export default function ChangesPanel({
     loading,
     note,
     operation,
+    committed,
+    commitCount,
+    committedLoading,
+    baseNote,
     watchMode,
     diffTick,
-    settings,
     message,
     setMessage,
     groups,
@@ -175,10 +183,52 @@ export default function ChangesPanel({
     commit,
     commitAll,
     runRemoteAction,
-    fetchNow,
     amend,
     runPrimary
   } = controller
+
+  const generation = useCommitMessageGeneration({
+    sessionId,
+    harness,
+    active,
+    stagedCount,
+    conflicts: groups.conflicts.length,
+    message,
+    setMessage
+  })
+
+  // The session page answers one question: what has this worktree changed
+  // since the commit the session started from? Committed and uncommitted
+  // paths are counted once in the headline, while the sidebar keeps the
+  // Git-honest per-area rows.
+  const committedPaths = new Set((committed ?? []).map((file) => file.path))
+  const uncommittedPaths = new Set(
+    [...groups.conflicts, ...groups.staged, ...groups.unstaged, ...groups.untracked].map(
+      (entry) => entry.entry.path
+    )
+  )
+  const changedPathCount = new Set([...committedPaths, ...uncommittedPaths]).size
+  const baseShort = baseOid === null ? null : baseOid.slice(0, 7)
+  const sessionSummary =
+    snapshot === null
+      ? workingSummary
+      : changedPathCount === 0
+        ? baseShort === null
+          ? 'No uncommitted changes'
+          : `No changes since base ${baseShort}`
+        : [
+            commitCount > 0 ? plural(commitCount, 'commit') : null,
+            `${String(changedPathCount)} ${changedPathCount === 1 ? 'file' : 'files'} changed${
+              baseShort === null ? '' : ` since base ${baseShort}`
+            }`,
+            uncommittedCount === 0 ? 'clean' : `${String(uncommittedCount)} uncommitted`
+          ]
+            .filter((part): part is string => part !== null)
+            .join(' · ')
+  const summaryText =
+    committedLoading && committed === null && snapshot !== null
+      ? 'Reading this worktree…'
+      : sessionSummary
 
   // The command palette is app-global; these handlers make the active session's
   // Git operations reachable from it with VS Code's command ids.
@@ -233,12 +283,6 @@ export default function ChangesPanel({
         () => requestDiscard(discardable)
       ),
       register(
-        'git.fetch',
-        snapshot !== null && snapshot.upstream !== null && !busy,
-        'No upstream branch to fetch from',
-        () => void fetchNow()
-      ),
-      register(
         'git.pull',
         snapshot !== null && snapshot.upstream !== null && !busy,
         'No upstream branch to pull from',
@@ -288,7 +332,6 @@ export default function ChangesPanel({
     commitAll,
     commitBusy,
     continueOperation,
-    fetchNow,
     groups,
     operation,
     primary,
@@ -378,14 +421,35 @@ export default function ChangesPanel({
   )
 
   const header = (
-    <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border bg-card px-5">
+    <div
+      className="flex h-11 shrink-0 items-center gap-2 border-b border-border bg-card px-5"
+      data-testid="scm-session-strip"
+    >
+      <GitBranch size={12} className="shrink-0 text-muted-foreground" />
+      <span className="min-w-0 max-w-[220px] truncate font-mono text-[10.5px] text-foreground">
+        {snapshot?.branch ?? (loading ? 'Reading branch…' : 'No branch')}
+      </span>
+      {baseShort !== null ? (
+        <span className="shrink-0 font-mono text-[9px] text-muted-foreground">
+          base {baseShort}
+        </span>
+      ) : null}
+      <span className="h-3 w-px shrink-0 bg-border" />
       <span
         className="min-w-0 truncate text-[10.5px] text-muted-foreground"
         data-testid="review-count"
-        title="Uncommitted Git state"
+        data-commit-count={commitCount}
+        data-committed-files={committed?.length ?? 0}
+        title={baseNote.length > 0 ? baseNote : "Changes since this session's base commit"}
       >
-        {workingSummary}
+        {summaryText}
       </span>
+      {groups.conflicts.length > 0 ? (
+        <span className="inline-flex shrink-0 items-center gap-0.5 text-[9px] text-destructive">
+          <AlertTriangle size={9} />
+          {String(groups.conflicts.length)} conflict{groups.conflicts.length === 1 ? '' : 's'}
+        </span>
+      ) : null}
       <span className="ml-auto flex shrink-0 items-center gap-2">
         {sent ? (
           <span className="text-[10px] text-add" data-testid="review-notes-sent">
@@ -393,22 +457,50 @@ export default function ChangesPanel({
           </span>
         ) : null}
         {comments.length > 0 ? (
-          <span className="text-[10px] text-signal">{plural(comments.length, 'draft note')}</span>
+          <>
+            <span className="text-[10px] text-signal">{plural(comments.length, 'draft note')}</span>
+            <button
+              type="button"
+              className="inline-flex h-7 items-center gap-2 rounded-md border border-add/40 px-2 text-[10.5px] text-foreground hover:bg-add-weak disabled:opacity-40"
+              onClick={() => void sendComments()}
+              disabled={!canSendToAgent || sending}
+              data-testid="review-line-comments-send"
+              title={
+                canSendToAgent
+                  ? 'Send the line notes to the Agent terminal'
+                  : 'This session cannot receive notes.'
+              }
+            >
+              Send {plural(comments.length, 'note')}
+            </button>
+          </>
         ) : null}
         <button
           type="button"
-          className="inline-flex h-7 items-center gap-2 rounded-md border border-add/40 px-2 text-[10.5px] text-foreground hover:bg-add-weak disabled:opacity-40"
-          onClick={() => void sendComments()}
-          disabled={!canSendToAgent || comments.length === 0 || sending}
-          data-testid="review-line-comments-send"
-          title={
-            canSendToAgent
-              ? 'Send the line notes to the Agent terminal'
-              : 'This session cannot receive notes.'
-          }
+          className={`inline-flex h-7 items-center gap-1 rounded border px-2 text-[10px] ${
+            historyOpen
+              ? 'border-info/50 bg-info-weak text-info'
+              : 'border-border text-muted-foreground hover:bg-muted hover:text-foreground'
+          }`}
+          onClick={() => {
+            if (historyOpen) {
+              setHistoryOpen(false)
+              setHistoryPath('')
+            } else {
+              setHistoryPath('')
+              setHistoryOpen(true)
+            }
+          }}
+          aria-pressed={historyOpen}
+          title="Browse this session's commits"
+          data-testid="scm-history-open"
         >
-          {comments.length > 0 ? `Send ${plural(comments.length, 'note')}` : 'Send notes'}
+          <History size={10} />
+          History
         </button>
+        <span className="font-mono text-[9px] text-muted-foreground">
+          {watchMode === 'watch' ? 'watched' : watchMode === 'poll' ? 'polling' : ''}
+        </span>
         <button
           type="button"
           className="inline-flex h-7 items-center gap-2 rounded-md border border-border px-2 text-[10.5px] hover:bg-muted disabled:opacity-40"
@@ -419,84 +511,6 @@ export default function ChangesPanel({
           <RefreshCw size={10} className={loading ? 'animate-spin' : ''} />
           Refresh
         </button>
-      </span>
-    </div>
-  )
-
-  // Repository header: the one fact VS Code puts above the commit box. It is
-  // compact because the tab header already carries the global summary.
-  const repoHeader = (
-    <div
-      className="flex min-h-8 shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-border bg-card px-2.5 py-1 text-[10.5px]"
-      data-testid="scm-repo-header"
-    >
-      <GitBranch size={12} className="shrink-0 text-muted-foreground" />
-      <span className="min-w-0 truncate font-medium text-foreground">
-        {snapshot?.branch ?? (loading ? 'Reading branch…' : 'No branch')}
-      </span>
-      {snapshot?.upstream ? (
-        <span className="min-w-0 truncate font-mono text-[9px] text-muted-foreground">
-          {snapshot.upstream}
-        </span>
-      ) : snapshot !== null ? (
-        <span className="text-[9px] text-muted-foreground">no upstream</span>
-      ) : null}
-      {(snapshot?.ahead ?? 0) > 0 ? (
-        <span
-          className="inline-flex items-center gap-0.5 text-[9px] text-info"
-          title="Commits to push"
-          data-testid="scm-repo-ahead"
-        >
-          <ArrowUp size={9} />
-          {String(snapshot?.ahead ?? 0)}
-        </span>
-      ) : null}
-      {(snapshot?.behind ?? 0) > 0 ? (
-        <span
-          className="inline-flex items-center gap-0.5 text-[9px] text-signal"
-          title="Commits to pull"
-          data-testid="scm-repo-behind"
-        >
-          <ArrowDown size={9} />
-          {String(snapshot?.behind ?? 0)}
-        </span>
-      ) : null}
-      {operation ? (
-        <span className="rounded-full border border-signal-line bg-signal-weak px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-signal">
-          {operation}
-        </span>
-      ) : null}
-      {groups.conflicts.length > 0 ? (
-        <span className="inline-flex items-center gap-0.5 text-[9px] text-destructive">
-          <AlertTriangle size={9} />
-          {String(groups.conflicts.length)} conflict{groups.conflicts.length === 1 ? '' : 's'}
-        </span>
-      ) : null}
-      <button
-        type="button"
-        className={`ml-auto inline-flex h-6 items-center gap-1 rounded border px-1.5 text-[9.5px] ${
-          historyOpen
-            ? 'border-info/50 bg-info-weak text-info'
-            : 'border-border text-muted-foreground hover:bg-muted hover:text-foreground'
-        }`}
-        onClick={() => {
-          if (historyOpen) {
-            setHistoryOpen(false)
-            setHistoryPath('')
-          } else {
-            setHistoryPath('')
-            setHistoryOpen(true)
-          }
-        }}
-        aria-pressed={historyOpen}
-        title="Browse commits in this worktree"
-        data-testid="scm-history-open"
-      >
-        <History size={10} />
-        History
-      </button>
-      <span className="font-mono text-[9px] text-muted-foreground">
-        {watchMode === 'watch' ? 'watched' : watchMode === 'poll' ? 'polling' : ''}
       </span>
     </div>
   )
@@ -552,14 +566,62 @@ export default function ChangesPanel({
         className="shrink-0 border-b border-border bg-card px-2.5 py-2"
         data-testid="changes-commitbar"
       >
-        <div className="flex items-baseline gap-2">
-          <strong className="text-[11px] text-foreground" data-testid="staged-count">
-            {String(stagedCount)} staged
-          </strong>
-          <span className="text-[10px] text-muted-foreground">
-            {String(uncommittedCount)} uncommitted
-          </span>
+        <div className="flex items-center gap-2">
+          <div className="flex min-w-0 items-baseline gap-2">
+            <strong className="text-[11px] text-foreground" data-testid="staged-count">
+              {String(stagedCount)} staged
+            </strong>
+            <span className="text-[10px] text-muted-foreground">
+              {String(uncommittedCount)} uncommitted
+            </span>
+          </div>
+          {isAgentHarness(harness) ? (
+            <span
+              className="ml-auto shrink-0"
+              title={
+                generation.disabledReason ||
+                'Draft a message from the staged diff. The diff is sent to the agent provider.'
+              }
+            >
+              {generation.status === 'generating' ? (
+                <button
+                  type="button"
+                  className="inline-flex h-6 items-center gap-1 rounded border border-border px-1.5 text-[9.5px] text-muted-foreground hover:bg-muted hover:text-foreground"
+                  onClick={generation.cancel}
+                  data-testid="scm-generate-cancel"
+                >
+                  <Loader2 size={9} className="animate-spin" />
+                  Cancel
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="inline-flex h-6 items-center gap-1 rounded border border-info/40 bg-info-weak px-1.5 text-[9.5px] text-foreground hover:bg-info/15 disabled:opacity-40"
+                  onClick={generation.generate}
+                  disabled={!generation.canGenerate}
+                  title={
+                    generation.disabledReason ||
+                    'Draft a message from the staged diff. The diff is sent to the agent provider.'
+                  }
+                  data-testid="scm-generate-message"
+                >
+                  <Sparkles size={9} />
+                  Generate
+                </button>
+              )}
+            </span>
+          ) : null}
         </div>
+        {generation.note.length > 0 ? (
+          <p className="mt-1 text-[9.5px] text-add" data-testid="scm-generate-note">
+            {generation.note}
+          </p>
+        ) : null}
+        {generation.error !== null ? (
+          <p className="mt-1 text-[9.5px] text-destructive" data-testid="scm-generate-error">
+            {generation.error}
+          </p>
+        ) : null}
         {protectedBranch ? (
           <p
             className="mt-1 rounded border border-signal-line bg-signal-weak px-1.5 py-1 text-[9.5px] text-signal"
@@ -590,6 +652,32 @@ export default function ChangesPanel({
             }
           }}
         />
+        {generation.status === 'replace' ? (
+          <div
+            className="mt-1.5 rounded border border-info/40 bg-info-weak px-2 py-1 text-[9.5px] text-foreground"
+            data-testid="scm-generate-replace"
+          >
+            <p className="truncate">Replace the current draft with the generated message?</p>
+            <div className="mt-1 flex items-center gap-1">
+              <button
+                type="button"
+                className="rounded border border-info/50 px-1.5 py-0.5 text-[9.5px] text-info hover:bg-info/15"
+                onClick={generation.applyPending}
+                data-testid="scm-generate-apply"
+              >
+                Replace
+              </button>
+              <button
+                type="button"
+                className="rounded border border-border px-1.5 py-0.5 text-[9.5px] text-muted-foreground hover:bg-muted hover:text-foreground"
+                onClick={generation.dismissPending}
+                data-testid="scm-generate-dismiss"
+              >
+                Keep draft
+              </button>
+            </div>
+          </div>
+        ) : null}
         {partialStaged ? (
           <p className="mt-1 text-[9.5px] text-info">
             Only the staged side is committed for partially staged files.
@@ -833,11 +921,13 @@ export default function ChangesPanel({
       <WorkingTreeView
         sessionId={sessionId}
         sessionState={sessionState}
+        baseOid={baseOid}
+        committed={committed}
         snapshot={snapshot}
         loading={loading}
         active={active}
         refreshToken={refreshToken}
-        gitRevision={gitRevision + diffTick}
+        diffTick={diffTick}
         watchActive={watchMode === 'watch'}
         onStage={(path) => setPathStaged(path, true)}
         onUnstage={(path) => setPathStaged(path, false)}
@@ -847,16 +937,10 @@ export default function ChangesPanel({
         onDiscard={(entry: WorkingTreeEntry) => requestDiscard([entry])}
         onApplyHunk={(path, patch, mode) => applyHunk(path, patch, mode)}
         onResolveConflict={(path, text) => resolveConflict(path, text)}
-        onNotify={notify}
-        onStashChanged={() => {
-          refresh()
-          onChanged()
-        }}
         onOpenPath={onOpenPath}
         onOpenTerminal={onOpenTerminal}
         sidebarHeader={
           <>
-            {repoHeader}
             {operationBanner}
             {statusBlock}
           </>
@@ -865,12 +949,12 @@ export default function ChangesPanel({
           historyOpen ? (
             <ScmHistoryView
               sessionId={sessionId}
+              baseOid={baseOid}
               notify={notify}
               onClose={() => {
                 setHistoryOpen(false)
                 setHistoryPath('')
               }}
-              branchPrefix={settings.branchPrefix}
               initialPath={historyPath}
               onChanged={refresh}
             />

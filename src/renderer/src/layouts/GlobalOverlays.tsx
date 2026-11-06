@@ -1,5 +1,6 @@
 import type { ComponentProps } from 'react'
 import AddRepositoryDialog from '../components/AddRepositoryDialog'
+import AppCloseGuard from '../components/AppCloseGuard'
 import BranchCleanupDialog from '../components/BranchCleanupDialog'
 import CommandPalette from '../components/CommandPalette'
 import NewSessionDialog from '../components/NewSessionDialog'
@@ -56,6 +57,8 @@ export default function GlobalOverlays({
       ) : null}
 
       {branchCleanup !== null ? <BranchCleanupDialog {...branchCleanup} /> : null}
+
+      <AppCloseGuard />
     </>
   )
 }

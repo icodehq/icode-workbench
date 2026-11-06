@@ -34,10 +34,34 @@ function services(overrides: Partial<DispatcherServices> = {}): DispatcherServic
     filesRead: vi.fn(async () => ({ status: 'ok', path: 'a', text: '', size: 0, binary: false, tooLarge: false, missingTrailingNewline: false })),
     filesWrite: vi.fn(async () => ({ status: 'ok', size: 1 })),
     filesSearch: vi.fn(async () => ({ status: 'ok', matches: [], truncated: false, scannedFiles: 0 })),
+    filesCancelSearch: vi.fn(async () => ({ cancelled: true })),
+    filesReplace: vi.fn(async () => ({
+      status: 'ok',
+      files: 0,
+      replacements: 0,
+      results: [],
+      truncated: false
+    })),
     filesCreate: vi.fn(async () => ({ status: 'ok', path: 'a' })),
     filesRename: vi.fn(async () => ({ status: 'ok', from: 'a', to: 'b' })),
     filesRemove: vi.fn(async () => ({ status: 'ok', path: 'a' })),
     gitInvoke: vi.fn(async () => ({ status: 'ok' })),
+    filesRemoveMany: vi.fn(async () => ({ status: 'ok', results: [] })),
+    filesMoveMany: vi.fn(async () => ({ status: 'ok', results: [] })),
+    filesCopyMany: vi.fn(async () => ({ status: 'ok', results: [] })),
+    filesCopyPaths: vi.fn(async () => ({ status: 'ok', count: 1 })),
+    filesStat: vi.fn(async () => ({
+      status: 'ok',
+      path: 'a',
+      kind: 'file',
+      size: 0,
+      etag: '0:0',
+      modifiedAt: 0
+    })),
+    filesTrash: vi.fn(async () => ({ status: 'ok', opId: null, results: [], entries: [] })),
+    filesRestoreTrash: vi.fn(async () => ({ status: 'ok', results: [] })),
+    filesListTrash: vi.fn(async () => ({ status: 'ok', items: [] })),
+    filesWatch: vi.fn(async () => ({ watching: true })),
     tasksList: vi.fn(async () => []),
     tasksCreate: vi.fn(async () => ({ id: 'task_1', status: 'queued' })),
     tasksCancel: vi.fn(async () => ({ id: 'task_1', status: 'cancelled' })),
@@ -54,6 +78,8 @@ function services(overrides: Partial<DispatcherServices> = {}): DispatcherServic
     schedulesRunNow: vi.fn(async () => ({ result: 'created', taskId: 'task_1', occurrenceAt: 1, trigger: 'manual' })),
     schedulesRemove: vi.fn(async () => undefined),
     harnessList: vi.fn(async () => []),
+    aiCommitMessage: vi.fn(async () => ({ status: 'ok', message: 'test', agent: 'claude' })),
+    aiCancelCommitMessage: vi.fn(async () => ({ cancelled: true })),
     wslListDistros: vi.fn(async () => ({ status: 'ok', distros: [], defaultRegistrationId: null })),
     terminalAttach: vi.fn(async () => ({})),
     terminalWrite: vi.fn(async () => null),
@@ -71,6 +97,32 @@ describe('dispatcher validation', () => {
     const dispatch = createDispatcher(services())
     const result = await dispatch('icode:exec', { command: 'rm -rf /' })
     expect(result).toMatchObject({ ok: false, error: { code: 'INVALID_ARGUMENT' } })
+  })
+
+  it('validates and routes AI commit-message generation', async () => {
+    const generate = vi.fn(async () => ({
+      status: 'ok' as const,
+      message: 'feat: generated',
+      agent: 'claude' as const
+    }))
+    const cancel = vi.fn(async () => ({ cancelled: true }))
+    const dispatch = createDispatcher(
+      services({ aiCommitMessage: generate, aiCancelCommitMessage: cancel })
+    )
+
+    expect(
+      await dispatch(IPC_CHANNELS.aiCommitMessage, { sessionId: 'not-a-session', requestId: 'x' })
+    ).toMatchObject({ ok: false, error: { code: 'INVALID_ARGUMENT' } })
+    expect(generate).not.toHaveBeenCalled()
+
+    expect(
+      await dispatch(IPC_CHANNELS.aiCommitMessage, { sessionId, requestId: 'request-123' })
+    ).toMatchObject({ ok: true })
+    expect(generate).toHaveBeenCalledWith({ sessionId, requestId: 'request-123' })
+
+    expect(
+      await dispatch(IPC_CHANNELS.aiCancelCommitMessage, { requestId: 'request-123' })
+    ).toMatchObject({ ok: true, value: { cancelled: true } })
   })
 
   it('rejects a relative repository path before calling the service', async () => {

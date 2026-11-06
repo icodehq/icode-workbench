@@ -1,48 +1,30 @@
 import { z } from 'zod'
 import {
-  gitAddRemoteInputSchema,
   gitAmendInputSchema,
   gitApplyPatchInputSchema,
   gitBlameInputSchema,
-  gitBranchesInputSchema,
-  gitCheckoutRefInputSchema,
+  gitCheckIgnoreInputSchema,
   gitCommitActionInputSchema,
   gitCommitDetailInputSchema,
   gitCommitInputSchema,
   gitConflictFileInputSchema,
-  gitCreateBranchInputSchema,
-  gitCreateTagInputSchema,
-  gitDeleteBranchInputSchema,
-  gitDeleteTagInputSchema,
   gitDiscardPathsInputSchema,
-  gitFetchRemoteInputSchema,
   gitFileAtRevisionInputSchema,
   gitIndexFileInputSchema,
   gitLogInputSchema,
-  gitMergeBranchInputSchema,
   gitOperationActionInputSchema,
   gitOperationStateInputSchema,
   gitPullInputSchema,
   gitRangeDiffInputSchema,
-  gitRebaseBranchInputSchema,
   gitRemoteOpInputSchema,
-  gitRemoveRemoteInputSchema,
-  gitRenameBranchInputSchema,
   gitResetInputSchema,
   gitResolveConflictInputSchema,
   gitRevisionFileDiffInputSchema,
   gitSessionChangesInputSchema,
   gitSetPathStagedInputSchema,
   gitSetPathsStagedInputSchema,
-  gitSetUpstreamInputSchema,
-  gitStashActionInputSchema,
-  gitStashPushInputSchema,
-  gitStashTargetInputSchema,
   gitStatusInputSchema,
-  gitSubmoduleActionInputSchema,
-  gitSwitchBranchInputSchema,
-  gitWatchStatusInputSchema,
-  gitWorktreeActionInputSchema
+  gitWatchStatusInputSchema
 } from '../schemas/workspace'
 import { changeDiffInputSchema } from '../schemas/changes'
 
@@ -50,12 +32,13 @@ import { changeDiffInputSchema } from '../schemas/changes'
  * One entry per Git operation.
  *
  * This map is the single list of Git commands: main builds its handler table
- * from these keys, the preload façade is generated from them, and the renderer
+ * from these keys, the preload facade is generated from them, and the renderer
  * API is a mapped type over the same names. Adding an operation means adding
  * one schema here, one handler in main, and one result type.
  */
 export const GIT_COMMAND_INPUTS = {
   status: gitStatusInputSchema,
+  checkIgnore: gitCheckIgnoreInputSchema,
   changeDiff: changeDiffInputSchema,
   sessionChanges: gitSessionChangesInputSchema,
   operationState: gitOperationStateInputSchema,
@@ -67,46 +50,18 @@ export const GIT_COMMAND_INPUTS = {
   setPathStaged: gitSetPathStagedInputSchema,
   setPathsStaged: gitSetPathsStagedInputSchema,
   discardPaths: gitDiscardPathsInputSchema,
-  branches: gitBranchesInputSchema,
-  switchBranch: gitSwitchBranchInputSchema,
-  createBranch: gitCreateBranchInputSchema,
-  createTag: gitCreateTagInputSchema,
-  deleteTag: gitDeleteTagInputSchema,
-  tags: gitRemoteOpInputSchema,
-  checkoutRef: gitCheckoutRefInputSchema,
   fileAtRevision: gitFileAtRevisionInputSchema,
   indexFile: gitIndexFileInputSchema,
   applyPatch: gitApplyPatchInputSchema,
   conflictFile: gitConflictFileInputSchema,
   resolveConflict: gitResolveConflictInputSchema,
-  stashList: gitRemoteOpInputSchema,
-  stashPush: gitStashPushInputSchema,
-  stashDiff: gitStashTargetInputSchema,
-  stashAction: gitStashActionInputSchema,
-  worktreeList: gitRemoteOpInputSchema,
-  worktreeAction: gitWorktreeActionInputSchema,
-  submoduleList: gitRemoteOpInputSchema,
-  submoduleAction: gitSubmoduleActionInputSchema,
   blame: gitBlameInputSchema,
-  renameBranch: gitRenameBranchInputSchema,
-  deleteBranch: gitDeleteBranchInputSchema,
-  mergeBranch: gitMergeBranchInputSchema,
-  rebaseBranch: gitRebaseBranchInputSchema,
   cherryPick: gitCommitActionInputSchema,
   revert: gitCommitActionInputSchema,
   reset: gitResetInputSchema,
   push: gitRemoteOpInputSchema,
   pull: gitPullInputSchema,
   publish: gitRemoteOpInputSchema,
-  fetch: gitRemoteOpInputSchema,
-  remotes: gitRemoteOpInputSchema,
-  fetchRemote: gitFetchRemoteInputSchema,
-  addRemote: gitAddRemoteInputSchema,
-  removeRemote: gitRemoveRemoteInputSchema,
-  pushTags: gitRemoteOpInputSchema,
-  forcePush: gitRemoteOpInputSchema,
-  remoteBranches: gitRemoteOpInputSchema,
-  setUpstream: gitSetUpstreamInputSchema,
   amend: gitAmendInputSchema,
   log: gitLogInputSchema,
   commitDetail: gitCommitDetailInputSchema,
@@ -118,5 +73,5 @@ export type GitCommandInput<K extends GitCommandName> = z.infer<
   (typeof GIT_COMMAND_INPUTS)[K]
 >
 
-/** Runtime list for the preload façade; order is irrelevant. */
+/** Runtime list for the preload facade; order is irrelevant. */
 export const GIT_COMMAND_NAMES = Object.keys(GIT_COMMAND_INPUTS) as GitCommandName[]

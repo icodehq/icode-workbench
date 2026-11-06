@@ -13,7 +13,7 @@ const entry = (path: string, area: WorkingTreeEntry['area']): WorkingTreeEntry =
     path,
     oldPath: null,
     code: area === 'staged' ? 'M ' : ' M',
-    area: area === 'conflicts' ? 'conflicted' : area,
+    area: area === 'conflicts' ? 'conflicted' : area === 'committed' ? 'staged' : area,
     status: 'modified'
   }
   return { key: selectionKey({ area, entry: statusEntry }), area, entry: statusEntry, added: 1, removed: 0 }
@@ -23,7 +23,8 @@ const groups = (entries: WorkingTreeEntry[]): WorkingTreeGroups => ({
   conflicts: entries.filter((item) => item.area === 'conflicts'),
   staged: entries.filter((item) => item.area === 'staged'),
   unstaged: entries.filter((item) => item.area === 'unstaged'),
-  untracked: entries.filter((item) => item.area === 'untracked')
+  untracked: entries.filter((item) => item.area === 'untracked'),
+  committed: entries.filter((item) => item.area === 'committed')
 })
 
 const input = (overrides: Partial<ScmPrimaryActionInput> = {}): ScmPrimaryActionInput => ({

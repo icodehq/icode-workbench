@@ -17,7 +17,6 @@ export type ScmCommandId =
   | 'git.stageAll'
   | 'git.unstageAll'
   | 'git.discardAll'
-  | 'git.fetch'
   | 'git.pull'
   | 'git.push'
   | 'git.sync'

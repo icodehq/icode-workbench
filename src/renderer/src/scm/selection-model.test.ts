@@ -21,7 +21,7 @@ const entry = (path: string, area: WorkingTreeEntry['area']): WorkingTreeEntry =
     path,
     oldPath: null,
     code: area === 'staged' ? 'M ' : ' M',
-    area: area === 'conflicts' ? 'conflicted' : area,
+    area: area === 'conflicts' ? 'conflicted' : area === 'committed' ? 'staged' : area,
     status: 'modified'
   }
   return { key: selectionKey({ area, entry: status }), area, entry: status, added: 1, removed: 0 }
@@ -31,7 +31,8 @@ const groups = (entries: WorkingTreeEntry[]) => ({
   conflicts: entries.filter((item) => item.area === 'conflicts'),
   staged: entries.filter((item) => item.area === 'staged'),
   unstaged: entries.filter((item) => item.area === 'unstaged'),
-  untracked: entries.filter((item) => item.area === 'untracked')
+  untracked: entries.filter((item) => item.area === 'untracked'),
+  committed: entries.filter((item) => item.area === 'committed')
 })
 
 describe('selection keys', () => {
@@ -119,18 +120,22 @@ describe('selection transfer', () => {
 })
 
 describe('selected rows and eligibility', () => {
-  it('filters actions by area and excludes conflicts from discard', () => {
+  it('filters actions by area and excludes conflicts and committed rows from discard', () => {
     const entries = [
       entry('a.ts', 'staged'),
       entry('b.ts', 'unstaged'),
       entry('c.ts', 'untracked'),
-      entry('d.ts', 'conflicts')
+      entry('d.ts', 'conflicts'),
+      entry('e.ts', 'committed')
     ]
     const selection = { selected: new Set(entries.map(selectionKey)), anchor: null }
     const actions = selectionActions(selection, groups(entries))
     expect(actions.stageable.map((item) => item.entry.path)).toEqual(['b.ts', 'c.ts'])
     expect(actions.unstageable.map((item) => item.entry.path)).toEqual(['a.ts'])
     expect(actions.discardable.map((item) => item.entry.path)).toEqual(['a.ts', 'b.ts', 'c.ts'])
-    expect(selectedEntries(selection, groups(entries))).toHaveLength(4)
+    expect(selectedEntries(selection, groups(entries))).toHaveLength(5)
+    expect(selectedEntries(selection, groups(entries)).some((item) => item.area === 'committed')).toBe(
+      true
+    )
   })
 })

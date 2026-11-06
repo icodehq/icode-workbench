@@ -3,6 +3,8 @@ import type { SessionSummary } from '../../../shared/schemas/ipc'
 
 type Props = {
   session: SessionSummary
+  /** Open Files tabs with unsaved text for this session. */
+  unsavedCount?: number
   onClose: () => void
   onConfirm: () => void
 }
@@ -17,6 +19,7 @@ type Props = {
  */
 export default function RemoveSessionDialog({
   session,
+  unsavedCount = 0,
   onClose,
   onConfirm
 }: Props): React.JSX.Element {
@@ -48,6 +51,14 @@ export default function RemoveSessionDialog({
           session and its files are removed. Its branch is kept, and uncommitted work is
           protected.
         </p>
+        {unsavedCount > 0 ? (
+          <p
+            className="mt-2 rounded border border-signal/40 bg-signal-weak px-2 py-1.5 text-[11px] leading-relaxed text-signal"
+            data-testid="remove-session-unsaved"
+          >
+            {unsavedCount} unsaved file{unsavedCount === 1 ? '' : 's'} in Files will be lost.
+          </p>
+        ) : null}
         <div className="mt-4 flex justify-end gap-2">
           <button
             type="button"

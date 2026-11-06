@@ -12,8 +12,6 @@ import { z } from 'zod'
 
 export const scmSettingsSchema = z.object({
   smartCommit: z.enum(['off', 'all', 'tracked']).default('off'),
-  autoFetch: z.boolean().default(false),
-  autoFetchIntervalSec: z.number().int().min(30).max(3600).default(180),
   untrackedMode: z.enum(['mixed', 'separate', 'hidden']).default('separate'),
   viewMode: z.enum(['list', 'tree']).default('list'),
   /** SCM sidebar width in CSS pixels; dragging the divider persists it. */
@@ -36,14 +34,12 @@ export const scmSettingsSchema = z.object({
   pullRebase: z.boolean().default(false),
   autoStash: z.boolean().default(false),
   pullBeforeCheckout: z.boolean().default(false),
-  confirmForcePush: z.boolean().default(true),
   confirmSync: z.boolean().default(true),
   confirmEmptyCommit: z.boolean().default(true),
   enableCommitSigning: z.boolean().default(false),
   alwaysSignOff: z.boolean().default(false),
   branchProtection: z.array(z.string().min(1).max(200)).max(100).default([]),
   defaultBranchName: z.string().min(1).max(200).default('main'),
-  branchPrefix: z.string().max(100).default(''),
   autoRefresh: z.boolean().default(true)
 })
 

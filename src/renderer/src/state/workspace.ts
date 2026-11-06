@@ -17,6 +17,11 @@ export type Notice = {
   tone: NoticeTone
   message: string
   detail?: string
+  /** Optional inline recovery action, such as Undo for a file operation. */
+  action?: {
+    label: string
+    run: () => void
+  }
 }
 
 export type RemovalPrompt = {

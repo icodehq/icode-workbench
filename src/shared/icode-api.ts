@@ -22,15 +22,32 @@ import type {
   terminalWriteInputSchema
 } from './schemas/ipc'
 import type { clearActivityUnreadInputSchema } from './schemas/activity'
+import type {
+  aiCancelCommitMessageInputSchema,
+  aiCommitMessageInputSchema,
+  AiCancelCommitMessageResult,
+  AiCommitMessageResult
+} from './schemas/ai'
 import type { GitCommandInput, GitCommandName } from './ipc/git-commands'
 import type { ChangeListResult, FileDiffResult } from './schemas/changes'
 import type {
   filesCreateInputSchema,
+  filesCancelSearchInputSchema,
+  filesCopyManyInputSchema,
+  filesCopyPathsInputSchema,
+  filesReplaceInputSchema,
   filesListInputSchema,
+  filesMoveManyInputSchema,
   filesReadInputSchema,
   filesRemoveInputSchema,
+  filesRemoveManyInputSchema,
   filesRenameInputSchema,
   filesSearchInputSchema,
+  filesStatInputSchema,
+  filesTrashInputSchema,
+  filesRestoreTrashInputSchema,
+  filesListTrashInputSchema,
+  filesWatchInputSchema,
   filesWriteInputSchema,
   scheduleCreateInputSchema,
   scheduleEnabledInputSchema,
@@ -46,11 +63,20 @@ import type {
   taskScheduleSchema,
   taskSettingsInputSchema
 } from './schemas/workspace'
-import type { FileContent, FileListing, FileSearchResult } from './domain/workspace-files'
+import type {
+  FileBatchResult,
+  FileContent,
+  FileListing,
+  FileReplaceResult,
+  FileSearchResult,
+  FileStat,
+  FileTrashOperation,
+  FileTrashResult,
+  FilesChangedEvent,
+  FilesWatchOutcome
+} from './domain/workspace-files'
 import type {
   GitBatchResult,
-  GitRemote,
-  GitTag,
   GitCommitDetail,
   GitCommitResult,
   GitLogPage,
@@ -94,6 +120,7 @@ export type RuntimeInfo = {
  */
 export type GitCommandResultMap = {
   status: GitStatusPayload
+  checkIgnore: GitCheckIgnorePayload
   changeDiff: FileDiffResult
   sessionChanges: ChangeListResult
   operationState: GitOperationStatePayload
@@ -105,46 +132,18 @@ export type GitCommandResultMap = {
   setPathStaged: GitOpPayload
   setPathsStaged: GitBatchPayload
   discardPaths: GitBatchPayload
-  branches: GitBranchesPayload
-  switchBranch: GitBranchPayload
-  createBranch: GitBranchPayload
-  createTag: GitTagPayload
-  deleteTag: GitTagPayload
-  tags: GitTagsPayload
-  checkoutRef: GitCheckoutRefPayload
   fileAtRevision: GitFileAtRevisionPayload
   indexFile: GitIndexFilePayload
   applyPatch: GitApplyPatchPayload
   conflictFile: GitConflictFilePayload
   resolveConflict: GitResolveConflictPayload
-  stashList: GitStashListPayload
-  stashPush: GitStashPushPayload
-  stashDiff: GitStashDiffPayload
-  stashAction: GitStashActionPayload
-  worktreeList: GitWorktreeListPayload
-  worktreeAction: GitWorktreeActionPayload
-  submoduleList: GitSubmoduleListPayload
-  submoduleAction: GitSubmoduleActionPayload
   blame: GitBlamePayload
-  renameBranch: GitRenameBranchPayload
-  deleteBranch: GitBranchPayload
-  mergeBranch: GitBranchPayload
-  rebaseBranch: GitBranchPayload
   cherryPick: GitCommitActionPayload
   revert: GitCommitActionPayload
   reset: GitResetPayload
   push: GitBranchPayload
   pull: GitBranchPayload
   publish: GitBranchPayload
-  fetch: GitFetchPayload
-  remotes: GitRemotesPayload
-  fetchRemote: GitFetchPayload
-  addRemote: GitRemoteMutationPayload
-  removeRemote: GitRemoteMutationPayload
-  pushTags: GitPushTagsPayload
-  forcePush: GitBranchPayload
-  remoteBranches: GitRemoteBranchesPayload
-  setUpstream: GitBranchPayload
   amend: GitCommitPayload
   log: GitLogPayload
   commitDetail: GitCommitDetailPayload
@@ -256,6 +255,13 @@ export type IcodeProductApi = {
     search: (
       input: z.infer<typeof filesSearchInputSchema>
     ) => Promise<IpcResult<FileSearchPayload>>
+    /** Stops the current search; a newer search also cancels the old one. */
+    cancelSearch: (
+      input: z.infer<typeof filesCancelSearchInputSchema>
+    ) => Promise<IpcResult<{ cancelled: boolean }>>
+    replace: (
+      input: z.infer<typeof filesReplaceInputSchema>
+    ) => Promise<IpcResult<FilesReplacePayload>>
     create: (
       input: z.infer<typeof filesCreateInputSchema>
     ) => Promise<IpcResult<FilesMutatePayload>>
@@ -265,6 +271,35 @@ export type IcodeProductApi = {
     remove: (
       input: z.infer<typeof filesRemoveInputSchema>
     ) => Promise<IpcResult<FilesMutatePayload>>
+    removeMany: (
+      input: z.infer<typeof filesRemoveManyInputSchema>
+    ) => Promise<IpcResult<FilesBatchPayload>>
+    /** Move paths to the app-managed session trash; returns the restore batch. */
+    trashMany: (
+      input: z.infer<typeof filesTrashInputSchema>
+    ) => Promise<IpcResult<FilesTrashPayload>>
+    restoreTrash: (
+      input: z.infer<typeof filesRestoreTrashInputSchema>
+    ) => Promise<IpcResult<FilesRestoreTrashPayload>>
+    listTrash: (
+      input: z.infer<typeof filesListTrashInputSchema>
+    ) => Promise<IpcResult<FilesTrashListPayload>>
+    moveMany: (
+      input: z.infer<typeof filesMoveManyInputSchema>
+    ) => Promise<IpcResult<FilesBatchPayload>>
+    copyMany: (
+      input: z.infer<typeof filesCopyManyInputSchema>
+    ) => Promise<IpcResult<FilesBatchPayload>>
+    /** Main writes the resulting paths to the system clipboard. */
+    copyPaths: (
+      input: z.infer<typeof filesCopyPathsInputSchema>
+    ) => Promise<IpcResult<FilesCopyPathsPayload>>
+    stat: (input: z.infer<typeof filesStatInputSchema>) => Promise<IpcResult<FilesStatPayload>>
+    /** Starts or stops the live worktree watcher; poll when `watching` is false. */
+    watch: (
+      input: z.infer<typeof filesWatchInputSchema>
+    ) => Promise<IpcResult<FilesWatchOutcome>>
+    onChanged: (listener: (event: FilesChangedEvent) => void) => () => void
   }
   /** Worktree-scoped Git state and the common change operations. */
   git: GitApi
@@ -273,6 +308,16 @@ export type IcodeProductApi = {
     list: (
       input?: z.infer<typeof harnessListInputSchema>
     ) => Promise<IpcResult<HarnessDetection[]>>
+  }
+  ai: {
+    /** Drafts a commit message from the staged diff with the session's agent. */
+    commitMessage: (
+      input: z.infer<typeof aiCommitMessageInputSchema>
+    ) => Promise<IpcResult<AiCommitMessageResult>>
+    /** Stops one in-flight generation. */
+    cancelCommitMessage: (
+      input: z.infer<typeof aiCancelCommitMessageInputSchema>
+    ) => Promise<IpcResult<AiCancelCommitMessageResult>>
   }
   wsl: {
     /**
@@ -321,6 +366,13 @@ export type IcodeProductApi = {
     close: () => Promise<IpcResult<null>>
     isMaximized: () => Promise<IpcResult<boolean>>
     onMaximizedChange: (listener: (maximized: boolean) => void) => () => void
+    /** Main asks before closing; answer with `respondClose`. */
+    onBeforeClose: (listener: () => void) => () => void
+    /**
+     * `ack` says the renderer received the request and is showing a prompt;
+     * `close`/`cancel` resolve it.
+     */
+    respondClose: (action: 'ack' | 'close' | 'cancel') => Promise<IpcResult<null>>
   }
   onSessionEvent: (listener: (event: RendererSessionEvent) => void) => () => void
   /** Fires when the durable queue changed; the listener re-reads the list. */
@@ -338,6 +390,8 @@ export type WorkspaceUnavailablePayload = {
   status: 'unavailable'
   reason: string
   detail: string
+  /** Present when a write lost the optimistic-concurrency check. */
+  currentEtag?: string
 }
 export type FilesListingPayload =
   | ({ status: 'ok' } & FileListing)
@@ -346,11 +400,40 @@ export type FileContentPayload = ({ status: 'ok' } & FileContent) | WorkspaceUna
 export type FileSearchPayload =
   | ({ status: 'ok' } & FileSearchResult)
   | WorkspaceUnavailablePayload
+export type FilesReplacePayload =
+  | ({ status: 'ok' } & FileReplaceResult)
+  | WorkspaceUnavailablePayload
 export type FilesMutatePayload =
-  | { status: 'ok'; path?: string; kind?: 'file' | 'directory'; from?: string; to?: string }
+  | {
+      status: 'ok'
+      path?: string
+      kind?: 'file' | 'directory'
+      from?: string
+      to?: string
+      /** Present when a file was created, so it opens with a valid version. */
+      etag?: string | null
+    }
   | WorkspaceUnavailablePayload
 export type FilesWritePayload =
-  | ({ status: 'ok'; size: number })
+  | ({ status: 'ok'; size: number; etag: string })
+  | WorkspaceUnavailablePayload
+export type FilesStatPayload =
+  | ({ status: 'ok' } & FileStat)
+  | WorkspaceUnavailablePayload
+export type FilesBatchPayload =
+  | ({ status: 'ok' } & FileBatchResult)
+  | WorkspaceUnavailablePayload
+export type FilesTrashPayload =
+  | ({ status: 'ok' } & FileTrashResult)
+  | WorkspaceUnavailablePayload
+export type FilesRestoreTrashPayload =
+  | ({ status: 'ok' } & FileBatchResult)
+  | WorkspaceUnavailablePayload
+export type FilesTrashListPayload =
+  | { status: 'ok'; items: FileTrashOperation[] }
+  | WorkspaceUnavailablePayload
+export type FilesCopyPathsPayload =
+  | { status: 'ok'; count: number }
   | WorkspaceUnavailablePayload
 export type GitOpPayload =
   | ({ status: 'ok'; staged?: number; unstaged?: number })
@@ -372,17 +455,8 @@ export type ScheduleFirePayload = {
   trigger?: string
   note?: string
 }
-export type GitBranchesPayload =
-  | { status: 'ok'; current: string | null; names: string[] }
-  | WorkspaceUnavailablePayload
 export type GitBranchPayload =
   | { status: 'ok'; branch: string; upstream?: string }
-  | WorkspaceUnavailablePayload
-export type GitTagPayload =
-  | { status: 'ok'; name: string; oid?: string }
-  | WorkspaceUnavailablePayload
-export type GitRenameBranchPayload =
-  | { status: 'ok'; branch: string; from: string }
   | WorkspaceUnavailablePayload
 export type GitCommitActionPayload =
   | { status: 'ok'; oid: string; shortOid: string; subject: string }
@@ -393,6 +467,9 @@ export type GitResetPayload =
 export type GitStatusPayload =
   | ({ status: 'ok'; snapshot: GitWorkspaceStatus })
   | WorkspaceUnavailablePayload
+export type GitCheckIgnorePayload =
+  | { status: 'ok'; ignored: string[] }
+  | WorkspaceUnavailablePayload
 export type GitBatchPayload =
   | { status: 'ok'; result: GitBatchResult }
   | WorkspaceUnavailablePayload
@@ -401,6 +478,7 @@ export type GitRangeDiffPayload =
       status: 'ok'
       fromOid: string
       toOid: string
+      commitCount: number
       files: GitRangeFile[]
       truncated: boolean
     }
@@ -426,21 +504,6 @@ export type GitRevisionFileDiffPayload =
       fromOid: string
       toOid: string
     }
-  | WorkspaceUnavailablePayload
-export type GitFetchPayload =
-  | { status: 'ok'; remote: string }
-  | WorkspaceUnavailablePayload
-export type GitRemotesPayload =
-  | { status: 'ok'; remotes: GitRemote[] }
-  | WorkspaceUnavailablePayload
-export type GitRemoteMutationPayload =
-  | { status: 'ok'; name: string }
-  | WorkspaceUnavailablePayload
-export type GitTagsPayload =
-  | { status: 'ok'; tags: GitTag[] }
-  | WorkspaceUnavailablePayload
-export type GitCheckoutRefPayload =
-  | { status: 'ok'; ref: string; headOid: string }
   | WorkspaceUnavailablePayload
 export type GitBlameLine = {
   line: number
@@ -492,61 +555,6 @@ export type GitConflictFilePayload =
   | WorkspaceUnavailablePayload
 export type GitResolveConflictPayload =
   | { status: 'ok'; path: string }
-  | WorkspaceUnavailablePayload
-export type GitStashEntry = {
-  index: number
-  ref: string
-  subject: string
-  date: string
-  oid: string
-}
-export type GitStashListPayload =
-  | { status: 'ok'; stashes: GitStashEntry[] }
-  | WorkspaceUnavailablePayload
-export type GitStashPushPayload =
-  | { status: 'ok'; created: boolean }
-  | WorkspaceUnavailablePayload
-export type GitStashDiffPayload =
-  | { status: 'ok'; ref: string; patch: string; truncated: boolean }
-  | WorkspaceUnavailablePayload
-export type GitStashActionPayload =
-  | { status: 'ok'; ref: string; action: 'apply' | 'pop' | 'drop' }
-  | WorkspaceUnavailablePayload
-export type GitWorktreeInfo = {
-  path: string
-  head: string | null
-  branch: string | null
-  bare: boolean
-  detached: boolean
-  locked: string | null
-  prunable: string | null
-  sessionId: string | null
-  active: boolean
-  primary: boolean
-}
-export type GitWorktreeListPayload =
-  | { status: 'ok'; worktrees: GitWorktreeInfo[] }
-  | WorkspaceUnavailablePayload
-export type GitWorktreeActionPayload =
-  | { status: 'ok'; action: 'lock' | 'unlock' | 'prune' | 'remove'; path: string | null }
-  | WorkspaceUnavailablePayload
-export type GitSubmoduleInfo = {
-  path: string
-  oid: string
-  state: 'clean' | 'uninitialized' | 'modified' | 'conflict'
-  branch: string | null
-}
-export type GitSubmoduleListPayload =
-  | { status: 'ok'; submodules: GitSubmoduleInfo[] }
-  | WorkspaceUnavailablePayload
-export type GitSubmoduleActionPayload =
-  | { status: 'ok'; action: 'init' | 'update' | 'sync' | 'stage'; path: string | null }
-  | WorkspaceUnavailablePayload
-export type GitPushTagsPayload =
-  | { status: 'ok'; remote: string }
-  | WorkspaceUnavailablePayload
-export type GitRemoteBranchesPayload =
-  | { status: 'ok'; branches: string[] }
   | WorkspaceUnavailablePayload
 
 export type { FileContent, FileListing, FileSearchResult, GitCommitResult, GitStatusEntry, GitWorkspaceStatus }

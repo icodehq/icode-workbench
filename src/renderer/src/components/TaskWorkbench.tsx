@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { FileDiff, Files, ListTodo, Square, TerminalSquare } from 'lucide-react'
+import { FileDiff, Files, GitBranch, ListTodo, Square, TerminalSquare } from 'lucide-react'
 import type { TaskRecordPayload } from '../../../shared/icode-api'
 import type { AppError } from '../../../shared/domain/errors'
 import { isAgentHarness } from '../../../shared/domain/harness'
@@ -9,7 +9,6 @@ import type { WorkbenchDraftStore } from '../review/drafts'
 import type { Notice } from '../state/workspace'
 import ChangesPanel from './ChangesPanel'
 import FilesPanel from './FilesPanel'
-import GitBranchMenu from './GitBranchMenu'
 import { StatePanel } from './SessionWorkspace'
 import TaskOverview from './TaskOverview'
 import { sessionStateLabel, stateDotClass } from './status'
@@ -87,7 +86,6 @@ export default function TaskWorkbench({
 }: Props): React.JSX.Element {
   const [tab, setTab] = useState<Tab>('overview')
   const [visited, setVisited] = useState<Set<Tab>>(() => new Set<Tab>(['overview']))
-  const [gitRevision, setGitRevision] = useState(0)
   const [filesRequest, setFilesRequest] = useState<{
     path: string
     line: number
@@ -188,16 +186,13 @@ export default function TaskWorkbench({
               {session?.worktree ? (
                 <>
                   <span className="h-2.5 w-px shrink-0 bg-border" />
-                  <GitBranchMenu
-                    sessionId={session.id}
-                    branch={session.worktree.branch}
-                    notify={notify}
-                    onChanged={() => {
-                      setGitRevision((current) => current + 1)
-                      onRecheckSession(session.id)
-                    }}
-                    onOpenTerminal={() => selectTab('terminal')}
-                  />
+                  <span
+                    className="inline-flex min-w-0 max-w-[180px] items-center gap-1 font-mono text-[10px] text-muted-foreground"
+                    title={session.worktree.branch}
+                  >
+                    <GitBranch size={11} className="shrink-0" />
+                    <span className="truncate">{session.worktree.branch}</span>
+                  </span>
                   <span className="font-mono text-[10px]">base {session.worktree.baseOid.slice(0, 7)}</span>
                 </>
               ) : null}
@@ -307,8 +302,9 @@ export default function TaskWorkbench({
           <ChangesPanel
             sessionId={session.id}
             sessionState={session.state}
+            harness={session.harness}
+            baseOid={session.worktree?.baseOid ?? null}
             refreshToken={refreshToken}
-            gitRevision={gitRevision}
             active={tab === 'changes'}
             notify={notify}
             onOpenPath={(path) => {
@@ -335,6 +331,7 @@ export default function TaskWorkbench({
           <FilesPanel
             sessionId={session.id}
             refreshToken={refreshToken}
+            active={tab === 'files'}
             notify={notify}
             openRequest={openRequest ?? filesRequest}
             onOpenRequestHandled={() => {

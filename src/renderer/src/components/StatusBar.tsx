@@ -164,6 +164,20 @@ export default function StatusBar({
         >
           <NoticeIcon size={11} className="shrink-0" />
           <span className="min-w-0 flex-1 truncate">{notice.message}</span>
+          {notice.action ? (
+            <button
+              type="button"
+              className="shrink-0 rounded border border-white/20 px-1 py-0.5 text-[9.5px] font-medium hover:bg-white/10"
+              data-testid="notice-action"
+              onClick={() => {
+                const action = notice.action
+                onDismissNotice()
+                action?.run()
+              }}
+            >
+              {notice.action.label}
+            </button>
+          ) : null}
           <button
             type="button"
             className="shrink-0 rounded p-0.5 opacity-70 hover:bg-white/10 hover:opacity-100"

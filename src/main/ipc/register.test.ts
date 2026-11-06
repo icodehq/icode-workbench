@@ -35,6 +35,7 @@ describe('IPC channel registration', () => {
       IPC_CHANNELS.reposEvent,
       IPC_CHANNELS.viewCommand,
       IPC_CHANNELS.windowMaximizedEvent,
+      IPC_CHANNELS.windowBeforeClose,
       IPC_CHANNELS.gitStatusEvent
     ])
     /**

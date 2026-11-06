@@ -25,17 +25,59 @@ export const filesWriteInputSchema = z.strictObject({
   sessionId: sessionIdSchema,
   path: relativePathSchema,
   /** Capped so a renderer cannot push an unbounded buffer through IPC. */
-  text: z.string().max(4 * 1024 * 1024)
+  text: z.string().max(4 * 1024 * 1024),
+  /**
+   * Opaque version from read/stat. `null` means "the file must not exist yet".
+   * Omitted keeps the unconditional legacy write used by non-editor callers.
+   */
+  expectedEtag: z.string().max(512).nullable().optional()
 })
+
+export const filesStatInputSchema = z.strictObject({
+  sessionId: sessionIdSchema,
+  path: relativePathSchema
+})
+
+export const filesWatchInputSchema = z.strictObject({
+  sessionId: sessionIdSchema,
+  active: z.boolean()
+})
+
+const searchPathListSchema = z.array(z.string().min(1).max(400)).max(100).default([])
 
 export const filesSearchInputSchema = z.strictObject({
   sessionId: sessionIdSchema,
   query: z.string().min(1).max(400),
   caseSensitive: z.boolean().default(false),
+  wholeWord: z.boolean().default(false),
+  regex: z.boolean().default(false),
+  include: searchPathListSchema,
+  exclude: searchPathListSchema,
   limit: z.number().int().min(1).max(500).default(200)
 })
 
+export const filesCancelSearchInputSchema = z.strictObject({
+  sessionId: sessionIdSchema
+})
+
+export const filesReplaceInputSchema = z.strictObject({
+  sessionId: sessionIdSchema,
+  query: z.string().min(1).max(400),
+  replacement: z.string().max(4000),
+  caseSensitive: z.boolean().default(false),
+  wholeWord: z.boolean().default(false),
+  regex: z.boolean().default(false),
+  include: searchPathListSchema,
+  exclude: searchPathListSchema,
+  /** The displayed result files; empty means the whole searched surface. */
+  paths: searchPathListSchema
+})
+
 export const gitStatusInputSchema = z.strictObject({ sessionId: sessionIdSchema })
+export const gitCheckIgnoreInputSchema = z.strictObject({
+  sessionId: sessionIdSchema,
+  paths: z.array(relativePathSchema).min(1).max(5000)
+})
 export const gitOperationStateInputSchema = z.strictObject({ sessionId: sessionIdSchema })
 export const gitOperationActionInputSchema = z.strictObject({ sessionId: sessionIdSchema })
 export const gitSessionChangesInputSchema = z.strictObject({ sessionId: sessionIdSchema })
@@ -71,6 +113,45 @@ export const filesRenameInputSchema = z.strictObject({
   to: relativePathSchema
 })
 
+const filePathListSchema = z.array(relativePathSchema).min(1).max(5000)
+
+export const filesRemoveManyInputSchema = z.strictObject({
+  sessionId: sessionIdSchema,
+  paths: filePathListSchema
+})
+
+export const filesMoveManyInputSchema = z.strictObject({
+  sessionId: sessionIdSchema,
+  paths: filePathListSchema,
+  destination: relativePathSchema.default('')
+})
+
+export const filesTrashInputSchema = z.strictObject({
+  sessionId: sessionIdSchema,
+  paths: filePathListSchema
+})
+
+export const filesRestoreTrashInputSchema = z.strictObject({
+  sessionId: sessionIdSchema,
+  opId: z.string().min(1).max(120)
+})
+
+export const filesListTrashInputSchema = z.strictObject({
+  sessionId: sessionIdSchema
+})
+
+export const filesCopyManyInputSchema = z.strictObject({
+  sessionId: sessionIdSchema,
+  paths: filePathListSchema,
+  destination: relativePathSchema.default('')
+})
+
+export const filesCopyPathsInputSchema = z.strictObject({
+  sessionId: sessionIdSchema,
+  paths: filePathListSchema,
+  format: z.enum(['absolute', 'relative'])
+})
+
 export const filesRemoveInputSchema = z.strictObject({
   sessionId: sessionIdSchema,
   path: relativePathSchema
@@ -102,38 +183,6 @@ export const gitDiscardPathsInputSchema = z.strictObject({
   targets: z.array(gitPathTargetSchema).min(1).max(5000),
   expectedRevision: z.string().min(1).max(64).optional()
 })
-export const gitBranchesInputSchema = z.strictObject({ sessionId: sessionIdSchema })
-export const gitSwitchBranchInputSchema = z.strictObject({
-  sessionId: sessionIdSchema,
-  branch: z.string().min(1).max(255)
-})
-export const gitCreateBranchInputSchema = z.strictObject({
-  sessionId: sessionIdSchema,
-  branch: z.string().min(1).max(255),
-  /** Commit-ish to start at; HEAD when omitted. */
-  at: z.string().min(4).max(64).regex(/^[0-9a-f]+$/i).optional()
-})
-export const gitRenameBranchInputSchema = z.strictObject({
-  sessionId: sessionIdSchema,
-  from: z.string().min(1).max(255),
-  to: z.string().min(1).max(255)
-})
-export const gitDeleteBranchInputSchema = z.strictObject({
-  sessionId: sessionIdSchema,
-  branch: z.string().min(1).max(255)
-})
-export const gitMergeBranchInputSchema = z.strictObject({
-  sessionId: sessionIdSchema,
-  branch: z.string().min(1).max(255)
-})
-export const gitRebaseBranchInputSchema = z.strictObject({
-  sessionId: sessionIdSchema,
-  branch: z.string().min(1).max(255)
-})
-export const gitDeleteTagInputSchema = z.strictObject({
-  sessionId: sessionIdSchema,
-  name: z.string().min(1).max(200)
-})
 export const gitBlameInputSchema = z.strictObject({
   sessionId: sessionIdSchema,
   path: worktreeRelativePathSchema
@@ -162,41 +211,6 @@ export const gitResolveConflictInputSchema = z.strictObject({
   sessionId: sessionIdSchema,
   path: worktreeRelativePathSchema
 })
-export const gitStashPushInputSchema = z.strictObject({
-  sessionId: sessionIdSchema,
-  message: z.string().max(4000).default(''),
-  includeUntracked: z.boolean().default(false),
-  keepIndex: z.boolean().default(false)
-})
-export const gitStashTargetInputSchema = z.strictObject({
-  sessionId: sessionIdSchema,
-  index: z.number().int().min(0).max(10_000)
-})
-export const gitStashActionInputSchema = z.strictObject({
-  sessionId: sessionIdSchema,
-  index: z.number().int().min(0).max(10_000),
-  action: z.enum(['apply', 'pop', 'drop'])
-})
-export const gitWorktreeActionInputSchema = z.strictObject({
-  sessionId: sessionIdSchema,
-  action: z.enum(['lock', 'unlock', 'prune', 'remove']),
-  path: z.string().min(1).max(4096).optional(),
-  reason: z.string().max(200).optional()
-})
-export const gitSubmoduleActionInputSchema = z.strictObject({
-  sessionId: sessionIdSchema,
-  action: z.enum(['init', 'update', 'sync', 'stage']),
-  path: z.string().min(1).max(4096).optional()
-})
-export const gitCheckoutRefInputSchema = z.strictObject({
-  sessionId: sessionIdSchema,
-  ref: z.string().min(1).max(255)
-})
-export const gitCreateTagInputSchema = z.strictObject({
-  sessionId: sessionIdSchema,
-  name: z.string().min(1).max(200),
-  oid: z.string().min(4).max(64).regex(/^[0-9a-f]+$/i)
-})
 export const gitCommitActionInputSchema = z.strictObject({
   sessionId: sessionIdSchema,
   oid: z.string().min(4).max(64).regex(/^[0-9a-f]+$/i)
@@ -207,31 +221,11 @@ export const gitResetInputSchema = z.strictObject({
   mode: z.enum(['soft', 'mixed', 'hard'])
 })
 export const gitRemoteOpInputSchema = z.strictObject({ sessionId: sessionIdSchema })
-export const gitAddRemoteInputSchema = z.strictObject({
-  sessionId: sessionIdSchema,
-  name: z.string().min(1).max(100),
-  url: z.string().min(1).max(2048)
-})
-export const gitRemoveRemoteInputSchema = z.strictObject({
-  sessionId: sessionIdSchema,
-  name: z.string().min(1).max(100)
-})
-export const gitFetchRemoteInputSchema = z.strictObject({
-  sessionId: sessionIdSchema,
-  remote: z.string().min(1).max(100),
-  prune: z.boolean().optional()
-})
-export const gitSetUpstreamInputSchema = z.strictObject({
-  sessionId: sessionIdSchema,
-  upstream: z.string().min(1).max(255)
-})
 export const gitLogInputSchema = z.strictObject({
   sessionId: sessionIdSchema,
   limit: z.number().int().min(1).max(200).default(50),
   skip: z.number().int().min(0).max(100_000).default(0),
   ref: z.string().min(1).max(255).optional(),
-  /** `git log --all`; ignored when `ref` is also set. */
-  allRefs: z.boolean().optional(),
   path: relativePathSchema.optional()
 })
 export const gitCommitDetailInputSchema = z.strictObject({

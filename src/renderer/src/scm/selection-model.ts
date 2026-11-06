@@ -161,7 +161,13 @@ export function selectedEntries(
 }
 
 export function allEntries(groups: WorkingTreeGroups): WorkingTreeEntry[] {
-  return [...groups.conflicts, ...groups.staged, ...groups.unstaged, ...groups.untracked]
+  return [
+    ...groups.conflicts,
+    ...groups.staged,
+    ...groups.unstaged,
+    ...groups.untracked,
+    ...groups.committed
+  ]
 }
 
 export type SelectionActions = {
@@ -178,6 +184,7 @@ export function selectionActions(
   return {
     stageable: entries.filter((entry) => entry.area === 'unstaged' || entry.area === 'untracked'),
     unstageable: entries.filter((entry) => entry.area === 'staged'),
-    discardable: entries.filter((entry) => entry.area !== 'conflicts')
+    // Committed rows are a read-only projection of base..HEAD.
+    discardable: entries.filter((entry) => entry.area !== 'conflicts' && entry.area !== 'committed')
   }
 }
