@@ -34,20 +34,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.0] - 2026-11-06
 
-Initial release.
+Initial release: a local agent development environment for Coding Agent TUIs.
 
 ### Added
 
-- Electron terminal workspace with a detached PTY Host that survives app exit and
+**Terminal and sessions**
+
+- Real PTY sessions in an xterm.js workspace with resize, scrollback,
+  alternate-screen round-tripping, and per-client flow control.
+- Detached terminal Host that owns PTY truth and survives app exit; relaunching
   reattaches to the same session incarnation.
-- SQLite persistence, durable session IDs, and per-session worktrees with isolated
-  branches.
-- File changes review, working-tree editing, and full Source Control parity
-  (history, branches, stashes, submodules, tags, and worktrees).
-- Claude Code, Codex, OpenCode, and shell Harness support, with Claude Code
-  activity reporting.
-- Tasks, schedules, cross-project attention, themes, and settings.
-- WSL2/WSLg support with a pinned Linux Host artifact tree, plus native Windows
-  PowerShell sessions.
+- Idempotent create-or-attach, terminal snapshots, orphan reporting, and
+  profile-scoped sockets with token authentication.
+- Session lifecycle: create, attach, restart, sleep/wake, and remove, with
+  persisted observations always reconciled against Host truth.
+- Isolated session worktrees: one checkout and `icode/ses_<id>` branch per
+  session, with guarded removal and discard rules plus explicit recovery for
+  missing worktrees.
+
+**Development surfaces**
+
+- In-session Files browser with create, rename, delete, search, Monaco editing,
+  and file history.
+- Changes review for uncommitted work: Conflicts, Staged, Changes, and Untracked
+  sections with area-scoped diffs, staging, unstaging, and separate discard.
+- Full Source Control parity: commit and amend, branches, history, stashes,
+  submodules, tags, worktrees, sync/pull/push/publish, and discard.
+- Tasks with concurrency slots and a task workbench, plus recurring schedules
+  across projects.
+- Claude Code hook-derived agent activity (`working`/`waiting`/`idle`), turn
+  ordering, unread state, OS notifications, and a cross-project attention view.
+- Claude Code, Codex, OpenCode, and shell Harness support with tri-state
+  availability detection and real `--version` probes.
+
+**Platform and operations**
+
+- Repository registration for existing Git checkouts and first-commit
+  initialization of folders, with local and WSL execution targets.
+- SQLite persistence with WAL, append-only migrations, foreign keys, and
+  corruption refusal that preserves the original database file.
+- Linux under WSL2/WSLg with a pinned Linux Host artifact tree, native Windows
+  hosts with PowerShell/ConPTY and named pipes, and macOS x64/arm64.
+- Command palette, quick open, global shortcuts, themes, status bar, settings,
+  and the redesigned product shell.
 - Packaged Linux (AppImage/deb/rpm), Windows x64 (NSIS), and macOS x64/arm64
-  (dmg/zip) artifacts. Packages are unsigned.
+  (dmg/zip) artifacts, with compatibility gates and packaged smokes. Packages are
+  unsigned.
+
+### Security
+
+- Sandboxed renderer with context isolation and Node disabled, a typed preload
+  exposing named operations only, and fixed IPC channels validated with Zod
+  schemas.
+- Host authentication with a 32-byte `0600` token, versioned hello, and
+  constant-time comparison; the Host refuses filesystems that cannot enforce
+  `0700/0600`.
