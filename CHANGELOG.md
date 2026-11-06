@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The project row's leading dot now reports agent activity only: Needs you,
+  Working, Done, Done · failed, or Activity unknown. Setup state and task
+  attention remain in the Work/Needs columns and row bars, and projects with no
+  live sessions have no dot.
+
 ## [0.2.0] - 2026-11-06
 
 ### Added

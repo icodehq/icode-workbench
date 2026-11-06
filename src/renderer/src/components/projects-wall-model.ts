@@ -1,4 +1,10 @@
 import type { TaskRecordPayload } from '../../../shared/icode-api'
+import {
+  toActivitySummary,
+  unknownActivity,
+  type ActivitySummary
+} from '../../../shared/domain/activity'
+import { isActiveSessionState } from '../../../shared/domain/session'
 import type { RepositorySummary, SessionSummary } from '../../../shared/schemas/ipc'
 import { repositoryPreparationView } from '../lib/repository-preparation'
 import {
@@ -15,6 +21,8 @@ export type ProjectStats = {
   sessions: SessionSummary[]
   directSessions: SessionSummary[]
   liveSessions: number
+  /** The most actionable agent activity among live sessions; null when none are live. */
+  activity: ActivitySummary | null
   tasks: TaskRecordPayload[]
   attention: TaskAttentionCounts
   /** A failed background first commit; the project header owns the retry. */
@@ -50,6 +58,42 @@ export type StorageLike = {
 
 export const PINNED_PROJECTS_KEY = 'icode.pinnedProjectIds'
 
+function activityRank(activity: ActivitySummary): number {
+  switch (activity.state) {
+    case 'waiting':
+      return 0
+    case 'working':
+      return 1
+    case 'idle':
+      return activity.outcome === 'failed' ? 2 : 3
+    case 'unknown':
+      return 4
+  }
+}
+
+/**
+ * The project's leading status is agent activity only. Waiting outranks working,
+ * then a failed turn, then a completed turn; unknown stays last so a harness
+ * that reports nothing never hides real evidence from another session.
+ */
+export function projectActivity(
+  sessions: readonly SessionSummary[]
+): ActivitySummary | null {
+  let best: ActivitySummary | null = null
+  for (const session of sessions) {
+    if (!isActiveSessionState(session.state)) continue
+    const candidate =
+      session.activity ?? toActivitySummary(unknownActivity(session.updatedAt))
+    if (best === null) {
+      best = candidate
+      continue
+    }
+    const rank = activityRank(candidate) - activityRank(best)
+    if (rank < 0 || (rank === 0 && candidate.since > best.since)) best = candidate
+  }
+  return best
+}
+
 function storageOrNull(storage?: StorageLike): StorageLike | null {
   if (storage) return storage
   if (typeof window === 'undefined') return null
@@ -78,6 +122,7 @@ export function projectStats(
   const liveSessions = repoSessions.filter(
     (session) => session.state === 'live' || session.state === 'starting'
   ).length
+  const activity = projectActivity(repoSessions)
   const stamps = [
     ...repoSessions.map((session) => session.updatedAt),
     ...repoTasks.map((task) => task.updatedAt),
@@ -88,6 +133,7 @@ export function projectStats(
     sessions: repoSessions,
     directSessions,
     liveSessions,
+    activity,
     tasks: repoTasks,
     attention: taskAttentionCounts(repoTasks),
     setupFailed: repositoryPreparationView(repo)?.kind === 'failed',

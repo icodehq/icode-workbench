@@ -32,6 +32,7 @@ import {
   type ProjectDirectoryFilter,
   type ProjectStats
 } from './projects-wall-model'
+import { activityDotClass, activityLabel } from './status'
 import { taskAttentionCounts, taskIsActive } from './task-status'
 import TargetBadge from './TargetBadge'
 
@@ -134,15 +135,6 @@ function AttentionRow({
   )
 }
 
-function projectDotClass(stats: ProjectStats): string {
-  const preparation = repositoryPreparationView(stats.repo)
-  if (preparation?.kind === 'failed') return 'bg-destructive'
-  if (preparation?.kind === 'preparing') return 'bg-signal'
-  if (stats.liveSessions > 0) return 'bg-add'
-  if (stats.attention.total > 0) return 'bg-signal'
-  return 'bg-muted-foreground/40'
-}
-
 function projectWork(stats: ProjectStats): { text: string; tone: string; title: string } {
   const preparation = repositoryPreparationView(stats.repo)
   if (preparation?.kind === 'preparing') {
@@ -188,6 +180,7 @@ function ProjectRow({
   onCloseMenu: () => void
 }): React.JSX.Element {
   const repo = stats.repo
+  const activity = stats.activity
   const preparation = repositoryPreparationView(repo)
   const work = projectWork(stats)
   const needs = attentionLabel(stats.attention) || '—'
@@ -232,7 +225,18 @@ function ProjectRow({
       }}
     >
       <div className="icode-project-project flex min-w-0 items-center gap-1.5">
-        <span className={`h-[7px] w-[7px] shrink-0 rounded-full ${projectDotClass(stats)}`} />
+        <span className="inline-flex w-[7px] shrink-0 items-center justify-center">
+          {activity !== null ? (
+            <span
+              className={`h-[7px] w-[7px] rounded-full ${activityDotClass(activity)}`}
+              role="img"
+              aria-label={`Agent activity: ${activityLabel(activity)}`}
+              title={activityLabel(activity)}
+              data-testid={`project-activity-${repo.id}`}
+              data-activity={activity.state}
+            />
+          ) : null}
+        </span>
         <button
           type="button"
           className="min-w-0 flex-1 text-left"

@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import type { TaskRecordPayload } from '../../../shared/icode-api'
+import type { ActivitySummary } from '../../../shared/domain/activity'
 import type { RepositorySummary, SessionSummary } from '../../../shared/schemas/ipc'
 import {
   attentionEntries,
   attentionLabel,
   filterAndSortProjects,
   PINNED_PROJECTS_KEY,
+  projectActivity,
   projectHeaderStats,
   projectStats,
   readPinnedProjectIds,
@@ -48,6 +50,17 @@ function session(
     sleeping: false,
     worktree: null,
     activity: null,
+    ...overrides
+  }
+}
+
+function activity(overrides: Partial<ActivitySummary> = {}): ActivitySummary {
+  return {
+    state: 'idle',
+    toolName: null,
+    unread: false,
+    outcome: 'completed',
+    since: 100,
     ...overrides
   }
 }
@@ -126,6 +139,7 @@ describe('project directory model', () => {
       needs: 2
     })
     expect(stats.attention).toEqual({ answer: 1, retry: 0, review: 1, total: 2 })
+    expect(stats.activity).toMatchObject({ state: 'unknown' })
     expect(stats.lastActivityAt).toBe(90)
     expect(stats.openMode).toBe('sessions')
     expect(attentionLabel(stats.attention)).toBe('Answer 1 · Review 1')
@@ -274,5 +288,97 @@ describe('project directory model', () => {
     expect(relativeTimeLabel(now - 6 * 60_000, now)).toBe('6m')
     expect(relativeTimeLabel(now - 3 * 3_600_000, now)).toBe('3h')
     expect(relativeTimeLabel(now - 2 * 86_400_000, now)).toBe('2d')
+  })
+
+  describe('project activity', () => {
+    it('returns null when no session is active', () => {
+      expect(
+        projectActivity([
+          session('exited', 'repo', { state: 'exited' }),
+          session('failed', 'repo', { state: 'failed' })
+        ])
+      ).toBeNull()
+    })
+
+    it('surfaces unknown for a live session with no evidence', () => {
+      expect(
+        projectActivity([
+          session('live', 'repo', { activity: activity({ state: 'unknown' }) })
+        ])?.state
+      ).toBe('unknown')
+    })
+
+    it('prefers waiting over newer working activity', () => {
+      expect(
+        projectActivity([
+          session('working', 'repo', {
+            activity: activity({ state: 'working', since: 900 })
+          }),
+          session('waiting', 'repo', {
+            activity: activity({ state: 'waiting', since: 100 })
+          })
+        ])?.state
+      ).toBe('waiting')
+    })
+
+    it('prefers working over a failed turn', () => {
+      expect(
+        projectActivity([
+          session('working', 'repo', { activity: activity({ state: 'working' }) }),
+          session('failed', 'repo', {
+            activity: activity({ state: 'idle', outcome: 'failed' })
+          })
+        ])?.state
+      ).toBe('working')
+    })
+
+    it('prefers a failed turn over a completed one', () => {
+      expect(
+        projectActivity([
+          session('done', 'repo', {
+            activity: activity({ state: 'idle', outcome: 'completed' })
+          }),
+          session('failed', 'repo', {
+            activity: activity({ state: 'idle', outcome: 'failed' })
+          })
+        ])?.outcome
+      ).toBe('failed')
+    })
+
+    it('selects a completed turn when it is the only activity', () => {
+      expect(
+        projectActivity([
+          session('done', 'repo', {
+            activity: activity({ state: 'idle', outcome: 'completed' })
+          })
+        ])
+      ).toMatchObject({ state: 'idle', outcome: 'completed' })
+    })
+
+    it('uses the newest activity when ranks tie', () => {
+      expect(
+        projectActivity([
+          session('older', 'repo', { activity: activity({ state: 'working', since: 10 }) }),
+          session('newer', 'repo', { activity: activity({ state: 'working', since: 50 }) })
+        ])?.since
+      ).toBe(50)
+    })
+
+    it('counts starting sessions and treats null activity as unknown', () => {
+      const starting = projectActivity([
+        session('starting', 'repo', { state: 'starting', activity: null, updatedAt: 77 })
+      ])
+      expect(starting?.state).toBe('unknown')
+      expect(starting?.since).toBe(77)
+    })
+
+    it('includes task-owned session activity in projectStats', () => {
+      const stats = projectStats(
+        repo('project'),
+        [session('owned', 'project', { activity: activity({ state: 'waiting' }) })],
+        [task('owned-task', 'project', { sessionId: 'owned', status: 'running' })]
+      )
+      expect(stats.activity?.state).toBe('waiting')
+    })
   })
 })
