@@ -12,6 +12,7 @@ export type ProjectsPageProps = {
   maxConcurrent: number
   onOpenProject: (repoId: string, mode?: ProjectMode) => void
   onOpenTask: (task: TaskRecordPayload) => void
+  onOpenSession: (sessionId: string) => void
   onAddRepository: () => void
   onRemoveRepository: (repoId: string) => void
   onRetryPreparation: (repoId: string) => void
@@ -25,6 +26,7 @@ export default function ProjectsPage({
   maxConcurrent,
   onOpenProject,
   onOpenTask,
+  onOpenSession,
   onAddRepository,
   onRemoveRepository,
   onRetryPreparation,
@@ -64,6 +66,7 @@ export default function ProjectsPage({
       maxConcurrent={maxConcurrent}
       onOpenProject={onOpenProject}
       onOpenTask={onOpenTask}
+      onOpenSession={onOpenSession}
       onAddRepository={onAddRepository}
       onRemoveRepository={onRemoveRepository}
       onRetryPreparation={onRetryPreparation}

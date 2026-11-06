@@ -21,8 +21,12 @@ import { repositoryPreparationView } from '../lib/repository-preparation'
 import ContextMenu, { type ContextMenuItem, type MenuAnchor } from './ContextMenu'
 import {
   attentionEntries,
-  attentionLabel,
   filterAndSortProjects,
+  inFlightView,
+  needCounts,
+  needEntryTitle,
+  needsLabel,
+  needYouLabel,
   projectStats,
   readPinnedProjectIds,
   relativeTimeLabel,
@@ -33,7 +37,7 @@ import {
   type ProjectStats
 } from './projects-wall-model'
 import { activityDotClass, activityLabel } from './status'
-import { taskAttentionCounts, taskIsActive } from './task-status'
+import { taskIsActive } from './task-status'
 import TargetBadge from './TargetBadge'
 
 type Props = {
@@ -43,6 +47,7 @@ type Props = {
   maxConcurrent: number
   onOpenProject: (repoId: string, mode?: ProjectMode) => void
   onOpenTask: (task: TaskRecordPayload) => void
+  onOpenSession: (sessionId: string) => void
   onAddRepository: () => void
   onRemoveRepository: (repoId: string) => void
   onRetryPreparation: (repoId: string) => void
@@ -76,6 +81,7 @@ const DIRECTORY_FILTERS: Array<{ id: ProjectDirectoryFilter; label: string }> = 
 function reasonPillClass(kind: NeedEntry['kind']): string {
   switch (kind) {
     case 'Answer':
+    case 'Waiting':
       return 'border-signal-line bg-signal-weak text-signal'
     case 'Review':
       return 'border-info/50 bg-info-weak text-info'
@@ -88,6 +94,7 @@ function reasonPillClass(kind: NeedEntry['kind']): string {
 function reasonTextClass(kind: NeedEntry['kind']): string {
   switch (kind) {
     case 'Answer':
+    case 'Waiting':
       return 'text-signal'
     case 'Review':
       return 'text-info'
@@ -106,15 +113,28 @@ function AttentionRow({
   now: number
   onOpen: () => void
 }): React.JSX.Element {
-  const title = entry.source === 'task' ? entry.task.title : 'First commit needs attention'
-  const detail = entry.source === 'setup' ? entry.detail : entry.task.error ?? entry.task.resultSummary
+  const title = needEntryTitle(entry)
+  const detail =
+    entry.source === 'setup'
+      ? entry.detail
+      : entry.source === 'session'
+        ? entry.session.activity?.toolName
+          ? `Waiting for input · ${entry.session.activity.toolName}`
+          : 'Waiting for input'
+        : entry.task.error ?? entry.task.resultSummary
+  const testId =
+    entry.source === 'task'
+      ? `needs-${entry.task.id}`
+      : entry.source === 'session'
+        ? `needs-session-${entry.session.id}`
+        : `needs-setup-${entry.repo.id}`
   return (
     <button
       type="button"
       className="icode-need-row w-full border-t border-border px-2.5 py-1.5 text-left first:border-t-0 hover:bg-muted/40"
       onClick={onOpen}
       title={detail ?? title}
-      data-testid={entry.source === 'task' ? `needs-${entry.task.id}` : `needs-setup-${entry.repo.id}`}
+      data-testid={testId}
     >
       <span
         className={`icode-need-reason inline-flex h-[18px] items-center rounded-full border px-1.5 text-[8.5px] font-semibold uppercase tracking-[0.06em] ${reasonPillClass(entry.kind)}`}
@@ -133,29 +153,6 @@ function AttentionRow({
       <ChevronRight size={11} className={`icode-need-arrow ${reasonTextClass(entry.kind)}`} />
     </button>
   )
-}
-
-function projectWork(stats: ProjectStats): { text: string; tone: string; title: string } {
-  const preparation = repositoryPreparationView(stats.repo)
-  if (preparation?.kind === 'preparing') {
-    return { text: 'Preparing first commit…', tone: 'text-signal', title: preparation.label }
-  }
-  if (preparation?.kind === 'failed') {
-    return {
-      text: 'Setup failed',
-      tone: 'text-destructive',
-      title: preparation.detail ?? preparation.label
-    }
-  }
-  const parts: string[] = []
-  if (stats.liveSessions > 0) {
-    parts.push(`${String(stats.liveSessions)} live`)
-  }
-  if (stats.tasks.length > 0) {
-    parts.push(`${String(stats.tasks.length)} task${stats.tasks.length === 1 ? '' : 's'}`)
-  }
-  const text = parts.join(' · ') || 'Idle'
-  return { text, tone: stats.liveSessions > 0 ? 'text-add' : 'text-muted-foreground', title: text }
 }
 
 function ProjectRow({
@@ -182,13 +179,14 @@ function ProjectRow({
   const repo = stats.repo
   const activity = stats.activity
   const preparation = repositoryPreparationView(repo)
-  const work = projectWork(stats)
-  const needs = attentionLabel(stats.attention) || '—'
+  const work = inFlightView(stats)
+  const needsText = needYouLabel(stats.needs.total)
+  const needsTitle = stats.needs.total > 0 ? needsLabel(stats.needs) : undefined
   const branch = repo.currentBranch ?? '—'
   const updated = relativeTimeLabel(stats.lastActivityAt, now)
   const open = (): void => onOpenProject(repo.id, stats.openMode)
   const rowClass = [
-    stats.attention.total > 0 ? 'needs' : '',
+    stats.needs.total > 0 ? 'needs' : '',
     stats.setupFailed ? 'setup-failed' : ''
   ].filter(Boolean).join(' ')
   return (
@@ -261,18 +259,30 @@ function ProjectRow({
       <div className="icode-project-branch truncate font-mono text-[9.5px] text-muted-foreground" title={branch}>
         {branch}
       </div>
-      <div className={`icode-project-work truncate text-[9.5px] ${work.tone}`} title={work.title}>
+      <div
+        className={`icode-project-inflight truncate text-[9.5px] ${
+          work.preparing ? 'text-signal' : 'text-muted-foreground'
+        }`}
+        title={work.title}
+      >
         {work.text}
       </div>
       <div
         className={`icode-project-needs truncate text-[9.5px] ${
-          stats.attention.total > 0 ? 'font-medium text-signal' : 'text-muted-foreground'
+          stats.needs.total > 0 ? 'font-medium text-signal' : 'text-muted-foreground'
         }`}
-        title={needs === '—' ? undefined : needs}
+        title={needsTitle}
       >
-        {needs}
+        {needsText}
       </div>
-      <div className="icode-project-updated font-mono text-[9.5px] text-muted-foreground">
+      <div
+        className="icode-project-last-active truncate font-mono text-[9.5px] text-muted-foreground"
+        title={
+          stats.lastActivityAt === null
+            ? undefined
+            : new Date(stats.lastActivityAt).toLocaleString()
+        }
+      >
         {updated}
       </div>
       <div className="icode-project-actions flex items-center justify-end gap-0.5">
@@ -334,7 +344,7 @@ function ProjectRow({
       </div>
       <span className="icode-project-mobile">
         {branch} · {work.text}
-        {needs === '—' ? '' : ` · ${needs}`} · {updated}
+        {needsText === '—' ? '' : ` · ${needsText}`} · {updated}
       </span>
     </div>
   )
@@ -399,6 +409,7 @@ export default function ProjectsWall({
   maxConcurrent,
   onOpenProject,
   onOpenTask,
+  onOpenSession,
   onAddRepository,
   onRemoveRepository,
   onRetryPreparation,
@@ -445,24 +456,27 @@ export default function ProjectsWall({
     },
     [notify]
   )
-  const attention = useMemo(() => attentionEntries(tasks, repos), [tasks, repos])
+  const attention = useMemo(
+    () => attentionEntries(tasks, repos, sessions),
+    [tasks, repos, sessions]
+  )
   const filtered = useMemo(
     () => filterAndSortProjects(projects, pinnedIds, filter, query),
     [projects, pinnedIds, filter, query]
   )
-  const counts = useMemo(() => taskAttentionCounts(tasks), [tasks])
+  const counts = useMemo(() => needCounts(attention), [attention])
   const liveCount = sessions.filter(
     (session) => session.state === 'live' || session.state === 'starting'
   ).length
   const activeSlots = tasks.filter(taskIsActive).length
-  const setupCount = attention.filter((entry) => entry.source === 'setup').length
   const shownAttention = attention.slice(0, 6)
 
   const summaryParts: string[] = []
-  if (setupCount > 0) summaryParts.push(`${String(setupCount)} setup`)
+  if (counts.setup > 0) summaryParts.push(`${String(counts.setup)} setup`)
   if (counts.answer > 0) summaryParts.push(`${String(counts.answer)} answer`)
   if (counts.retry > 0) summaryParts.push(`${String(counts.retry)} retry`)
   if (counts.review > 0) summaryParts.push(`${String(counts.review)} review`)
+  if (counts.waiting > 0) summaryParts.push(`${String(counts.waiting)} waiting`)
   if (summaryParts.length === 0) summaryParts.push('Nothing waiting')
   summaryParts.push(`across ${String(repos.length)} project${repos.length === 1 ? '' : 's'}`)
 
@@ -549,11 +563,18 @@ export default function ProjectsWall({
             <div className="overflow-hidden rounded-md border border-border bg-card" data-testid="needs-you">
               {shownAttention.map((entry) => (
                 <AttentionRow
-                  key={entry.source === 'task' ? `task:${entry.task.id}` : `setup:${entry.repo.id}`}
+                  key={
+                    entry.source === 'task'
+                      ? `task:${entry.task.id}`
+                      : entry.source === 'session'
+                        ? `session:${entry.session.id}`
+                        : `setup:${entry.repo.id}`
+                  }
                   entry={entry}
                   now={now}
                   onOpen={() => {
                     if (entry.source === 'task') onOpenTask(entry.task)
+                    else if (entry.source === 'session') onOpenSession(entry.session.id)
                     else onOpenProject(entry.repo.id)
                   }}
                 />
@@ -599,9 +620,9 @@ export default function ProjectsWall({
             <div className="icode-project-head" aria-hidden="true">
               <span>Project</span>
               <span>Branch</span>
-              <span>Work</span>
+              <span>In flight</span>
               <span>Needs</span>
-              <span>Updated</span>
+              <span>Last active</span>
               <span />
             </div>
             <div className="icode-project-body" data-testid="project-directory">

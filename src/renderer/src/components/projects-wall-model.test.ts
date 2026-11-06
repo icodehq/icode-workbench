@@ -4,8 +4,12 @@ import type { ActivitySummary } from '../../../shared/domain/activity'
 import type { RepositorySummary, SessionSummary } from '../../../shared/schemas/ipc'
 import {
   attentionEntries,
-  attentionLabel,
   filterAndSortProjects,
+  inFlightView,
+  needCounts,
+  needEntryTitle,
+  needsLabel,
+  needYouLabel,
   PINNED_PROJECTS_KEY,
   projectActivity,
   projectHeaderStats,
@@ -62,6 +66,32 @@ function activity(overrides: Partial<ActivitySummary> = {}): ActivitySummary {
     outcome: 'completed',
     since: 100,
     ...overrides
+  }
+}
+
+function failedPreparation(): RepositorySummary['preparation'] {
+  return {
+    state: 'failed',
+    startedAt: 1,
+    finishedAt: 5,
+    committedFiles: null,
+    skippedFolders: [],
+    error: {
+      code: 'GIT_COMMIT_FAILED',
+      message: 'The first commit failed.',
+      retryable: false
+    }
+  }
+}
+
+function preparingPreparation(startedAt = 10): RepositorySummary['preparation'] {
+  return {
+    state: 'preparing',
+    startedAt,
+    finishedAt: null,
+    committedFiles: null,
+    skippedFolders: [],
+    error: null
   }
 }
 
@@ -138,17 +168,27 @@ describe('project directory model', () => {
       tasks: 2,
       needs: 2
     })
-    expect(stats.attention).toEqual({ answer: 1, retry: 0, review: 1, total: 2 })
+    expect(stats.load).toEqual({ live: 1, running: 0, queued: 0, total: 1 })
+    expect(stats.needs).toEqual({
+      answer: 1,
+      retry: 0,
+      review: 1,
+      waiting: 0,
+      setup: 0,
+      total: 2
+    })
     expect(stats.activity).toMatchObject({ state: 'unknown' })
-    expect(stats.lastActivityAt).toBe(90)
+    expect(stats.lastActivityAt).toBe(80)
     expect(stats.openMode).toBe('sessions')
-    expect(attentionLabel(stats.attention)).toBe('Answer 1 · Review 1')
+    expect(needsLabel(stats.needs)).toBe('Answer 1 · Review 1')
 
     const taskOnly = projectStats(
       repo('other'),
       [session('owned', 'other')],
       [task('owned-task', 'other', { sessionId: 'owned', status: 'running' })]
     )
+    expect(taskOnly.load).toEqual({ live: 0, running: 1, queued: 0, total: 1 })
+    expect(taskOnly.needs.waiting).toBe(0)
     expect(taskOnly.openMode).toBe('tasks')
   })
 
@@ -379,6 +419,240 @@ describe('project directory model', () => {
         [task('owned-task', 'project', { sessionId: 'owned', status: 'running' })]
       )
       expect(stats.activity?.state).toBe('waiting')
+    })
+  })
+
+  describe('work, needs and last active', () => {
+    it('counts only live direct sessions and open tasks as in flight', () => {
+      const project = repo('project')
+      const direct = session('direct', 'project')
+      const owned = session('owned', 'project')
+      const tasks = [
+        task('dispatch', 'project', { status: 'dispatching' }),
+        task('running', 'project', { status: 'running' }),
+        task('queued', 'project', { status: 'queued' }),
+        task('waiting', 'project', { status: 'waiting', sessionId: 'owned' }),
+        task('done', 'project', { status: 'completed', reviewDecision: 'accepted' }),
+        task('failed', 'project', { status: 'failed' })
+      ]
+      const stats = projectStats(project, [direct, owned], tasks)
+      expect(stats.load).toEqual({ live: 1, running: 2, queued: 1, total: 4 })
+      expect(stats.needs).toEqual({
+        answer: 1,
+        retry: 1,
+        review: 0,
+        waiting: 0,
+        setup: 0,
+        total: 2
+      })
+      const view = inFlightView(stats)
+      expect(view.text).toBe('1 live · 3 tasks')
+      expect(view.title).toContain('1 waiting')
+      expect(view.title).toContain('2 finished')
+    })
+
+    it('counts direct waiting agents once and excludes task-owned sessions', () => {
+      const project = repo('project')
+      const directWaiting = session('direct-wait', 'project', {
+        activity: activity({ state: 'waiting', since: 40 })
+      })
+      const ownedWaiting = session('owned-wait', 'project', {
+        activity: activity({ state: 'waiting', since: 30 })
+      })
+      const tasks = [
+        task('answer', 'project', { status: 'waiting', sessionId: 'owned-wait', updatedAt: 20 })
+      ]
+      const stats = projectStats(project, [directWaiting, ownedWaiting], tasks)
+      expect(stats.needs).toEqual({
+        answer: 1,
+        retry: 0,
+        review: 0,
+        waiting: 1,
+        setup: 0,
+        total: 2
+      })
+      expect(needsLabel(stats.needs)).toBe('Answer 1 · Waiting 1')
+      const sessionEntries = attentionEntries(tasks, [project], [
+        directWaiting,
+        ownedWaiting
+      ]).filter((entry) => entry.source === 'session')
+      expect(sessionEntries).toHaveLength(1)
+      expect(sessionEntries[0]).toMatchObject({
+        source: 'session',
+        kind: 'Waiting',
+        since: 40
+      })
+    })
+
+    it('does not treat a failed agent turn as a project need', () => {
+      const stats = projectStats(
+        repo('project'),
+        [
+          session('failed-turn', 'project', {
+            activity: activity({ state: 'idle', outcome: 'failed' })
+          })
+        ],
+        []
+      )
+      expect(stats.needs.total).toBe(0)
+      expect(stats.activity).toMatchObject({ state: 'idle', outcome: 'failed' })
+    })
+
+    it('moves setup failure into needs and leaves in-flight empty', () => {
+      const project = repo('setup', { preparation: failedPreparation() })
+      const stats = projectStats(project, [], [])
+      expect(stats.needs).toEqual({
+        answer: 0,
+        retry: 0,
+        review: 0,
+        waiting: 0,
+        setup: 1,
+        total: 1
+      })
+      expect(stats.load.total).toBe(0)
+      expect(inFlightView(stats)).toEqual({
+        text: '—',
+        title: 'No live sessions or open tasks',
+        preparing: false
+      })
+      expect(needsLabel(stats.needs)).toBe('Setup failed')
+      expect(projectHeaderStats(stats).needs).toBe(1)
+    })
+
+    it('shows preparing only when there is no load', () => {
+      const preparing = repo('prep', { preparation: preparingPreparation() })
+      expect(inFlightView(projectStats(preparing, [], []))).toMatchObject({
+        text: 'Preparing…',
+        preparing: true
+      })
+      expect(
+        inFlightView(projectStats(preparing, [session('live', 'prep')], [])).text
+      ).toBe('1 live')
+      const waitingOnly = projectStats(
+        repo('waiting'),
+        [],
+        [task('waiting', 'waiting', { status: 'waiting' })]
+      )
+      expect(inFlightView(waitingOnly).text).toBe('—')
+      const queuedOnly = projectStats(
+        repo('queued'),
+        [],
+        [task('queued', 'queued', { status: 'queued' })]
+      )
+      expect(inFlightView(queuedOnly).text).toBe('1 task')
+      const terminalOnly = projectStats(
+        repo('done'),
+        [],
+        [task('done', 'done', { status: 'completed', reviewDecision: 'accepted' })]
+      )
+      expect(inFlightView(terminalOnly).text).toBe('—')
+    })
+
+    it('derives last active from agent activity, tasks and setup, never summary refresh time', () => {
+      const project = repo('project')
+      const unknown = session('unknown', 'project', {
+        updatedAt: 999,
+        activity: activity({ state: 'unknown', since: 999 })
+      })
+      expect(projectStats(project, [unknown], []).lastActivityAt).toBeNull()
+
+      const working = session('working', 'project', {
+        updatedAt: 1,
+        activity: activity({ state: 'working', since: 500 })
+      })
+      expect(
+        projectStats(project, [unknown, working], [
+          task('queued', 'project', { status: 'queued', updatedAt: 50 })
+        ]).lastActivityAt
+      ).toBe(500)
+      expect(
+        projectStats(project, [], [
+          task('running', 'project', { status: 'running', updatedAt: 70 })
+        ]).lastActivityAt
+      ).toBe(70)
+      expect(
+        projectStats(repo('prepared', { preparation: preparingPreparation(80) }), [], [])
+          .lastActivityAt
+      ).toBe(80)
+    })
+
+    it('formats needs labels and counts', () => {
+      expect(needYouLabel(0)).toBe('—')
+      expect(needYouLabel(2)).toBe('2 need you')
+      expect(
+        needsLabel({ answer: 0, retry: 0, review: 0, waiting: 0, setup: 0, total: 0 })
+      ).toBe('')
+      expect(
+        needsLabel({ answer: 1, retry: 2, review: 1, waiting: 1, setup: 1, total: 6 })
+      ).toBe('Answer 1 · Retry 2 · Review 1 · Waiting 1 · Setup failed')
+
+      const project = repo('project')
+      const tasks = [
+        task('answer', 'project', { status: 'waiting' }),
+        task('retry', 'project', { status: 'failed' })
+      ]
+      const sessions = [
+        session('waiting', 'project', { activity: activity({ state: 'waiting' }) })
+      ]
+      expect(needCounts(attentionEntries(tasks, [project], sessions))).toEqual({
+        answer: 1,
+        retry: 1,
+        review: 0,
+        waiting: 1,
+        setup: 0,
+        total: 3
+      })
+    })
+
+    it('filters needs, idle and live with the new aggregates', () => {
+      const setup = projectStats(repo('setup', { preparation: failedPreparation() }), [], [])
+      const waiting = projectStats(
+        repo('waiting'),
+        [session('waiting-session', 'waiting', { activity: activity({ state: 'waiting' }) })],
+        []
+      )
+      const running = projectStats(
+        repo('running'),
+        [],
+        [task('running', 'running', { status: 'running' })]
+      )
+      const queued = projectStats(
+        repo('queued'),
+        [],
+        [task('queued', 'queued', { status: 'queued' })]
+      )
+      const idle = projectStats(repo('idle'), [], [])
+      const projects = [idle, queued, running, waiting, setup]
+
+      expect(
+        filterAndSortProjects(projects, [], 'needs', '').map((entry) => entry.repo.id)
+      ).toEqual(['setup', 'waiting'])
+      expect(
+        filterAndSortProjects(projects, [], 'idle', '').map((entry) => entry.repo.id)
+      ).toEqual(['idle'])
+      expect(
+        filterAndSortProjects(projects, [], 'live', '').map((entry) => entry.repo.id)
+      ).toEqual(['waiting'])
+
+      const owned = projectStats(
+        repo('owned'),
+        [session('owned-session', 'owned')],
+        [task('owned-task', 'owned', { status: 'running', sessionId: 'owned-session' })]
+      )
+      expect(filterAndSortProjects([owned], [], 'live', '')).toHaveLength(1)
+      expect(owned.load.live).toBe(0)
+    })
+
+    it('creates a waiting session entry with its title and since', () => {
+      const project = repo('project')
+      const waiting = session('waiting', 'project', {
+        title: 'Fix the build',
+        activity: activity({ state: 'waiting', since: 42 })
+      })
+      const entries = attentionEntries([], [project], [waiting])
+      expect(entries).toHaveLength(1)
+      expect(entries[0]).toMatchObject({ source: 'session', kind: 'Waiting', since: 42 })
+      expect(needEntryTitle(entries[0]!)).toBe('Fix the build')
     })
   })
 })

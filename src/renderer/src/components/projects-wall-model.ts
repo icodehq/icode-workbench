@@ -5,16 +5,37 @@ import {
   type ActivitySummary
 } from '../../../shared/domain/activity'
 import { isActiveSessionState } from '../../../shared/domain/session'
+import { isTerminalTaskStatus } from '../../../shared/domain/task'
 import type { RepositorySummary, SessionSummary } from '../../../shared/schemas/ipc'
 import { repositoryPreparationView } from '../lib/repository-preparation'
 import {
   taskAttention,
   taskAttentionCounts,
-  type TaskAttentionCounts,
   type TaskAttentionKind
 } from './task-status'
 
 export type ProjectDirectoryFilter = 'all' | 'pinned' | 'needs' | 'live' | 'idle'
+
+export type ProjectLoad = {
+  /** Direct sessions in starting/live. Task-owned sessions are represented by their task. */
+  live: number
+  /** Tasks dispatching or running. */
+  running: number
+  queued: number
+  /** live + running + queued; excludes waiting and terminal tasks. */
+  total: number
+}
+
+export type ProjectNeeds = {
+  answer: number
+  retry: number
+  review: number
+  /** Active direct sessions whose agent is waiting for input. */
+  waiting: number
+  /** Failed first-commit preparation; at most one per project. */
+  setup: number
+  total: number
+}
 
 export type ProjectStats = {
   repo: RepositorySummary
@@ -24,7 +45,8 @@ export type ProjectStats = {
   /** The most actionable agent activity among live sessions; null when none are live. */
   activity: ActivitySummary | null
   tasks: TaskRecordPayload[]
-  attention: TaskAttentionCounts
+  load: ProjectLoad
+  needs: ProjectNeeds
   /** A failed background first commit; the project header owns the retry. */
   setupFailed: boolean
   lastActivityAt: number | null
@@ -49,7 +71,16 @@ type SetupNeedEntry = {
   since: number
 }
 
-export type NeedEntry = TaskNeedEntry | SetupNeedEntry
+type SessionNeedEntry = {
+  source: 'session'
+  session: SessionSummary
+  repo: RepositorySummary
+  kind: 'Waiting'
+  /** When the agent entered the waiting state. */
+  since: number
+}
+
+export type NeedEntry = TaskNeedEntry | SetupNeedEntry | SessionNeedEntry
 
 export type StorageLike = {
   getItem: (key: string) => string | null
@@ -105,8 +136,8 @@ function storageOrNull(storage?: StorageLike): StorageLike | null {
 }
 
 /**
- * Project-level activity. Repositories themselves have no change stamp, so the
- * newest session, task, or preparation update is the truthful signal we have.
+ * Project-level state. Activity is the actionable agent state; load is what is
+ * running or queued right now; needs is everything that requires a person.
  */
 export function projectStats(
   repo: RepositorySummary,
@@ -119,12 +150,32 @@ export function projectStats(
     repoTasks.map((task) => task.sessionId).filter((id): id is string => id !== null)
   )
   const directSessions = repoSessions.filter((session) => !taskSessionIds.has(session.id))
-  const liveSessions = repoSessions.filter(
-    (session) => session.state === 'live' || session.state === 'starting'
+  const directLive = directSessions.filter((session) =>
+    isActiveSessionState(session.state)
   ).length
+  const liveSessions = repoSessions.filter((session) =>
+    isActiveSessionState(session.state)
+  ).length
+  const running = repoTasks.filter(
+    (task) => task.status === 'dispatching' || task.status === 'running'
+  ).length
+  const queued = repoTasks.filter((task) => task.status === 'queued').length
+  const taskNeeds = taskAttentionCounts(repoTasks)
+  const waiting = directSessions.filter(
+    (session) => isActiveSessionState(session.state) && session.activity?.state === 'waiting'
+  ).length
+  const setupFailed = repositoryPreparationView(repo)?.kind === 'failed'
+  const setup = setupFailed ? 1 : 0
   const activity = projectActivity(repoSessions)
+  const activityStamps = repoSessions.flatMap((session) =>
+    isActiveSessionState(session.state) &&
+    session.activity !== null &&
+    session.activity.state !== 'unknown'
+      ? [session.activity.since]
+      : []
+  )
   const stamps = [
-    ...repoSessions.map((session) => session.updatedAt),
+    ...activityStamps,
     ...repoTasks.map((task) => task.updatedAt),
     repo.preparation?.finishedAt ?? repo.preparation?.startedAt ?? 0
   ].filter((value) => value > 0)
@@ -135,8 +186,21 @@ export function projectStats(
     liveSessions,
     activity,
     tasks: repoTasks,
-    attention: taskAttentionCounts(repoTasks),
-    setupFailed: repositoryPreparationView(repo)?.kind === 'failed',
+    load: {
+      live: directLive,
+      running,
+      queued,
+      total: directLive + running + queued
+    },
+    needs: {
+      answer: taskNeeds.answer,
+      retry: taskNeeds.retry,
+      review: taskNeeds.review,
+      waiting,
+      setup,
+      total: taskNeeds.total + waiting + setup
+    },
+    setupFailed,
     lastActivityAt: stamps.length > 0 ? Math.max(...stamps) : null,
     openMode: directSessions.length > 0 ? 'sessions' : 'tasks'
   }
@@ -153,8 +217,55 @@ export function projectHeaderStats(stats: ProjectStats): {
     sessions: stats.directSessions.length,
     live: stats.liveSessions,
     tasks: stats.tasks.length,
-    needs: stats.attention.total
+    needs: stats.needs.total
   }
+}
+
+/** The Work/In-flight cell: live direct sessions plus open tasks. */
+export function inFlightView(stats: ProjectStats): {
+  text: string
+  title: string
+  preparing: boolean
+} {
+  const { load, tasks, repo } = stats
+  const openTasks = load.running + load.queued
+  if (load.live === 0 && openTasks === 0) {
+    const preparation = repositoryPreparationView(repo)
+    if (preparation?.kind === 'preparing') {
+      return { text: 'Preparing…', title: preparation.label, preparing: true }
+    }
+    return { text: '—', title: 'No live sessions or open tasks', preparing: false }
+  }
+  const parts: string[] = []
+  if (load.live > 0) parts.push(`${String(load.live)} live`)
+  if (openTasks > 0) parts.push(`${String(openTasks)} task${openTasks === 1 ? '' : 's'}`)
+  const waitingTasks = tasks.filter((task) => task.status === 'waiting').length
+  const finishedTasks = tasks.filter((task) => isTerminalTaskStatus(task.status)).length
+  return {
+    text: parts.join(' · '),
+    title: `${String(load.live)} live · ${String(load.running)} running · ${String(load.queued)} queued · ${String(waitingTasks)} waiting · ${String(finishedTasks)} finished`,
+    preparing: false
+  }
+}
+
+export function needsLabel(needs: ProjectNeeds): string {
+  const parts: string[] = []
+  if (needs.answer > 0) parts.push(`Answer ${String(needs.answer)}`)
+  if (needs.retry > 0) parts.push(`Retry ${String(needs.retry)}`)
+  if (needs.review > 0) parts.push(`Review ${String(needs.review)}`)
+  if (needs.waiting > 0) parts.push(`Waiting ${String(needs.waiting)}`)
+  if (needs.setup > 0) parts.push('Setup failed')
+  return parts.join(' · ')
+}
+
+export function needYouLabel(total: number): string {
+  return total > 0 ? `${String(total)} need you` : '—'
+}
+
+export function needEntryTitle(entry: NeedEntry): string {
+  if (entry.source === 'task') return entry.task.title
+  if (entry.source === 'session') return entry.session.title
+  return 'First commit needs attention'
 }
 
 function attentionSince(task: TaskRecordPayload): number {
@@ -168,11 +279,21 @@ function attentionSince(task: TaskRecordPayload): number {
  */
 export function attentionEntries(
   tasks: readonly TaskRecordPayload[],
-  repos: readonly RepositorySummary[]
+  repos: readonly RepositorySummary[],
+  sessions: readonly SessionSummary[] = []
 ): NeedEntry[] {
   const reposById = new Map(repos.map((repo) => [repo.id, repo]))
+  const taskSessionIds = new Set(
+    tasks.map((task) => task.sessionId).filter((id): id is string => id !== null)
+  )
   const rank = (kind: NeedEntry['kind']): number =>
-    kind === 'Setup' ? 0 : kind === 'Answer' ? 1 : kind === 'Retry' ? 2 : 3
+    kind === 'Setup'
+      ? 0
+      : kind === 'Answer' || kind === 'Waiting'
+        ? 1
+        : kind === 'Retry'
+          ? 2
+          : 3
   const taskEntries: NeedEntry[] = tasks.flatMap((task) => {
     const kind = taskAttention(task)
     const repo = reposById.get(task.repoId)
@@ -190,23 +311,46 @@ export function attentionEntries(
       since: repo.preparation?.finishedAt ?? repo.preparation?.startedAt ?? 0
     }]
   })
-  return [...setupEntries, ...taskEntries].sort((left, right) => {
-    const leftTitle = left.source === 'task' ? left.task.title : 'First commit needs attention'
-    const rightTitle = right.source === 'task' ? right.task.title : 'First commit needs attention'
+  const sessionEntries: NeedEntry[] = sessions.flatMap((session) => {
+    const repo = reposById.get(session.repoId)
+    if (repo === undefined || taskSessionIds.has(session.id)) return []
+    if (!isActiveSessionState(session.state)) return []
+    if (session.activity?.state !== 'waiting') return []
+    return [{
+      source: 'session',
+      session,
+      repo,
+      kind: 'Waiting',
+      since: session.activity.since
+    }]
+  })
+  return [...setupEntries, ...taskEntries, ...sessionEntries].sort((left, right) => {
     return (
       rank(left.kind) - rank(right.kind) ||
       left.since - right.since ||
-      leftTitle.localeCompare(rightTitle)
+      needEntryTitle(left).localeCompare(needEntryTitle(right))
     )
   })
 }
 
-export function attentionLabel(attention: TaskAttentionCounts): string {
-  const parts: string[] = []
-  if (attention.answer > 0) parts.push(`Answer ${String(attention.answer)}`)
-  if (attention.retry > 0) parts.push(`Retry ${String(attention.retry)}`)
-  if (attention.review > 0) parts.push(`Review ${String(attention.review)}`)
-  return parts.join(' · ')
+export function needCounts(entries: readonly NeedEntry[]): ProjectNeeds {
+  const counts: ProjectNeeds = {
+    answer: 0,
+    retry: 0,
+    review: 0,
+    waiting: 0,
+    setup: 0,
+    total: 0
+  }
+  for (const entry of entries) {
+    if (entry.kind === 'Answer') counts.answer += 1
+    else if (entry.kind === 'Retry') counts.retry += 1
+    else if (entry.kind === 'Review') counts.review += 1
+    else if (entry.kind === 'Waiting') counts.waiting += 1
+    else counts.setup += 1
+    counts.total += 1
+  }
+  return counts
 }
 
 function projectMatchesQuery(stats: ProjectStats, query: string): boolean {
@@ -220,7 +364,7 @@ function projectMatchesQuery(stats: ProjectStats, query: string): boolean {
 
 /**
  * Pinned projects are a shortcut, not a separate surface: they sort first, then
- * attention, live work, recency and name decide the rest.
+ * needs, in-flight load, recency and name decide the rest.
  */
 export function filterAndSortProjects(
   projects: readonly ProjectStats[],
@@ -233,14 +377,9 @@ export function filterAndSortProjects(
   return projects
     .filter((project) => {
       if (filter === 'pinned' && !pinned.has(project.repo.id)) return false
-      if (filter === 'needs' && project.attention.total === 0 && !project.setupFailed) {
-        return false
-      }
+      if (filter === 'needs' && project.needs.total === 0) return false
       if (filter === 'live' && project.liveSessions === 0) return false
-      if (
-        filter === 'idle' &&
-        (project.liveSessions > 0 || project.attention.total > 0 || project.setupFailed)
-      ) {
+      if (filter === 'idle' && (project.needs.total !== 0 || project.load.total !== 0)) {
         return false
       }
       return projectMatchesQuery(project, normalized)
@@ -249,8 +388,8 @@ export function filterAndSortProjects(
       return (
         Number(pinned.has(right.repo.id)) - Number(pinned.has(left.repo.id)) ||
         Number(right.setupFailed) - Number(left.setupFailed) ||
-        right.attention.total - left.attention.total ||
-        right.liveSessions - left.liveSessions ||
+        right.needs.total - left.needs.total ||
+        right.load.total - left.load.total ||
         (right.lastActivityAt ?? 0) - (left.lastActivityAt ?? 0) ||
         left.repo.displayName.localeCompare(right.repo.displayName)
       )

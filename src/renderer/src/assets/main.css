@@ -371,7 +371,7 @@ select option {
 .icode-project-head,
 .icode-project-row {
   display: grid;
-  grid-template-columns: minmax(210px, 2.4fr) minmax(90px, 1fr) 110px 104px 76px 68px;
+  grid-template-columns: minmax(210px, 2.4fr) minmax(90px, 1fr) 110px 104px 84px 68px;
   gap: 10px;
   align-items: center;
   padding: 0 10px;
@@ -386,6 +386,13 @@ select option {
   font-weight: 600;
   letter-spacing: 0.09em;
   text-transform: uppercase;
+}
+
+.icode-project-head > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .icode-project-body {
@@ -433,7 +440,7 @@ select option {
 @media (max-width: 1100px) {
   .icode-project-head,
   .icode-project-row {
-    grid-template-columns: minmax(190px, 2.2fr) minmax(80px, 1fr) 96px 96px 62px 64px;
+    grid-template-columns: minmax(190px, 2.2fr) minmax(80px, 1fr) 96px 96px 76px 64px;
     gap: 8px;
   }
 }
@@ -471,9 +478,9 @@ select option {
   .icode-project-project { grid-area: project; }
   .icode-project-actions { grid-area: actions; }
   .icode-project-branch,
-  .icode-project-work,
+  .icode-project-inflight,
   .icode-project-needs,
-  .icode-project-updated {
+  .icode-project-last-active {
     display: none;
   }
 

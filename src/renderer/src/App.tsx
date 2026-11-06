@@ -348,6 +348,7 @@ export default function App(): React.JSX.Element {
         maxConcurrent={tasks.maxConcurrent}
         onOpenProject={commands.openProject}
         onOpenTask={commands.openTask}
+        onOpenSession={commands.openDirectSession}
         onAddRepository={() => setAddOpen(true)}
         onRemoveRepository={(repoId) => void workspace.removeRepository(repoId)}
         onRetryPreparation={(repoId) => void workspace.retryPreparation(repoId)}

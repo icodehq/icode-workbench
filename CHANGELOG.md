@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The Projects wall's Work column is now **In flight**: live direct sessions plus
+  running and queued tasks, excluding waiting tasks and finished work.
+- **Needs** now aggregates everything that requires a person — task Answer/Retry/
+  Review, direct agents waiting for input, and setup failures — shown as a total
+  counter with a tooltip breakdown. The "Needs you" section includes waiting
+  sessions.
+- **Updated** is now **Last active**, based on agent activity, task, and setup
+  timestamps instead of summary refresh time.
+- Wall sorting and filters follow the new needs and in-flight aggregates.
+
 ## [0.3.0] - 2026-11-06
 
 ### Changed
