@@ -124,7 +124,7 @@ jobs:
         run: pnpm package:linux
       - name: Verify packaged payload
         run: node config/scripts/verify-package.cjs --platform linux --arch x64 --dir dist/linux-unpacked
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: linux-x64
           path: |
@@ -152,7 +152,7 @@ jobs:
       - run: pnpm verify:wsl-host
       - run: pnpm selftest:wsl-host
       - run: pnpm selftest:wsl-prepare
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: wsl-host-linux-x64
           path: artifacts/wsl-host/linux-x64
@@ -181,7 +181,7 @@ jobs:
         run: node config/scripts/verify-package.cjs --platform win --arch x64 --dir dist/win-unpacked
       - name: Packaged smoke
         run: node tests/compat/packaged-smoke-win.cjs
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: windows-x64
           path: |
@@ -229,7 +229,7 @@ jobs:
           spctl -a -vv "${{ matrix.unpacked }}/iCode.app" 2>&1 || true
       - name: Packaged smoke
         run: node tests/compat/packaged-smoke-mac.cjs --app ${{ matrix.unpacked }}/iCode.app
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: macos-${{ matrix.arch }}
           path: |
