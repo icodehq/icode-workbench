@@ -171,7 +171,7 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: wsl-host-linux-x64
           path: artifacts/wsl-host/linux-x64
