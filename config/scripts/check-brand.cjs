@@ -13,6 +13,9 @@ const roots = ['src', 'config', 'tests']
 const files = ['package.json', 'README.md', 'NOTICE', 'LICENSE', '.github/CONTRIBUTING.md']
 const allowedPrefixes = []
 const allowedFiles = new Set(['config/scripts/check-brand.cjs'])
+// The README lockup uses ADE as the category acronym. Allow that exact phrase
+// while continuing to reject legacy ADE identifiers elsewhere.
+const allowedPhrases = [/THE AGENT DEVELOPMENT ENVIRONMENT \(ADE\)/gu]
 const exts = new Set(['.ts', '.tsx', '.js', '.cjs', '.mjs', '.json', '.md', '.css', '.html', '.cmd', '.ps1', '.toml'])
 
 function walk(dir) {
@@ -46,7 +49,8 @@ for (const path of candidates) {
   }
   const lines = text.split(/\r?\n/u)
   for (const [index, line] of lines.entries()) {
-    if (pattern.test(line)) violations.push(`${rel}:${String(index + 1)}: ${line.trim()}`)
+    const subject = allowedPhrases.reduce((value, phrase) => value.replace(phrase, ''), line)
+    if (pattern.test(subject)) violations.push(`${rel}:${String(index + 1)}: ${line.trim()}`)
   }
 }
 

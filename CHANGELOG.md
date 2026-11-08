@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- iCode Workbench is now licensed under the GNU Affero General Public License
+  v3.0 only (AGPL-3.0-only). A modified version made available to users over a
+  network must offer them the corresponding source under section 13.
+
 ### Fixed
 
 - A WSL shell session no longer reports its worktree as inconsistent after

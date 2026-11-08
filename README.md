@@ -528,7 +528,9 @@ even when iCode is down. A broken iCode must never block the agent.
 
 ## License
 
-[MIT](LICENSE) © iCode contributors.
+[GNU Affero General Public License v3.0 only](LICENSE) © iCode contributors.
 
+If you modify iCode Workbench and make it available to users over a network,
+section 13 of the AGPL requires you to offer them the corresponding source.
 Third-party notices are in [NOTICE](NOTICE). Release notes live in
 [CHANGELOG.md](CHANGELOG.md).

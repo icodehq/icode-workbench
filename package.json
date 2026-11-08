@@ -3,7 +3,7 @@
   "version": "0.6.0",
   "private": true,
   "description": "iCode — the next-gen agentic development environment for local coding agents",
-  "license": "MIT",
+  "license": "AGPL-3.0-only",
   "homepage": "https://github.com/icodehq/icode-workbench",
   "repository": {
     "type": "git",

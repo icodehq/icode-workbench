@@ -216,6 +216,13 @@ Evidence is written under `artifacts/`, which is ignored by Git. Never commit
 screenshots, logs, smoke JSON, or artifact trees: they are machine-local outputs,
 not product source.
 
+## License of contributions
+
+iCode Workbench is licensed under the GNU Affero General Public License v3.0
+only (AGPL-3.0-only). By submitting a contribution, you confirm that you have
+the right to license it under those terms and agree that it may be distributed
+under the project license. Do not submit code you cannot license this way.
+
 ## Before sending a change
 
 ```bash

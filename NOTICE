@@ -1,5 +1,15 @@
-iCode — third-party notices
-=========================
+iCode Workbench
+Copyright (c) 2026 iCode contributors
+
+iCode Workbench is licensed under the GNU Affero General Public License,
+version 3 only (AGPL-3.0-only). See LICENSE.
+
+If you modify iCode Workbench and make it available to users over a network,
+section 13 of the AGPL requires you to offer those users the corresponding
+source.
+
+Third-party notices
+===================
 
 Libraries
 ---------
