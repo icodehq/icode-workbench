@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="iCode">
+  <!-- Transparent brand mark: the chevron uses the wordmark green; the cursor stays neutral so it reads on light and dark. -->
+  <path d="M34 30 L70 64 L34 98 L46 108 L94 64 L46 20 Z" fill="#3FB950" />
+  <rect x="74" y="86" width="34" height="14" rx="7" fill="#8B949E" />
+</svg>

@@ -1,5 +1,5 @@
 <h1 align="center">
-  <img src="resources/build/icon.png" alt="iCode" width="64" valign="middle" /> iCode
+  <img src=".github/assets/logo.svg" alt="iCode" width="64" valign="middle" /> iCode
 </h1>
 
 <p align="center">
