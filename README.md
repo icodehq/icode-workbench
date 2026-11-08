@@ -520,3 +520,15 @@ iCode Workbench is in early experimental development and iterating quickly.
 Features, storage schemas, and packaging may change between releases. Use normal
 Git hygiene on real work, and check the [changelog](CHANGELOG.md) before
 upgrading; every user-visible change is recorded there.
+
+## Star History
+
+<p align="center">
+  <a href="https://www.star-history.com/?repos=icodehq%2Ficode-workbench&type=date&legend=top-left">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=icodehq/icode-workbench&type=date&theme=dark&legend=top-left" />
+      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=icodehq/icode-workbench&type=date&legend=top-left" />
+      <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=icodehq/icode-workbench&type=date&legend=top-left" />
+    </picture>
+  </a>
+</p>
