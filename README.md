@@ -13,7 +13,6 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=flat-square" alt="AGPL-3.0-only" /></a>
-  <a href="https://github.com/icodehq/icode-workbench/stargazers"><img src="https://img.shields.io/github/stars/icodehq/icode-workbench?style=flat-square" alt="GitHub stars" /></a>
   <img src="https://img.shields.io/badge/platforms-Linux%20%7C%20Windows%20%7C%20macOS-blue?style=flat-square" alt="Linux, Windows, and macOS" />
 </p>
 
