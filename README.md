@@ -118,9 +118,12 @@ process exit.
 Tasks can come from you, Mira, or a project supervisor. Human-created and
 higher-risk proposals wait for a person. Mira’s low-risk auto-dispatch can open
 the gate for small, unprotected work under a daily cap and protected-path policy;
-everything else stays pending. Review accept/reject is also a human decision —
-accepting records the judgement, it does not merge, push or delete anything. Merge
-remains in Source Control.
+everything else stays pending. A project supervisor is a control session bound to
+one repository; it proposes tasks from that project’s own context, follows the
+same human gate, and stays in the project’s Sessions. Mira can start or message
+one for you. Review accept/reject is also a human decision — accepting records
+the judgement, it does not merge, push or delete anything. Merge remains in
+Source Control.
 
 Schedules create ordinary queued tasks on a cadence — once, daily, weekdays,
 weekly, or every few hours — with queue-or-skip overlap handling and run-now.
