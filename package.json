@@ -2,7 +2,7 @@
   "name": "icode",
   "version": "0.6.0",
   "private": true,
-  "description": "iCode — the next-gen agentic development environment (ADE) for local coding agents",
+  "description": "iCode — the next-gen agentic development environment for local coding agents",
   "license": "MIT",
   "homepage": "https://github.com/LoongLab/iCode",
   "repository": {

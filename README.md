@@ -5,7 +5,8 @@
 <p align="center">
   <strong>The Agent Development Environment for local coding agents.</strong><br/>
   Run Claude Code, Codex, and OpenCode in parallel, each in its own Git worktree.
-  Supervise every repository from one wall, review the diff, and keep the terminal
+  Mira, your cross-project assistant, watches every repository, tells you what
+  needs you, and can act across them. Review the diff, and keep the terminal
   alive when the app restarts.
 </p>
 
@@ -20,6 +21,44 @@
 </p>
 
 ## Features
+
+### Meet Mira, your cross-project assistant
+
+Mira is a person item in the rail — `Projects · Schedules ┊ Mira ┊ Settings` —
+with an avatar, live status and unread badge. She is not another project tab and
+not a terminal: one conversation spans every repository.
+
+- **She can see the work.** Projects, tasks, sessions, review state and diffs are
+  in her context, so “what needs me?” is answered from the real queue rather than
+  a summary you have to assemble.
+- **She can act across projects.** Through validated actions she creates,
+  cancels, retries and archives tasks, messages task sessions and project
+  supervisors, records non-binding review recommendations, and remembers durable
+  preferences. She has no shell, no project working directory, and cannot approve
+  a proposal, decide a review, merge or push.
+- **She streams.** With Claude Code, replies render as Markdown while they are
+  written; the run line shows the current stage, elapsed time and thinking-token
+  count, and Stop terminates the harness — on Windows, its whole shim process
+  tree.
+- **She comes to you.** Approvals, failed or waiting tasks, review-ready work and
+  completed Mira/supervisor tasks become proactive messages with a rail badge and
+  an OS notification when no window is focused. Deduplication, an hourly budget
+  and quiet hours keep it from becoming noise.
+
+<p align="center">
+  <a href=".github/assets/mira.png"><img src=".github/assets/mira.png" alt="Mira streaming a Markdown status report with a task table, live thinking token count, and a Stop button" width="100%" /></a>
+</p>
+
+*Mira streams a Markdown status report across projects. The work line keeps the
+harness stage, elapsed time and thinking tokens visible; the reply and the actions
+are validated separately.*
+
+Mira is configured in **Settings → Mira**: persona name, run target (this machine
+or a WSL distro), preferred harness, low-risk auto-dispatch, and notification
+policy. Markdown is rendered as React nodes — headings, lists, tables, code,
+quotes and http(s) links — never as raw HTML. Low-risk tasks she creates may
+auto-dispatch under a daily cap and protected-path/keyword policy; everything else
+waits for a person.
 
 ### One wall for every project
 
@@ -64,18 +103,27 @@ and turn endings. iCode turns those events into `Working · <tool>`, `Needs you`
 no window is focused. Activity is advisory: it never changes process state, and a
 relaunch resets it to `unknown` rather than showing stale work. Only Claude Code
 reports activity today; Codex, OpenCode, and shell sessions stay `unknown` by
-design.
+design. Task-linked sessions do not raise a second OS notification: Mira owns the
+blocker message, and the activity stream stays the raw evidence.
 
-### Tasks and schedules
+### Tasks, approvals, and schedules
 
 Tasks are durable units of work, not terminal tabs. Queue work with a global 1–4
 slot limit; statuses move through `queued`, `dispatching`, `running`, `waiting`,
 `completed`, `failed`, and `cancelled`. A retry is a new attempt; cancellation
-leaves the worktree for inspection; the workbench shows the instruction, live
+leaves the worktree for inspection. The workbench shows the instruction, live
 session, changes against the task baseline, and a review decision separate from
-process exit. Schedules create ordinary queued tasks on a cadence — once, daily,
-weekdays, weekly, or every few hours — with queue-or-skip overlap handling and
-run-now.
+process exit.
+
+Tasks can come from you, Mira, or a project supervisor. Human-created and
+higher-risk proposals wait for a person. Mira’s low-risk auto-dispatch can open
+the gate for small, unprotected work under a daily cap and protected-path policy;
+everything else stays pending. Review accept/reject is also a human decision —
+accepting records the judgement, it does not merge, push or delete anything. Merge
+remains in Source Control.
+
+Schedules create ordinary queued tasks on a cadence — once, daily, weekdays,
+weekly, or every few hours — with queue-or-skip overlap handling and run-now.
 
 <p align="center">
   <a href=".github/assets/tasks.png"><img src=".github/assets/tasks.png" alt="The task workbench showing a running task, its instruction, live session, changes, and review decision" width="100%" /></a>
@@ -89,6 +137,28 @@ baseline, and a review decision.*
 </p>
 
 *Recurring tasks with queue-or-skip overlap handling.*
+
+### Task history without the clutter
+
+The default Tasks view is the working set: proposals and active work. A **Needs**
+strip brings review-pending completions, failed tasks and waiting sessions
+forward. Reviewed completions and cancellations move to **History** instead of
+accumulating beside current work. Retry chains collapse to the latest attempt;
+earlier attempts remain in the task’s Previous attempts.
+
+History can **Archive** or **Restore** a task, or **Archive all finished** in one
+click. Archive is reversible and does not delete the review, session, worktree or
+retry chain. Reviewed completions and cancellations auto-archive after seven days;
+review-pending completions and un-retried failures stay put. Archived tasks are
+excluded from attention counts, Mira’s context and notifications, but remain
+queryable as history. There is deliberately no hard-delete action.
+
+<p align="center">
+  <a href=".github/assets/task-history.png"><img src=".github/assets/task-history.png" alt="The Tasks history view showing a cancelled task, Archive all finished, and the task detail with Archive" width="100%" /></a>
+</p>
+
+*History keeps finished work out of the working list while preserving the task,
+its attempts and its review record.*
 
 ### Review where the agent worked
 
@@ -146,8 +216,12 @@ sandboxed behind a typed preload and validated IPC.
 
 **Also in the box:**
 
-- **Command palette**: `Ctrl/Cmd+K` for projects, sessions, tasks, and Source
-  Control actions; `Ctrl/Cmd+P` for quick open.
+- **Command palette**: `Ctrl/Cmd+K` for projects, sessions, tasks, Source
+  Control actions, and “Talk to Mira”; `Ctrl/Cmd+P` for quick open.
+- **Mira settings**: persona, local/WSL target, preferred harness, low-risk
+  auto-dispatch, notifications and quiet hours.
+- **Task history**: archive/restore, bulk archive of reviewed completions and
+  cancellations, collapsed retry attempts, and seven-day retention.
 - **Themes**: light by default, with System and Dark available, applied before
   first paint.
 - **Configurable workflow**: task concurrency, Source Control, and Files
@@ -160,25 +234,32 @@ sandboxed behind a typed preload and validated IPC.
   Windows and Linux.
 
 <p align="center">
-  <a href=".github/assets/settings.png"><img src=".github/assets/settings.png" alt="Settings for appearance, Source Control, Files, and host runtime" width="100%" /></a>
+  <a href=".github/assets/mira-settings.png"><img src=".github/assets/mira-settings.png" alt="Settings for appearance, Mira target and harness, notifications, Source Control, and Files" width="100%" /></a>
 </p>
 
-*Settings for appearance, task concurrency, Source Control, and Files.*
+*Settings for appearance, Mira’s target and harness, notifications, task
+concurrency, Source Control, and Files.*
 
 ## How it works
 
 1. **Add a project.** Register an existing Git checkout, or initialize a folder
    on its first commit. Repositories can live on this machine or inside a WSL
    distro.
-2. **Start a session or queue a task.** A session launches immediately; a queued
-   task starts when a slot is free. Either way, iCode creates a worktree on branch
+2. **Ask Mira, or start work directly.** Mira can answer across projects or
+   create a task for you; a session launches immediately, while a queued task
+   starts when a slot is free. Either way, iCode creates a worktree on branch
    `icode/ses_<sessionId>` at the current HEAD and launches the harness in a real
    PTY.
-3. **Work in the terminal.** Open Files and Source Control beside it. Both are
+3. **Approve or adjust the plan.** Proposals wait for a person. Review-pending
+   tasks expose Accept/Reject in the workbench; low-risk Mira tasks can already
+   be running under the auto-dispatch policy.
+4. **Work in the terminal.** Open Files and Source Control beside it. Both are
    tied to the same worktree the agent is editing.
-4. **Review.** Stage by file, folder, hunk, or line; send line notes to the agent;
+5. **Review.** Stage by file, folder, hunk, or line; send line notes to the agent;
    commit, amend, and push when the result is ready.
-5. **Finish safely.** Removing a session stops the PTY, blocks on uncommitted or
+6. **Archive the finished work.** Reviewed completions and cancellations move to
+   History; a retry chain stays one row with its attempts preserved.
+7. **Finish safely.** Removing a session stops the PTY, blocks on uncommitted or
    unmerged work, and keeps the branch even when the checkout is removed.
 
 > **iCode is the environment, not the agent.** It does not call model APIs or
@@ -201,6 +282,11 @@ Detection is tri-state and target-aware: available, unavailable after a real
 probe, or a retryable detection failure. A tool installed on Windows but missing
 inside a WSL distro is reported correctly.
 
+Mira uses the same installed CLI in a one-shot mode in a scratch directory on
+this machine or inside a WSL distro. Claude Code supplies token-by-token
+streaming; Codex and OpenCode currently report run stages and the final reply
+rather than a live text draft.
+
 ## Install
 
 iCode is pre-1.0. CI produces installers for Linux x64, Windows x64, and macOS
@@ -220,7 +306,8 @@ pnpm install
 pnpm dev
 ```
 
-Then choose **Add project**, start a session, and work in the terminal.
+Then choose **Add project**, start a session, queue a task, or open **Mira** and
+ask what needs you.
 `pnpm install` rebuilds `node-pty` against Electron's ABI on Linux; Windows and
 macOS use Node-API prebuilds.
 
@@ -267,15 +354,25 @@ adopt it:
 
 - **Activity is Claude Code only.** Codex, OpenCode, and shell sessions report
   `unknown`. Task completion for non-Claude harnesses may rely on process exit.
+- **Mira’s text stream is Claude Code only.** Codex and OpenCode show run stages
+  and the final reply. Mira is one global conversation; multiple conversations
+  and a full terminal-style session are not implemented.
 - **Tasks are supervised, not autonomous.** Dispatch starts the real interactive
   harness and types the prompt. iCode does not answer permission prompts, so a
   waiting task still needs you.
+- **Mira does not make human decisions.** She cannot approve or reject a proposal,
+  accept a review, merge or push, or delete a task. Archive is reversible;
+  permanent deletion is intentionally absent.
 - **Schedules need iCode running.** They are in-process timers, not a background
   daemon. Catch-up after a long shutdown is bounded to 24 hours.
 - **Source Control is worktree-scoped.** It covers commit, amend, history, and
   current-branch remotes. It does not manage stashes, tags, submodules, or
   arbitrary branch checkouts.
-- **The task list is bounded.** The shell loads up to 200 tasks.
+- **The task list is bounded.** The shell loads up to 200 active and archived
+  tasks, with active work ordered first.
+- **Markdown is a deliberate subset.** Headings, emphasis, code, lists, tables,
+  quotes and http(s) links render; images, task lists, footnotes, raw HTML and
+  syntax highlighting do not.
 - **Builds are unsigned.** Signing and notarization require credentials, and
   auto-update is not implemented.
 
@@ -308,6 +405,25 @@ pnpm build
 | `config` | TypeScript, Vitest, electron-builder, build scripts |
 | `tests/compat` | Compatibility gates and packaged smokes |
 | `tests/wsl` | WSL host artifact selftests and smokes |
+
+### Mira: a typed control plane
+
+Mira is a headless planner, not a repo-less PTY. A turn sends the persona, a
+compact cross-project snapshot, recent history and a typed action schema to the
+installed harness. The model answers with one JSON envelope. Main validates it
+with Zod and executes reads first; up to three harness calls are allowed per turn.
+Writes are authorized and audited in `assistant_actions`; the model never gets a
+project working directory, a shell, or a control socket. Approvals, review
+decisions, merges and deletes are absent from its action vocabulary.
+
+Claude runs with `--output-format stream-json`: text deltas feed a Markdown draft,
+thinking-token events feed the run line, and the final `result` event is captured
+as it arrives. The reply is rendered immediately, but actions execute only after
+the complete envelope validates. Low-risk auto-dispatch is a conservative policy
+over daily caps, protected keywords and protected paths; the default is three per
+project and ten globally. Notifications use a per-thread sequence watermark and a
+partial unique dedupe key, so restarts and repeated task events do not replay the
+same message.
 
 ### Terminal host and continuity
 
@@ -396,6 +512,9 @@ even when iCode is down. A broken iCode must never block the agent.
   individually.
 - Main registers a fixed IPC channel table, validates each payload with Zod,
   checks the calling frame, and maps failures to stable `AppError` codes.
+- Mira’s Markdown renderer produces React elements, never HTML. Only http(s)
+  links can reach `shell.openExternal`; `file:`, `javascript:` and custom schemes
+  are rejected in both the parser and the IPC handler.
 - The host protocol is NDJSON with a 4 MiB frame limit; malformed, oversized,
   unknown, and identity-colliding frames are rejected.
 - Agent workspace trust for new worktrees is pre-seeded for Claude and Codex.
