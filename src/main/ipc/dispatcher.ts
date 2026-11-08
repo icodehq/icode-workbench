@@ -16,6 +16,7 @@ import {
   removeRepositoryInputSchema,
   removeSessionInputSchema,
   sessionTargetInputSchema,
+  supervisorOpenInputSchema,
   terminalAttachInputSchema,
   terminalResizeInputSchema,
   terminalWriteInputSchema
@@ -45,9 +46,11 @@ import {
   scheduleListInputSchema,
   scheduleUpdateInputSchema,
   taskCreateInputSchema,
+  taskArchiveFinishedInputSchema,
   taskDecideReviewInputSchema,
   taskIdInputSchema,
   taskListInputSchema,
+  taskRejectInputSchema,
   taskSettingsInputSchema,
 } from '../../shared/schemas/workspace'
 import { clearActivityUnreadInputSchema } from '../../shared/schemas/activity'
@@ -55,6 +58,12 @@ import {
   aiCancelCommitMessageInputSchema,
   aiCommitMessageInputSchema
 } from '../../shared/schemas/ai'
+import {
+  assistantMarkReadInputSchema,
+  assistantMessagesInputSchema,
+  assistantSendInputSchema,
+  assistantSetSettingsInputSchema
+} from '../../shared/schemas/assistant'
 import type { IpcResult } from '../../shared/schemas/ipc'
 import { makeAppError } from '../../shared/domain/errors'
 import type { AppError } from '../../shared/domain/errors'
@@ -147,8 +156,16 @@ export type DispatcherServices = {
   filesWatch: (input: { sessionId: string; active: boolean }) => Promise<unknown>
   aiCommitMessage: (input: { sessionId: string; requestId: string }) => Promise<unknown>
   aiCancelCommitMessage: (input: { requestId: string }) => Promise<unknown>
-  tasksList: (input: { repoId?: string; statuses?: string[]; limit?: number }) => Promise<unknown>
+  tasksList: (input: {
+    repoId?: string
+    statuses?: string[]
+    approvals?: string[]
+    includeArchived?: boolean
+    limit?: number
+  }) => Promise<unknown>
   tasksCreate: (input: { repoId: string; title?: string; prompt: string; harness: string }) => Promise<unknown>
+  tasksApprove: (input: { taskId: string }) => Promise<unknown>
+  tasksReject: (input: { taskId: string; note?: string | null }) => Promise<unknown>
   tasksCancel: (input: { taskId: string }) => Promise<unknown>
   tasksRetry: (input: { taskId: string }) => Promise<unknown>
   tasksHistory: (input: { taskId: string }) => Promise<unknown>
@@ -159,8 +176,23 @@ export type DispatcherServices = {
     note?: string | null
     replace?: boolean
   }) => Promise<unknown>
+  tasksArchive: (input: { taskId: string }) => Promise<unknown>
+  tasksUnarchive: (input: { taskId: string }) => Promise<unknown>
+  tasksArchiveFinished: (input: { repoId?: string }) => Promise<unknown>
   tasksSettings: () => Promise<unknown>
   tasksSetSettings: (input: { maxConcurrent: number }) => Promise<unknown>
+  supervisorOpen: (input: { repoId: string }) => Promise<unknown>
+  assistantState: () => Promise<unknown>
+  assistantMessagesList: (input: {
+    threadId: string
+    beforeSeq?: number
+    limit?: number
+  }) => Promise<unknown>
+  assistantSend: (input: { text: string; repoId?: string }) => Promise<unknown>
+  assistantMarkRead: (input: { threadId: string; messageId?: string }) => Promise<unknown>
+  assistantStop: () => Promise<unknown>
+  assistantSettingsGet: () => Promise<unknown>
+  assistantSetSettings: (input: { settings: unknown }) => Promise<unknown>
   schedulesList: (input: { repoId?: string }) => Promise<unknown>
   schedulesCreate: (input: {
     repoId: string
@@ -486,6 +518,18 @@ export function createDispatcher(services: DispatcherServices): Dispatcher {
         return run(() => services.tasksCreate(input))
       }
 
+      case IPC_CHANNELS.tasksApprove: {
+        const input = parse(taskIdInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.tasksApprove(input))
+      }
+
+      case IPC_CHANNELS.tasksReject: {
+        const input = parse(taskRejectInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.tasksReject(input))
+      }
+
       case IPC_CHANNELS.tasksCancel: {
         const input = parse(taskIdInputSchema, rawInput)
         if ('code' in input) return { ok: false, error: input }
@@ -516,6 +560,24 @@ export function createDispatcher(services: DispatcherServices): Dispatcher {
         return run(() => services.tasksDecideReview(input))
       }
 
+      case IPC_CHANNELS.tasksArchive: {
+        const input = parse(taskIdInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.tasksArchive(input))
+      }
+
+      case IPC_CHANNELS.tasksUnarchive: {
+        const input = parse(taskIdInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.tasksUnarchive(input))
+      }
+
+      case IPC_CHANNELS.tasksArchiveFinished: {
+        const input = parse(taskArchiveFinishedInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.tasksArchiveFinished(input))
+      }
+
       case IPC_CHANNELS.tasksSettings: {
         return run(() => services.tasksSettings())
       }
@@ -524,6 +586,45 @@ export function createDispatcher(services: DispatcherServices): Dispatcher {
         const input = parse(taskSettingsInputSchema, rawInput)
         if ('code' in input) return { ok: false, error: input }
         return run(() => services.tasksSetSettings(input))
+      }
+
+      case IPC_CHANNELS.supervisorOpen: {
+        const input = parse(supervisorOpenInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.supervisorOpen(input))
+      }
+
+      case IPC_CHANNELS.assistantState:
+        return run(() => services.assistantState())
+
+      case IPC_CHANNELS.assistantMessagesList: {
+        const input = parse(assistantMessagesInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.assistantMessagesList(input))
+      }
+
+      case IPC_CHANNELS.assistantSend: {
+        const input = parse(assistantSendInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.assistantSend(input))
+      }
+
+      case IPC_CHANNELS.assistantMarkRead: {
+        const input = parse(assistantMarkReadInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.assistantMarkRead(input))
+      }
+
+      case IPC_CHANNELS.assistantStop:
+        return run(() => services.assistantStop())
+
+      case IPC_CHANNELS.assistantSettingsGet:
+        return run(() => services.assistantSettingsGet())
+
+      case IPC_CHANNELS.assistantSetSettings: {
+        const input = parse(assistantSetSettingsInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.assistantSetSettings(input))
       }
 
       case IPC_CHANNELS.schedulesList: {

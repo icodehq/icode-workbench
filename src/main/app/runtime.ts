@@ -1,4 +1,4 @@
-import { app } from 'electron'
+import { app, BrowserWindow, Notification } from 'electron'
 import { getAppPersistence, closeAppPersistence } from '../persistence'
 import { HostSupervisor } from '../host/host-supervisor'
 import { SupervisorHostGateway } from '../sessions/host-gateway'
@@ -28,6 +28,14 @@ import { TaskStore } from '../tasks/task-store'
 import { TaskService } from '../tasks/task-service'
 import { TaskDispatcher } from '../tasks/task-dispatcher'
 import { TaskScheduler } from '../tasks/task-scheduler'
+import { SupervisorStore } from '../persistence/supervisor-store'
+import { SupervisorService } from '../supervisor/supervisor-service'
+import { AssistantStore } from '../persistence/assistant-store'
+import { AssistantService } from '../assistant/assistant-service'
+import { AssistantRunner } from '../assistant/assistant-runner'
+import { AssistantActions } from '../assistant/assistant-actions'
+import { AssistantPolicy } from '../assistant/assistant-policy'
+import { AssistantNotifier } from '../assistant/assistant-notifier'
 import { ActivityService } from '../activity/activity-service'
 import { ActivityHookServer } from '../activity/hook-server'
 import { activitySocketPath as activityEndpoint } from '../activity/endpoint'
@@ -85,6 +93,10 @@ export type AppRuntime = {
   schedules: TaskScheduler
   /** The queue pump, exposed for the boot sequence and for tests. */
   taskDispatcher: TaskDispatcher
+  /** One project-scoped control session and its local control plane. */
+  supervisor: SupervisorService
+  /** The global Mira thread. */
+  assistant: AssistantService
   /** Subscribe to task changes so a window can re-read the queue. */
   onTaskChange: (listener: () => void) => () => void
   harness: HarnessDetector
@@ -147,7 +159,11 @@ export async function startAppRuntime(): Promise<AppRuntime> {
         : undefined
   })
 
-  const activityBroadcaster = new ActivityBroadcaster()
+  let taskStoreForActivity: TaskStore | null = null
+  const activityBroadcaster = new ActivityBroadcaster({
+    isTaskSession: (sessionId) =>
+      taskStoreForActivity?.findBySessionId(sessionId as never) != null
+  })
   /**
    * Set once the task layer exists. Activity is constructed before tasks (it is
    * a session concern), so the link is a callback rather than a constructor
@@ -155,11 +171,13 @@ export async function startAppRuntime(): Promise<AppRuntime> {
    * from a live process, so it must not be forgotten.
    */
   let onTaskActivity: ((sessionId: string, activity: { state: string; outcome: string | null }) => void) | null = null
+  let assistantNotifier: AssistantNotifier | null = null
   const activity = new ActivityService({
     isKnownSession: (sessionId) => persistence.sessions.findById(sessionId as never) !== null,
     onTransition: (transition) => {
       const row = persistence.sessions.findById(transition.sessionId as never)
       activityBroadcaster.handle(transition, row?.title ?? 'iCode session')
+      assistantNotifier?.onChange()
       if (transition.harnessSessionId !== null) {
         persistence.sessions.setResumeToken(
           transition.sessionId as SessionId,
@@ -630,6 +648,8 @@ export async function startAppRuntime(): Promise<AppRuntime> {
    * schedule tick must be able to create a task without being able to start it.
    */
   const taskStore = new TaskStore(persistence.database)
+  taskStoreForActivity = taskStore
+  let supervisorService: SupervisorService | null = null
 
   /**
    * Host-confirmed session facts for task display.
@@ -663,7 +683,8 @@ export async function startAppRuntime(): Promise<AppRuntime> {
       return facts?.state === 'live' || facts?.state === 'starting'
     },
     sessionState: (sessionId) => sessionFacts.get(sessionId) ?? null,
-    sessionWorktree: sessionWorktreePath
+    sessionWorktree: sessionWorktreePath,
+    activity
   })
 
   const taskService = new TaskService({
@@ -717,6 +738,96 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     onChange: () => emitTaskChange()
   })
 
+  const supervisorStore = new SupervisorStore(persistence.database)
+  supervisorService = new SupervisorService({
+    userDataDir: app.getPath('userData'),
+    execPath: process.execPath,
+    now: () => Date.now(),
+    store: supervisorStore,
+    sessions,
+    tasks: taskService,
+    taskStore,
+    repositories: persistence.repositories,
+    gitWorkspace,
+    workspaceFiles: files,
+    listHarnesses,
+    activity,
+    onError: (error) => {
+      process.stderr.write(`[icode] supervisor: ${String(error)}\n`)
+    }
+  })
+  await supervisorService.start().catch((error) => {
+    process.stderr.write(`[icode] supervisor control plane failed to start: ${String(error)}\n`)
+  })
+
+  const assistantStore = new AssistantStore(persistence.database)
+  const assistantPolicy = new AssistantPolicy({ tasks: taskStore, now: () => Date.now() })
+  const assistantRunner = new AssistantRunner({
+    store: assistantStore,
+    actionsFor: (threadId, runId) =>
+      new AssistantActions({
+        store: assistantStore,
+        tasks: taskService,
+        taskStore,
+        sessions,
+        supervisors: supervisorService!,
+        repositories: persistence.repositories,
+        gitWorkspace,
+        policy: assistantPolicy,
+        listHarnesses,
+        threadId,
+        runId,
+        now: () => Date.now()
+      }),
+    taskStore,
+    tasks: taskService,
+    repositories: persistence.repositories,
+    sessions,
+    settings: () => assistantStore.getSettings(),
+    detectHarness: detectHarnessForTarget,
+    listWslDistros: async () =>
+      toWslDistroListPayload(await discoverWslDistros({ runner: wslRunner })),
+    readGuestHome: (distro) => readGuestHome(wslRunner, distro),
+    wslRunner,
+    workspaceTrust,
+    userDataDir: app.getPath('userData'),
+    now: () => Date.now(),
+    onError: (error) => {
+      process.stderr.write(`[icode] assistant runner: ${String(error)}\n`)
+    }
+  })
+  const assistantService = new AssistantService({
+    store: assistantStore,
+    now: () => Date.now(),
+    newId: (prefix) => `${prefix}_${globalThis.crypto.randomUUID()}`,
+    runner: assistantRunner,
+    onError: (error) => {
+      process.stderr.write(`[icode] assistant: ${String(error)}\n`)
+    }
+  })
+  assistantService.start()
+  assistantNotifier = new AssistantNotifier({
+    service: assistantService,
+    taskStore,
+    repositories: persistence.repositories,
+    settings: () => assistantStore.getSettings(),
+    now: () => Date.now(),
+    isWindowFocused: () => BrowserWindow.getFocusedWindow() !== null,
+    onOsNotify: ({ title, body, messageId }) => {
+      if (!Notification.isSupported()) return
+      const notification = new Notification({ title, body })
+      notification.on('click', () => {
+        const window = BrowserWindow.getAllWindows().find((entry) => !entry.isDestroyed())
+        if (window) {
+          window.show()
+          window.focus()
+        }
+        assistantService.focus(messageId)
+      })
+      notification.show()
+    }
+  })
+
   /**
    * Task-change notification.
    *
@@ -756,6 +867,8 @@ export async function startAppRuntime(): Promise<AppRuntime> {
 
   const taskListeners = new Set<() => void>()
   const emitTaskChange = (): void => {
+    supervisorService?.notifyTaskChange()
+    assistantNotifier?.onChange()
     for (const listener of taskListeners) {
       try {
         listener()
@@ -766,6 +879,7 @@ export async function startAppRuntime(): Promise<AppRuntime> {
   }
 
   let shutdownPromise: Promise<void> | null = null
+  let taskArchiveTimer: NodeJS.Timeout | null = null
   const api: AppRuntime = {
     onTaskChange: (listener: () => void) => {
       taskListeners.add(listener)
@@ -790,6 +904,8 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     tasks: taskService,
     schedules: taskScheduler,
     taskDispatcher,
+    supervisor: supervisorService!,
+    assistant: assistantService,
     harness,
     listHarnesses,
     listWslDistros: async () => toWslDistroListPayload(await discoverWslDistros({ runner: wslRunner })),
@@ -813,8 +929,13 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     shutdown: () => {
       if (shutdownPromise) return shutdownPromise
       shutdownPromise = (async () => {
+        if (taskArchiveTimer !== null) clearInterval(taskArchiveTimer)
+        taskArchiveTimer = null
+        assistantNotifier?.stop()
+        assistantService.stop()
         taskScheduler.stop()
         taskDispatcher.stop()
+        await supervisorService?.stop().catch(() => undefined)
         await gitStatusWatcher.stopAll().catch(() => undefined)
         await filesWatcher.stopAll().catch(() => undefined)
         await activityServer.stop().catch(() => undefined)
@@ -839,11 +960,20 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     // order, so the dispatcher never reads a state this handler has not applied.
     sessions.subscribe((payload) => {
       trackSessionFacts(payload as never)
+      assistantNotifier?.onChange()
     })
     taskDispatcher.start()
     const recovered = await taskDispatcher.recover().catch(() => ({ requeued: 0, interrupted: 0 }))
     if (recovered.interrupted > 0 || recovered.requeued > 0) emitTaskChange()
     taskScheduler.start()
+    // Reversible retention: reviewed completions and cancellations leave the
+    // working list after a week; review-pending and failed work stay put.
+    taskService.archiveStale(7)
+    taskArchiveTimer = setInterval(() => {
+      taskService.archiveStale(7)
+    }, 6 * 60 * 60 * 1000)
+    taskArchiveTimer.unref?.()
+    void assistantNotifier?.start()
     // A schedule may have come due while the app was closed; the first tick
     // applies the age rule, so a long outage cannot replay every missed run.
     void taskScheduler.tick()

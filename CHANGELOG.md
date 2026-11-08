@@ -7,6 +7,79 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-08
+
+### Added
+
+- A global **Mira** assistant: one conversation across every project, opened
+  from a person item in the app rail (`Projects · Schedules ┊ Mira ┊
+  Settings`). She has an avatar, live status, unread badge and OS
+  notifications.
+- Mira uses the installed Claude Code, Codex or OpenCode harness in one-shot
+  read-only mode. The harness returns a typed JSON envelope; the main process
+  validates and executes every action, so the model has no project cwd, shell
+  or control socket.
+- Cross-project actions: inspect projects, tasks, sessions and diffs; create,
+  cancel and retry tasks; message task sessions and project supervisors; record
+  non-binding review recommendations; remember durable preferences.
+- Low-risk auto-dispatch for Mira-created tasks, with per-project and global
+  daily caps, protected keywords and paths, audit rows, and a visible off
+  switch. Human approval still gates higher-risk work; review and merge remain
+  human-only.
+- Proactive notifications for approvals, failed or waiting tasks, review-ready
+  work, completed Mira/supervisor tasks and failed first-commit setup, with
+  deduplication, an hourly budget and quiet hours.
+- Live Mira progress: the run stage, elapsed time, thinking-token count and a
+  streaming reply draft are shown while the harness works. Claude uses
+  `stream-json`; the final envelope is still validated before any action runs.
+- Mira replies render as Markdown: headings, bold/italic, inline code, fenced
+  code, lists, GFM tables, blockquotes, rules and http(s) links. The parser is
+  dependency-free and renders React nodes, never HTML; it also parses
+  incrementally while text streams.
+- A Mira settings card for persona name, run target (local or a WSL distro),
+  preferred harness, auto-dispatch, notifications and quiet mode; the project
+  header now opens the global conversation with a project context instead of
+  starting a separate supervisor session.
+- Task history instead of a growing working list: the default Tasks view shows
+  active/review-pending work, completed/cancelled work moves to History, and
+  retry predecessors collapse into the latest attempt. Archive/Restore and
+  “Archive all finished” keep the row, review, session and retry chain intact;
+  reviewed completions and cancellations auto-archive after seven days.
+- Mira can archive a finished task (reversible); deleting a task remains a
+  human-only concept and is not exposed to her.
+- SQLite migration v9: assistant threads, messages, runs, memory, settings and
+  actions; task provenance columns (`created_by_actor`, `assistant_run_id`,
+  `approval_policy`) and `tasks_session_idx`.
+- SQLite migration v10: `tasks.archived_at` and its history index.
+
+### Fixed
+
+- Large Claude stream-json turns no longer lose their final `result` event to
+  the old 1 MB stdout cap. The cap is now 16 MB, and the streaming parser keeps
+  the result event as it arrives even if the accumulated stdout is truncated.
+- A timed-out or stopped Mira turn now kills the whole harness process tree.
+  Windows npm shims leave the agent as a grandchild; killing only `cmd.exe`
+  kept its stdout pipes open and left “Mira is working…” well past the
+  deadline. Harness failures also surface the CLI's own error text.
+- Task retries now carry Mira provenance and the policy that approved the
+  original attempt.
+- Task-linked sessions no longer raise a second OS notification from the
+  activity broadcaster; the assistant notifier owns that delivery.
+
+## [0.5.0] - 2026-11-07
+
+### Added
+
+- A project-scoped **Supervisor** session: a normal agent session with a narrow
+  local control CLI. It can inspect tasks, propose tasks (which wait for human
+  approval), cancel or retry only the tasks it created, steer their sessions,
+  and record non-binding review recommendations.
+- Task proposals use a new approval gate: pending proposals are visible in the
+  Projects/Tasks views and never reach the dispatcher until a person approves
+  them. Rejection is recorded as `approval-rejected`.
+- Supervisor review recommendations sit beside the existing human Accept/Reject
+  decision and never set that decision themselves.
+
 ### Changed
 
 - The Projects wall's Work column is now **In flight**: live direct sessions plus
@@ -20,6 +93,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Wall sorting and filters follow the new needs and in-flight aggregates.
 - The appearance preference now defaults to Light; System and Dark remain
   available.
+
+### Fixed
+
+- Supervisor bootstrap prompts now wait for the agent TUI, use bracketed paste
+  with CR line breaks, and submit with a separate Enter; Claude activity is used
+  to retry a lost submit.
+- Clicking Supervisor now opens the newly created session instead of leaving the
+  project on the Tasks view.
+- Review recommendations refresh the task UI immediately.
+- Selecting any part of a task row now switches the workbench; Approve, Reject,
+  Cancel and Retry still own their own clicks.
+- Windows named-pipe control requests now use newline framing, so the response
+  is not lost when a client half-closes the connection.
 
 ## [0.3.0] - 2026-11-06
 

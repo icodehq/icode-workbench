@@ -5,6 +5,8 @@ import type { Notice } from '../state/workspace'
 
 export type TaskQueue = {
   tasks: TaskRecordPayload[]
+  /** Terminal tasks hidden from the working list; History reads these. */
+  archivedTasks: TaskRecordPayload[]
   schedules: TaskSchedulePayload[]
   maxConcurrent: number
   loading: boolean
@@ -22,6 +24,7 @@ export type TaskQueue = {
  */
 export function useTaskQueue(notify: (notice: Notice) => void): TaskQueue {
   const [tasks, setTasks] = useState<TaskRecordPayload[]>([])
+  const [archivedTasks, setArchivedTasks] = useState<TaskRecordPayload[]>([])
   const [schedules, setSchedules] = useState<TaskSchedulePayload[]>([])
   const [maxConcurrent, setMaxConcurrentValue] = useState(1)
   const [loading, setLoading] = useState(true)
@@ -30,12 +33,19 @@ export function useTaskQueue(notify: (notice: Notice) => void): TaskQueue {
   const reload = useCallback(
     async (announce = false): Promise<void> => {
       const [tasksResult, schedulesResult, settingsResult] = await Promise.all([
-        callApi<TaskRecordPayload[]>(window.icode.tasks.list({ limit: 200 })),
+        callApi<TaskRecordPayload[]>(
+          window.icode.tasks.list({ limit: 200, includeArchived: true })
+        ),
         callApi<TaskSchedulePayload[]>(window.icode.schedules.list({})),
         callApi<{ maxConcurrent: number }>(window.icode.tasks.settings())
       ])
       if (!mounted.current) return
-      if (tasksResult.ok) setTasks(tasksResult.value)
+      if (tasksResult.ok) {
+        setTasks(tasksResult.value.filter((task) => task.archivedAt === null || task.archivedAt === undefined))
+        setArchivedTasks(
+          tasksResult.value.filter((task) => task.archivedAt !== null && task.archivedAt !== undefined)
+        )
+      }
       else if (announce) notify(errorNotice(tasksResult.error))
       if (schedulesResult.ok) setSchedules(schedulesResult.value)
       else if (announce) notify(errorNotice(schedulesResult.error))
@@ -71,6 +81,7 @@ export function useTaskQueue(notify: (notice: Notice) => void): TaskQueue {
 
   return {
     tasks,
+    archivedTasks,
     schedules,
     maxConcurrent,
     loading,

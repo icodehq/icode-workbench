@@ -3,8 +3,11 @@ import type { HarnessId } from '../../shared/domain/harness'
 import type { RepoId, SessionId, WorkspaceId } from '../../shared/domain/ids'
 import type {
   ReviewDecision,
+  ReviewRecommendation,
+  TaskApproval,
   TaskFailureReason,
   TaskListFilter,
+  TaskOrigin,
   TaskRecord,
   TaskStatus
 } from '../../shared/domain/task'
@@ -28,6 +31,10 @@ import type {
 
 const TASK_COLUMNS = `id, workspace_id, repo_id, title, prompt, harness, status, session_id,
   worktree_path, attempt, previous_task_id, schedule_id, occurrence_at, dedupe_key,
+  origin, created_by_session_id, created_by_actor, assistant_run_id, approval_policy,
+  approval, approved_at, approved_by, archived_at,
+  review_recommendation, review_recommendation_note, review_recommended_at,
+  review_recommended_by_session_id,
   created_at, updated_at, started_at, finished_at, result_summary, error, error_detail,
   failure_reason, last_observed_state, exit_code, review_decision, reviewed_at, review_note`
 
@@ -46,6 +53,19 @@ type TaskRow = {
   schedule_id: string | null
   occurrence_at: number | null
   dedupe_key: string | null
+  origin: string
+  created_by_session_id: string | null
+  created_by_actor: string | null
+  assistant_run_id: string | null
+  approval_policy: string | null
+  approval: string
+  approved_at: number | null
+  approved_by: string | null
+  archived_at: number | null
+  review_recommendation: string | null
+  review_recommendation_note: string | null
+  review_recommended_at: number | null
+  review_recommended_by_session_id: string | null
   created_at: number
   updated_at: number
   started_at: number | null
@@ -76,6 +96,15 @@ function taskFromRow(row: TaskRow): TaskRecord {
     previousTaskId: row.previous_task_id,
     scheduleId: row.schedule_id,
     occurrenceAt: row.occurrence_at,
+    origin: row.origin as TaskOrigin,
+    createdBySessionId: row.created_by_session_id as SessionId | null,
+    createdByActor: row.created_by_actor,
+    assistantRunId: row.assistant_run_id,
+    approvalPolicy: row.approval_policy,
+    approval: row.approval as TaskApproval,
+    approvedAt: row.approved_at,
+    approvedBy: row.approved_by,
+    archivedAt: row.archived_at,
     dedupeKey: row.dedupe_key,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -89,7 +118,11 @@ function taskFromRow(row: TaskRow): TaskRecord {
     exitCode: row.exit_code,
     reviewDecision: row.review_decision as ReviewDecision,
     reviewedAt: row.reviewed_at,
-    reviewNote: row.review_note
+    reviewNote: row.review_note,
+    reviewRecommendation: row.review_recommendation as ReviewRecommendation | null,
+    reviewRecommendationNote: row.review_recommendation_note,
+    reviewRecommendedAt: row.review_recommended_at,
+    reviewRecommendedBySessionId: row.review_recommended_by_session_id as SessionId | null
   }
 }
 
@@ -105,6 +138,14 @@ export type NewTaskRow = {
   scheduleId: string | null
   occurrenceAt: number | null
   dedupeKey: string | null
+  origin?: TaskOrigin
+  createdBySessionId?: SessionId | null
+  createdByActor?: string | null
+  assistantRunId?: string | null
+  approvalPolicy?: string | null
+  approval?: TaskApproval
+  approvedAt?: number | null
+  approvedBy?: string | null
 }
 
 export type TaskPatch = {
@@ -134,8 +175,25 @@ export class TaskStore {
   insert(draft: NewTaskRow, now: number): TaskRecord | null {
     const result = this.db.raw
       .prepare(
-        `INSERT INTO tasks (${TASK_COLUMNS})
-         VALUES (?, ?, ?, ?, ?, ?, 'queued', NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'pending', NULL, NULL)
+        `INSERT INTO tasks (
+           id, workspace_id, repo_id, title, prompt, harness, status, session_id,
+           worktree_path, attempt, previous_task_id, schedule_id, occurrence_at, dedupe_key,
+           origin, created_by_session_id, created_by_actor, assistant_run_id, approval_policy,
+           approval, approved_at, approved_by,
+           review_recommendation, review_recommendation_note, review_recommended_at,
+           review_recommended_by_session_id,
+           created_at, updated_at, started_at, finished_at, result_summary, error, error_detail,
+           failure_reason, last_observed_state, exit_code, review_decision, reviewed_at, review_note
+         )
+         VALUES (
+           ?, ?, ?, ?, ?, ?, 'queued', NULL,
+           NULL, ?, ?, ?, ?, ?,
+           ?, ?, ?, ?, ?,
+           ?, ?, ?,
+           NULL, NULL, NULL, NULL,
+           ?, ?, NULL, NULL, NULL, NULL, NULL,
+           NULL, NULL, NULL, 'pending', NULL, NULL
+         )
          ON CONFLICT (dedupe_key) DO NOTHING`
       )
       .run(
@@ -150,6 +208,14 @@ export class TaskStore {
         draft.scheduleId,
         draft.occurrenceAt,
         draft.dedupeKey,
+        draft.origin ?? 'human',
+        draft.createdBySessionId ?? null,
+        draft.createdByActor ?? null,
+        draft.assistantRunId ?? null,
+        draft.approvalPolicy ?? null,
+        draft.approval ?? 'approved',
+        draft.approvedAt !== undefined ? draft.approvedAt : now,
+        draft.approvedBy !== undefined ? draft.approvedBy : 'human',
         now,
         now
       )
@@ -171,6 +237,41 @@ export class TaskStore {
     return row ? taskFromRow(row) : null
   }
 
+  /**
+   * The task that currently owns a session, if any.
+   *
+   * Used by notifications to tell a task session from a direct session without
+   * scanning every task in memory.
+   */
+  findBySessionId(sessionId: SessionId): TaskRecord | null {
+    const row = this.db.raw
+      .prepare(
+        `SELECT ${TASK_COLUMNS} FROM tasks
+         WHERE session_id = ? ORDER BY created_at DESC, id DESC LIMIT 1`
+      )
+      .get(sessionId) as TaskRow | undefined
+    return row ? taskFromRow(row) : null
+  }
+
+  /** How many Mira auto-dispatch tasks were created since a local timestamp. */
+  countAutoDispatchedSince(actor: string, since: number, repoId?: RepoId): number {
+    const row = repoId
+      ? (this.db.raw
+          .prepare(
+            `SELECT COUNT(*) AS n FROM tasks
+             WHERE created_by_actor = ? AND approved_by = 'mira-policy'
+               AND created_at >= ? AND repo_id = ?`
+          )
+          .get(actor, since, repoId) as { n: number })
+      : (this.db.raw
+          .prepare(
+            `SELECT COUNT(*) AS n FROM tasks
+             WHERE created_by_actor = ? AND approved_by = 'mira-policy' AND created_at >= ?`
+          )
+          .get(actor, since) as { n: number })
+    return Number(row.n)
+  }
+
   list(filter: TaskListFilter = {}): TaskRecord[] {
     const clauses: string[] = []
     const params: Array<string | number> = []
@@ -182,13 +283,96 @@ export class TaskStore {
       clauses.push(`status IN (${filter.statuses.map(() => '?').join(', ')})`)
       params.push(...filter.statuses)
     }
+    if (filter.approvals && filter.approvals.length > 0) {
+      clauses.push(`approval IN (${filter.approvals.map(() => '?').join(', ')})`)
+      params.push(...filter.approvals)
+    }
+    if (!filter.includeArchived) clauses.push('archived_at IS NULL')
+    if (!filter.includeAttempts) {
+      clauses.push(
+        'NOT EXISTS (SELECT 1 FROM tasks AS retry WHERE retry.previous_task_id = tasks.id)'
+      )
+    }
     const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : ''
     // Newest first: a queue is read from the work that was just submitted.
     const limit = filter.limit ?? 200
     const rows = this.db.raw
-      .prepare(`SELECT ${TASK_COLUMNS} FROM tasks ${where} ORDER BY created_at DESC, id DESC LIMIT ?`)
+      .prepare(
+        `SELECT ${TASK_COLUMNS} FROM tasks ${where}
+         ORDER BY CASE WHEN archived_at IS NULL THEN 0 ELSE 1 END,
+                  created_at DESC, id DESC
+         LIMIT ?`
+      )
       .all(...params, limit) as TaskRow[]
     return rows.map(taskFromRow)
+  }
+
+  /** Hides a terminal task from working lists; the row is not deleted. */
+  archive(id: string, now: number): boolean {
+    const result = this.db.raw
+      .prepare(
+        `UPDATE tasks SET archived_at = ?
+         WHERE id = ? AND archived_at IS NULL
+           AND status IN ('completed', 'failed', 'cancelled')`
+      )
+      .run(now, id)
+    return Number(result.changes) === 1
+  }
+
+  unarchive(id: string, now: number): boolean {
+    const result = this.db.raw
+      .prepare(
+        `UPDATE tasks SET archived_at = NULL, updated_at = ?
+         WHERE id = ? AND archived_at IS NOT NULL`
+      )
+      .run(now, id)
+    return Number(result.changes) === 1
+  }
+
+  /**
+   * Bulk-archives only finished work that no longer needs a person: reviewed
+   * completions and cancellations. A completion still awaiting review and a
+   * failed task stay in Needs by design.
+   */
+  archiveFinished(repoId: RepoId | undefined, now: number): number {
+    const result = repoId
+      ? this.db.raw
+          .prepare(
+            `UPDATE tasks SET archived_at = ?
+             WHERE archived_at IS NULL AND repo_id = ?
+               AND (
+                 (status = 'completed' AND review_decision <> 'pending')
+                 OR status = 'cancelled'
+               )`
+          )
+          .run(now, repoId)
+      : this.db.raw
+          .prepare(
+            `UPDATE tasks SET archived_at = ?
+             WHERE archived_at IS NULL
+               AND (
+                 (status = 'completed' AND review_decision <> 'pending')
+                 OR status = 'cancelled'
+               )`
+          )
+          .run(now)
+    return Number(result.changes)
+  }
+
+  /** The boot-time retention sweep; the same rule as the manual bulk action. */
+  archiveStale(cutoff: number, now: number): number {
+    const result = this.db.raw
+      .prepare(
+        `UPDATE tasks SET archived_at = ?
+         WHERE archived_at IS NULL
+           AND updated_at < ?
+           AND (
+             (status = 'completed' AND review_decision <> 'pending')
+             OR status = 'cancelled'
+           )`
+      )
+      .run(now, cutoff)
+    return Number(result.changes)
   }
 
   /** Tasks that would occupy a slot right now. */
@@ -201,11 +385,13 @@ export class TaskStore {
     return Number(row.n)
   }
 
-  /** The oldest queued task, or `null`. Ordering is the queue. */
+  /** The oldest approved queued task, or `null`. Ordering is the queue. */
   nextQueued(): TaskRecord | null {
     const row = this.db.raw
       .prepare(
-        `SELECT ${TASK_COLUMNS} FROM tasks WHERE status = 'queued' ORDER BY created_at ASC, id ASC LIMIT 1`
+        `SELECT ${TASK_COLUMNS} FROM tasks
+         WHERE status = 'queued' AND approval = 'approved'
+         ORDER BY created_at ASC, id ASC LIMIT 1`
       )
       .get() as TaskRow | undefined
     return row ? taskFromRow(row) : null
@@ -214,14 +400,15 @@ export class TaskStore {
   /**
    * Claims a queued task for dispatch.
    *
-   * The `WHERE status = 'queued'` is the duplicate-start guard: a task already
-   * claimed cannot be claimed again, no matter how many callers race.
+   * The `WHERE status = 'queued' AND approval = 'approved'` is the duplicate-start
+   * and human-gate guard: a task already claimed, or not yet approved, cannot be
+   * claimed no matter how many callers race.
    */
   claim(id: string, now: number): boolean {
     const result = this.db.raw
       .prepare(
         `UPDATE tasks SET status = 'dispatching', started_at = ?, updated_at = ?
-         WHERE id = ? AND status = 'queued'`
+         WHERE id = ? AND status = 'queued' AND approval = 'approved'`
       )
       .run(now, now, id)
     return Number(result.changes) === 1
@@ -285,6 +472,89 @@ export class TaskStore {
          WHERE id = ? AND review_decision = ?`
       )
       .run(decision, now, note, now, id, expected)
+    return Number(result.changes) === 1
+  }
+
+  /**
+   * Approves a queued proposal.
+   *
+   * Only `pending` + `queued` may move; a task that already started, finished,
+   * or was rejected cannot be retroactively approved into a launch.
+   */
+  approvePending(id: string, approvedBy: string, now: number): boolean {
+    const result = this.db.raw
+      .prepare(
+        `UPDATE tasks
+         SET approval = 'approved', approved_at = ?, approved_by = ?, updated_at = ?
+         WHERE id = ? AND approval = 'pending' AND status = 'queued'`
+      )
+      .run(now, approvedBy, now, id)
+    return Number(result.changes) === 1
+  }
+
+  /**
+   * Rejects a queued proposal as cancelled.
+   *
+   * The work never starts; `approval = 'rejected'` preserves why the row exists
+   * while `status = 'cancelled'` keeps it out of the active queue forever.
+   */
+  rejectPending(id: string, note: string | null, now: number): boolean {
+    const result = this.db.raw
+      .prepare(
+        `UPDATE tasks
+         SET approval = 'rejected', status = 'cancelled', finished_at = ?,
+             failure_reason = 'approval-rejected',
+             error = 'Rejected before it started.',
+             error_detail = ?, updated_at = ?
+         WHERE id = ? AND approval = 'pending' AND status = 'queued'`
+      )
+      .run(now, note, now, id)
+    return Number(result.changes) === 1
+  }
+
+  countPending(repoId: RepoId): number {
+    const row = this.db.raw
+      .prepare(
+        `SELECT COUNT(*) AS n FROM tasks
+         WHERE repo_id = ? AND approval = 'pending' AND status = 'queued'`
+      )
+      .get(repoId) as { n: number }
+    return Number(row.n)
+  }
+
+  /** How many Mira tasks are waiting for approval across all projects. */
+  countPendingByActor(actor: string): number {
+    const row = this.db.raw
+      .prepare(
+        `SELECT COUNT(*) AS n FROM tasks
+         WHERE created_by_actor = ? AND approval = 'pending' AND status = 'queued'`
+      )
+      .get(actor) as { n: number }
+    return Number(row.n)
+  }
+
+  /**
+   * Records a non-binding review recommendation.
+   *
+   * Conditional on the task still awaiting a human decision, so a late
+   * supervisor cannot overwrite the record of a decision a person already made.
+   */
+  setReviewRecommendation(
+    id: string,
+    recommendation: ReviewRecommendation,
+    note: string | null,
+    sessionId: SessionId | null,
+    now: number
+  ): boolean {
+    const result = this.db.raw
+      .prepare(
+        `UPDATE tasks
+         SET review_recommendation = ?, review_recommendation_note = ?,
+             review_recommended_at = ?, review_recommended_by_session_id = ?, updated_at = ?
+         WHERE id = ? AND review_decision = 'pending'
+           AND status IN ('completed', 'failed', 'cancelled')`
+      )
+      .run(recommendation, note, now, sessionId, now, id)
     return Number(result.changes) === 1
   }
 

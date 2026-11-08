@@ -14,6 +14,8 @@ import ProjectsPage from './pages/ProjectsPage'
 import SessionsPage from './pages/SessionsPage'
 import SettingsPage from './pages/SettingsPage'
 import TasksPage from './pages/TasksPage'
+import AssistantPage from './pages/AssistantPage'
+import type { AssistantTaskAction } from './components/AssistantCardView'
 import StatusBar from './components/StatusBar'
 import AppLayout from './layouts/AppLayout'
 import GlobalOverlays from './layouts/GlobalOverlays'
@@ -24,6 +26,7 @@ import { useSessionPanes } from './state/use-session-panes'
 import { taskAttention } from './components/task-status'
 import { useWorkspace } from './state/use-workspace'
 import { useTaskQueue } from './state/use-task-queue'
+import { useAssistant } from './state/use-assistant'
 import { useThemePreference } from './theme/use-theme'
 import { activeRepo, activeSession } from './state/workspace'
 import { hostStatus } from './state/host-status'
@@ -37,7 +40,7 @@ import { openFilesStore } from './files/open-files'
 import { pruneTreeStates } from './files/tree-state'
 import { filesClipboardStore } from './files/files-clipboard'
 
-const NEEDS_ORDER = { Answer: 0, Retry: 1, Review: 2 } as const
+const NEEDS_ORDER = { Approval: 0, Answer: 1, Retry: 2, Review: 3 } as const
 const SESSIONS_LIST_KEY = 'icode.sessionsListOpen'
 
 /**
@@ -75,8 +78,33 @@ export default function App(): React.JSX.Element {
     focusableSessionId,
     viewRequest,
     openRequest,
+    assistantTarget,
     commands
   } = useAppNavigation({ workspace, tasks })
+
+  const assistant = useAssistant(workspace.notify, (event) =>
+    commands.showAssistant({ threadId: event.threadId, messageId: event.messageId })
+  )
+
+  const runAssistantTaskAction = useCallback(
+    async (action: AssistantTaskAction, taskId: string): Promise<void> => {
+      const result =
+        action === 'approve'
+          ? await window.icode.tasks.approve({ taskId })
+          : action === 'reject'
+            ? await window.icode.tasks.reject({ taskId })
+            : action === 'retry'
+              ? await window.icode.tasks.retry({ taskId })
+              : await window.icode.tasks.cancel({ taskId })
+      if (!result.ok) {
+        workspace.notify({ tone: 'error', message: result.error.message })
+        return
+      }
+      await tasks.reload()
+      await assistant.reload()
+    },
+    [assistant.reload, tasks.reload, workspace]
+  )
 
   // Tabs belong to live sessions only. Keeping a removed session's dirty text
   // would make the close guard ask about a session the user can no longer see.
@@ -135,6 +163,17 @@ export default function App(): React.JSX.Element {
     return byRepo
   }, [state.repos, state.sessions, tasks.tasks])
 
+  const supervisorProposals = useMemo(
+    () =>
+      repo === null
+        ? 0
+        : tasks.tasks.filter(
+            (task) =>
+              task.repoId === repo.id && task.approval === 'pending' && task.status === 'queued'
+          ).length,
+    [repo, tasks.tasks]
+  )
+
   const needsTasks = useMemo(
     () =>
       tasks.tasks
@@ -158,6 +197,7 @@ export default function App(): React.JSX.Element {
   const activityEntries = useMemo<ActivityEntry[]>(
     () =>
       state.sessions
+        .filter((session) => session.role !== 'supervisor')
         .filter((session) => session.activity !== null && session.activity.state !== 'unknown')
         .map((session) => ({
           session,
@@ -393,6 +433,7 @@ export default function App(): React.JSX.Element {
       <TasksPage
         repo={repo}
         tasks={tasks.tasks}
+        archivedTasks={tasks.archivedTasks}
         sessions={state.sessions}
         loading={tasks.loading}
         focusTaskId={focusTaskId}
@@ -426,6 +467,20 @@ export default function App(): React.JSX.Element {
         onClearViewRequest={commands.clearViewRequest}
       />
     ),
+    assistant: (
+      <AssistantPage
+        assistant={assistant}
+        request={assistantTarget}
+        repos={state.repos}
+        tasks={tasks.tasks}
+        onOpenTask={(taskId) => {
+          const task = tasks.tasks.find((entry) => entry.id === taskId)
+          if (task) commands.openTask(task)
+        }}
+        onTaskAction={(action, taskId) => void runAssistantTaskAction(action, taskId)}
+        onOpenSettings={commands.showSettings}
+      />
+    ),
     schedules: (
       <SchedulesView
         repos={state.repos}
@@ -445,6 +500,11 @@ export default function App(): React.JSX.Element {
         themePreference={theme.preference}
         resolvedTheme={theme.resolved}
         onSetTheme={theme.setPreference}
+        assistantSettings={assistant.settings}
+        assistantStatus={assistant.status}
+        assistantHarness={assistant.harness}
+        assistantTarget={assistant.target}
+        onSaveAssistantSettings={assistant.saveSettings}
       />
     )
   }
@@ -456,7 +516,9 @@ export default function App(): React.JSX.Element {
         ? `All projects · ${state.repos.length} repo${state.repos.length === 1 ? '' : 's'}`
         : displaySurface === 'schedules'
           ? 'Schedules · all projects'
-          : 'Settings'
+          : displaySurface === 'assistant'
+            ? `${assistant.personaName} · all projects`
+            : 'Settings'
 
   return (
     <AppLayout
@@ -483,8 +545,12 @@ export default function App(): React.JSX.Element {
       rail={
         <AppRail
           surface={displaySurface}
+          assistantName={assistant.personaName}
+          assistantUnread={assistant.unread}
+          assistantStatus={assistant.status}
           onProjects={commands.showProjects}
           onSchedules={commands.showSchedules}
+          onAssistant={() => commands.showAssistant()}
           onSettings={commands.showSettings}
         />
       }
@@ -509,10 +575,19 @@ export default function App(): React.JSX.Element {
             open: notificationsOpen,
             needsTasks,
             activity: activityEntries,
+            assistantName: assistant.personaName,
+            assistantMessages: assistant.messages
+              .filter(
+                (message) =>
+                  message.role === 'assistant' &&
+                  (message.kind === 'notification' || message.notificationKind !== null)
+              )
+              .slice(-10),
             markingRead: markingActivity,
             onClose: () => setNotificationsOpen(false),
             onOpenTask: commands.openTask,
             onOpenSession: commands.openDirectSession,
+            onOpenAssistant: (target) => commands.showAssistant(target),
             onMarkRead: () => void markActivityRead()
           }}
           palette={{
@@ -527,6 +602,8 @@ export default function App(): React.JSX.Element {
             onClose: () => setPaletteOpen(false),
             onNewSession: openNewSession,
             onQueueTask: openQueueTask,
+            activeRepoId: repo?.id ?? null,
+            onOpenAssistant: () => commands.showAssistant(),
             onProjects: commands.showProjects,
             onSchedules: commands.showSchedules,
             onSettings: commands.showSettings,
@@ -639,6 +716,11 @@ export default function App(): React.JSX.Element {
           onSwitch={commands.switchProject}
           onMode={commands.changeMode}
           onRetryPreparation={(repoId) => void workspace.retryPreparation(repoId)}
+          assistantName={assistant.personaName}
+          assistantUnread={assistant.unread}
+          assistantStatus={assistant.status}
+          pendingProposals={supervisorProposals}
+          onOpenAssistant={() => commands.showAssistant({ repoId: repo.id })}
         />
       ) : null}
       <AppRoutes

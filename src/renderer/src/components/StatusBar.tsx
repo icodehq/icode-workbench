@@ -46,7 +46,9 @@ export default function StatusBar({
     ['dispatching', 'running', 'waiting'].includes(task.status)
   ).length
   const liveSessions = state.sessions.filter(
-    (session) => session.state === 'live' || session.state === 'starting'
+    (session) =>
+      session.role !== 'supervisor' &&
+      (session.state === 'live' || session.state === 'starting')
   ).length
 
   useEffect(() => {

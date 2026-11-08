@@ -2,6 +2,8 @@ import { useEffect } from 'react'
 import { Bell, Check, Loader2, X } from 'lucide-react'
 import type { TaskRecordPayload } from '../../../shared/icode-api'
 import type { SessionSummary } from '../../../shared/schemas/ipc'
+import type { AssistantMessagePayload } from '../../../shared/schemas/assistant'
+import type { AssistantTarget } from '../router/routes'
 import type { NeedsYouEntry } from './GlobalTopBar'
 import {
   activityDotClass,
@@ -19,15 +21,19 @@ type Props = {
   open: boolean
   needsTasks: NeedsYouEntry[]
   activity: ActivityEntry[]
+  assistantName: string
+  assistantMessages: AssistantMessagePayload[]
   markingRead: boolean
   onClose: () => void
   onOpenTask: (task: TaskRecordPayload) => void
   onOpenSession: (sessionId: string) => void
+  onOpenAssistant: (target: AssistantTarget) => void
   onMarkRead: () => void
 }
 
 function attentionDot(task: TaskRecordPayload): string {
   const attention = taskAttention(task)
+  if (attention === 'Approval') return 'bg-signal'
   if (attention === 'Answer') return 'bg-signal animate-pulse'
   if (attention === 'Retry') return 'bg-destructive'
   if (attention === 'Review') return 'bg-add'
@@ -35,6 +41,9 @@ function attentionDot(task: TaskRecordPayload): string {
 }
 
 function attentionText(task: TaskRecordPayload): string {
+  if (task.approval === 'pending' && task.status === 'queued') {
+    return task.createdByActor === 'mira' ? 'proposed by Mira' : 'proposed by Supervisor'
+  }
   if (task.status === 'waiting') return 'waiting for input'
   if (task.status === 'failed') return 'failed'
   if (task.status === 'completed' && task.reviewDecision === 'pending') return 'ready for review'
@@ -50,10 +59,13 @@ export default function NotificationsDrawer({
   open,
   needsTasks,
   activity,
+  assistantName,
+  assistantMessages,
   markingRead,
   onClose,
   onOpenTask,
   onOpenSession,
+  onOpenAssistant,
   onMarkRead
 }: Props): React.JSX.Element | null {
   useEffect(() => {
@@ -102,6 +114,51 @@ export default function NotificationsDrawer({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
+          <section className="mb-2" data-testid="notifications-assistant">
+            <h3 className="px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.09em] text-muted-foreground">
+              {assistantName} · {assistantMessages.length}
+            </h3>
+            {assistantMessages.length === 0 ? (
+              <p className="px-2 py-2 text-[11px] text-muted-foreground">
+                Nothing from {assistantName} yet.
+              </p>
+            ) : (
+              <ul className="space-y-0.5">
+                {assistantMessages.map((message) => (
+                  <li key={message.id}>
+                    <button
+                      type="button"
+                      className="flex w-full items-start gap-2 rounded-md px-2 py-2 text-left hover:bg-muted/60"
+                      onClick={() => {
+                        onClose()
+                        onOpenAssistant({ threadId: message.threadId, messageId: message.id })
+                      }}
+                      data-testid={`notification-assistant-${message.id}`}
+                    >
+                      <span
+                        className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
+                          message.notificationPriority === 'high'
+                            ? 'bg-signal'
+                            : message.notificationPriority === 'normal'
+                              ? 'bg-info'
+                              : 'bg-muted-foreground'
+                        }`}
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[11.5px] font-medium text-foreground">
+                          {message.body}
+                        </span>
+                        <span className="block truncate text-[10px] text-muted-foreground">
+                          {message.notificationKind ?? 'message'}
+                        </span>
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
           <section className="mb-2" data-testid="notifications-needs">
             <h3 className="px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.09em] text-muted-foreground">
               Needs you · {needsTasks.length}

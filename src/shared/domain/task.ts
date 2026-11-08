@@ -34,6 +34,28 @@ export const TASK_STATUSES = [
 ] as const
 export type TaskStatus = (typeof TASK_STATUSES)[number]
 
+/**
+ * Who created the task.
+ *
+ * `supervisor` tasks are proposals: they are recorded in the same queue but do
+ * not occupy a slot or launch until a human approves them. The distinction is
+ * provenance, not lifecycle; a supervisor task still becomes an ordinary task
+ * once approved.
+ */
+export const TASK_ORIGINS = ['human', 'schedule', 'supervisor'] as const
+export type TaskOrigin = (typeof TASK_ORIGINS)[number]
+
+/**
+ * Whether a task may be dispatched.
+ *
+ * Kept separate from `TaskStatus` for the same reason review is separate:
+ * "queued" answers where the task is, while "pending" answers whether a human
+ * has allowed it to start. Rejection ends the task as cancelled, but the
+ * approval value preserves why it ended.
+ */
+export const TASK_APPROVALS = ['approved', 'pending', 'rejected'] as const
+export type TaskApproval = (typeof TASK_APPROVALS)[number]
+
 /** States that occupy a concurrency slot. */
 export const ACTIVE_TASK_STATUSES: readonly TaskStatus[] = ['dispatching', 'running', 'waiting']
 
@@ -59,6 +81,16 @@ export const REVIEW_DECISIONS = ['pending', 'accepted', 'rejected'] as const
 export type ReviewDecision = (typeof REVIEW_DECISIONS)[number]
 
 /**
+ * A non-binding recommendation from a supervisor.
+ *
+ * It deliberately does not reuse `ReviewDecision`: `accepted`/`rejected` are
+ * human judgements, while a recommendation is evidence for that judgement. The
+ * UI can show both side by side, and only a person can settle the decision.
+ */
+export const REVIEW_RECOMMENDATIONS = ['accept', 'reject'] as const
+export type ReviewRecommendation = (typeof REVIEW_RECOMMENDATIONS)[number]
+
+/**
  * Why a task stopped without finishing.
  *
  * The reasons are separate because the user's next action is different: a
@@ -72,7 +104,8 @@ export const TASK_FAILURE_REASONS = [
   'prompt-write-failed',
   'harness-failed',
   'interrupted',
-  'cancelled'
+  'cancelled',
+  'approval-rejected'
 ] as const
 export type TaskFailureReason = (typeof TASK_FAILURE_REASONS)[number]
 
@@ -100,6 +133,26 @@ export type TaskRecord = {
   /** Provenance: the schedule and occurrence that created this task. */
   scheduleId: string | null
   occurrenceAt: number | null
+  /** Who created the task. */
+  origin: TaskOrigin
+  /** The supervisor session that proposed this task, when it has one. */
+  createdBySessionId: SessionId | null
+  /**
+   * Accurate provenance for a non-session actor. `origin` remains the
+   * queue/approval class; this field says who actually asked for the work.
+   * Mira tasks use `'mira'` and leave `createdBySessionId` null.
+   */
+  createdByActor: string | null
+  /** The assistant run that created the task, when applicable. */
+  assistantRunId: string | null
+  /** The policy that approved the task automatically, when applicable. */
+  approvalPolicy: string | null
+  /** Whether the task may be dispatched. */
+  approval: TaskApproval
+  approvedAt: number | null
+  approvedBy: string | null
+  /** Hidden from the working list, but still queryable as history. */
+  archivedAt: number | null
   /** Idempotency key; the database enforces uniqueness. */
   dedupeKey: string | null
   createdAt: number
@@ -118,6 +171,11 @@ export type TaskRecord = {
   reviewDecision: ReviewDecision
   reviewedAt: number | null
   reviewNote: string | null
+  /** A supervisor's non-binding recommendation. Never sets `reviewDecision`. */
+  reviewRecommendation: ReviewRecommendation | null
+  reviewRecommendationNote: string | null
+  reviewRecommendedAt: number | null
+  reviewRecommendedBySessionId: SessionId | null
 }
 
 /**
@@ -131,6 +189,14 @@ export type TaskView = TaskRecord & {
   canRetry: boolean
   /** True when a linked session or worktree can be opened for review. */
   canReview: boolean
+  /** True when this is a queued proposal a human may approve. */
+  canApprove: boolean
+  /** True when this is a queued proposal a human may reject. */
+  canReject: boolean
+  /** True when a terminal task can move into history. */
+  canArchive: boolean
+  /** True when an archived task can return to the working list. */
+  canUnarchive: boolean
   /**
    * True when a decision can be recorded now.
    *
@@ -145,6 +211,11 @@ export type TaskView = TaskRecord & {
 export type TaskListFilter = {
   repoId?: RepoId
   statuses?: readonly TaskStatus[]
+  approvals?: readonly TaskApproval[]
+  /** Archived rows are history; only an explicit request returns them. */
+  includeArchived?: boolean
+  /** Retry predecessors are hidden from working lists by default. */
+  includeAttempts?: boolean
   limit?: number
 }
 
@@ -152,5 +223,6 @@ export const TASK_LIMITS = {
   maxTitleLength: 200,
   maxPromptLength: 20_000,
   maxConcurrent: 4,
-  minConcurrent: 1
+  minConcurrent: 1,
+  maxPendingProposals: 20
 } as const

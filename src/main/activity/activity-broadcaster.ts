@@ -7,6 +7,12 @@ export type ActivityBroadcasterOptions = {
   /** Test seam; production uses `Notification`. */
   notify?: (title: string, body: string, sessionId: string) => void
   isAnyWindowFocused?: () => boolean
+  /**
+   * Task-linked sessions are owned by the assistant notifier. The activity
+   * broadcaster still pushes their in-app activity, but must not raise a second
+   * OS notification for the same completion or waiting transition.
+   */
+  isTaskSession?: (sessionId: string) => boolean
   /** Test seam; production sends to every BrowserWindow. */
   send?: (event: ActivityEvent) => void
   log?: (message: string) => void
@@ -21,6 +27,7 @@ export type ActivityBroadcasterOptions = {
 export class ActivityBroadcaster {
   private readonly notify: (title: string, body: string, sessionId: string) => void
   private readonly isAnyWindowFocused: () => boolean
+  private readonly isTaskSession: (sessionId: string) => boolean
   private readonly send: (event: ActivityEvent) => void
   private readonly log: (message: string) => void
   private lastAttention = new Map<string, { fingerprint: string; at: number }>()
@@ -29,6 +36,7 @@ export class ActivityBroadcaster {
     this.isAnyWindowFocused =
       options.isAnyWindowFocused ??
       (() => BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && window.isFocused()))
+    this.isTaskSession = options.isTaskSession ?? (() => false)
     this.log = options.log ?? ((message) => process.stderr.write(`[icode] ${message}\n`))
     this.send =
       options.send ??
@@ -61,6 +69,7 @@ export class ActivityBroadcaster {
   handle(transition: ActivityTransition, title: string): void {
     this.broadcast(transition)
     if (transition.attention === null) return
+    if (this.isTaskSession(transition.sessionId)) return
     if (this.isAnyWindowFocused()) {
       this.lastAttention.delete(transition.sessionId)
       return

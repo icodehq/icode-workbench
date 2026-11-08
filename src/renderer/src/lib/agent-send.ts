@@ -11,36 +11,19 @@ export type AgentSendResult =
 
 export type AgentTextWriter = (data: string) => Promise<AgentSendResult>
 
-export const AGENT_PASTE_START = '\u001b[200~'
-export const AGENT_PASTE_END = '\u001b[201~'
+export {
+  AGENT_PASTE_END,
+  AGENT_PASTE_START,
+  AGENT_SUBMIT_DELAY_MS,
+  buildAgentPromptPaste,
+  normalizeAgentPromptText
+} from '../../../shared/agent-prompt'
 
-/**
- * Claude Code leaves a bracketed paste as editable text when paste-end and
- * Enter arrive in the same PTY write. Real-app verification on Claude Code
- * 2.1.314 showed the previous single write left the notes in the composer and
- * never started a turn; a separate Enter submitted them. Keep the delay
- * generous enough for the TUI to finish ingesting the paste.
- */
-export const AGENT_SUBMIT_DELAY_MS = 500
-
-const ESCAPE = '\u001b'
-const INERT_ESCAPE = '␛'
-
-/** The prompt itself, without the trailing newlines an editor may add. */
-export function normalizeAgentPromptText(text: string): string {
-  return text.replace(/\r\n?/gu, '\n').replace(/\n+$/u, '')
-}
-
-/**
- * A direct PTY paste is not an xterm paste: newlines must be CR, and an
- * embedded ESC could close the bracketed-paste frame early. Neutralize ESC
- * with the printable substitute (␛, U+241B), exactly as a terminal paste does.
- */
-export function buildAgentPromptPaste(text: string): string {
-  const body = normalizeAgentPromptText(text).replace(/\n/gu, '\r')
-  const safe = body.split(ESCAPE).join(INERT_ESCAPE)
-  return `${AGENT_PASTE_START}${safe}${AGENT_PASTE_END}`
-}
+import {
+  AGENT_SUBMIT_DELAY_MS,
+  buildAgentPromptPaste,
+  normalizeAgentPromptText
+} from '../../../shared/agent-prompt'
 
 /**
  * Deliver one multi-line prompt to an agent TUI.

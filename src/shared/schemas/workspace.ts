@@ -265,13 +265,18 @@ export const taskStatusSchema = z.enum([
   'cancelled'
 ])
 
+export const taskOriginSchema = z.enum(['human', 'schedule', 'supervisor'])
+export const taskApprovalSchema = z.enum(['approved', 'pending', 'rejected'])
+export const taskReviewRecommendationSchema = z.enum(['accept', 'reject'])
+
 export const taskFailureReasonSchema = z.enum([
   'harness-unavailable',
   'session-create-failed',
   'prompt-write-failed',
   'harness-failed',
   'interrupted',
-  'cancelled'
+  'cancelled',
+  'approval-rejected'
 ])
 
 export const taskReviewDecisionSchema = z.enum(['pending', 'accepted', 'rejected'])
@@ -289,6 +294,15 @@ export const taskRecordSchema = z.strictObject({
   previousTaskId: z.string().max(80).nullable(),
   scheduleId: z.string().max(80).nullable(),
   occurrenceAt: z.number().int().nullable(),
+  origin: taskOriginSchema.optional(),
+  createdBySessionId: sessionIdSchema.nullable().optional(),
+  createdByActor: z.string().max(80).nullable().optional(),
+  assistantRunId: z.string().max(120).nullable().optional(),
+  approvalPolicy: z.string().max(80).nullable().optional(),
+  approval: taskApprovalSchema.optional(),
+  approvedAt: z.number().int().nullable().optional(),
+  approvedBy: z.string().max(80).nullable().optional(),
+  archivedAt: z.number().int().nullable().optional(),
   createdAt: z.number().int(),
   updatedAt: z.number().int(),
   startedAt: z.number().int().nullable(),
@@ -302,9 +316,17 @@ export const taskRecordSchema = z.strictObject({
   reviewDecision: taskReviewDecisionSchema,
   reviewedAt: z.number().int().nullable(),
   reviewNote: z.string().max(2000).nullable(),
+  reviewRecommendation: taskReviewRecommendationSchema.nullable().optional(),
+  reviewRecommendationNote: z.string().max(2000).nullable().optional(),
+  reviewRecommendedAt: z.number().int().nullable().optional(),
+  reviewRecommendedBySessionId: sessionIdSchema.nullable().optional(),
   sessionLive: z.boolean(),
   canRetry: z.boolean(),
   canReview: z.boolean(),
+  canApprove: z.boolean().optional(),
+  canReject: z.boolean().optional(),
+  canArchive: z.boolean().optional(),
+  canUnarchive: z.boolean().optional(),
   canDecideReview: z.boolean(),
   reviewDecisionFinal: z.boolean()
 })
@@ -312,6 +334,8 @@ export const taskRecordSchema = z.strictObject({
 export const taskListInputSchema = z.strictObject({
   repoId: repoIdSchema.optional(),
   statuses: z.array(taskStatusSchema).max(7).optional(),
+  approvals: z.array(taskApprovalSchema).max(3).optional(),
+  includeArchived: z.boolean().optional(),
   limit: z.number().int().min(1).max(200).optional()
 })
 
@@ -323,6 +347,15 @@ export const taskCreateInputSchema = z.strictObject({
 })
 
 export const taskIdInputSchema = z.strictObject({ taskId: z.string().min(1).max(80) })
+
+export const taskArchiveFinishedInputSchema = z.strictObject({
+  repoId: repoIdSchema.optional()
+})
+
+export const taskRejectInputSchema = z.strictObject({
+  taskId: z.string().min(1).max(80),
+  note: z.string().max(2000).nullable().optional()
+})
 
 export const taskDecideReviewInputSchema = z.strictObject({
   taskId: z.string().min(1).max(80),

@@ -41,6 +41,7 @@ describe('preload API surface', () => {
       [
         'activity',
         'ai',
+        'assistant',
         'branches',
         'files',
         'getRuntimeInfo',
@@ -53,6 +54,7 @@ describe('preload API surface', () => {
         'repos',
         'schedules',
         'sessions',
+        'supervisor',
         'tasks',
         'terminal',
         'window',
@@ -97,19 +99,39 @@ describe('preload API surface', () => {
     })
   })
 
+  it('routes Mira calls to their named channels', async () => {
+    const { api, invoke } = setup()
+    await api.assistant.state()
+    await api.assistant.messages({ threadId: 'thread_1' })
+    await api.assistant.send({ text: 'Hello' })
+    await api.assistant.markRead({ threadId: 'thread_1' })
+    await api.assistant.stop()
+    await api.assistant.settings()
+    expect(invoke.mock.calls.map((call) => call[0])).toEqual([
+      IPC_CHANNELS.assistantState,
+      IPC_CHANNELS.assistantMessagesList,
+      IPC_CHANNELS.assistantSend,
+      IPC_CHANNELS.assistantMarkRead,
+      IPC_CHANNELS.assistantStop,
+      IPC_CHANNELS.assistantSettingsGet
+    ])
+  })
+
   it('routes window controls and maximize events', async () => {
     const { api, invoke, subscribe, unsubscribe } = setup()
     await api.window.minimize()
     await api.window.toggleMaximize()
     await api.window.close()
     await api.window.isMaximized()
+    await api.window.openExternal({ url: 'https://example.com/docs' })
     const off = api.window.onMaximizedChange(() => undefined)
 
     expect(invoke.mock.calls.map((call) => call[0])).toEqual([
       IPC_CHANNELS.windowMinimize,
       IPC_CHANNELS.windowToggleMaximize,
       IPC_CHANNELS.windowClose,
-      IPC_CHANNELS.windowIsMaximized
+      IPC_CHANNELS.windowIsMaximized,
+      IPC_CHANNELS.windowOpenExternal
     ])
     expect(subscribe).toHaveBeenCalledWith(IPC_CHANNELS.windowMaximizedEvent, expect.any(Function))
     off()

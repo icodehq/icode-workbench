@@ -120,17 +120,25 @@ export default function ProjectSessionsList({
                     data-testid={`session-item-${session.id}`}
                     data-session-id={session.id}
                     data-session-state={session.state}
+                    data-session-role={session.role}
                     data-session-sleeping={String(session.sleeping === true)}
                     data-session-incarnation={session.incarnationId ?? ''}
                     data-session-activity={activity?.state ?? 'unknown'}
                     data-session-activity-unread={String(activity?.unread ?? false)}
-                    title={`${session.title} — ${harnessName(session.harness)}${suffix ? ` — ${activityTooltip(activity)}` : ''}`}
+                    title={`${session.title} — ${session.role === 'supervisor' ? 'Supervisor' : harnessName(session.harness)}${suffix ? ` — ${activityTooltip(activity)}` : ''}`}
                   >
                     <span className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${sessionStateDotClass(session, action)}`} />
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[12px]">{session.title}</span>
+                      <span className="flex items-center gap-1.5">
+                        <span className="block min-w-0 flex-1 truncate text-[12px]">{session.title}</span>
+                        {session.role === 'supervisor' ? (
+                          <span className="shrink-0 rounded bg-accent/15 px-1 text-[8px] font-medium uppercase tracking-wide text-accent">
+                            Supervisor
+                          </span>
+                        ) : null}
+                      </span>
                       <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">
-                        {harnessName(session.harness)} · {sessionStateLabelFor(session, action)}
+                        {session.role === 'supervisor' ? 'Supervisor' : harnessName(session.harness)} · {sessionStateLabelFor(session, action)}
                         {session.worktree ? ` · ${session.worktree.branch}` : ''}
                       </span>
                       {suffix ? (

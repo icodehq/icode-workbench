@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowDownToLine,
   ArrowUpFromLine,
+  Bot,
   CalendarClock,
   CloudUpload,
   FileText,
@@ -69,6 +70,8 @@ type Props = {
   onClose: () => void
   onNewSession: () => void
   onQueueTask: () => void
+  activeRepoId?: string | null
+  onOpenAssistant?: () => void
   onProjects: () => void
   onSchedules: () => void
   onSettings: () => void
@@ -126,6 +129,8 @@ export default function CommandPalette({
   onClose,
   onNewSession,
   onQueueTask,
+  activeRepoId,
+  onOpenAssistant,
   onProjects,
   onSchedules,
   onSettings,
@@ -224,6 +229,15 @@ export default function CommandPalette({
         run: onQueueTask
       },
       {
+        id: 'assistant',
+        kind: 'action',
+        label: 'Talk to Mira',
+        hint: 'all projects',
+        icon: Bot,
+        disabled: !onOpenAssistant,
+        run: () => onOpenAssistant?.()
+      },
+      {
         id: 'projects',
         kind: 'action',
         label: 'Go to Projects',
@@ -284,9 +298,11 @@ export default function CommandPalette({
     return list.filter((item) => workMatches(item.label, item.hint, normalizedQuery))
   }, [
     normalizedQuery,
+    activeRepoId,
     canStartSession,
     fileSession,
     onNewSession,
+    onOpenAssistant,
     onProjects,
     onQueueTask,
     onSchedules,

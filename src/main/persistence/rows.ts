@@ -23,8 +23,10 @@ import { repositoryPreparationSchema } from '../../shared/schemas/domain'
 import { LOCAL_EXECUTION_TARGET } from '../../shared/domain/repository'
 import type {
   PersistedSessionObservation,
-  SessionLifecycleState
+  SessionLifecycleState,
+  SessionRole
 } from '../../shared/domain/session'
+import { SESSION_ROLES } from '../../shared/domain/session'
 
 /** Raw SQLite rows are untrusted input: parse, never cast blindly. */
 export function parseRepoId(value: unknown): RepoId {
@@ -191,6 +193,7 @@ export type SessionRow = {
   last_observed_at: unknown
   sleeping_at: unknown
   resume_token: unknown
+  role: unknown
 }
 
 const HARNESSES: readonly HarnessId[] = ['claude', 'codex', 'opencode', 'shell']
@@ -207,6 +210,7 @@ export type StoredSession = {
   workspaceId: WorkspaceId
   harness: HarnessId
   title: string
+  role: SessionRole
   createdAt: number
   lastActiveAt: number
   observation: PersistedSessionObservation
@@ -260,11 +264,16 @@ export function sessionFromRow(row: SessionRow): StoredSession {
   ) {
     throw rowError('sessions.resume_token', resumeToken)
   }
+  const role = row.role ?? 'interactive'
+  if (typeof role !== 'string' || !SESSION_ROLES.includes(role as SessionRole)) {
+    throw rowError('sessions.role', role)
+  }
   return {
     id: parseSessionId(row.id),
     workspaceId: parseWorkspaceId(row.workspace_id),
     harness: harness as HarnessId,
     title: requireString(row.title, 'sessions.title'),
+    role: role as SessionRole,
     createdAt: requireInteger(row.created_at, 'sessions.created_at'),
     lastActiveAt: requireInteger(row.last_active_at, 'sessions.last_active_at'),
     observation: {

@@ -152,6 +152,55 @@ export default function TaskOverview({
     }
   }
 
+  const setArchived = async (archived: boolean): Promise<void> => {
+    if (busy) return
+    setBusy(true)
+    try {
+      const result = await callApi<TaskRecordPayload>(
+        archived
+          ? window.icode.tasks.archive({ taskId: task.id })
+          : window.icode.tasks.unarchive({ taskId: task.id })
+      )
+      if (!result.ok) {
+        notify(errorNotice(result.error))
+        return
+      }
+      notify({
+        tone: 'info',
+        message: archived ? 'Moved to history.' : 'Restored to the working list.'
+      })
+      onChanged()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const settleProposal = async (decision: 'approve' | 'reject'): Promise<void> => {
+    if (busy) return
+    setBusy(true)
+    try {
+      const result = await callApi<TaskRecordPayload>(
+        decision === 'approve'
+          ? window.icode.tasks.approve({ taskId: task.id })
+          : window.icode.tasks.reject({ taskId: task.id })
+      )
+      if (!result.ok) {
+        notify(errorNotice(result.error))
+        return
+      }
+      notify({
+        tone: decision === 'approve' ? 'success' : 'info',
+        message:
+          decision === 'approve'
+            ? 'Approved. The task will start when a slot is free.'
+            : 'Rejected. It will not run.'
+      })
+      onChanged()
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const duration =
     task.startedAt !== null && task.finishedAt !== null
       ? formatDuration(task.finishedAt - task.startedAt)
@@ -186,7 +235,22 @@ export default function TaskOverview({
             </p>
           </Card>
 
-          <Card title="Activity">
+          <Card
+            title="Activity"
+            action={
+              task.canArchive || task.canUnarchive ? (
+                <button
+                  type="button"
+                  className="rounded border border-border px-1.5 py-0.5 text-[9px] text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
+                  onClick={() => void setArchived(task.canArchive === true)}
+                  disabled={busy}
+                  data-testid="task-detail-archive"
+                >
+                  {task.canUnarchive ? 'Restore' : 'Archive'}
+                </button>
+              ) : undefined
+            }
+          >
             <div className="flex flex-wrap items-center gap-2">
               <span
                 className={`inline-flex h-[21px] items-center gap-1.5 rounded-full border px-2 text-[10.5px] font-medium ${taskPillClass(task)}`}
@@ -224,6 +288,37 @@ export default function TaskOverview({
               </p>
             ) : null}
           </Card>
+
+          {task.canApprove ? (
+            <Card title="Proposal">
+              <p className="text-[11.5px] leading-relaxed text-muted-foreground" data-testid="task-proposal-state">
+                {task.createdByActor === 'mira' ? 'Mira' : 'The Supervisor'} proposed this task. It
+                will not run until you approve it.
+              </p>
+              <div className="mt-2 flex items-center gap-2">
+                <button
+                  type="button"
+                  className="inline-flex h-7 items-center gap-1 rounded-md border border-signal-line bg-signal-weak px-2.5 text-[10.5px] text-signal hover:bg-signal/15 disabled:opacity-40"
+                  onClick={() => void settleProposal('approve')}
+                  disabled={busy}
+                  data-testid="task-proposal-approve"
+                >
+                  <Check size={11} />
+                  Approve
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex h-7 items-center gap-1 rounded-md border border-border px-2.5 text-[10.5px] text-foreground hover:bg-muted disabled:opacity-40"
+                  onClick={() => void settleProposal('reject')}
+                  disabled={busy}
+                  data-testid="task-proposal-reject"
+                >
+                  <X size={11} />
+                  Reject
+                </button>
+              </div>
+            </Card>
+          ) : null}
 
           <Card
             title="Changes"
@@ -299,6 +394,25 @@ export default function TaskOverview({
                   : 'Pending review. Execution status and this decision are separate.'
                 : `${task.reviewDecision === 'accepted' ? 'Accepted' : 'Rejected'}${task.reviewedAt ? ` on ${formatTime(task.reviewedAt)}` : ''}`}
             </p>
+            {task.reviewRecommendation ? (
+              <div
+                className="mt-2 rounded-md border border-info/40 bg-info-weak px-2.5 py-2 text-[10.5px] text-info"
+                data-testid="task-review-recommendation"
+              >
+                <p className="font-medium">
+                  Supervisor recommends {task.reviewRecommendation === 'accept' ? 'accept' : 'reject'}
+                  {task.reviewRecommendedAt ? ` · ${formatTime(task.reviewRecommendedAt)}` : ''}
+                </p>
+                {task.reviewRecommendationNote ? (
+                  <p className="mt-1 whitespace-pre-wrap text-foreground/80">
+                    {task.reviewRecommendationNote}
+                  </p>
+                ) : null}
+                <p className="mt-1 text-[9.5px] opacity-80">
+                  This is a recommendation, not a decision. Accept or Reject below remains yours.
+                </p>
+              </div>
+            ) : null}
             {task.reviewNote ? (
               <p className="mt-1 whitespace-pre-wrap text-[11px] text-foreground" data-testid="task-detail-review-note">
                 {task.reviewNote}

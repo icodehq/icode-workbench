@@ -3,7 +3,7 @@ import type { TaskRecordPayload } from '../../../shared/icode-api'
 import type { SessionSummary } from '../../../shared/schemas/ipc'
 import type { TaskQueue } from '../state/use-task-queue'
 import { activeRepo, activeSession, type WorkspaceState } from '../state/workspace'
-import type { ProjectMode, Surface } from './routes'
+import type { AssistantTarget, ProjectMode, Surface } from './routes'
 
 export type ViewName = 'terminal' | 'changes' | 'files'
 
@@ -54,11 +54,14 @@ export type AppNavigation = {
   // Route-dependent requests
   viewRequest: ViewRequest | null
   openRequest: OpenFileRequest | null
+  assistantTarget: (AssistantTarget & { nonce: number }) | null
 
   commands: {
     showProjects: () => void
     showSchedules: () => void
     showSettings: () => void
+    showAssistant: (target?: AssistantTarget) => void
+    clearAssistantTarget: () => void
     showSessions: () => void
     backToTasks: () => void
     openProject: (repoId: string, mode?: ProjectMode) => void
@@ -96,6 +99,9 @@ export function useAppNavigation({
   const [taskSelectionByRepo, setTaskSelectionByRepo] = useState<Record<string, string>>({})
   const [viewRequest, setViewRequest] = useState<ViewRequest | null>(null)
   const [openRequest, setOpenRequest] = useState<OpenFileRequest | null>(null)
+  const [assistantTarget, setAssistantTarget] = useState<
+    (AssistantTarget & { nonce: number }) | null
+  >(null)
 
   const repo = activeRepo(state)
   const active = activeSession(state)
@@ -205,6 +211,19 @@ export function useAppNavigation({
     clearProjectView()
     setSurface('settings')
   }, [clearProjectView])
+
+  const showAssistant = useCallback(
+    (target?: AssistantTarget): void => {
+      clearProjectView()
+      setSurface('assistant')
+      setAssistantTarget(target === undefined ? null : { ...target, nonce: Date.now() })
+    },
+    [clearProjectView]
+  )
+
+  const clearAssistantTarget = useCallback((): void => {
+    setAssistantTarget(null)
+  }, [])
 
   const showSessions = useCallback((): void => {
     setSurface('sessions')
@@ -363,6 +382,8 @@ export function useAppNavigation({
       showProjects,
       showSchedules,
       showSettings,
+      showAssistant,
+      clearAssistantTarget,
       showSessions,
       backToTasks,
       openProject,
@@ -397,6 +418,8 @@ export function useAppNavigation({
       showSchedules,
       showSessions,
       showSettings,
+      showAssistant,
+      clearAssistantTarget,
       switchProject
     ]
   )
@@ -416,6 +439,7 @@ export function useAppNavigation({
     focusableSessionId,
     viewRequest,
     openRequest,
+    assistantTarget,
     commands
   }
 }

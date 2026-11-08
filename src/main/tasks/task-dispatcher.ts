@@ -7,6 +7,10 @@ import {
   type TaskRecord
 } from '../../shared/domain/task'
 import type { TaskStore } from './task-store'
+import {
+  AGENT_SUBMIT_DELAY_MS,
+  buildAgentPromptPaste
+} from '../../shared/agent-prompt'
 
 export type TaskDispatcherDeps = {
   tasks: TaskStore
@@ -19,6 +23,12 @@ export type TaskDispatcherDeps = {
   sessionState: (sessionId: string) => { state: string; exitCode: number | null } | null
   /** The worktree a newly created session was given, for review after the fact. */
   sessionWorktree: (sessionId: string) => string | null
+  /** The agent TUI needs time to draw before its first input. */
+  promptStartupDelayMs?: number
+  /** Test seam; production uses the TUI's paste-ingest delay. */
+  submitDelayMs?: number
+  /** Claude activity, used to resend an Enter lost during startup. */
+  activity?: { get: (sessionId: string) => { state: string } }
 }
 
 /**
@@ -150,7 +160,17 @@ export class TaskDispatcher {
 
     try {
       const incarnation = await this.currentIncarnation(sessionId)
-      await this.deps.sessions.write(sessionId, incarnation, `${task.prompt}\r`)
+      // The PTY is live before the TUI has drawn its composer. Paste early and
+      // the Enter can be lost, leaving the task sitting in the input box.
+      await this.delay(this.deps.promptStartupDelayMs ?? 2_500)
+      await this.deps.sessions.write(
+        sessionId,
+        incarnation,
+        buildAgentPromptPaste(task.prompt)
+      )
+      await this.delay(this.deps.submitDelayMs ?? AGENT_SUBMIT_DELAY_MS)
+      await this.deps.sessions.write(sessionId, incarnation, '\r')
+      await this.confirmClaudeSubmission(task, sessionId, incarnation)
     } catch (error) {
       this.fail(task, {
         reason: 'prompt-write-failed',
@@ -177,7 +197,9 @@ export class TaskDispatcher {
   private async onSessionEvent(event: { type?: string; sessionId?: string }): Promise<void> {
     const sessionId = event.sessionId
     if (!sessionId) return
-    const task = this.deps.tasks.list({ limit: 500 }).find((candidate) => candidate.sessionId === sessionId)
+    const task = this.deps.tasks
+      .list({ limit: 500, includeAttempts: true })
+      .find((candidate) => candidate.sessionId === sessionId)
     if (!task || isTerminalTaskStatus(task.status)) return
     this.reconcileTask(task, this.deps.sessionState(sessionId))
     // A slot may have been freed.
@@ -286,7 +308,7 @@ export class TaskDispatcher {
    */
   onActivity(sessionId: string, activity: { state: string; outcome: string | null }): void {
     const task = this.deps.tasks
-      .list({ limit: 500 })
+      .list({ limit: 500, includeAttempts: true })
       .find((candidate) => candidate.sessionId === sessionId)
     if (!task || isTerminalTaskStatus(task.status)) return
     const now = this.deps.now()
@@ -482,6 +504,35 @@ export class TaskDispatcher {
       throw new Error('The session has no incarnation to write to.')
     }
     return incarnation
+  }
+
+  /**
+   * A startup race can leave a task prompt in Claude's composer. Claude's
+   * activity hook fires only after the turn starts, so `unknown` after the
+   * first Enter means submit again. Never write after the task/session ended.
+   */
+  private async confirmClaudeSubmission(
+    task: TaskRecord,
+    sessionId: SessionId,
+    incarnation: string
+  ): Promise<void> {
+    if (task.harness !== 'claude' || !this.deps.activity) return
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await this.delay(1_500)
+      const current = this.deps.tasks.findById(task.id)
+      if (!current || isTerminalTaskStatus(current.status)) return
+      if (!this.deps.isSessionLive(sessionId)) return
+      if (this.deps.activity.get(sessionId).state !== 'unknown') return
+      await this.deps.sessions.write(sessionId, incarnation, '\r')
+    }
+  }
+
+  private delay(ms: number): Promise<void> {
+    if (ms <= 0) return Promise.resolve()
+    return new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, ms)
+      timer.unref?.()
+    })
   }
 }
 

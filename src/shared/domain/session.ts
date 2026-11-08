@@ -28,11 +28,21 @@ export type PersistedSessionObservation = {
   lastObservedAt: number
 }
 
+/**
+ * What the session is for.
+ *
+ * `supervisor` is a control session: it is still a normal agent session, but
+ * its activity is control traffic and must not be counted as project work.
+ */
+export const SESSION_ROLES = ['interactive', 'supervisor'] as const
+export type SessionRole = (typeof SESSION_ROLES)[number]
+
 export type SessionRecord = PersistedSessionObservation & {
   id: SessionId
   workspaceId: WorkspaceId
   harness: HarnessId
   title: string
+  role: SessionRole
   createdAt: number
   lastActiveAt: number
 }

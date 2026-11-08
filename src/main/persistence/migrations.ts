@@ -303,5 +303,198 @@ export const MIGRATIONS: readonly Migration[] = [
       `ALTER TABLE sessions ADD COLUMN sleeping_at INTEGER`,
       `ALTER TABLE sessions ADD COLUMN resume_token TEXT`
     ]
+  },
+  {
+    version: 8,
+    name: 'supervisor',
+    /**
+     * A supervisor proposes work; it does not create authorized work.
+     *
+     * `origin` records who asked for the task, and `approval` is the human gate
+     * that keeps a proposal out of the dispatcher until someone approves it.
+     * Keeping approval as a column rather than a status avoids rewriting the
+     * task status CHECK constraint and preserves the queue's one meaning:
+     * "queued" still means waiting for a slot, not waiting for a person.
+     *
+     * `review_recommendation` is deliberately separate from `review_decision`:
+     * a supervisor may present evidence, but only a person settles the result.
+     */
+    statements: [
+      `ALTER TABLE tasks ADD COLUMN origin TEXT NOT NULL DEFAULT 'human'
+         CHECK (origin IN ('human', 'schedule', 'supervisor'))`,
+      `ALTER TABLE tasks ADD COLUMN created_by_session_id TEXT`,
+      `ALTER TABLE tasks ADD COLUMN approval TEXT NOT NULL DEFAULT 'approved'
+         CHECK (approval IN ('approved', 'pending', 'rejected'))`,
+      `ALTER TABLE tasks ADD COLUMN approved_at INTEGER`,
+      `ALTER TABLE tasks ADD COLUMN approved_by TEXT`,
+      `ALTER TABLE tasks ADD COLUMN review_recommendation TEXT
+         CHECK (review_recommendation IS NULL OR review_recommendation IN ('accept', 'reject'))`,
+      `ALTER TABLE tasks ADD COLUMN review_recommendation_note TEXT`,
+      `ALTER TABLE tasks ADD COLUMN review_recommended_at INTEGER`,
+      `ALTER TABLE tasks ADD COLUMN review_recommended_by_session_id TEXT`,
+      `UPDATE tasks SET origin = 'schedule' WHERE schedule_id IS NOT NULL`,
+      `CREATE INDEX tasks_approval_status_created_idx ON tasks (approval, status, created_at)`,
+      `ALTER TABLE sessions ADD COLUMN role TEXT NOT NULL DEFAULT 'interactive'
+         CHECK (role IN ('interactive', 'supervisor'))`,
+      `CREATE TABLE supervisor_bindings (
+         repo_id TEXT PRIMARY KEY,
+         session_id TEXT NOT NULL UNIQUE,
+         control_token TEXT NOT NULL UNIQUE,
+         initialized_at INTEGER,
+         created_at INTEGER NOT NULL,
+         updated_at INTEGER NOT NULL
+       )`,
+      `CREATE TABLE supervisor_actions (
+         id INTEGER PRIMARY KEY,
+         repo_id TEXT NOT NULL,
+         session_id TEXT NOT NULL,
+         op TEXT NOT NULL,
+         task_id TEXT,
+         outcome TEXT NOT NULL,
+         detail_json TEXT,
+         created_at INTEGER NOT NULL
+       )`,
+      `CREATE INDEX supervisor_actions_repo_created_idx ON supervisor_actions (repo_id, created_at)`
+    ]
+  },
+  {
+    version: 9,
+    name: 'assistant',
+    /**
+     * Mira is a global assistant: a durable thread, runs, memory, settings, and
+     * an audit trail. The thread is deliberately not owned by a repository, so
+     * deleting a project cannot delete a conversation.
+     *
+     * Tasks gain an accurate non-session actor instead of a synthetic session
+     * id. `origin` remains the queue/approval class; `created_by_actor = 'mira'`
+     * is the provenance the UI and ownership checks use.
+     *
+     * `seq` is a per-thread message sequence, and `last_read_seq` is a
+     * watermark: marking read is a monotonic conditional update, so a stale
+     * window cannot move the watermark backwards.
+     */
+    statements: [
+      `ALTER TABLE tasks ADD COLUMN created_by_actor TEXT`,
+      `ALTER TABLE tasks ADD COLUMN assistant_run_id TEXT`,
+      `ALTER TABLE tasks ADD COLUMN approval_policy TEXT`,
+      `CREATE INDEX tasks_session_idx ON tasks (session_id)`,
+      `CREATE INDEX tasks_actor_created_idx ON tasks (created_by_actor, created_at)`,
+
+      `CREATE TABLE assistant_threads (
+         id TEXT PRIMARY KEY NOT NULL,
+         kind TEXT NOT NULL DEFAULT 'main' CHECK (kind IN ('main', 'system')),
+         title TEXT NOT NULL,
+         created_at INTEGER NOT NULL,
+         updated_at INTEGER NOT NULL,
+         last_message_at INTEGER,
+         last_read_seq INTEGER NOT NULL DEFAULT 0,
+         active_run_id TEXT,
+         archived_at INTEGER,
+         CHECK (length(title) > 0)
+       ) STRICT`,
+      `CREATE UNIQUE INDEX assistant_threads_main_idx
+         ON assistant_threads (kind) WHERE kind = 'main'`,
+      `CREATE INDEX assistant_threads_updated_idx ON assistant_threads (updated_at)`,
+
+      `CREATE TABLE assistant_messages (
+         id TEXT PRIMARY KEY NOT NULL,
+         thread_id TEXT NOT NULL REFERENCES assistant_threads(id) ON DELETE CASCADE,
+         seq INTEGER NOT NULL,
+         run_id TEXT,
+         role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system', 'tool')),
+         kind TEXT NOT NULL
+           CHECK (kind IN ('text', 'card', 'status', 'notification', 'digest', 'welcome', 'error', 'action')),
+         body TEXT NOT NULL,
+         card_json TEXT,
+         notification_kind TEXT,
+         notification_priority TEXT
+           CHECK (notification_priority IS NULL OR notification_priority IN ('high', 'normal', 'low')),
+         notification_state TEXT
+           CHECK (notification_state IS NULL OR notification_state IN ('pending', 'delivered', 'suppressed')),
+         notification_dedupe_key TEXT,
+         notified_at INTEGER,
+         metadata_json TEXT,
+         created_at INTEGER NOT NULL,
+         CHECK (length(body) > 0)
+       ) STRICT`,
+      `CREATE UNIQUE INDEX assistant_messages_thread_seq_idx
+         ON assistant_messages (thread_id, seq)`,
+      `CREATE INDEX assistant_messages_thread_created_idx
+         ON assistant_messages (thread_id, created_at)`,
+      `CREATE UNIQUE INDEX assistant_messages_dedupe_idx
+         ON assistant_messages (notification_dedupe_key)
+         WHERE notification_dedupe_key IS NOT NULL`,
+
+      `CREATE TABLE assistant_runs (
+         id TEXT PRIMARY KEY NOT NULL,
+         thread_id TEXT NOT NULL REFERENCES assistant_threads(id) ON DELETE CASCADE,
+         trigger TEXT NOT NULL CHECK (trigger IN ('user', 'retry', 'proactive')),
+         status TEXT NOT NULL
+           CHECK (status IN ('queued', 'running', 'completed', 'failed', 'cancelled')),
+         stage TEXT,
+         harness TEXT NOT NULL,
+         target_kind TEXT,
+         target_distro TEXT,
+         round INTEGER NOT NULL DEFAULT 0,
+         request_message_id TEXT,
+         response_message_id TEXT,
+         resume_token TEXT,
+         usage_json TEXT,
+         context_chars INTEGER,
+         started_at INTEGER NOT NULL,
+         finished_at INTEGER,
+         error TEXT
+       ) STRICT`,
+      `CREATE INDEX assistant_runs_thread_started_idx ON assistant_runs (thread_id, started_at)`,
+      `CREATE INDEX assistant_runs_status_idx ON assistant_runs (status)`,
+
+      `CREATE TABLE assistant_memory (
+         id TEXT PRIMARY KEY NOT NULL,
+         key TEXT NOT NULL UNIQUE,
+         value TEXT NOT NULL,
+         created_at INTEGER NOT NULL,
+         updated_at INTEGER NOT NULL,
+         CHECK (length(key) > 0 AND length(value) > 0)
+       ) STRICT`,
+
+      `CREATE TABLE assistant_actions (
+         id INTEGER PRIMARY KEY NOT NULL,
+         thread_id TEXT,
+         run_id TEXT,
+         actor TEXT NOT NULL CHECK (actor IN ('mira', 'human', 'system')),
+         op TEXT NOT NULL,
+         repo_id TEXT,
+         task_id TEXT,
+         session_id TEXT,
+         outcome TEXT NOT NULL,
+         detail_json TEXT,
+         created_at INTEGER NOT NULL
+       ) STRICT`,
+      `CREATE INDEX assistant_actions_repo_created_idx
+         ON assistant_actions (repo_id, created_at)`,
+      `CREATE INDEX assistant_actions_run_idx ON assistant_actions (run_id)`,
+
+      `CREATE TABLE assistant_settings (
+         id INTEGER PRIMARY KEY NOT NULL CHECK (id = 1),
+         settings_json TEXT NOT NULL,
+         updated_at INTEGER NOT NULL
+       ) STRICT`
+    ]
+  },
+  {
+    version: 10,
+    name: 'task-archive',
+    /**
+     * Finished tasks leave the working list without losing their history.
+     *
+     * Archive is a reversible visibility flag, not delete: review decisions,
+     * retry chains, sessions and worktrees stay intact. Archived rows are
+     * excluded from the default task list, attention counts and Mira's context;
+     * History can still read them.
+     */
+    statements: [
+      `ALTER TABLE tasks ADD COLUMN archived_at INTEGER`,
+      `CREATE INDEX tasks_archived_updated_idx ON tasks (archived_at, updated_at)`
+    ]
   }
 ]

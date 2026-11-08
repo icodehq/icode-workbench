@@ -113,13 +113,34 @@ export function createIcodeApi(invoke: InvokeFn, subscribe: SubscribeFn): IcodeA
     tasks: {
       list: (input) => call(IPC_CHANNELS.tasksList, input ?? {}),
       create: (input) => call(IPC_CHANNELS.tasksCreate, input),
+      approve: (input) => call(IPC_CHANNELS.tasksApprove, input),
+      reject: (input) => call(IPC_CHANNELS.tasksReject, input),
       cancel: (input) => call(IPC_CHANNELS.tasksCancel, input),
       retry: (input) => call(IPC_CHANNELS.tasksRetry, input),
       history: (input) => call(IPC_CHANNELS.tasksHistory, input),
       changes: (input) => call(IPC_CHANNELS.tasksChanges, input),
       decideReview: (input) => call(IPC_CHANNELS.tasksDecideReview, input),
+      archive: (input) => call(IPC_CHANNELS.tasksArchive, input),
+      unarchive: (input) => call(IPC_CHANNELS.tasksUnarchive, input),
+      archiveFinished: (input) => call(IPC_CHANNELS.tasksArchiveFinished, input),
       settings: () => call(IPC_CHANNELS.tasksSettings),
       setSettings: (input) => call(IPC_CHANNELS.tasksSetSettings, input)
+    },
+    supervisor: {
+      open: (input) => call(IPC_CHANNELS.supervisorOpen, input)
+    },
+    assistant: {
+      state: () => call(IPC_CHANNELS.assistantState),
+      messages: (input) => call(IPC_CHANNELS.assistantMessagesList, input),
+      send: (input) => call(IPC_CHANNELS.assistantSend, input),
+      markRead: (input) => call(IPC_CHANNELS.assistantMarkRead, input),
+      stop: () => call(IPC_CHANNELS.assistantStop),
+      settings: () => call(IPC_CHANNELS.assistantSettingsGet),
+      setSettings: (input) => call(IPC_CHANNELS.assistantSetSettings, input),
+      onEvent: (listener) =>
+        subscribe(IPC_CHANNELS.assistantEvent, (payload) =>
+          listener(payload as import('../shared/schemas/assistant').AssistantEventPayload)
+        )
     },
     schedules: {
       list: (input) => call(IPC_CHANNELS.schedulesList, input ?? {}),
@@ -149,6 +170,7 @@ export function createIcodeApi(invoke: InvokeFn, subscribe: SubscribeFn): IcodeA
       toggleMaximize: () => call(IPC_CHANNELS.windowToggleMaximize),
       close: () => call(IPC_CHANNELS.windowClose),
       isMaximized: () => call(IPC_CHANNELS.windowIsMaximized),
+      openExternal: (input) => call(IPC_CHANNELS.windowOpenExternal, input),
       onMaximizedChange: (listener) =>
         subscribe(IPC_CHANNELS.windowMaximizedEvent, (payload) => listener(Boolean(payload))),
       onBeforeClose: (listener) =>
@@ -181,6 +203,7 @@ export function createIcodeApi(invoke: InvokeFn, subscribe: SubscribeFn): IcodeA
   }
   Object.freeze(api.repos)
   Object.freeze(api.sessions)
+  Object.freeze(api.assistant)
   Object.freeze(api.harness)
   Object.freeze(api.branches)
   Object.freeze(api.files)

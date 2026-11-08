@@ -5,7 +5,8 @@ import type { HarnessId } from '../../shared/domain/harness'
 import type { PtyIncarnationId, SessionId, WorkspaceId } from '../../shared/domain/ids'
 import type {
   PersistedSessionObservation,
-  SessionLifecycleState
+  SessionLifecycleState,
+  SessionRole
 } from '../../shared/domain/session'
 
 export type SessionMetadataDraft = {
@@ -13,12 +14,13 @@ export type SessionMetadataDraft = {
   workspaceId: WorkspaceId
   harness: HarnessId
   title: string
+  role?: SessionRole
   createdAt: number
   lastActiveAt: number
   observation: PersistedSessionObservation
 }
 
-const SESSION_COLUMNS = `id, workspace_id, harness, title, created_at, last_active_at,
+const SESSION_COLUMNS = `id, workspace_id, harness, title, role, created_at, last_active_at,
   last_observed_state, last_observed_exit_code, last_observed_error_json,
   last_observed_incarnation_id, last_observed_at, sleeping_at, resume_token`
 
@@ -34,13 +36,14 @@ export class SessionStore {
     this.db.raw
       .prepare(
         `INSERT INTO sessions (${SESSION_COLUMNS})
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`
       )
       .run(
         draft.id,
         draft.workspaceId,
         draft.harness,
         draft.title,
+        draft.role ?? 'interactive',
         draft.createdAt,
         draft.lastActiveAt,
         draft.observation.lastObservedState,
@@ -80,7 +83,7 @@ export class SessionStore {
   listForRepo(repoId: string): StoredSession[] {
     const rows = this.db.raw
       .prepare(
-        `SELECT s.id, s.workspace_id, s.harness, s.title, s.created_at, s.last_active_at,
+        `SELECT s.id, s.workspace_id, s.harness, s.title, s.role, s.created_at, s.last_active_at,
                 s.last_observed_state, s.last_observed_exit_code, s.last_observed_error_json,
                 s.last_observed_incarnation_id, s.last_observed_at, s.sleeping_at,
                 s.resume_token

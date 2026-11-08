@@ -17,11 +17,24 @@ import type {
   removeRepositoryInputSchema,
   removeSessionInputSchema,
   sessionTargetInputSchema,
+  supervisorOpenInputSchema,
+  windowOpenExternalInputSchema,
   terminalAttachInputSchema,
   terminalResizeInputSchema,
   terminalWriteInputSchema
 } from './schemas/ipc'
 import type { clearActivityUnreadInputSchema } from './schemas/activity'
+import type {
+  AssistantEventPayload,
+  AssistantMessagePayload,
+  AssistantSendResult,
+  AssistantSettingsPayload,
+  AssistantStatePayload,
+  assistantMarkReadInputSchema,
+  assistantMessagesInputSchema,
+  assistantSendInputSchema,
+  assistantSetSettingsInputSchema
+} from './schemas/assistant'
 import type {
   aiCancelCommitMessageInputSchema,
   aiCommitMessageInputSchema,
@@ -54,12 +67,14 @@ import type {
   scheduleIdInputSchema,
   scheduleListInputSchema,
   scheduleUpdateInputSchema,
+  taskArchiveFinishedInputSchema,
   taskChangesPayloadSchema,
   taskCreateInputSchema,
   taskDecideReviewInputSchema,
   taskIdInputSchema,
   taskListInputSchema,
   taskRecordSchema,
+  taskRejectInputSchema,
   taskScheduleSchema,
   taskSettingsInputSchema
 } from './schemas/workspace'
@@ -338,6 +353,8 @@ export type IcodeProductApi = {
   tasks: {
       list: (input?: z.infer<typeof taskListInputSchema>) => Promise<IpcResult<TaskRecordPayload[]>>
       create: (input: z.infer<typeof taskCreateInputSchema>) => Promise<IpcResult<TaskRecordPayload>>
+      approve: (input: z.infer<typeof taskIdInputSchema>) => Promise<IpcResult<TaskRecordPayload>>
+      reject: (input: z.infer<typeof taskRejectInputSchema>) => Promise<IpcResult<TaskRecordPayload>>
       cancel: (input: z.infer<typeof taskIdInputSchema>) => Promise<IpcResult<TaskRecordPayload>>
       retry: (input: z.infer<typeof taskIdInputSchema>) => Promise<IpcResult<TaskRecordPayload>>
       history: (input: z.infer<typeof taskIdInputSchema>) => Promise<IpcResult<TaskRecordPayload[]>>
@@ -346,8 +363,34 @@ export type IcodeProductApi = {
       decideReview: (
         input: z.infer<typeof taskDecideReviewInputSchema>
       ) => Promise<IpcResult<TaskRecordPayload>>
+      archive: (input: z.infer<typeof taskIdInputSchema>) => Promise<IpcResult<TaskRecordPayload>>
+      unarchive: (input: z.infer<typeof taskIdInputSchema>) => Promise<IpcResult<TaskRecordPayload>>
+      archiveFinished: (
+        input: z.infer<typeof taskArchiveFinishedInputSchema>
+      ) => Promise<IpcResult<number>>
       settings: () => Promise<IpcResult<{ maxConcurrent: number }>>
       setSettings: (input: z.infer<typeof taskSettingsInputSchema>) => Promise<IpcResult<number>>
+    }
+    /** One project-scoped control session; opening creates it on first use. */
+    supervisor: {
+      open: (
+        input: z.infer<typeof supervisorOpenInputSchema>
+      ) => Promise<IpcResult<SessionSummary>>
+    }
+    /** The global Mira thread. One conversation across all projects. */
+    assistant: {
+      state: () => Promise<IpcResult<AssistantStatePayload>>
+      messages: (
+        input: z.infer<typeof assistantMessagesInputSchema>
+      ) => Promise<IpcResult<AssistantMessagePayload[]>>
+      send: (input: z.infer<typeof assistantSendInputSchema>) => Promise<IpcResult<AssistantSendResult>>
+      markRead: (input: z.infer<typeof assistantMarkReadInputSchema>) => Promise<IpcResult<number>>
+      stop: () => Promise<IpcResult<null>>
+      settings: () => Promise<IpcResult<AssistantSettingsPayload>>
+      setSettings: (
+        input: z.infer<typeof assistantSetSettingsInputSchema>
+      ) => Promise<IpcResult<AssistantSettingsPayload>>
+      onEvent: (listener: (event: AssistantEventPayload) => void) => () => void
     }
     schedules: {
       list: (input?: z.infer<typeof scheduleListInputSchema>) => Promise<IpcResult<TaskSchedulePayload[]>>
@@ -365,6 +408,9 @@ export type IcodeProductApi = {
     toggleMaximize: () => Promise<IpcResult<boolean>>
     close: () => Promise<IpcResult<null>>
     isMaximized: () => Promise<IpcResult<boolean>>
+    openExternal: (
+      input: z.infer<typeof windowOpenExternalInputSchema>
+    ) => Promise<IpcResult<null>>
     onMaximizedChange: (listener: (maximized: boolean) => void) => () => void
     /** Main asks before closing; answer with `respondClose`. */
     onBeforeClose: (listener: () => void) => () => void

@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { AppError } from '../domain/errors'
 import { WORKTREE_STATES, WORKTREE_STATUSES } from '../domain/worktree'
+import { SESSION_ROLES } from '../domain/session'
 import { activitySummarySchema } from './activity'
 import {
   appErrorSchema,
@@ -37,6 +38,7 @@ export const IPC_CHANNELS = {
   windowBeforeClose: 'icode:window:before-close',
   windowCloseResponse: 'icode:window:close-response',
   windowIsMaximized: 'icode:window:is-maximized',
+  windowOpenExternal: 'icode:window:open-external',
   windowMaximizedEvent: 'icode:window:maximized',
   sessionsList: 'icode:sessions:list',
   sessionsGet: 'icode:sessions:get',
@@ -73,13 +75,27 @@ export const IPC_CHANNELS = {
   gitStatusEvent: 'icode:git:status-event',
   tasksList: 'icode:tasks:list',
   tasksCreate: 'icode:tasks:create',
+  tasksApprove: 'icode:tasks:approve',
+  tasksReject: 'icode:tasks:reject',
   tasksCancel: 'icode:tasks:cancel',
   tasksRetry: 'icode:tasks:retry',
   tasksHistory: 'icode:tasks:history',
   tasksChanges: 'icode:tasks:changes',
   tasksDecideReview: 'icode:tasks:decide-review',
+  tasksArchive: 'icode:tasks:archive',
+  tasksUnarchive: 'icode:tasks:unarchive',
+  tasksArchiveFinished: 'icode:tasks:archive-finished',
   tasksSettings: 'icode:tasks:settings',
   tasksSetSettings: 'icode:tasks:set-settings',
+  supervisorOpen: 'icode:supervisor:open',
+  assistantState: 'icode:assistant:state',
+  assistantMessagesList: 'icode:assistant:messages:list',
+  assistantSend: 'icode:assistant:send',
+  assistantMarkRead: 'icode:assistant:mark-read',
+  assistantStop: 'icode:assistant:stop',
+  assistantSettingsGet: 'icode:assistant:settings:get',
+  assistantSetSettings: 'icode:assistant:settings:set',
+  assistantEvent: 'icode:assistant-event',
   schedulesList: 'icode:schedules:list',
   schedulesCreate: 'icode:schedules:create',
   schedulesUpdate: 'icode:schedules:update',
@@ -100,6 +116,26 @@ export const IPC_CHANNELS = {
 } as const
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS]
+
+/**
+ * External links in assistant Markdown. Only http(s) reaches the OS browser;
+ * file:, custom schemes and local paths are rejected.
+ */
+export const windowOpenExternalInputSchema = z.strictObject({
+  url: z
+    .string()
+    .trim()
+    .min(1)
+    .max(2048)
+    .refine((value) => {
+      try {
+        const url = new URL(value)
+        return url.protocol === 'http:' || url.protocol === 'https:'
+      } catch {
+        return false
+      }
+    }, 'must be an http(s) URL')
+})
 
 export type IpcResult<T> = { ok: true; value: T } | { ok: false; error: AppError }
 
@@ -225,6 +261,11 @@ export const createSessionInputSchema = z.strictObject({
 
 export const sessionTargetInputSchema = z.strictObject({
   sessionId: sessionIdSchema
+})
+
+/** Opening a project supervisor creates it if needed and returns its session. */
+export const supervisorOpenInputSchema = z.strictObject({
+  repoId: repoIdSchema
 })
 
 /**
@@ -376,11 +417,14 @@ export const worktreeSummarySchema = z.strictObject({
   error: appErrorSchema.nullable()
 })
 
+export const sessionRoleSchema = z.enum(SESSION_ROLES)
+
 export const sessionSummarySchema = z.strictObject({
   id: sessionIdSchema,
   repoId: repoIdSchema,
   title: sessionTitleSchema,
   harness: harnessIdSchema,
+  role: sessionRoleSchema.optional(),
   state: z.enum(['starting', 'live', 'exited', 'failed', 'unavailable']),
   authority: z.enum(['host', 'persisted', 'unreachable']),
   reason: reconciliationReasonSchema,

@@ -27,6 +27,8 @@ export type ProjectLoad = {
 }
 
 export type ProjectNeeds = {
+  /** Queued supervisor proposals waiting for a person. */
+  approval?: number
   answer: number
   retry: number
   review: number
@@ -40,6 +42,8 @@ export type ProjectNeeds = {
 export type ProjectStats = {
   repo: RepositorySummary
   sessions: SessionSummary[]
+  /** Supervisor/control sessions; excluded from work metrics. */
+  controlSessions: SessionSummary[]
   directSessions: SessionSummary[]
   liveSessions: number
   /** The most actionable agent activity among live sessions; null when none are live. */
@@ -145,29 +149,33 @@ export function projectStats(
   tasks: readonly TaskRecordPayload[]
 ): ProjectStats {
   const repoSessions = sessions.filter((session) => session.repoId === repo.id)
+  const controlSessions = repoSessions.filter((session) => session.role === 'supervisor')
+  const workSessions = repoSessions.filter((session) => session.role !== 'supervisor')
   const repoTasks = tasks.filter((task) => task.repoId === repo.id)
   const taskSessionIds = new Set(
     repoTasks.map((task) => task.sessionId).filter((id): id is string => id !== null)
   )
-  const directSessions = repoSessions.filter((session) => !taskSessionIds.has(session.id))
+  const directSessions = workSessions.filter((session) => !taskSessionIds.has(session.id))
   const directLive = directSessions.filter((session) =>
     isActiveSessionState(session.state)
   ).length
-  const liveSessions = repoSessions.filter((session) =>
+  const liveSessions = workSessions.filter((session) =>
     isActiveSessionState(session.state)
   ).length
   const running = repoTasks.filter(
     (task) => task.status === 'dispatching' || task.status === 'running'
   ).length
-  const queued = repoTasks.filter((task) => task.status === 'queued').length
+  const queued = repoTasks.filter(
+    (task) => task.status === 'queued' && task.approval !== 'pending'
+  ).length
   const taskNeeds = taskAttentionCounts(repoTasks)
   const waiting = directSessions.filter(
     (session) => isActiveSessionState(session.state) && session.activity?.state === 'waiting'
   ).length
   const setupFailed = repositoryPreparationView(repo)?.kind === 'failed'
   const setup = setupFailed ? 1 : 0
-  const activity = projectActivity(repoSessions)
-  const activityStamps = repoSessions.flatMap((session) =>
+  const activity = projectActivity(workSessions)
+  const activityStamps = workSessions.flatMap((session) =>
     isActiveSessionState(session.state) &&
     session.activity !== null &&
     session.activity.state !== 'unknown'
@@ -182,6 +190,7 @@ export function projectStats(
   return {
     repo,
     sessions: repoSessions,
+    controlSessions,
     directSessions,
     liveSessions,
     activity,
@@ -193,6 +202,7 @@ export function projectStats(
       total: directLive + running + queued
     },
     needs: {
+      approval: taskNeeds.approval,
       answer: taskNeeds.answer,
       retry: taskNeeds.retry,
       review: taskNeeds.review,
@@ -250,6 +260,7 @@ export function inFlightView(stats: ProjectStats): {
 
 export function needsLabel(needs: ProjectNeeds): string {
   const parts: string[] = []
+  if ((needs.approval ?? 0) > 0) parts.push(`Approve ${String(needs.approval)}`)
   if (needs.answer > 0) parts.push(`Answer ${String(needs.answer)}`)
   if (needs.retry > 0) parts.push(`Retry ${String(needs.retry)}`)
   if (needs.review > 0) parts.push(`Review ${String(needs.review)}`)
@@ -289,11 +300,13 @@ export function attentionEntries(
   const rank = (kind: NeedEntry['kind']): number =>
     kind === 'Setup'
       ? 0
-      : kind === 'Answer' || kind === 'Waiting'
+      : kind === 'Approval'
         ? 1
-        : kind === 'Retry'
+        : kind === 'Answer' || kind === 'Waiting'
           ? 2
-          : 3
+          : kind === 'Retry'
+            ? 3
+            : 4
   const taskEntries: NeedEntry[] = tasks.flatMap((task) => {
     const kind = taskAttention(task)
     const repo = reposById.get(task.repoId)
@@ -314,6 +327,7 @@ export function attentionEntries(
   const sessionEntries: NeedEntry[] = sessions.flatMap((session) => {
     const repo = reposById.get(session.repoId)
     if (repo === undefined || taskSessionIds.has(session.id)) return []
+    if (session.role === 'supervisor') return []
     if (!isActiveSessionState(session.state)) return []
     if (session.activity?.state !== 'waiting') return []
     return [{
@@ -335,6 +349,7 @@ export function attentionEntries(
 
 export function needCounts(entries: readonly NeedEntry[]): ProjectNeeds {
   const counts: ProjectNeeds = {
+    approval: 0,
     answer: 0,
     retry: 0,
     review: 0,
@@ -343,7 +358,8 @@ export function needCounts(entries: readonly NeedEntry[]): ProjectNeeds {
     total: 0
   }
   for (const entry of entries) {
-    if (entry.kind === 'Answer') counts.answer += 1
+    if (entry.kind === 'Approval') counts.approval = (counts.approval ?? 0) + 1
+    else if (entry.kind === 'Answer') counts.answer += 1
     else if (entry.kind === 'Retry') counts.retry += 1
     else if (entry.kind === 'Review') counts.review += 1
     else if (entry.kind === 'Waiting') counts.waiting += 1

@@ -40,11 +40,20 @@ describe('database initialization', () => {
       .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
       .all() as Array<{ name: string }>
     expect(tables.map((row) => row.name)).toEqual([
+      // v9: the global assistant thread and its audit trail.
+      'assistant_actions',
+      'assistant_memory',
+      'assistant_messages',
+      'assistant_runs',
+      'assistant_settings',
+      'assistant_threads',
       // v4: durable work lives beside sessions, not inside them.
       'repos',
       'session_worktrees',
       'sessions',
       'sqlite_sequence',
+      'supervisor_actions',
+      'supervisor_bindings',
       'task_occurrences',
       'task_schedules',
       'task_settings',
@@ -498,6 +507,17 @@ describe('migrations', () => {
       .prepare("SELECT name FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%' ORDER BY name")
       .all() as Array<{ name: string }>
     expect(indexes.map((row) => row.name)).toEqual([
+      // v9: assistant thread ordering, unread watermarks and notification
+      // dedupe, plus Mira task provenance.
+      'assistant_actions_repo_created_idx',
+      'assistant_actions_run_idx',
+      'assistant_messages_dedupe_idx',
+      'assistant_messages_thread_created_idx',
+      'assistant_messages_thread_seq_idx',
+      'assistant_runs_status_idx',
+      'assistant_runs_thread_started_idx',
+      'assistant_threads_main_idx',
+      'assistant_threads_updated_idx',
       // v3: one uniqueness rule per execution target, plus the host-kind lookup
       // index. The partial unique indexes are what allow the same path string on
       // two targets while still refusing a duplicate within one.
@@ -507,15 +527,22 @@ describe('migrations', () => {
       'repos_wsl_registration_path_idx',
       'session_worktrees_repo_idx',
       'sessions_workspace_idx',
+      // v8: supervisor actions and the approval queue.
+      'supervisor_actions_repo_created_idx',
       // v4: the queue's own access paths, and the occurrence receipt that makes
       // duplicate triggers a database answer rather than a memory one.
       'task_occurrences_schedule_idx',
       'task_schedules_enabled_idx',
+      'tasks_actor_created_idx',
+      'tasks_approval_status_created_idx',
+      // v10: the archived working-list split.
+      'tasks_archived_updated_idx',
       'tasks_previous_idx',
       'tasks_repo_created_idx',
       // v5: review state is read per queue view and per retry chain.
       'tasks_review_idx',
       'tasks_schedule_idx',
+      'tasks_session_idx',
       'tasks_status_created_idx',
       'workspaces_repo_idx',
       'worktree_branches_repo_idx'

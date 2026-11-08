@@ -363,3 +363,42 @@ describe('task-scoped changes', () => {
     expect(asked).toBe(0)
   })
 })
+
+describe('supervisor review recommendations', () => {
+  it('records a recommendation without deciding the review', async () => {
+    const h = await harness()
+    const id = finished(h)
+    const result = h.service.recommendReview(id, 'accept', 'Diff is small and tests pass', 'ses_00000000-0000-4000-8000-000000000099')
+    expect(result.ok).toBe(true)
+
+    const view = h.service.get(id)!
+    expect(view.reviewDecision).toBe('pending')
+    expect(view.reviewRecommendation).toBe('accept')
+    expect(view.reviewRecommendationNote).toBe('Diff is small and tests pass')
+    expect(view.reviewRecommendedBySessionId).toBe('ses_00000000-0000-4000-8000-000000000099')
+    expect(view.canDecideReview).toBe(true)
+  })
+
+  it('replaces an older recommendation but still leaves the decision to a person', async () => {
+    const h = await harness()
+    const id = finished(h)
+    expect(h.service.recommendReview(id, 'accept', 'first').ok).toBe(true)
+    expect(h.service.recommendReview(id, 'reject', 'second').ok).toBe(true)
+    expect(h.service.get(id)!.reviewRecommendation).toBe('reject')
+    expect(h.service.get(id)!.reviewRecommendationNote).toBe('second')
+
+    const decided = h.service.decideReview(id, 'accepted', { note: 'I looked' })
+    expect(decided.ok).toBe(true)
+    expect(h.service.get(id)!.reviewDecision).toBe('accepted')
+    expect(h.service.get(id)!.reviewRecommendation).toBe('reject')
+    expect(h.service.recommendReview(id, 'accept', 'too late').ok).toBe(false)
+  })
+
+  it('refuses a recommendation before the task stops', async () => {
+    const h = await harness()
+    const created = h.service.create({ repoId: h.repoId as never, prompt: 'running', harness: 'claude' })
+    if (!created.ok) throw new Error('create failed')
+    const result = h.service.recommendReview(created.value.id, 'accept')
+    expect(result.ok).toBe(false)
+  })
+})

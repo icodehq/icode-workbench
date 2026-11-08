@@ -15,6 +15,7 @@ import SessionHost from '../components/SessionHost'
 export type TasksPageProps = {
   repo: RepositorySummary | null
   tasks: TaskRecordPayload[]
+  archivedTasks: TaskRecordPayload[]
   sessions: SessionSummary[]
   loading: boolean
   focusTaskId: string | null
@@ -55,6 +56,7 @@ export type TasksPageProps = {
 export default function TasksPage({
   repo,
   tasks,
+  archivedTasks,
   sessions,
   loading,
   focusTaskId,
@@ -133,6 +135,7 @@ export default function TasksPage({
     <ProjectTasksView
       repo={repo}
       tasks={tasks}
+      archivedTasks={archivedTasks}
       sessions={sessions}
       loading={loading}
       focusTaskId={focusTaskId}

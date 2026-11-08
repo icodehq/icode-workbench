@@ -1,4 +1,12 @@
-import { BrowserWindow, clipboard, dialog, ipcMain, type IpcMainInvokeEvent, type WebFrameMain } from 'electron'
+import {
+  BrowserWindow,
+  clipboard,
+  dialog,
+  ipcMain,
+  shell,
+  type IpcMainInvokeEvent,
+  type WebFrameMain
+} from 'electron'
 import { IPC_CHANNELS, type IpcResult } from '../../shared/schemas/ipc'
 import { makeAppError } from '../../shared/domain/errors'
 import type { AppRuntime } from '../app/runtime'
@@ -6,7 +14,10 @@ import { createDispatcher, type Dispatcher } from './dispatcher'
 import { invokeGitCommand } from './git-commands'
 import { toRepositorySummary } from './repository-summary'
 import { RepositoryFolderPicker } from '../repositories/folder-picker'
-import { pickRepositoryFolderResultSchema } from '../../shared/schemas/ipc'
+import {
+  pickRepositoryFolderResultSchema,
+  windowOpenExternalInputSchema
+} from '../../shared/schemas/ipc'
 import { app } from 'electron'
 import { respondToWindowClose } from '../window-close'
 
@@ -15,7 +26,8 @@ export const WINDOW_CONTROL_CHANNELS: readonly string[] = [
   IPC_CHANNELS.windowToggleMaximize,
   IPC_CHANNELS.windowClose,
   IPC_CHANNELS.windowCloseResponse,
-  IPC_CHANNELS.windowIsMaximized
+  IPC_CHANNELS.windowIsMaximized,
+  IPC_CHANNELS.windowOpenExternal
 ]
 
 export const HANDLED_CHANNELS: readonly string[] = [
@@ -59,13 +71,26 @@ export const HANDLED_CHANNELS: readonly string[] = [
   IPC_CHANNELS.gitInvoke,
   IPC_CHANNELS.tasksList,
   IPC_CHANNELS.tasksCreate,
+  IPC_CHANNELS.tasksApprove,
+  IPC_CHANNELS.tasksReject,
   IPC_CHANNELS.tasksCancel,
   IPC_CHANNELS.tasksRetry,
   IPC_CHANNELS.tasksHistory,
   IPC_CHANNELS.tasksChanges,
   IPC_CHANNELS.tasksDecideReview,
+  IPC_CHANNELS.tasksArchive,
+  IPC_CHANNELS.tasksUnarchive,
+  IPC_CHANNELS.tasksArchiveFinished,
   IPC_CHANNELS.tasksSettings,
   IPC_CHANNELS.tasksSetSettings,
+  IPC_CHANNELS.supervisorOpen,
+  IPC_CHANNELS.assistantState,
+  IPC_CHANNELS.assistantMessagesList,
+  IPC_CHANNELS.assistantSend,
+  IPC_CHANNELS.assistantMarkRead,
+  IPC_CHANNELS.assistantStop,
+  IPC_CHANNELS.assistantSettingsGet,
+  IPC_CHANNELS.assistantSetSettings,
   IPC_CHANNELS.schedulesList,
   IPC_CHANNELS.schedulesCreate,
   IPC_CHANNELS.schedulesUpdate,
@@ -282,6 +307,9 @@ export function createAppDispatcher(
     gitInvoke: (input) => invokeGitCommand(runtime, input),
     tasksList: (input) => Promise.resolve(runtime.tasks.list(input as never)),
     tasksCreate: (input) => Promise.resolve(outcomeOrThrow(runtime.tasks.create(input as never))),
+    tasksApprove: (input) => Promise.resolve(outcomeOrThrow(runtime.tasks.approve(input.taskId))),
+    tasksReject: (input) =>
+      Promise.resolve(outcomeOrThrow(runtime.tasks.reject(input.taskId, input.note ?? null))),
     tasksCancel: (input) => outcomeOrThrowAsync(runtime.tasks.cancel(input.taskId)),
     tasksRetry: (input) => Promise.resolve(outcomeOrThrow(runtime.tasks.retry(input.taskId))),
     tasksHistory: (input) => Promise.resolve(runtime.tasks.history(input.taskId)),
@@ -295,8 +323,22 @@ export function createAppDispatcher(
           })
         )
       ),
+    tasksArchive: (input) => Promise.resolve(outcomeOrThrow(runtime.tasks.archive(input.taskId))),
+    tasksUnarchive: (input) =>
+      Promise.resolve(outcomeOrThrow(runtime.tasks.unarchive(input.taskId))),
+    tasksArchiveFinished: (input) =>
+      Promise.resolve(outcomeOrThrow(runtime.tasks.archiveFinished(input.repoId as never))),
     tasksSettings: () => Promise.resolve({ maxConcurrent: runtime.tasks.maxConcurrent() }),
     tasksSetSettings: (input) => Promise.resolve(outcomeOrThrow(runtime.tasks.setMaxConcurrent(input.maxConcurrent))),
+    supervisorOpen: (input) => runtime.supervisor.open(input.repoId as never),
+    assistantState: () => Promise.resolve(runtime.assistant.state()),
+    assistantMessagesList: (input) => Promise.resolve(runtime.assistant.listMessages(input)),
+    assistantSend: (input) => runtime.assistant.send(input),
+    assistantMarkRead: (input) => Promise.resolve(runtime.assistant.markRead(input)),
+    assistantStop: () => Promise.resolve(runtime.assistant.stop()),
+    assistantSettingsGet: () => Promise.resolve(runtime.assistant.settings()),
+    assistantSetSettings: (input) =>
+      Promise.resolve(runtime.assistant.saveSettings(input.settings as never)),
     schedulesList: (input) => Promise.resolve(runtime.schedules.list(input.repoId as never)),
     schedulesCreate: (input) => Promise.resolve(outcomeOrThrow(runtime.schedules.create(input as never))),
     schedulesUpdate: (input) =>
@@ -391,6 +433,17 @@ export function registerAppIpc(
         respondToWindowClose(window, action)
         return { ok: true, value: null }
       }
+      if (channel === IPC_CHANNELS.windowOpenExternal) {
+        const input = windowOpenExternalInputSchema.safeParse(rawInput)
+        if (!input.success) {
+          return {
+            ok: false,
+            error: makeAppError('INVALID_ARGUMENT', 'Only http(s) links can be opened.')
+          }
+        }
+        await shell.openExternal(input.data.url)
+        return { ok: true, value: null }
+      }
       return { ok: true, value: window.isMaximized() }
     }
     ipcMain.handle(channel, handler as Parameters<typeof ipcMain.handle>[1])
@@ -442,7 +495,12 @@ export function registerAppIpc(
     broadcast(IPC_CHANNELS.filesChangedEvent, event)
   })
 
+  const unsubscribeAssistant = runtime.assistant.subscribe((event) => {
+    broadcast(IPC_CHANNELS.assistantEvent, event)
+  })
+
   return () => {
+    unsubscribeAssistant()
     unsubscribeFilesChanged()
     unsubscribeGitStatus()
     unsubscribeRepos()

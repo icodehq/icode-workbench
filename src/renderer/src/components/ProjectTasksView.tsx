@@ -37,6 +37,7 @@ import {
 type Props = {
   repo: RepositorySummary
   tasks: TaskRecordPayload[]
+  archivedTasks: TaskRecordPayload[]
   sessions: SessionSummary[]
   loading: boolean
   focusTaskId: string | null
@@ -58,9 +59,12 @@ type Props = {
   onSendToAgent: (text: string, session: SessionSummary) => Promise<AgentSendResult>
 }
 
-type Filter = 'all' | 'needs' | 'running' | 'queued' | 'finished'
+type Filter = 'all' | 'needs' | 'proposal' | 'running' | 'queued' | 'finished' | 'history'
 
 function statusGlyph(task: TaskRecordPayload): React.JSX.Element {
+  if (task.approval === 'pending' && task.status === 'queued') {
+    return <AlertTriangle size={11} />
+  }
   if (task.status === 'running' || task.status === 'dispatching') {
     return <Loader2 size={11} className="animate-spin" />
   }
@@ -88,18 +92,36 @@ function ProjectTaskRow({
   task,
   busy,
   onSelect,
+  onApprove,
+  onReject,
   onCancel,
-  onRetry
+  onRetry,
+  onArchive,
+  onUnarchive,
+  archived
 }: {
   task: TaskRecordPayload
   busy: boolean
   onSelect: () => void
+  onApprove: () => Promise<void>
+  onReject: () => Promise<void>
   onCancel: () => Promise<void>
   onRetry: () => Promise<void>
+  onArchive?: () => Promise<void>
+  onUnarchive?: () => Promise<void>
+  archived?: boolean
 }): React.JSX.Element {
   const attention = taskAttention(task)
   return (
-    <li className="rounded-md border border-transparent px-2.5 py-2 hover:border-border hover:bg-muted/50" data-testid={`task-row-${task.id}`}>
+    <li
+      className="cursor-pointer rounded-md border border-transparent px-2.5 py-2 hover:border-border hover:bg-muted/50"
+      data-testid={`task-row-${task.id}`}
+      onClick={(event) => {
+        // Action buttons own their click; everything else in the row selects it.
+        if (!(event.target instanceof HTMLElement) || event.target.closest('button')) return
+        onSelect()
+      }}
+    >
       <button
         type="button"
         className="flex w-full items-center gap-2 text-left"
@@ -117,6 +139,11 @@ function ProjectTaskRow({
           </span>
         ) : null}
         <ReviewBadge task={task} />
+        {archived ? (
+          <span className="shrink-0 rounded bg-muted px-1 text-[9px] text-muted-foreground">
+            archived
+          </span>
+        ) : null}
         <span className={`shrink-0 text-[9px] uppercase ${taskStatusTone(task)}`}>
           {taskStatusLabel(task)}
         </span>
@@ -124,11 +151,58 @@ function ProjectTaskRow({
       <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
         <span>{task.harness}</span>
         {task.attempt > 1 ? <span>· try {task.attempt}</span> : null}
+        {task.createdByActor === 'mira' ? (
+          <span>· proposed by Mira</span>
+        ) : task.origin === 'supervisor' ? (
+          <span>· proposed by Supervisor</span>
+        ) : null}
         {task.sessionLive ? <span className="text-add">· session live</span> : null}
         {task.scheduleId ? <span>· from a schedule</span> : null}
         <span className="ml-auto flex items-center gap-1">
-
-          {task.status === 'queued' || taskIsActive(task) ? (
+          {archived && onUnarchive ? (
+            <button
+              type="button"
+              className="rounded border border-border px-1.5 py-0.5 text-[9px] hover:bg-muted"
+              onClick={() => void onUnarchive()}
+              disabled={busy}
+              data-testid={`task-unarchive-${task.id}`}
+            >
+              Restore
+            </button>
+          ) : !archived && task.canArchive && onArchive ? (
+            <button
+              type="button"
+              className="rounded border border-border px-1.5 py-0.5 text-[9px] text-muted-foreground hover:bg-muted"
+              onClick={() => void onArchive()}
+              disabled={busy}
+              data-testid={`task-archive-${task.id}`}
+            >
+              Archive
+            </button>
+          ) : null}
+          {!archived && task.canApprove ? (
+            <>
+              <button
+                type="button"
+                className="rounded border border-signal-line bg-signal-weak px-1.5 py-0.5 text-[9px] text-signal hover:bg-signal/15"
+                onClick={() => void onApprove()}
+                disabled={busy}
+                data-testid={`task-approve-${task.id}`}
+              >
+                Approve
+              </button>
+              <button
+                type="button"
+                className="rounded border border-border px-1.5 py-0.5 text-[9px] text-muted-foreground hover:bg-muted hover:text-destructive"
+                onClick={() => void onReject()}
+                disabled={busy}
+                data-testid={`task-reject-${task.id}`}
+              >
+                Reject
+              </button>
+            </>
+          ) : null}
+          {!task.canApprove && (task.status === 'queued' || taskIsActive(task)) ? (
             <button
               type="button"
               className="rounded border border-border px-1.5 py-0.5 text-[9px] text-muted-foreground hover:bg-muted hover:text-destructive"
@@ -139,7 +213,7 @@ function ProjectTaskRow({
               Cancel
             </button>
           ) : null}
-          {task.canRetry ? (
+          {!archived && task.canRetry ? (
             <button
               type="button"
               className="rounded border border-border px-1.5 py-0.5 text-[9px] hover:bg-muted"
@@ -171,6 +245,7 @@ function ProjectTaskRow({
 export default function ProjectTasksView({
   repo,
   tasks,
+  archivedTasks,
   sessions,
   loading,
   focusTaskId,
@@ -193,6 +268,14 @@ export default function ProjectTasksView({
   const projectTasks = useMemo(
     () => tasks.filter((task) => task.repoId === repo.id),
     [repo.id, tasks]
+  )
+  const projectArchived = useMemo(
+    () => archivedTasks.filter((task) => task.repoId === repo.id),
+    [archivedTasks, repo.id]
+  )
+  const allProjectTasks = useMemo(
+    () => [...projectTasks, ...projectArchived],
+    [projectArchived, projectTasks]
   )
   const preparation = repositoryPreparationView(repo)
   const [filter, setFilter] = useState<Filter>('all')
@@ -224,12 +307,12 @@ export default function ProjectTasksView({
       return
     }
     if (appliedFocus.current === focusTaskId) return
-    if (projectTasks.some((task) => task.id === focusTaskId)) {
+    if (allProjectTasks.some((task) => task.id === focusTaskId)) {
       appliedFocus.current = focusTaskId
       setSelectedTaskId(focusTaskId)
       reportSelection(focusTaskId)
     }
-  }, [focusTaskId, projectTasks, reportSelection])
+  }, [allProjectTasks, focusTaskId, reportSelection])
 
   useEffect(() => {
     if (focusComposerNonce === 0) return
@@ -260,33 +343,33 @@ export default function ProjectTasksView({
     }
   }, [notify, repo.id])
 
-  const selectedTask = projectTasks.find((task) => task.id === selectedTaskId) ?? null
+  const selectedTask = allProjectTasks.find((task) => task.id === selectedTaskId) ?? null
   const selectedSession =
     selectedTask?.sessionId === null || selectedTask?.sessionId === undefined
       ? null
       : sessions.find((session) => session.id === selectedTask.sessionId) ?? null
 
   useEffect(() => {
-    if (selectedTaskId !== null && !projectTasks.some((task) => task.id === selectedTaskId)) {
+    if (selectedTaskId !== null && !allProjectTasks.some((task) => task.id === selectedTaskId)) {
       setSelectedTaskId(null)
     }
-  }, [projectTasks, selectedTaskId])
+  }, [allProjectTasks, selectedTaskId])
 
   // Opening a project restores the last task used there; a new project opens
   // its oldest task rather than an empty right pane.
   useEffect(() => {
     const focusPending =
-      focusTaskId !== null && projectTasks.some((task) => task.id === focusTaskId)
+      focusTaskId !== null && allProjectTasks.some((task) => task.id === focusTaskId)
     if (selectedTaskId !== null || focusPending) return
     const preferred =
-      rememberedTaskId !== null && projectTasks.some((task) => task.id === rememberedTaskId)
+      rememberedTaskId !== null && allProjectTasks.some((task) => task.id === rememberedTaskId)
         ? rememberedTaskId
-        : (projectTasks[0]?.id ?? null)
+        : (allProjectTasks[0]?.id ?? null)
     if (preferred !== null) {
       setSelectedTaskId(preferred)
       reportSelection(preferred)
     }
-  }, [focusTaskId, projectTasks, rememberedTaskId, reportSelection, selectedTaskId])
+  }, [allProjectTasks, focusTaskId, rememberedTaskId, reportSelection, selectedTaskId])
 
   useEffect(() => {
     const id = selectedTaskId
@@ -306,31 +389,90 @@ export default function ProjectTasksView({
   }, [selectedTaskId, projectTasks])
 
   const groups = useMemo(() => {
+    const proposal = sortQueuedTasks(
+      projectTasks.filter((task) => taskGroup(task) === 'proposal')
+    )
     const running = sortRunningTasks(projectTasks.filter((task) => taskGroup(task) === 'running'))
     const queued = sortQueuedTasks(projectTasks.filter((task) => taskGroup(task) === 'queued'))
     const finished = sortFinishedTasks(projectTasks.filter((task) => taskGroup(task) === 'finished'))
-    const needs = [...running, ...finished].filter((task) => taskAttention(task) !== null)
-    return { running, queued, finished, needs }
-  }, [projectTasks])
+    const needs = [...proposal, ...running, ...finished].filter(
+      (task) => taskAttention(task) !== null
+    )
+    // Reviewed completions and cancellations are history; a review-pending
+    // completion and an un-retried failure stay in Needs.
+    const historyFinished = finished.filter(
+      (task) =>
+        (task.status === 'completed' && task.reviewDecision !== 'pending') ||
+        task.status === 'cancelled'
+    )
+    const history = sortFinishedTasks([...historyFinished, ...projectArchived])
+    return { proposal, running, queued, finished, needs, history }
+  }, [projectArchived, projectTasks])
+  // History is a different working set; keep the detail pane aligned with it
+  // instead of showing a Needs/review task beside a list of old work.
+  useEffect(() => {
+    if (filter !== 'history') return
+    if (selectedTaskId !== null && groups.history.some((task) => task.id === selectedTaskId)) {
+      return
+    }
+    const first = groups.history[0]?.id ?? null
+    setSelectedTaskId(first)
+    if (first !== null) reportSelection(first)
+  }, [filter, groups.history, reportSelection, selectedTaskId])
+
   const attention = taskAttentionCounts(projectTasks)
+  const archivableCount = groups.finished.filter(
+    (task) =>
+      (task.status === 'completed' && task.reviewDecision !== 'pending') ||
+      task.status === 'cancelled'
+  ).length
+  const activeVisible = useMemo(
+    () => [...groups.proposal, ...groups.running, ...groups.queued],
+    [groups]
+  )
 
   const visible = useMemo(() => {
     if (filter === 'needs') return groups.needs
+    if (filter === 'proposal') return groups.proposal
     if (filter === 'running') return groups.running
     if (filter === 'queued') return groups.queued
     if (filter === 'finished') return groups.finished
-    return projectTasks
-  }, [filter, groups, projectTasks])
+    if (filter === 'history') return groups.history
+    return activeVisible
+  }, [activeVisible, filter, groups])
 
-  const showGroup = (group: 'running' | 'queued' | 'finished'): boolean => {
-    if (filter === 'all' || filter === group) return true
+  const showGroup = (
+    group: 'proposal' | 'running' | 'queued' | 'finished' | 'history'
+  ): boolean => {
+    if (filter === 'history') return group === 'history'
+    if (group === 'history') return false
+    // The default working list never shows finished work; History owns it.
+    if (filter === 'all') return group !== 'finished'
+    if (filter === group) return true
     if (filter !== 'needs') return false
-    const list = group === 'running' ? groups.running : groups.finished
+    const list =
+      group === 'proposal'
+        ? groups.proposal
+        : group === 'running'
+          ? groups.running
+          : group === 'finished'
+            ? groups.finished
+            : []
     return list.some((task) => taskAttention(task) !== null)
   }
 
-  const groupList = (group: 'running' | 'queued' | 'finished'): TaskRecordPayload[] =>
-    group === 'running' ? groups.running : group === 'queued' ? groups.queued : groups.finished
+  const groupList = (
+    group: 'proposal' | 'running' | 'queued' | 'finished' | 'history'
+  ): TaskRecordPayload[] =>
+    group === 'proposal'
+      ? groups.proposal
+      : group === 'running'
+        ? groups.running
+        : group === 'queued'
+          ? groups.queued
+          : group === 'finished'
+            ? groups.finished
+            : groups.history
 
   const submit = useCallback(async (): Promise<void> => {
     if (prompt.trim().length === 0) return
@@ -392,10 +534,102 @@ export default function ProjectTasksView({
     [notify, onReload, reportSelection]
   )
 
+  const approve = useCallback(
+    async (task: TaskRecordPayload): Promise<void> => {
+      setBusyId(task.id)
+      try {
+        const result = await callApi<TaskRecordPayload>(window.icode.tasks.approve({ taskId: task.id }))
+        if (!result.ok) notify(errorNotice(result.error))
+        else notify({ tone: 'success', message: `Approved ${task.title}` })
+        await onReload()
+      } finally {
+        setBusyId(null)
+      }
+    },
+    [notify, onReload]
+  )
+
+  const reject = useCallback(
+    async (task: TaskRecordPayload): Promise<void> => {
+      setBusyId(task.id)
+      try {
+        const result = await callApi<TaskRecordPayload>(window.icode.tasks.reject({ taskId: task.id }))
+        if (!result.ok) notify(errorNotice(result.error))
+        else notify({ tone: 'info', message: `Rejected ${task.title}` })
+        await onReload()
+      } finally {
+        setBusyId(null)
+      }
+    },
+    [notify, onReload]
+  )
+
+  const archive = useCallback(
+    async (task: TaskRecordPayload): Promise<void> => {
+      setBusyId(task.id)
+      try {
+        const result = await callApi<TaskRecordPayload>(
+          window.icode.tasks.archive({ taskId: task.id })
+        )
+        if (!result.ok) notify(errorNotice(result.error))
+        else notify({ tone: 'info', message: `Moved ${task.title} to history.` })
+        await onReload()
+      } finally {
+        setBusyId(null)
+      }
+    },
+    [notify, onReload]
+  )
+
+  const unarchive = useCallback(
+    async (task: TaskRecordPayload): Promise<void> => {
+      setBusyId(task.id)
+      try {
+        const result = await callApi<TaskRecordPayload>(
+          window.icode.tasks.unarchive({ taskId: task.id })
+        )
+        if (!result.ok) notify(errorNotice(result.error))
+        else notify({ tone: 'info', message: `Restored ${task.title}.` })
+        await onReload()
+      } finally {
+        setBusyId(null)
+      }
+    },
+    [notify, onReload]
+  )
+
+  const archiveFinished = useCallback(async (): Promise<void> => {
+    setBusyId('archive-finished')
+    try {
+      const result = await callApi<number>(
+        window.icode.tasks.archiveFinished({ repoId: repo.id })
+      )
+      if (!result.ok) notify(errorNotice(result.error))
+      else {
+        notify({
+          tone: 'info',
+          message:
+            result.value === 0
+              ? 'Nothing finished is waiting to be archived.'
+              : `Archived ${String(result.value)} finished task${result.value === 1 ? '' : 's'}.`
+        })
+      }
+      await onReload()
+    } finally {
+      setBusyId(null)
+    }
+  }, [notify, onReload, repo.id])
+
   const groupMeta = [
+    {
+      key: 'proposal' as const,
+      label: 'Proposals',
+      note: `${String(groups.proposal.length)} need approval`
+    },
     { key: 'running' as const, label: 'Running', note: `${String(groups.running.length)} active here` },
     { key: 'queued' as const, label: 'Queued', note: null },
-    { key: 'finished' as const, label: 'Finished', note: null }
+    { key: 'finished' as const, label: 'Finished', note: null },
+    { key: 'history' as const, label: 'History', note: null }
   ]
 
   return (
@@ -404,11 +638,25 @@ export default function ProjectTasksView({
         <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2">
           <h1 className="text-[14px] font-semibold">Tasks</h1>
           <span className="text-[10.5px] text-muted-foreground" data-testid="tasks-summary">
-            {projectTasks.length} task{projectTasks.length === 1 ? '' : 's'} in {repo.displayName}
+            {activeVisible.length} active · {groups.history.length} history
           </span>
           <button
             type="button"
-            className="ml-auto inline-flex h-7 items-center gap-1 rounded-md border border-border px-2.5 text-[10.5px] hover:bg-muted"
+            className={`ml-auto inline-flex h-7 items-center gap-1 rounded-md border px-2.5 text-[10.5px] ${
+              filter === 'history'
+                ? 'border-accent bg-accent/10 text-accent'
+                : 'border-border hover:bg-muted'
+            }`}
+            onClick={() => setFilter((current) => (current === 'history' ? 'all' : 'history'))}
+            aria-pressed={filter === 'history'}
+            data-testid="tasks-history"
+          >
+            History
+            <span className="text-[9px] opacity-70">{groups.history.length}</span>
+          </button>
+          <button
+            type="button"
+            className="inline-flex h-7 items-center gap-1 rounded-md border border-border px-2.5 text-[10.5px] hover:bg-muted"
             onClick={() => {
               setComposerOpen((open) => !open)
               if (!composerOpen) window.requestAnimationFrame(() => promptRef.current?.focus())
@@ -503,11 +751,19 @@ export default function ProjectTasksView({
                 {attention.total} need you
               </span>
               <span className="mt-0.5 flex flex-wrap items-center gap-1 text-[9px] text-signal opacity-80">
-                {attention.answer > 0 ? <span>Answer {attention.answer}</span> : null}
-                {attention.answer > 0 && (attention.retry > 0 || attention.review > 0) ? <span>·</span> : null}
-                {attention.retry > 0 ? <span>Retry {attention.retry}</span> : null}
-                {attention.retry > 0 && attention.review > 0 ? <span>·</span> : null}
-                {attention.review > 0 ? <span>Review {attention.review}</span> : null}
+                {[
+                  attention.approval > 0 ? `Approve ${String(attention.approval)}` : null,
+                  attention.answer > 0 ? `Answer ${String(attention.answer)}` : null,
+                  attention.retry > 0 ? `Retry ${String(attention.retry)}` : null,
+                  attention.review > 0 ? `Review ${String(attention.review)}` : null
+                ]
+                  .filter((part): part is string => part !== null)
+                  .map((part, index) => (
+                    <span key={part}>
+                      {index > 0 ? <span className="mr-1">·</span> : null}
+                      {part}
+                    </span>
+                  ))}
               </span>
             </span>
             <span className="shrink-0 text-[9px] text-signal">{filter === 'needs' ? 'Showing' : 'View'}</span>
@@ -516,9 +772,11 @@ export default function ProjectTasksView({
 
         <div className="flex items-center gap-2 px-3 py-1.5 text-[9px] text-muted-foreground">
           <span>
-            {filter === 'all'
-              ? `${String(projectTasks.length)} task${projectTasks.length === 1 ? '' : 's'}`
-              : `${String(visible.length)} of ${String(projectTasks.length)} tasks`}
+            {filter === 'history'
+              ? `${String(groups.history.length)} history task${groups.history.length === 1 ? '' : 's'}`
+              : filter === 'all'
+                ? `${String(activeVisible.length)} active task${activeVisible.length === 1 ? '' : 's'}`
+                : `${String(visible.length)} in this view`}
           </span>
           {filter !== 'all' ? (
             <button
@@ -530,25 +788,36 @@ export default function ProjectTasksView({
               Show all
             </button>
           ) : null}
-          <span className="ml-auto flex items-center gap-2">
-            <span>{groups.running.length} running</span>
-            <span>·</span>
-            <span>{groups.queued.length} queued</span>
-            <span>·</span>
-            <span>{groups.finished.length} finished</span>
-          </span>
         </div>
+
+        {filter === 'history' ? (
+          <div className="px-3 pb-1.5">
+            <button
+              type="button"
+              className="w-full rounded border border-border px-2 py-1 text-[9.5px] text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
+              onClick={() => void archiveFinished()}
+              disabled={busyId !== null || archivableCount === 0}
+              data-testid="tasks-archive-finished"
+            >
+              Archive all finished
+            </button>
+          </div>
+        ) : null}
 
         <div className="px-2 pb-3">
           {loading ? (
             <p className="p-3 text-[11px] text-muted-foreground">Reading the queue…</p>
-          ) : projectTasks.length === 0 ? (
+          ) : allProjectTasks.length === 0 ? (
             <div className="p-3 text-[11px] text-muted-foreground" data-testid="tasks-empty">
               No tasks yet. Queue one for unattended work.
             </div>
           ) : visible.length === 0 ? (
             <div className="p-3 text-[11px] text-muted-foreground">
-              {filter === 'needs' ? 'Nothing needs you right now.' : 'No tasks in this view.'}
+              {filter === 'needs'
+                ? 'Nothing needs you right now.'
+                : filter === 'history'
+                  ? 'History is empty.'
+                  : 'No active tasks. Open History for finished work.'}
             </div>
           ) : (
             groupMeta.map((meta) => {
@@ -573,7 +842,13 @@ export default function ProjectTasksView({
                     data-testid={`tasks-group-${meta.key}`}
                   >
                     <span className={`h-1.5 w-1.5 rounded-full ${
-                      meta.key === 'running' ? 'bg-info' : meta.key === 'queued' ? 'bg-muted-foreground' : 'bg-add'
+                      meta.key === 'proposal'
+                        ? 'bg-signal'
+                        : meta.key === 'running'
+                          ? 'bg-info'
+                          : meta.key === 'queued'
+                            ? 'bg-muted-foreground'
+                            : 'bg-add'
                     }`} />
                     <span>{meta.label}</span>
                     <span className="normal-case tracking-normal">
@@ -593,8 +868,13 @@ export default function ProjectTasksView({
                           setSelectedTaskId(task.id)
                           reportSelection(task.id)
                         }}
+                        onApprove={() => approve(task)}
+                        onReject={() => reject(task)}
                         onCancel={() => cancel(task)}
                         onRetry={() => retry(task)}
+                        onArchive={() => archive(task)}
+                        onUnarchive={() => unarchive(task)}
+                        archived={task.archivedAt !== null && task.archivedAt !== undefined}
                       />
                     ))}
                   </ul>

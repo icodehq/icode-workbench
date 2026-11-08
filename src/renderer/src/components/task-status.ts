@@ -1,8 +1,9 @@
 import type { TaskRecordPayload } from '../../../shared/icode-api'
 
-export type TaskAttentionKind = 'Answer' | 'Retry' | 'Review'
+export type TaskAttentionKind = 'Approval' | 'Answer' | 'Retry' | 'Review'
 
 export type TaskAttentionCounts = {
+  approval: number
   answer: number
   retry: number
   review: number
@@ -10,6 +11,8 @@ export type TaskAttentionCounts = {
 }
 
 export function taskAttention(task: TaskRecordPayload): TaskAttentionKind | null {
+  if (task.archivedAt !== null && task.archivedAt !== undefined) return null
+  if (task.approval === 'pending' && task.status === 'queued') return 'Approval'
   if (task.status === 'waiting') return 'Answer'
   if (task.status === 'failed') return 'Retry'
   if (task.status === 'completed' && task.reviewDecision === 'pending') return 'Review'
@@ -17,10 +20,11 @@ export function taskAttention(task: TaskRecordPayload): TaskAttentionKind | null
 }
 
 export function taskAttentionCounts(tasks: readonly TaskRecordPayload[]): TaskAttentionCounts {
-  const counts = { answer: 0, retry: 0, review: 0, total: 0 }
+  const counts = { approval: 0, answer: 0, retry: 0, review: 0, total: 0 }
   for (const task of tasks) {
     const kind = taskAttention(task)
-    if (kind === 'Answer') counts.answer += 1
+    if (kind === 'Approval') counts.approval += 1
+    else if (kind === 'Answer') counts.answer += 1
     else if (kind === 'Retry') counts.retry += 1
     else if (kind === 'Review') counts.review += 1
     if (kind !== null) counts.total += 1
@@ -32,9 +36,10 @@ export function taskIsActive(task: TaskRecordPayload): boolean {
   return task.status === 'dispatching' || task.status === 'running' || task.status === 'waiting'
 }
 
-export type TaskLifecycleGroup = 'running' | 'queued' | 'finished'
+export type TaskLifecycleGroup = 'proposal' | 'running' | 'queued' | 'finished'
 
 export function taskGroup(task: TaskRecordPayload): TaskLifecycleGroup {
+  if (task.approval === 'pending' && task.status === 'queued') return 'proposal'
   if (taskIsActive(task)) return 'running'
   if (task.status === 'queued') return 'queued'
   return 'finished'
@@ -65,6 +70,7 @@ export function sortFinishedTasks(tasks: readonly TaskRecordPayload[]): TaskReco
 }
 
 export function taskStatusLabel(task: TaskRecordPayload): string {
+  if (task.approval === 'pending' && task.status === 'queued') return 'Proposed'
   if (task.status === 'waiting') return 'Needs input'
   if (task.status === 'dispatching') return 'Dispatching'
   if (task.status === 'completed') return task.reviewDecision === 'pending' ? 'Review' : 'Completed'
@@ -73,6 +79,8 @@ export function taskStatusLabel(task: TaskRecordPayload): string {
 
 export function taskStatusTone(task: TaskRecordPayload): string {
   switch (task.status) {
+    case 'queued':
+      return task.approval === 'pending' ? 'text-signal' : 'text-muted-foreground'
     case 'waiting':
       return 'text-signal'
     case 'failed':
@@ -82,8 +90,6 @@ export function taskStatusTone(task: TaskRecordPayload): string {
     case 'running':
     case 'dispatching':
       return 'text-info'
-    case 'queued':
-      return 'text-muted-foreground'
     case 'cancelled':
       return 'text-muted-foreground'
   }
@@ -92,6 +98,10 @@ export function taskStatusTone(task: TaskRecordPayload): string {
 /** The rounded status pill used by the task workbench header. */
 export function taskPillClass(task: TaskRecordPayload): string {
   switch (task.status) {
+    case 'queued':
+      return task.approval === 'pending'
+        ? 'border-signal-line bg-signal-weak text-signal'
+        : 'border-border text-muted-foreground'
     case 'waiting':
       return 'border-signal-line bg-signal-weak text-signal'
     case 'failed':

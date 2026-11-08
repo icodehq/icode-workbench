@@ -170,6 +170,7 @@ describe('project directory model', () => {
     })
     expect(stats.load).toEqual({ live: 1, running: 0, queued: 0, total: 1 })
     expect(stats.needs).toEqual({
+      approval: 0,
       answer: 1,
       retry: 0,
       review: 1,
@@ -438,6 +439,7 @@ describe('project directory model', () => {
       const stats = projectStats(project, [direct, owned], tasks)
       expect(stats.load).toEqual({ live: 1, running: 2, queued: 1, total: 4 })
       expect(stats.needs).toEqual({
+        approval: 0,
         answer: 1,
         retry: 1,
         review: 0,
@@ -464,6 +466,7 @@ describe('project directory model', () => {
       ]
       const stats = projectStats(project, [directWaiting, ownedWaiting], tasks)
       expect(stats.needs).toEqual({
+        approval: 0,
         answer: 1,
         retry: 0,
         review: 0,
@@ -498,10 +501,34 @@ describe('project directory model', () => {
       expect(stats.activity).toMatchObject({ state: 'idle', outcome: 'failed' })
     })
 
+    it('keeps the supervisor out of work metrics while retaining it as a control session', () => {
+      const project = repo('project')
+      const supervisor = session('supervisor', 'project', {
+        role: 'supervisor',
+        activity: activity({ state: 'waiting', since: 10 })
+      })
+      const stats = projectStats(project, [supervisor], [])
+      expect(stats.controlSessions).toHaveLength(1)
+      expect(stats.directSessions).toHaveLength(0)
+      expect(stats.load).toEqual({ live: 0, running: 0, queued: 0, total: 0 })
+      expect(stats.liveSessions).toBe(0)
+      expect(stats.needs).toEqual({
+        approval: 0,
+        answer: 0,
+        retry: 0,
+        review: 0,
+        waiting: 0,
+        setup: 0,
+        total: 0
+      })
+      expect(attentionEntries([], [project], [supervisor])).toEqual([])
+    })
+
     it('moves setup failure into needs and leaves in-flight empty', () => {
       const project = repo('setup', { preparation: failedPreparation() })
       const stats = projectStats(project, [], [])
       expect(stats.needs).toEqual({
+        approval: 0,
         answer: 0,
         retry: 0,
         review: 0,
@@ -595,6 +622,7 @@ describe('project directory model', () => {
         session('waiting', 'project', { activity: activity({ state: 'waiting' }) })
       ]
       expect(needCounts(attentionEntries(tasks, [project], sessions))).toEqual({
+        approval: 0,
         answer: 1,
         retry: 1,
         review: 0,

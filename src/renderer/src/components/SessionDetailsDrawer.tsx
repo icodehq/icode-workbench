@@ -81,6 +81,7 @@ export default function SessionDetailsDrawer({
       </span>
     ],
     ['Harness', harnessName(session.harness)],
+    ['Role', session.role === 'supervisor' ? 'Supervisor' : 'Interactive'],
     ['Status', sessionStateLabelFor(session, null)],
     ['Authority', session.authority],
     [

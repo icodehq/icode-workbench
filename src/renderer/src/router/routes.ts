@@ -3,9 +3,12 @@
  * project mode. Keeping this tiny union in one place prevents a component from
  * inventing a second "all projects" route.
  */
-export type Surface = 'projects' | 'sessions' | 'tasks' | 'schedules' | 'settings'
+export type Surface = 'projects' | 'sessions' | 'tasks' | 'schedules' | 'assistant' | 'settings'
 
 export type ProjectMode = 'sessions' | 'tasks'
+
+/** A deep link into the global Mira thread. */
+export type AssistantTarget = { threadId?: string; messageId?: string; repoId?: string }
 
 export function isProjectSurface(surface: Surface): surface is ProjectMode {
   return surface === 'sessions' || surface === 'tasks'

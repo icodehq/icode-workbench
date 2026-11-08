@@ -80,6 +80,7 @@ const DIRECTORY_FILTERS: Array<{ id: ProjectDirectoryFilter; label: string }> = 
 
 function reasonPillClass(kind: NeedEntry['kind']): string {
   switch (kind) {
+    case 'Approval':
     case 'Answer':
     case 'Waiting':
       return 'border-signal-line bg-signal-weak text-signal'
@@ -93,6 +94,7 @@ function reasonPillClass(kind: NeedEntry['kind']): string {
 
 function reasonTextClass(kind: NeedEntry['kind']): string {
   switch (kind) {
+    case 'Approval':
     case 'Answer':
     case 'Waiting':
       return 'text-signal'
@@ -121,7 +123,9 @@ function AttentionRow({
         ? entry.session.activity?.toolName
           ? `Waiting for input · ${entry.session.activity.toolName}`
           : 'Waiting for input'
-        : entry.task.error ?? entry.task.resultSummary
+        : entry.kind === 'Approval'
+          ? `${entry.task.createdByActor === 'mira' ? 'Proposed by Mira' : 'Proposed by Supervisor'} · needs approval`
+          : entry.task.error ?? entry.task.resultSummary
   const testId =
     entry.source === 'task'
       ? `needs-${entry.task.id}`

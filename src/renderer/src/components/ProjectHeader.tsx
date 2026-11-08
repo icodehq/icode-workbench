@@ -4,6 +4,8 @@ import type { RepositorySummary } from '../../../shared/schemas/ipc'
 import type { ProjectMode } from '../router/routes'
 import { repositoryPreparationView } from '../lib/repository-preparation'
 import TargetBadge from './TargetBadge'
+import AssistantAvatar from './AssistantAvatar'
+import type { AssistantStatus } from '../../../shared/domain/assistant'
 
 export type ProjectStat = {
   sessions: number
@@ -21,6 +23,11 @@ type Props = {
   onSwitch: (repoId: string) => void
   onMode: (mode: ProjectMode) => void
   onRetryPreparation: (repoId: string) => void
+  assistantName: string
+  assistantUnread: number
+  assistantStatus: AssistantStatus
+  pendingProposals: number
+  onOpenAssistant: () => void
 }
 
 function ProjectSwitcher({
@@ -131,7 +138,12 @@ export default function ProjectHeader({
   onBack,
   onSwitch,
   onMode,
-  onRetryPreparation
+  onRetryPreparation,
+  assistantName,
+  assistantUnread,
+  assistantStatus,
+  pendingProposals,
+  onOpenAssistant
 }: Props): React.JSX.Element {
   const current = stats[repo.id] ?? { sessions: 0, live: 0, tasks: 0, needs: 0 }
   const preparation = repositoryPreparationView(repo)
@@ -237,6 +249,39 @@ export default function ProjectHeader({
           ) : null}
         </button>
       </div>
+      <button
+        type="button"
+        className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-[11px] text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
+        onClick={onOpenAssistant}
+        disabled={preparation !== null}
+        title={
+          preparation === null
+            ? `Talk to ${assistantName} about this project`
+            : `${assistantName} unlocks when the first commit finishes.`
+        }
+        data-testid="project-mira"
+      >
+        <AssistantAvatar name={assistantName} status={assistantStatus} size="sm" />
+        {assistantName}
+        {assistantUnread > 0 ? (
+          <span
+            className="rounded-full bg-signal-weak px-1 text-[8px] font-medium text-signal"
+            title={`${String(assistantUnread)} unread message${assistantUnread === 1 ? '' : 's'}`}
+            data-testid="project-mira-unread"
+          >
+            {assistantUnread > 9 ? '9+' : assistantUnread}
+          </span>
+        ) : null}
+        {pendingProposals > 0 ? (
+          <span
+            className="rounded-full bg-signal-weak px-1 text-[8px] font-medium text-signal"
+            title={`${String(pendingProposals)} proposed task${pendingProposals === 1 ? '' : 's'} need approval`}
+            data-testid="project-supervisor-proposals"
+          >
+            {pendingProposals}
+          </span>
+        ) : null}
+      </button>
       <span className="hidden text-[10.5px] text-muted-foreground lg:inline">
         {current.sessions} session{current.sessions === 1 ? '' : 's'} · {current.tasks} task{current.tasks === 1 ? '' : 's'} in this project
       </span>

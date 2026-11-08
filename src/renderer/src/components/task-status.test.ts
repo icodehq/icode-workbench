@@ -53,6 +53,9 @@ describe('task attention and lifecycle', () => {
     expect(taskAttention(task({ status: 'completed', reviewDecision: 'accepted' }))).toBeNull()
     expect(taskAttention(task({ status: 'running' }))).toBeNull()
     expect(taskAttention(task({ status: 'cancelled' }))).toBeNull()
+    expect(
+      taskAttention(task({ status: 'completed', reviewDecision: 'pending', archivedAt: 5 }))
+    ).toBeNull()
   })
 
   it('counts the overlay and keeps lifecycle groups disjoint', () => {
@@ -63,8 +66,33 @@ describe('task attention and lifecycle', () => {
       task({ id: 'accepted', status: 'completed', reviewDecision: 'accepted' }),
       task({ id: 'queued', status: 'queued' })
     ]
-    expect(taskAttentionCounts(tasks)).toEqual({ answer: 1, retry: 1, review: 1, total: 3 })
+    expect(taskAttentionCounts(tasks)).toEqual({
+      approval: 0,
+      answer: 1,
+      retry: 1,
+      review: 1,
+      total: 3
+    })
     expect(tasks.map((entry) => taskGroup(entry))).toEqual(['running', 'finished', 'finished', 'finished', 'queued'])
+  })
+
+  it('treats a queued proposal as approval work, not queued work', () => {
+    const proposal = task({
+      id: 'proposal',
+      status: 'queued',
+      approval: 'pending',
+      origin: 'supervisor'
+    })
+    expect(taskAttention(proposal)).toBe('Approval')
+    expect(taskGroup(proposal)).toBe('proposal')
+    expect(taskStatusLabel(proposal)).toBe('Proposed')
+    expect(taskAttentionCounts([proposal])).toEqual({
+      approval: 1,
+      answer: 0,
+      retry: 0,
+      review: 0,
+      total: 1
+    })
   })
 
   it('orders finished work review-first, then failed, then decided work', () => {

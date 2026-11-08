@@ -365,6 +365,11 @@ export default function SessionWorkspace({
             >
               {session.title}
             </h1>
+            {session.role === 'supervisor' ? (
+              <span className="shrink-0 rounded bg-accent/15 px-1.5 py-0.5 text-[8px] font-medium uppercase tracking-wide text-accent">
+                Supervisor
+              </span>
+            ) : null}
             <span
               className={`inline-flex h-5 shrink-0 items-center gap-1.5 rounded-full border px-1.5 text-[10px] font-medium ${sessionStatePillClass(session, pending)}`}
               data-testid="session-state"

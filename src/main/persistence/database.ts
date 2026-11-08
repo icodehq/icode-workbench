@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, openSync, readSync, closeSync, statSync } from '
 import { dirname } from 'node:path'
 import { makeAppError, type AppError } from '../../shared/domain/errors'
 
-export const SCHEMA_VERSION = 7
+export const SCHEMA_VERSION = 10
 export const BUSY_TIMEOUT_MS = 5000
 
 const SQLITE_MAGIC = Buffer.from('SQLite format 3\0', 'binary')

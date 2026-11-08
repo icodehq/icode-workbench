@@ -38,7 +38,8 @@ import {
   reconcileSessionState,
   type HostObservation,
   type PersistedSessionObservation,
-  type ReconciledSessionState
+  type ReconciledSessionState,
+  type SessionRole
 } from '../../shared/domain/session'
 import type { HostSessionStatus } from '../../shared/domain/session'
 import type {
@@ -443,7 +444,10 @@ export class SessionService {
 
   // ─── Lifecycle ────────────────────────────────────────────────────
 
-  async create(input: CreateSessionInput): Promise<SessionSummary> {
+  async create(
+    input: CreateSessionInput,
+    options: { role?: SessionRole } = {}
+  ): Promise<SessionSummary> {
     const repoId = parseRepoId(input.repoId)
     if (!repoId) {
       throw new SessionServiceError(
@@ -552,6 +556,7 @@ export class SessionService {
         workspaceId: workspace.id,
         harness: input.harness,
         title,
+        role: options.role ?? 'interactive',
         createdAt,
         lastActiveAt: createdAt,
         observation: initial
@@ -1303,6 +1308,7 @@ export class SessionService {
       repoId: workspace.repoId,
       title: row.title,
       harness: row.harness,
+      role: row.role,
       state: reconciled.state,
       authority: reconciled.authority,
       reason: reconciled.reason,

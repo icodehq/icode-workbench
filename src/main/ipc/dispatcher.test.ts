@@ -64,13 +64,26 @@ function services(overrides: Partial<DispatcherServices> = {}): DispatcherServic
     filesWatch: vi.fn(async () => ({ watching: true })),
     tasksList: vi.fn(async () => []),
     tasksCreate: vi.fn(async () => ({ id: 'task_1', status: 'queued' })),
+    tasksApprove: vi.fn(async () => ({ id: 'task_1', status: 'queued' })),
+    tasksReject: vi.fn(async () => ({ id: 'task_1', status: 'cancelled' })),
     tasksCancel: vi.fn(async () => ({ id: 'task_1', status: 'cancelled' })),
     tasksRetry: vi.fn(async () => ({ id: 'task_2', status: 'queued' })),
     tasksHistory: vi.fn(async () => []),
     tasksChanges: vi.fn(async () => ({ status: 'available', files: [] })),
     tasksDecideReview: vi.fn(async () => ({ id: 'task_1', reviewDecision: 'accepted' })),
+    tasksArchive: vi.fn(async () => ({ id: 'task_1', archivedAt: 1 })),
+    tasksUnarchive: vi.fn(async () => ({ id: 'task_1', archivedAt: null })),
+    tasksArchiveFinished: vi.fn(async () => 0),
     tasksSettings: vi.fn(async () => ({ maxConcurrent: 1 })),
     tasksSetSettings: vi.fn(async () => 2),
+    supervisorOpen: vi.fn(async () => ({ id: 'ses_supervisor' })),
+    assistantState: vi.fn(async () => ({ threadId: 'thread_1', unread: 0 })),
+    assistantMessagesList: vi.fn(async () => []),
+    assistantSend: vi.fn(async () => ({ message: { id: 'msg_1' }, runId: 'run_1' })),
+    assistantMarkRead: vi.fn(async () => 0),
+    assistantStop: vi.fn(async () => null),
+    assistantSettingsGet: vi.fn(async () => ({ personaName: 'Mira' })),
+    assistantSetSettings: vi.fn(async () => ({ personaName: 'Mira' })),
     schedulesList: vi.fn(async () => []),
     schedulesCreate: vi.fn(async () => ({ id: 'sch_1' })),
     schedulesUpdate: vi.fn(async () => ({ id: 'sch_1' })),
@@ -441,5 +454,18 @@ describe('execution-target aware IPC', () => {
 
     expect(await dispatch(IPC_CHANNELS.gitInvoke, envelope)).toMatchObject({ ok: true })
     expect(service.gitInvoke).toHaveBeenCalledWith(envelope)
+  })
+
+  it('routes assistant calls after validating their input', async () => {
+    const service = services()
+    const dispatch = createDispatcher(service)
+    expect(await dispatch(IPC_CHANNELS.assistantSend, { text: 'Hello' })).toMatchObject({
+      ok: true
+    })
+    expect(service.assistantSend).toHaveBeenCalledWith({ text: 'Hello' })
+
+    const invalid = await dispatch(IPC_CHANNELS.assistantSend, { text: '   ' })
+    expect(invalid).toMatchObject({ ok: false, error: { code: 'INVALID_ARGUMENT' } })
+    expect(service.assistantSend).toHaveBeenCalledTimes(1)
   })
 })

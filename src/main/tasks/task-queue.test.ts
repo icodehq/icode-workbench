@@ -5,6 +5,7 @@ import { TaskDispatcher } from './task-dispatcher'
 import { makeRepositoryService, makeTempRoot, openTempDatabase } from '../persistence/persistence-test-fixtures'
 import type { SessionService } from '../sessions/session-service'
 import type { HarnessId } from '../../shared/domain/harness'
+import { AGENT_PASTE_START } from '../../shared/agent-prompt'
 
 /**
  * The durable queue: dispatch, concurrency, cancellation, retry and restart.
@@ -159,7 +160,9 @@ async function harness(options: { maxConcurrent?: number } = {}): Promise<Harnes
     onChange: () => undefined,
     isSessionLive: (sessionId) => sessions.behaviour.get(sessionId)?.state === 'live',
     sessionState: (sessionId) => sessions.behaviour.get(sessionId) ?? null,
-    sessionWorktree: () => '/tmp/wt'
+    sessionWorktree: () => '/tmp/wt',
+    promptStartupDelayMs: 0,
+    submitDelayMs: 0
   })
   dispatcher.start()
 
@@ -273,12 +276,14 @@ describe('dispatch', () => {
     expect(stored.startedAt).not.toBeNull()
   })
 
-  it('delivers the instruction to the session as submitted text', async () => {
+  it('delivers the instruction as a bracketed paste followed by a separate Enter', async () => {
     const h = await harness({ maxConcurrent: 1 })
     createQueued(h, 'Run the tests and fix what fails')
     await settle(h)
-    expect(h.sessions.writes).toHaveLength(1)
-    expect(h.sessions.writes[0]!.data).toBe('Run the tests and fix what fails\r')
+    expect(h.sessions.writes).toHaveLength(2)
+    expect(h.sessions.writes[0]!.data.startsWith(AGENT_PASTE_START)).toBe(true)
+    expect(h.sessions.writes[0]!.data).toContain('Run the tests and fix what fails')
+    expect(h.sessions.writes[1]!.data).toBe('\r')
   })
 
   it('does not mark a task completed just because the process was spawned', async () => {
@@ -636,6 +641,91 @@ describe('restart recovery', () => {
   })
 })
 
+describe('supervisor proposals', () => {
+  const SUPERVISOR = 'ses_00000000-0000-4000-8000-000000000099'
+
+  function propose(h: Harness, prompt: string) {
+    const created = h.service.create({
+      repoId: h.repoId as never,
+      prompt,
+      harness: 'claude',
+      origin: 'supervisor',
+      createdBySessionId: SUPERVISOR
+    })
+    if (!created.ok) throw new Error(created.error.message)
+    return created.value
+  }
+
+  it('never launches a proposal until a human approves it', async () => {
+    const h = await harness({ maxConcurrent: 1 })
+    const proposal = propose(h, 'Add a settings page')
+    await settle(h)
+
+    expect(proposal.approval).toBe('pending')
+    expect(proposal.origin).toBe('supervisor')
+    expect(proposal.createdBySessionId).toBe(SUPERVISOR)
+    expect(proposal.approvedAt).toBeNull()
+    expect(h.store.findById(proposal.id)!.status).toBe('queued')
+    expect(h.sessions.created).toHaveLength(0)
+  })
+
+  it('does not let a pending proposal block an approved task behind it', async () => {
+    const h = await harness({ maxConcurrent: 1 })
+    const proposal = propose(h, 'Pending first')
+    const approved = createQueued(h, 'Approved second')
+    await settle(h)
+
+    expect(h.store.findById(proposal.id)!.approval).toBe('pending')
+    expect(h.store.findById(proposal.id)!.status).toBe('queued')
+    expect(h.store.findById(approved.id)!.status).toBe('running')
+    expect(h.sessions.created).toHaveLength(1)
+    expect(h.sessions.created[0]!.title).toBe('Approved second')
+  })
+
+  it('launches after approval and records who approved it', async () => {
+    const h = await harness({ maxConcurrent: 1 })
+    const proposal = propose(h, 'Approve me')
+    const result = h.service.approve(proposal.id)
+    expect(result.ok).toBe(true)
+    await settle(h)
+
+    const stored = h.store.findById(proposal.id)!
+    expect(stored.approval).toBe('approved')
+    expect(stored.approvedBy).toBe('human')
+    expect(stored.status).toBe('running')
+    expect(h.sessions.created).toHaveLength(1)
+  })
+
+  it('rejects a proposal without launching it', async () => {
+    const h = await harness({ maxConcurrent: 1 })
+    const proposal = propose(h, 'Reject me')
+    const result = h.service.reject(proposal.id, 'Not now')
+    expect(result.ok).toBe(true)
+    await settle(h)
+
+    const stored = h.store.findById(proposal.id)!
+    expect(stored.approval).toBe('rejected')
+    expect(stored.status).toBe('cancelled')
+    expect(stored.failureReason).toBe('approval-rejected')
+    expect(stored.errorDetail).toBe('Not now')
+    expect(h.sessions.created).toHaveLength(0)
+  })
+
+  it('caps pending proposals', async () => {
+    const h = await harness({ maxConcurrent: 1 })
+    for (let index = 0; index < 20; index += 1) propose(h, `Proposal ${String(index)}`)
+    const overflow = h.service.create({
+      repoId: h.repoId as never,
+      prompt: 'One too many',
+      harness: 'claude',
+      origin: 'supervisor',
+      createdBySessionId: SUPERVISOR
+    })
+    expect(overflow.ok).toBe(false)
+    expect(h.store.countPending(h.repoId as never)).toBe(20)
+  })
+})
+
 describe('reviewability', () => {
   it('exposes a session and a worktree for a finished task', async () => {
     const h = await harness({ maxConcurrent: 1 })
@@ -649,5 +739,106 @@ describe('reviewability', () => {
     expect(view.sessionId).not.toBeNull()
     expect(view.worktreePath).toBe('/tmp/wt')
     expect(view.canReview).toBe(true)
+  })
+})
+
+describe('Mira task provenance', () => {
+  it('records a non-session actor and the policy that approved the task', async () => {
+    const h = await harness({ maxConcurrent: 1 })
+    const created = h.service.create({
+      repoId: h.repoId as never,
+      title: 'Docs',
+      prompt: 'Write docs.',
+      harness: 'claude',
+      origin: 'supervisor',
+      createdByActor: 'mira',
+      createdBySessionId: null,
+      assistantRunId: 'run_1',
+      approvalPolicy: 'mira-low-risk',
+      approval: 'approved',
+      approvedBy: 'mira-policy',
+      dedupeKey: 'mira:test'
+    })
+    expect(created.ok).toBe(true)
+    if (!created.ok) return
+    const stored = h.store.findById(created.value.id)!
+    expect(stored.createdByActor).toBe('mira')
+    expect(stored.assistantRunId).toBe('run_1')
+    expect(stored.approvalPolicy).toBe('mira-low-risk')
+    expect(stored.approval).toBe('approved')
+    expect(stored.approvedBy).toBe('mira-policy')
+    expect(stored.createdBySessionId).toBeNull()
+  })
+
+  it('archives only terminal tasks and can restore them', async () => {
+    const h = await harness({ maxConcurrent: 1 })
+    const created = createQueued(h, 'Archive me later')
+    expect(h.service.archive(created.id).ok).toBe(false)
+
+    h.store.updateIfStatus(
+      created.id,
+      ['queued', 'dispatching', 'running'],
+      { status: 'cancelled', finishedAt: h.clock.now },
+      h.clock.now
+    )
+    const archived = h.service.archive(created.id)
+    expect(archived.ok).toBe(true)
+    if (archived.ok) expect(archived.value.archivedAt).toBe(h.clock.now)
+
+    expect(h.store.list().some((task) => task.id === created.id)).toBe(false)
+    expect(h.store.list({ includeArchived: true }).some((task) => task.id === created.id)).toBe(
+      true
+    )
+
+    const restored = h.service.unarchive(created.id)
+    expect(restored.ok).toBe(true)
+    if (restored.ok) expect(restored.value.archivedAt).toBeNull()
+    expect(h.store.list().some((task) => task.id === created.id)).toBe(true)
+  })
+
+  it('bulk-archives cancellations but leaves review-pending completions alone', async () => {
+    const h = await harness({ maxConcurrent: 1 })
+    const cancelled = createQueued(h, 'Cancel this')
+    h.store.updateIfStatus(
+      cancelled.id,
+      ['queued', 'dispatching', 'running'],
+      { status: 'cancelled', finishedAt: h.clock.now },
+      h.clock.now
+    )
+    const completed = createQueued(h, 'Wait for review')
+    h.store.updateIfStatus(
+      completed.id,
+      ['queued', 'dispatching', 'running'],
+      { status: 'completed', finishedAt: h.clock.now },
+      h.clock.now
+    )
+
+    const result = h.service.archiveFinished(h.repoId as never)
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.value).toBe(1)
+    expect(h.store.findById(cancelled.id)!.archivedAt).not.toBeNull()
+    expect(h.store.findById(completed.id)!.archivedAt).toBeNull()
+  })
+
+  it('keeps a high-risk Mira task pending until a person approves it', async () => {
+    const h = await harness({ maxConcurrent: 1 })
+    const created = h.service.create({
+      repoId: h.repoId as never,
+      title: 'Auth migration',
+      prompt: 'Change auth and migrations.',
+      harness: 'claude',
+      origin: 'supervisor',
+      createdByActor: 'mira',
+      createdBySessionId: null,
+      approvalPolicy: 'mira-human-approval',
+      approval: 'pending',
+      dedupeKey: 'mira:high-risk'
+    })
+    expect(created.ok).toBe(true)
+    if (!created.ok) return
+    const stored = h.store.findById(created.value.id)!
+    expect(stored.approval).toBe('pending')
+    expect(stored.approvedBy).toBeNull()
+    expect(stored.status).toBe('queued')
   })
 })
