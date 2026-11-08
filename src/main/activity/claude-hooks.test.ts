@@ -18,8 +18,9 @@ import type { ActivityHookEvent } from '../../shared/domain/activity'
 /**
  * These tests exercise the shipped hook script against a real `claude` binary.
  * They need no model access: an isolated CLAUDE_CONFIG_DIR is unauthenticated,
- * and Claude still dispatches `UserPromptSubmit` and `StopFailure` — the same
- * behaviour the Work 14.1a preflight verified.
+ * and the current CLI dispatches SessionStart and UserPromptSubmit before it
+ * exits. The integration test asserts hook dispatch and the user's canary hook;
+ * it does not depend on the model outcome.
  */
 
 const roots: string[] = []
@@ -40,6 +41,19 @@ function tempRoot(): string {
 
 function hasClaude(): boolean {
   return claudeAvailable
+}
+
+/**
+ * The probe must not inherit the developer's Claude authentication or session
+ * markers. Without this, an authenticated shell can make the isolated config
+ * reach a model and change the observed hook outcome.
+ */
+function isolatedClaudeEnv(): NodeJS.ProcessEnv {
+  const env = { ...process.env }
+  for (const key of Object.keys(env)) {
+    if (key.startsWith('ANTHROPIC_') || key.startsWith('CLAUDE')) delete env[key]
+  }
+  return env
 }
 
 /**
@@ -156,7 +170,7 @@ describe.runIf(hasClaude())('shipped hook script with real Claude', () => {
       cwd: project,
       timeoutMs: 120_000,
       env: {
-        ...process.env,
+        ...isolatedClaudeEnv(),
         CLAUDE_CONFIG_DIR: userConfig,
         ICODE_SESSION_ID: SESSION,
         ICODE_SESSION_INCARNATION: INC,
@@ -167,14 +181,13 @@ describe.runIf(hasClaude())('shipped hook script with real Claude', () => {
     // prevent hook dispatch.
     expect(result.timedOut).toBe(false)
 
-    // iCode saw the events, and its state machine ended at idle/failed because the
-    // probe cannot reach a model.
+    // The isolated config cannot reach a model, so the CLI may exit before a
+    // turn-end hook is emitted. The contract under test is hook dispatch and
+    // the user's canary hook, not the model outcome.
     await new Promise((done) => setTimeout(done, 300))
-    const activity = ingress.service.get(SESSION)
     expect(ingress.events.length).toBeGreaterThan(0)
+    expect(ingress.events.some((event) => event.event === 'SessionStart')).toBe(true)
     expect(ingress.events.some((event) => event.event === 'UserPromptSubmit')).toBe(true)
-    expect(activity.state).toBe('idle')
-    expect(activity.outcome).toBe('failed')
 
     // The user's own hook still ran under iCode's --settings overlay.
     const canaryText = readFileSync(canary, 'utf8')

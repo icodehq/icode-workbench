@@ -25,7 +25,7 @@ function repo(id: string, overrides: Partial<RepositorySummary> = {}): Repositor
   return {
     id,
     displayName: id,
-    path: `/home/oliver/Development/${id}`,
+    path: `/home/example/Development/${id}`,
     currentBranch: 'main',
     availability: 'present',
     target: { kind: 'local' },

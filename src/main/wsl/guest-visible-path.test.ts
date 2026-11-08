@@ -17,8 +17,8 @@ describe('guest-visible paths', () => {
   })
 
   it('keeps spaces literal, because the value is passed as one argv element', () => {
-    expect(toGuestVisiblePath('C:\\Users\\Oliver Xu\\AppData\\settings.json')).toBe(
-      '/mnt/c/Users/Oliver Xu/AppData/settings.json'
+    expect(toGuestVisiblePath('C:\\Users\\Example User\\AppData\\settings.json')).toBe(
+      '/mnt/c/Users/Example User/AppData/settings.json'
     )
   })
 

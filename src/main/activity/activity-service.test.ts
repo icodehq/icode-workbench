@@ -162,6 +162,14 @@ describe('ordering and identity', () => {
     expect(instance.get(SESSION).state).toBe('unknown')
   })
 
+  it('drops activity when the process exits', () => {
+    const { instance } = service()
+    instance.ingest(event())
+    expect(instance.get(SESSION).state).toBe('working')
+    instance.bindIncarnation(SESSION, null)
+    expect(instance.get(SESSION).state).toBe('unknown')
+  })
+
   it('clears unread idempotently', () => {
     const { instance, transitions } = service()
     instance.ingest(event())

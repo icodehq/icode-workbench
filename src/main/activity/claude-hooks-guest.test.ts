@@ -24,7 +24,7 @@ import {
 
 const ACCESS = {
   guestExecutablePath: '/mnt/d/Apps/iCode/icode.exe',
-  scriptPath: 'D:\\Users\\Oliver Xu\\AppData\\Roaming\\iCode\\agent-hooks\\icode-activity-hook.cjs',
+  scriptPath: 'D:\\Users\\Example User\\AppData\\Roaming\\iCode\\agent-hooks\\icode-activity-hook.cjs',
   activitySocket: '\\\\.\\pipe\\icode-activity-1a2b3c'
 }
 
@@ -73,7 +73,7 @@ describe('guest Claude settings', () => {
     }
     // A space in the script path stays inside one quoted word.
     expect(guestHookCommandFor(ACCESS, 'Stop', true)).toContain(
-      "'D:\\Users\\Oliver Xu\\AppData\\Roaming\\iCode\\agent-hooks\\icode-activity-hook.cjs'"
+      "'D:\\Users\\Example User\\AppData\\Roaming\\iCode\\agent-hooks\\icode-activity-hook.cjs'"
     )
   })
 

@@ -13,8 +13,8 @@ import { fromWslUncPath, parseWslUnc, toWslUncPath } from './unc-path'
 
 describe('toWslUncPath', () => {
   it('maps a Linux home to the distro UNC namespace', () => {
-    expect(toWslUncPath('/home/oliverxu', 'Ubuntu-26.04')).toBe(
-      '\\\\wsl.localhost\\Ubuntu-26.04\\home\\oliverxu'
+    expect(toWslUncPath('/home/example', 'Ubuntu-26.04')).toBe(
+      '\\\\wsl.localhost\\Ubuntu-26.04\\home\\example'
     )
   })
 

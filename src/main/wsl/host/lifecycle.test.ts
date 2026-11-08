@@ -602,9 +602,9 @@ describe('guest home probe', () => {
   it('retries a timeout and returns the home directory', async () => {
     const { runner: fake, calls } = runner([
       { status: 'timed_out' },
-      { status: 'ok', stdout: '/home/oliverxu\n', stderr: '' }
+      { status: 'ok', stdout: '/home/example\n', stderr: '' }
     ])
-    await expect(readGuestHome(fake, 'Ubuntu-26.04')).resolves.toBe('/home/oliverxu')
+    await expect(readGuestHome(fake, 'Ubuntu-26.04')).resolves.toBe('/home/example')
     expect(calls()).toBe(2)
   })
 
@@ -636,10 +636,10 @@ describe('guest home probe and the cold-start failure', () => {
               stdout: '错误代码: Wsl/Service/WSAETIMEDOUT\r\n',
               stderr: ''
             }
-          : { status: 'ok' as const, stdout: '/home/oliverxu', stderr: '' }
+          : { status: 'ok' as const, stdout: '/home/example', stderr: '' }
       }
     } as unknown as Parameters<typeof readGuestHome>[0]
-    await expect(readGuestHome(fake, 'Ubuntu-26.04')).resolves.toBe('/home/oliverxu')
+    await expect(readGuestHome(fake, 'Ubuntu-26.04')).resolves.toBe('/home/example')
     expect(calls).toBe(2)
   })
 })
