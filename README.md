@@ -303,8 +303,8 @@ Git, and at least one harness on `PATH`. Linux also needs `build-essential` and
 `python3`; macOS needs Xcode Command Line Tools.
 
 ```bash
-git clone https://github.com/LoongLab/iCode.git
-cd iCode
+git clone https://github.com/icodehq/icode-workbench.git
+cd icode-workbench
 corepack enable
 pnpm install
 pnpm dev
@@ -345,7 +345,7 @@ the host and its PTYs alive.
 
 ## Community & support
 
-- **Issues:** [github.com/LoongLab/iCode/issues](https://github.com/LoongLab/iCode/issues)
+- **Issues:** [github.com/icodehq/icode-workbench/issues](https://github.com/icodehq/icode-workbench/issues)
 - **Contributing:** [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md)
 - **Changelog:** [CHANGELOG.md](CHANGELOG.md)
 - **Privacy:** iCode has no telemetry, no hosted service, and makes no model API

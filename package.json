@@ -4,13 +4,13 @@
   "private": true,
   "description": "iCode — the next-gen agentic development environment for local coding agents",
   "license": "MIT",
-  "homepage": "https://github.com/LoongLab/iCode",
+  "homepage": "https://github.com/icodehq/icode-workbench",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/LoongLab/iCode.git"
+    "url": "git+https://github.com/icodehq/icode-workbench.git"
   },
   "bugs": {
-    "url": "https://github.com/LoongLab/iCode/issues"
+    "url": "https://github.com/icodehq/icode-workbench/issues"
   },
   "main": "./out/main/index.js",
   "desktopName": "iCode.desktop",
