@@ -3,6 +3,17 @@
 </h1>
 
 <p align="center">
+  <strong>English</strong> ·
+  <a href="README.zh-CN.md">简体中文</a> ·
+  <a href="README.ja.md">日本語</a> ·
+  <a href="README.ko.md">한국어</a> ·
+  <a href="README.es.md">Español</a> ·
+  <a href="README.pt-BR.md">Português (BR)</a> ·
+  <a href="README.de.md">Deutsch</a> ·
+  <a href="README.fr.md">Français</a>
+</p>
+
+<p align="center">
   <sub><strong>THE UNIVERSAL AGENT DEVELOPMENT ENVIRONMENT (ADE)</strong></sub><br/>
   <strong>Every agent. Every platform. One workbench.</strong><br/>
   Today: Claude Code, Codex, and OpenCode in parallel, each in its own Git worktree.
@@ -364,6 +375,7 @@ the host and its PTYs alive.
 - **Contributing:** [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md)
 - **Code of Conduct:** [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 - **Security:** [SECURITY.md](SECURITY.md)
+- **Translations:** [TRANSLATIONS.md](TRANSLATIONS.md)
 - **Changelog:** [CHANGELOG.md](CHANGELOG.md)
 - **Privacy:** iCode has no telemetry, no hosted service, and makes no model API
   calls. Model traffic belongs to your harness.
