@@ -1303,6 +1303,15 @@ export class SessionService {
         : repository !== null && repository.executionTarget.kind !== 'local'
           ? null
           : undefined
+    /**
+     * A WSL shell session is a desktop-Host ConPTY running `wsl.exe`: its cwd is
+     * a Windows directory chosen because a ConPTY cannot start in a Linux path.
+     * Comparing that cwd with the guest worktree would call every healthy WSL
+     * shell "inconsistent" and block its terminal. Guest checkouts are checked
+     * by Git against the distro instead; the cwd comparison is local-only.
+     */
+    const effectiveHostCwd =
+      repository !== null && repository.executionTarget.kind !== 'local' ? null : hostCwd
     return {
       id: row.id,
       repoId: workspace.repoId,
@@ -1320,7 +1329,7 @@ export class SessionService {
       worktree: this.worktreeSummaryFor(
         row,
         reconciled.state,
-        hostCwd,
+        effectiveHostCwd,
         effectiveWorktreeExists
       ),
       activity: this.activityFor(row, reconciled.state)

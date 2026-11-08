@@ -898,6 +898,22 @@ describe('Path A terminal routing', () => {
     expect(call.cwd).toBe(join(f.root.dir, 'pty'))
   })
 
+  it('reconciles a live WSL shell as active, not inconsistent', async () => {
+    /*
+     * Regression: Path A spawns `wsl.exe` from a Windows pty directory. A
+     * reconcile compared that desktop cwd with the guest worktree path and
+     * labeled every live WSL shell "inconsistent", which blocked its terminal.
+     */
+    const f = await withRepo()
+    const repoId = await wslRepo(f)
+    const created = await f.service.create({ repoId, harness: 'shell', cols: 100, rows: 30 })
+
+    const view = await f.service.reconcile()
+    const summary = view.sessions.find((session) => session.id === created.id)
+    expect(summary?.state).toBe('live')
+    expect(summary?.worktree).toMatchObject({ status: 'active' })
+  })
+
   it('does not report a newly created WSL worktree as missing', async () => {
     /*
      * Regression: create() returned a summary without an existence probe, so

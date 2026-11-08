@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- A WSL shell session no longer reports its worktree as inconsistent after
+  reconciliation. The desktop host runs `wsl.exe` from a Windows pty directory
+  because a ConPTY cannot start in a Linux path; that cwd was being compared
+  with the guest worktree, which blocked the terminal. The cwd comparison is
+  now local-only, and guest checkouts keep the distro-side Git inspection.
+
 ## [0.6.0] - 2026-11-08
 
 ### Added
