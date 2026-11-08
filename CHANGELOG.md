@@ -21,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with the guest worktree, which blocked the terminal. The cwd comparison is
   now local-only, and guest checkouts keep the distro-side Git inspection.
 
+### Security
+
+- Updated the transitive `dompurify` dependency used by Monaco to 3.4.17,
+  fixing the advisory inherited through `monaco-editor@0.57.0`.
+
 ## [0.6.0] - 2026-11-08
 
 ### Added
