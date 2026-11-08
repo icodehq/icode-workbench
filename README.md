@@ -3,11 +3,11 @@
 </h1>
 
 <p align="center">
-  <strong>The Agent Development Environment for local coding agents.</strong><br/>
-  Run Claude Code, Codex, and OpenCode in parallel, each in its own Git worktree.
-  Mira, your cross-project assistant, watches every repository, tells you what
-  needs you, and can act across them. Review the diff, and keep the terminal
-  alive when the app restarts.
+  <strong>Run a team of coding agents. Keep the judgment.</strong><br/>
+  The Agent Development Environment for local coding agents: Claude Code, Codex,
+  and OpenCode in parallel, each in its own Git worktree. Mira, your cross-project
+  assistant, watches every repository, tells you what needs you, and can act
+  across them. Review the diff, and keep the terminal alive when the app restarts.
 </p>
 
 <h3 align="center"><a href="#install"><ins>Get started</ins></a></h3>
@@ -122,7 +122,7 @@ everything else stays pending. A project supervisor is a control session bound t
 one repository; it proposes tasks from that project’s own context, follows the
 same human gate, and stays in the project’s Sessions. Mira can start or message
 one for you. Review accept/reject is also a human decision — accepting records
-the judgement, it does not merge, push or delete anything. Merge remains in
+the judgment, it does not merge, push or delete anything. Merge remains in
 Source Control.
 
 Schedules create ordinary queued tasks on a cadence — once, daily, weekdays,
