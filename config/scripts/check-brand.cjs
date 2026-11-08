@@ -15,7 +15,7 @@ const allowedPrefixes = []
 const allowedFiles = new Set(['config/scripts/check-brand.cjs'])
 // The README lockup uses ADE as the category acronym. Allow that exact phrase
 // while continuing to reject legacy ADE identifiers elsewhere.
-const allowedPhrases = [/THE AGENT DEVELOPMENT ENVIRONMENT \(ADE\)/gu]
+const allowedPhrases = [/THE (?:UNIVERSAL )?AGENT DEVELOPMENT ENVIRONMENT \(ADE\)/gu]
 const exts = new Set(['.ts', '.tsx', '.js', '.cjs', '.mjs', '.json', '.md', '.css', '.html', '.cmd', '.ps1', '.toml'])
 
 function walk(dir) {

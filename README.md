@@ -1,25 +1,46 @@
 <h1 align="center">
-  <img src=".github/assets/logo.svg" alt="iCode" width="64" valign="middle" /> iCode
+  <img src=".github/assets/logo.svg" alt="iCode Workbench" width="64" valign="middle" /> iCode Workbench
 </h1>
 
 <p align="center">
-  <sub><strong>THE AGENT DEVELOPMENT ENVIRONMENT (ADE)</strong></sub><br/>
-  <strong>Run a team of coding agents. Keep the judgment.</strong><br/>
-  Claude Code, Codex, and OpenCode in parallel, each in its own Git worktree.
+  <sub><strong>THE UNIVERSAL AGENT DEVELOPMENT ENVIRONMENT (ADE)</strong></sub><br/>
+  <strong>Every agent. Every platform. One workbench.</strong><br/>
+  Today: Claude Code, Codex, and OpenCode in parallel, each in its own Git worktree.
   Mira, your cross-project assistant, watches every repository, tells you what
   needs you, and can act across them. Review the diff, and keep the terminal
   alive when the app restarts.
 </p>
 
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=flat-square" alt="AGPL-3.0-only" /></a>
+  <a href="https://github.com/icodehq/icode-workbench/stargazers"><img src="https://img.shields.io/github/stars/icodehq/icode-workbench?style=flat-square" alt="GitHub stars" /></a>
+  <img src="https://img.shields.io/badge/platforms-Linux%20%7C%20Windows%20%7C%20macOS-blue?style=flat-square" alt="Linux, Windows, and macOS" />
+</p>
+
 <h3 align="center"><a href="#install"><ins>Get started</ins></a></h3>
 
 <p align="center">
-  <img src=".github/assets/projects-wall.png" alt="The iCode All projects wall showing three WSL projects, three items that need attention, and last activity" width="960" />
+  <img src=".github/assets/projects-wall.png" alt="The iCode Workbench All projects wall showing three WSL projects, three items that need attention, and last activity" width="960" />
 </p>
 
 <p align="center">
   <sub>Pre-1.0 · Linux (WSL2/WSLg) · Windows x64 · macOS x64 / arm64</sub>
 </p>
+
+## Why iCode Workbench?
+
+iCode Workbench is the control room for a team of coding agents. It turns the
+terminal into a portfolio: each agent gets an isolated worktree, each task has a
+durable record, and every change is reviewed where it was made.
+
+- **Every agent, one workbench.** Claude Code, Codex, and OpenCode today; the
+  adapter model is built to add more harnesses.
+- **Every platform.** Linux (WSL2/WSLg), Windows x64, and macOS x64 / arm64.
+- **Parallel by default.** Every session gets its own branch and Git worktree.
+- **Mira across projects.** One conversation for the real queue, blockers, and
+  cross-project actions.
+- **Review where the agent worked.** Task diffs, Source Control, and Monaco in
+  the session checkout.
 
 ## Features
 
