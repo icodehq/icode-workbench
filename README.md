@@ -3,11 +3,12 @@
 </h1>
 
 <p align="center">
+  <sub><strong>THE AGENT DEVELOPMENT ENVIRONMENT (ADE)</strong></sub><br/>
   <strong>Run a team of coding agents. Keep the judgment.</strong><br/>
-  The Agent Development Environment for local coding agents: Claude Code, Codex,
-  and OpenCode in parallel, each in its own Git worktree. Mira, your cross-project
-  assistant, watches every repository, tells you what needs you, and can act
-  across them. Review the diff, and keep the terminal alive when the app restarts.
+  Claude Code, Codex, and OpenCode in parallel, each in its own Git worktree.
+  Mira, your cross-project assistant, watches every repository, tells you what
+  needs you, and can act across them. Review the diff, and keep the terminal
+  alive when the app restarts.
 </p>
 
 <h3 align="center"><a href="#install"><ins>Get started</ins></a></h3>
