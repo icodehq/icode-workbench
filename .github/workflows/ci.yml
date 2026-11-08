@@ -162,7 +162,7 @@ jobs:
     name: Package (Windows x64)
     runs-on: windows-2022
     timeout-minutes: 45
-    needs: wsl-artifacts
+    needs: [unit-windows, wsl-artifacts]
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
