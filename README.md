@@ -13,7 +13,7 @@
 <h3 align="center"><a href="#install"><ins>Get started</ins></a></h3>
 
 <p align="center">
-  <img src=".github/assets/projects-wall.png" alt="The iCode All projects wall showing in-flight work, needs, and last activity across three repositories" width="960" />
+  <img src=".github/assets/projects-wall.png" alt="The iCode All projects wall showing three WSL projects, three items that need attention, and last activity" width="960" />
 </p>
 
 <p align="center">
@@ -129,7 +129,7 @@ Schedules create ordinary queued tasks on a cadence — once, daily, weekdays,
 weekly, or every few hours — with queue-or-skip overlap handling and run-now.
 
 <p align="center">
-  <a href=".github/assets/tasks.png"><img src=".github/assets/tasks.png" alt="The task workbench showing a running task, its instruction, live session, changes, and review decision" width="100%" /></a>
+  <a href=".github/assets/tasks.png"><img src=".github/assets/tasks.png" alt="The task workbench showing a review-pending task with a live session, changes against its baseline, and a review recommendation" width="100%" /></a>
 </p>
 
 *Task workbench: the instruction, the live session, changes against the task
