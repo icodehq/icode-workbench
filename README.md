@@ -368,35 +368,6 @@ the host and its PTYs alive.
 - **Privacy:** iCode has no telemetry, no hosted service, and makes no model API
   calls. Model traffic belongs to your harness.
 
-## Current limits
-
-iCode is pre-1.0. These boundaries are deliberate and worth knowing before you
-adopt it:
-
-- **Activity is Claude Code only.** Codex, OpenCode, and shell sessions report
-  `unknown`. Task completion for non-Claude harnesses may rely on process exit.
-- **Mira’s text stream is Claude Code only.** Codex and OpenCode show run stages
-  and the final reply. Mira is one global conversation; multiple conversations
-  and a full terminal-style session are not implemented.
-- **Tasks are supervised, not autonomous.** Dispatch starts the real interactive
-  harness and types the prompt. iCode does not answer permission prompts, so a
-  waiting task still needs you.
-- **Mira does not make human decisions.** She cannot approve or reject a proposal,
-  accept a review, merge or push, or delete a task. Archive is reversible;
-  permanent deletion is intentionally absent.
-- **Schedules need iCode running.** They are in-process timers, not a background
-  daemon. Catch-up after a long shutdown is bounded to 24 hours.
-- **Source Control is worktree-scoped.** It covers commit, amend, history, and
-  current-branch remotes. It does not manage stashes, tags, submodules, or
-  arbitrary branch checkouts.
-- **The task list is bounded.** The shell loads up to 200 active and archived
-  tasks, with active work ordered first.
-- **Markdown is a deliberate subset.** Headings, emphasis, code, lists, tables,
-  quotes and http(s) links render; images, task lists, footnotes, raw HTML and
-  syntax highlighting do not.
-- **Builds are unsigned.** Signing and notarization require credentials, and
-  auto-update is not implemented.
-
 ## Developing
 
 See [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md) for prerequisites,
