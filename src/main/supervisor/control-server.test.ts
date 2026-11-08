@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { createConnection } from 'node:net'
-import { join } from 'node:path'
 import { SupervisorControlServer, type SupervisorControlResponse } from './control-server'
 import { makeTempRoot } from '../persistence/persistence-test-fixtures'
 import { supervisorSocketPath } from './endpoint'
@@ -27,7 +26,7 @@ function request(socketPath: string, payload: unknown): Promise<string> {
 describe('supervisor control server', () => {
   it('answers one JSON request per connection', async () => {
     const root = makeTempRoot('icode-supervisor-control-')
-    const socketPath = join(root.dir, 'supervisor.sock')
+    const socketPath = supervisorSocketPath({ userDataDir: root.dir })
     const server = new SupervisorControlServer({
       socketPath,
       handle: async (incoming): Promise<SupervisorControlResponse> => ({
@@ -55,7 +54,7 @@ describe('supervisor control server', () => {
 
   it('returns an error for malformed requests without calling the handler', async () => {
     const root = makeTempRoot('icode-supervisor-control-')
-    const socketPath = join(root.dir, 'supervisor.sock')
+    const socketPath = supervisorSocketPath({ userDataDir: root.dir })
     let called = 0
     const server = new SupervisorControlServer({
       socketPath,

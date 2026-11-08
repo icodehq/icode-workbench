@@ -1,4 +1,4 @@
-import { join } from 'node:path'
+import { posix } from 'node:path'
 import { tmpdir } from 'node:os'
 import { namedPipe } from '../../shared/domain/endpoint'
 import { profileSocketScope } from '../../host/paths'
@@ -21,10 +21,10 @@ export function supervisorSocketPath(options: {
   if (platform === 'win32') {
     return namedPipe('icode-supervisor', profileSocketScope(options.userDataDir))
   }
-  const fallback = join(options.userDataDir, 'run', 'supervisor.sock')
+  const fallback = posix.join(options.userDataDir, 'run', 'supervisor.sock')
   if (Buffer.byteLength(fallback) <= MAX_SOCKET_PATH_BYTES) return fallback
   const scope = profileSocketScope(options.userDataDir)
-  const scopedTemp = join(tmpdir(), 'icode', scope, 'supervisor.sock')
+  const scopedTemp = posix.join(tmpdir(), 'icode', scope, 'supervisor.sock')
   if (Buffer.byteLength(scopedTemp) <= MAX_SOCKET_PATH_BYTES) return scopedTemp
-  return join(tmpdir(), `icode-supervisor-${scope}.sock`)
+  return posix.join(tmpdir(), `icode-supervisor-${scope}.sock`)
 }

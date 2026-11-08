@@ -55,7 +55,7 @@ describe('SupervisorService', () => {
     const service = new SupervisorService({
       userDataDir: root.dir,
       execPath: process.execPath,
-      platform: 'linux',
+      platform: process.platform,
       now: () => 1_700_000_000_000,
       store: new SupervisorStore(db),
       sessions: sessions as never,
@@ -117,7 +117,7 @@ describe('SupervisorService', () => {
     const service = new SupervisorService({
       userDataDir: root.dir,
       execPath: process.execPath,
-      platform: 'linux',
+      platform: process.platform,
       now: () => 1_700_000_000_000,
       store: new SupervisorStore(db),
       sessions: {
@@ -192,7 +192,7 @@ describe('SupervisorService', () => {
     const service = new SupervisorService({
       userDataDir: root.dir,
       execPath: process.execPath,
-      platform: 'linux',
+      platform: process.platform,
       now: () => 1_700_000_000_000,
       store: new SupervisorStore(db),
       sessions: sessions as never,
