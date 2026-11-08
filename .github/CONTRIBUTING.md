@@ -1,5 +1,7 @@
 # Contributing to iCode
 
+Participation in this project is governed by the [Code of Conduct](../CODE_OF_CONDUCT.md).
+
 ## Prerequisites
 
 - Node 24.x (`.nvmrc` pins 24.15.0) and Corepack with pnpm 11.16.0.

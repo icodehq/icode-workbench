@@ -362,6 +362,8 @@ the host and its PTYs alive.
 
 - **Issues:** [github.com/icodehq/icode-workbench/issues](https://github.com/icodehq/icode-workbench/issues)
 - **Contributing:** [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md)
+- **Code of Conduct:** [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+- **Security:** [SECURITY.md](SECURITY.md)
 - **Changelog:** [CHANGELOG.md](CHANGELOG.md)
 - **Privacy:** iCode has no telemetry, no hosted service, and makes no model API
   calls. Model traffic belongs to your harness.
@@ -540,3 +542,10 @@ even when iCode is down. A broken iCode must never block the agent.
   iCode never answers a harness permission prompt on your behalf.
 
 </details>
+
+## Status
+
+iCode Workbench is in early experimental development and iterating quickly.
+Features, storage schemas, and packaging may change between releases. Use normal
+Git hygiene on real work, and check the [changelog](CHANGELOG.md) before
+upgrading; every user-visible change is recorded there.
