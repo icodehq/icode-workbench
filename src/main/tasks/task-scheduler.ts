@@ -15,6 +15,7 @@ import type { AppError } from '../../shared/domain/errors'
 import { makeAppError } from '../../shared/domain/errors'
 import type { TaskStore } from './task-store'
 import type { TaskService } from './task-service'
+import { getMainLocale, mainT } from '../i18n/main-i18n'
 
 /**
  * Turns due schedule instants into ordinary queued tasks.
@@ -99,7 +100,7 @@ export class TaskScheduler {
   list(repoId?: RepoId): Array<TaskSchedule & { label: string; occurrences: ReturnType<TaskStore['listOccurrences']> }> {
     return this.deps.tasks.listSchedules(repoId).map((schedule) => ({
       ...schedule,
-      label: scheduleLabel(schedule.shape),
+      label: scheduleLabel(schedule.shape, getMainLocale()),
       occurrences: this.deps.tasks.listOccurrences(schedule.id, 10)
     }))
   }
@@ -187,7 +188,7 @@ export class TaskScheduler {
         overlap: input.overlap ?? existing.overlap,
         nextRunAt,
         consecutiveFailures: 0,
-        lastNote: 'Edited.'
+        lastNote: mainT('schedules.note.edited')
       },
       now
     )
@@ -227,7 +228,7 @@ export class TaskScheduler {
       {
         enabled,
         nextRunAt: enabled ? resumedNext : schedule.nextRunAt,
-        lastNote: enabled ? 'Enabled.' : 'Paused.',
+        lastNote: enabled ? mainT('schedules.note.enabled') : mainT('schedules.note.paused'),
         ...(enabled ? { consecutiveFailures: 0 } : {})
       },
       now
@@ -269,7 +270,14 @@ export class TaskScheduler {
         if (decision.kind === 'skip') {
           // Nothing fires, but the timer still moves so the next tick is not
           // re-evaluating the same stale instant forever.
-          this.advance(schedule, now, now, decision.reason)
+          this.advance(
+            schedule,
+            now,
+            now,
+            decision.reason === 'not due yet'
+              ? mainT('schedules.note.notDue')
+              : mainT('schedules.note.missed', { count: decision.missed })
+          )
           continue
         }
         this.fire(schedule, decision.at, decision.trigger, now)
@@ -310,14 +318,17 @@ export class TaskScheduler {
             id: this.deps.newOccurrenceId(),
             scheduleId: schedule.id,
             occurrenceAt,
-            note: trigger === 'catch-up' ? 'Caught up the missed occurrence.' : 'Scheduled run.'
+            note:
+              trigger === 'catch-up'
+                ? mainT('schedules.note.caughtUpOccurrence')
+                : mainT('schedules.note.scheduledRun')
           },
           now
         )
     if (!reserved) {
       this.deps.tasks.updateSchedule(
         schedule.id,
-        { lastNote: 'That occurrence already ran.', ...(!isManual ? { nextRunAt: this.nextAfter(schedule, occurrenceAt, now) } : {}) },
+        { lastNote: mainT('schedules.note.alreadyRan'), ...(!isManual ? { nextRunAt: this.nextAfter(schedule, occurrenceAt, now) } : {}) },
         now
       )
       this.deps.onChange()
@@ -329,13 +340,13 @@ export class TaskScheduler {
       this.deps.tasks.resolveOccurrence(
         schedule.id,
         occurrenceAt,
-        { status: 'skipped', note: 'The previous run was still active.' },
+        { status: 'skipped', note: mainT('schedules.note.previousActive') },
         now
       )
       this.deps.tasks.updateSchedule(
         schedule.id,
         {
-          lastNote: 'Skipped: the previous run was still active.',
+          lastNote: mainT('schedules.note.skippedBusy'),
           nextRunAt: this.nextAfter(schedule, occurrenceAt, now)
         },
         now
@@ -383,12 +394,12 @@ export class TaskScheduler {
         ...(oneShot && !isManual ? { enabled: false } : {}),
         lastNote:
           trigger === 'manual'
-            ? 'Started by hand.'
+            ? mainT('schedules.note.startedByHand')
             : trigger === 'catch-up'
-              ? 'Caught up a missed occurrence.'
+              ? mainT('schedules.note.caughtUp')
               : oneShot
-                ? 'Ran its single scheduled run.'
-                : 'Ran on schedule.',
+                ? mainT('schedules.note.singleRun')
+                : mainT('schedules.note.onSchedule'),
         // A one-time schedule has no next instant; leaving `nextRunAt` null is
         // how the row stops being considered instead of needing a second flag.
         nextRunAt: isManual ? schedule.nextRunAt : this.nextAfter(schedule, occurrenceAt, now)
@@ -413,7 +424,10 @@ export class TaskScheduler {
         {
           enabled: false,
           consecutiveFailures: failures,
-          lastNote: `Paused after ${String(SCHEDULE_AUTO_PAUSE_AFTER)} launch failures: ${message}`
+          lastNote: mainT('schedules.note.autoPaused', {
+            count: SCHEDULE_AUTO_PAUSE_AFTER,
+            detail: message
+          })
         },
         now
       )

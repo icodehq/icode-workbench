@@ -1,5 +1,6 @@
 import { AlertTriangle, Loader2, X } from 'lucide-react'
 import type { RemovalPrompt } from '../state/workspace'
+import { useT, useTp } from '../i18n/use-i18n'
 
 type Props = {
   prompt: RemovalPrompt
@@ -14,40 +15,40 @@ export default function RemovalDialog({
   onCancel,
   onConfirm
 }: Props): React.JSX.Element {
+  const t = useT()
+  const tp = useTp()
   return (
     <div
       className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-6"
       role="dialog"
       aria-modal="true"
-      aria-label="Confirm repository removal"
+      aria-label={t('repoRemove.aria')}
     >
       <div className="icode-modal w-full max-w-md rounded-lg border border-border bg-card p-6 shadow-2xl">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-2">
             <AlertTriangle size={15} className="text-signal" />
-            <h2 className="text-[16px] font-semibold">Remove {prompt.repoName}?</h2>
+            <h2 className="text-[16px] font-semibold">
+              {t('repoRemove.title', { project: prompt.repoName })}
+            </h2>
           </div>
           <button
             type="button"
             className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
             onClick={onCancel}
-            aria-label="Close"
+            aria-label={t('common.close')}
           >
             <X size={14} />
           </button>
         </div>
         <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground">
-          This unregisters the repository and permanently deletes{' '}
-          {prompt.sessions.length === 1
-            ? 'one stored session record'
-            : `${String(prompt.sessions.length)} stored session records`}
-          . Files on disk are not touched.
+          {tp('repoRemove.body', prompt.sessions.length)}
         </p>
         <ul className="mt-3 max-h-40 overflow-y-auto rounded-md border border-border bg-background px-3 py-2">
           {prompt.sessions.map((session) => (
             <li key={session.id} className="truncate py-0.5 text-[12px]">
               {session.title}
-              <span className="ml-2 text-[11px] text-muted-foreground">{session.state}</span>
+              <span className="ml-2 text-[11px] text-muted-foreground">{t(`session.state.${session.state}`)}</span>
             </li>
           ))}
         </ul>
@@ -58,7 +59,7 @@ export default function RemovalDialog({
             onClick={onCancel}
             disabled={busy}
           >
-            Keep repository
+            {t('repoRemove.keep')}
           </button>
           <button
             type="button"
@@ -68,7 +69,7 @@ export default function RemovalDialog({
             data-testid="confirm-remove-repo"
           >
             {busy ? <Loader2 size={12} className="animate-spin" /> : null}
-            Remove repository
+            {t('repoRemove.confirm')}
           </button>
         </div>
       </div>

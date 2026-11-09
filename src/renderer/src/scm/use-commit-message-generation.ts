@@ -1,3 +1,4 @@
+import { translate } from '../i18n/i18n-store'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { callApi } from '../lib/api'
 import { harnessLabel, isAgentHarness, type HarnessId } from '../../../shared/domain/harness'
@@ -113,7 +114,7 @@ export function useCommitMessageGeneration({
         inFlight.current = null
         setState({
           status: 'error',
-          detail: error instanceof Error ? error.message : 'The agent could not be started.'
+          detail: error instanceof Error ? error.message : translate('scm.generation.agentFailed')
         })
         return
       }
@@ -125,7 +126,7 @@ export function useCommitMessageGeneration({
       }
       if (result.value.status === 'cancelled') {
         setState({ status: 'idle' })
-        setNote('Generation cancelled.')
+        setNote(translate('scm.generationCancelled'))
         return
       }
       if (result.value.status === 'unavailable') {
@@ -148,7 +149,7 @@ export function useCommitMessageGeneration({
     cancelRequest(inFlight.current.requestId)
     inFlight.current = null
     setState({ status: 'idle' })
-    setNote('Generation cancelled.')
+    setNote(translate('scm.generationCancelled'))
   }, [cancelRequest])
 
   const applyPending = useCallback((): void => {
@@ -170,13 +171,13 @@ export function useCommitMessageGeneration({
     state.status !== 'generating'
   const disabledReason =
     !isAgentHarness(harness)
-      ? 'Commit-message generation needs a coding-agent session.'
+      ? translate('scm.generation.needsAgent')
       : stagedCount === 0
-        ? 'Stage files before generating a commit message.'
+        ? translate('scm.generation.stageFirst')
         : conflicts > 0
-          ? 'Resolve conflicts before generating a commit message.'
+          ? translate('scm.generation.resolveConflicts')
           : !active
-            ? 'Open Source Control to generate a commit message.'
+            ? translate('scm.generation.openScm')
             : ''
 
   return {

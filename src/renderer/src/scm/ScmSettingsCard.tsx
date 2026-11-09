@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import SettingsCard from '../components/SettingsCard'
+import { useT } from '../i18n/use-i18n'
 import {
   loadScmSettings,
   subscribeScmSettings,
@@ -57,6 +58,7 @@ function BranchProtectionInput({
   value: string[]
   onChange: (patterns: string[]) => void
 }): React.JSX.Element {
+  const t = useT()
   const [draft, setDraft] = useState(value.join(', '))
   useEffect(() => {
     setDraft(value.join(', '))
@@ -73,7 +75,7 @@ function BranchProtectionInput({
   return (
     <input
       value={draft}
-      placeholder="main, release/*"
+      placeholder={t('scmSettings.branchPlaceholder')}
       className="h-7 w-44 rounded border border-border bg-card px-1.5 text-[10.5px] text-foreground"
       data-testid="scm-setting-branch-protection"
       onChange={(event) => setDraft(event.target.value)}
@@ -89,6 +91,7 @@ function BranchProtectionInput({
 }
 
 export default function ScmSettingsCard(): React.JSX.Element {
+  const t = useT()
   const [settings, setSettings] = useState<ScmSettings>(() => loadScmSettings())
   useEffect(() => subscribeScmSettings(setSettings), [])
   const update = (patch: Partial<ScmSettings>): void => {
@@ -96,16 +99,15 @@ export default function ScmSettingsCard(): React.JSX.Element {
   }
 
   return (
-    <SettingsCard title="Source Control">
+    <SettingsCard title={t('scmSettings.title')}>
       <p className="mb-2 max-w-2xl text-[10.5px] leading-relaxed text-muted-foreground">
-        These settings affect the Source Control tab. Smart commit is off by default, so
-        staging stays explicit until you opt in.
+        {t('scmSettings.description')}
       </p>
       <div className="grid gap-x-6 md:grid-cols-2">
         <div>
           <Field
-            label="Smart commit"
-            hint="Stage changes when nothing is staged. Off keeps commits stage-first."
+            label={t('scmSettings.smartCommit')}
+            hint={t('scmSettings.smartCommitHint')}
           >
             <select
               className="h-7 rounded border border-border bg-card px-1.5 text-[10.5px]"
@@ -113,12 +115,12 @@ export default function ScmSettingsCard(): React.JSX.Element {
               onChange={(event) => update({ smartCommit: event.target.value as ScmSettings['smartCommit'] })}
               data-testid="scm-setting-smart-commit"
             >
-              <option value="off">Off</option>
-              <option value="all">All changes</option>
-              <option value="tracked">Tracked changes</option>
+              <option value="off">{t('scmSettings.off')}</option>
+              <option value="all">{t('scmSettings.allChanges')}</option>
+              <option value="tracked">{t('scmSettings.trackedChanges')}</option>
             </select>
           </Field>
-          <Field label="Untracked files" hint="Mixed shows untracked rows in Changes; hidden omits them.">
+          <Field label={t('scmSettings.untracked')} hint={t('scmSettings.untrackedHint')}>
             <select
               className="h-7 rounded border border-border bg-card px-1.5 text-[10.5px]"
               value={settings.untrackedMode}
@@ -127,43 +129,43 @@ export default function ScmSettingsCard(): React.JSX.Element {
               }
               data-testid="scm-setting-untracked"
             >
-              <option value="separate">Separate group</option>
-              <option value="mixed">Mixed into Changes</option>
-              <option value="hidden">Hidden</option>
+              <option value="separate">{t('scmSettings.separateGroup')}</option>
+              <option value="mixed">{t('scmSettings.mixed')}</option>
+              <option value="hidden">{t('scmSettings.hidden')}</option>
             </select>
           </Field>
-          <Field label="Default view">
+          <Field label={t('scmSettings.defaultView')}>
             <select
               className="h-7 rounded border border-border bg-card px-1.5 text-[10.5px]"
               value={settings.viewMode}
               onChange={(event) => update({ viewMode: event.target.value as ScmSettings['viewMode'] })}
             >
-              <option value="list">List</option>
-              <option value="tree">Tree</option>
+              <option value="list">{t('scmSettings.list')}</option>
+              <option value="tree">{t('scmSettings.tree')}</option>
             </select>
           </Field>
-          <Field label="Default sort">
+          <Field label={t('scmSettings.defaultSort')}>
             <select
               className="h-7 rounded border border-border bg-card px-1.5 text-[10.5px]"
               value={settings.sort}
               onChange={(event) => update({ sort: event.target.value as ScmSettings['sort'] })}
             >
-              <option value="path">Path</option>
-              <option value="name">Name</option>
-              <option value="status">Status</option>
+              <option value="path">{t('scmSettings.sort.path')}</option>
+              <option value="name">{t('scmSettings.sort.name')}</option>
+              <option value="status">{t('scmSettings.sort.status')}</option>
             </select>
           </Field>
-          <Field label="Auto-refresh" hint="Watch the worktree while Source Control is visible.">
+          <Field label={t('scmSettings.autoRefresh')} hint={t('scmSettings.autoRefreshHint')}>
             <Toggle
               checked={settings.autoRefresh}
               onChange={(next) => update({ autoRefresh: next })}
-              label="Auto-refresh"
+              label={t('scmSettings.autoRefresh')}
               testId="scm-setting-auto-refresh"
             />
           </Field>
         </div>
         <div>
-          <Field label="Diff decorations">
+          <Field label={t('scmSettings.diffDecorations')}>
             <select
               className="h-7 rounded border border-border bg-card px-1.5 text-[10.5px]"
               value={settings.diffDecorations}
@@ -171,59 +173,59 @@ export default function ScmSettingsCard(): React.JSX.Element {
                 update({ diffDecorations: event.target.value as ScmSettings['diffDecorations'] })
               }
             >
-              <option value="all">All</option>
-              <option value="gutter">Gutter</option>
-              <option value="overview">Overview ruler</option>
-              <option value="minimap">Minimap</option>
-              <option value="none">None</option>
+              <option value="all">{t('scmSettings.decorations.all')}</option>
+              <option value="gutter">{t('scmSettings.decorations.gutter')}</option>
+              <option value="overview">{t('scmSettings.decorations.overview')}</option>
+              <option value="minimap">{t('scmSettings.decorations.minimap')}</option>
+              <option value="none">{t('scmSettings.decorations.none')}</option>
             </select>
           </Field>
-          <Field label="Inline blame" hint="Shows the caret line's commit in the editor.">
+          <Field label={t('scmSettings.inlineBlame')} hint={t('scmSettings.inlineBlameHint')}>
             <Toggle
               checked={settings.inlineBlame}
               onChange={(next) => update({ inlineBlame: next })}
-              label="Inline blame"
+              label={t('scmSettings.inlineBlame')}
               testId="scm-setting-inline-blame"
             />
           </Field>
-          <Field label="Quick diff ignores whitespace">
+          <Field label={t('scmSettings.quickDiffWhitespace')}>
             <Toggle
               checked={settings.quickDiffIgnoreWhitespace}
               onChange={(next) => update({ quickDiffIgnoreWhitespace: next })}
-              label="Quick diff ignores whitespace"
+              label={t('scmSettings.quickDiffWhitespace')}
               testId="scm-setting-quick-diff-whitespace"
             />
           </Field>
-          <Field label="Pull with rebase">
+          <Field label={t('scmSettings.pullRebase')}>
             <Toggle
               checked={settings.pullRebase}
               onChange={(next) => update({ pullRebase: next })}
-              label="Pull with rebase"
+              label={t('scmSettings.pullRebase')}
               testId="scm-setting-pull-rebase"
             />
           </Field>
-          <Field label="Sign commits" hint="Uses the Git/GPG configuration on this machine.">
+          <Field label={t('scmSettings.signCommits')} hint={t('scmSettings.signCommitsHint')}>
             <Toggle
               checked={settings.enableCommitSigning}
               onChange={(next) => update({ enableCommitSigning: next })}
-              label="Sign commits"
+              label={t('scmSettings.signCommits')}
               testId="scm-setting-commit-signing"
             />
           </Field>
           <Field
-            label="Protected branches"
-            hint="Glob patterns. Commits and amends are disabled on a matching branch."
+            label={t('scmSettings.protectedBranches')}
+            hint={t('scmSettings.protectedBranchesHint')}
           >
             <BranchProtectionInput
               value={settings.branchProtection}
               onChange={(branchProtection) => update({ branchProtection })}
             />
           </Field>
-          <Field label="Always sign off">
+          <Field label={t('scmSettings.alwaysSignOff')}>
             <Toggle
               checked={settings.alwaysSignOff}
               onChange={(next) => update({ alwaysSignOff: next })}
-              label="Always sign off"
+              label={t('scmSettings.alwaysSignOff')}
               testId="scm-setting-always-signoff"
             />
           </Field>

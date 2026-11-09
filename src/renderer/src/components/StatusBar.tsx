@@ -5,6 +5,8 @@ import { hostLabel, hostStatus } from '../state/host-status'
 import type { Notice, WorkspaceState } from '../state/workspace'
 import { useScmStatusSummary } from '../scm/scm-status-store'
 import { useEditorBlameStatus } from '../editor/editor-status-store'
+import { formatDateTime } from '../../../shared/i18n'
+import { useLocale, useT, useTp } from '../i18n/use-i18n'
 
 type Props = {
   state: WorkspaceState
@@ -38,6 +40,9 @@ export default function StatusBar({
   onDismissNotice,
   onFocusSourceControl
 }: Props): React.JSX.Element {
+  const t = useT()
+  const tp = useTp()
+  const locale = useLocale()
   const gitSummary = useScmStatusSummary()
   const blame = useEditorBlameStatus()
   const host = hostStatus(state)
@@ -77,9 +82,7 @@ export default function StatusBar({
           host === 'unreachable' ? 'text-signal' : ''
         }`}
         title={
-          host === 'unreachable'
-            ? 'Retry the terminal host connection'
-            : 'Derived from host reconciliation of session state; click to refresh'
+          host === 'unreachable' ? t('status.hostTooltipRetry') : t('status.hostTooltip')
         }
         onClick={onRetryHost}
         disabled={refreshing}
@@ -88,42 +91,57 @@ export default function StatusBar({
       >
         <Server size={11} />
         <span className="hidden sm:inline">{hostLabel(host)}</span>
-        <span className="sm:hidden">{host === 'reachable' ? 'Host' : host === 'unreachable' ? 'Host down' : 'Host ?'}</span>
+        <span className="sm:hidden">
+          {host === 'reachable'
+            ? t('host.short')
+            : host === 'unreachable'
+              ? t('host.shortDown')
+              : t('host.shortUnknown')}
+        </span>
       </button>
-      <span className="hidden shrink-0 items-center gap-1 sm:inline-flex" title="Available Harnesses" data-testid="harness-summary">
-        {available}/{state.harnesses.length || 4} Harnesses
+      <span className="hidden shrink-0 items-center gap-1 sm:inline-flex" title={t('status.harnessesTooltip')} data-testid="harness-summary">
+        {t('status.harnessesCount', {
+          available,
+          total: state.harnesses.length || 4
+        })}
       </span>
       <span className="hidden shrink-0 text-border md:inline">|</span>
       {gitSummary ? (
         <button
           type="button"
           className="inline-flex min-w-0 shrink items-center gap-1 rounded px-0.5 hover:bg-muted"
-          title={`${gitSummary.branch ?? 'Detached HEAD'}${gitSummary.upstream ? ` → ${gitSummary.upstream}` : ''} · ${String(gitSummary.staged)} staged · ${String(gitSummary.changed)} changed · ${String(gitSummary.untracked)} untracked`}
+          title={t('status.gitTooltip', {
+            branch: gitSummary.branch ?? t('status.detachedHead'),
+            upstream: gitSummary.upstream ? ` → ${gitSummary.upstream}` : '',
+            staged: gitSummary.staged,
+            changed: gitSummary.changed,
+            untracked: gitSummary.untracked
+          })}
           onClick={onFocusSourceControl}
           data-testid="statusbar-branch"
           data-session-id={gitSummary.sessionId}
         >
           <GitBranch size={11} />
-          <span className="max-w-[150px] truncate">{gitSummary.branch ?? 'Detached'}</span>
+          <span className="max-w-[150px] truncate">{gitSummary.branch ?? t('status.detached')}</span>
           {gitSummary.operation ? (
-            <span className="rounded bg-signal-weak px-1 uppercase text-signal" title={`${gitSummary.operation} in progress`}>
+            <span className="rounded bg-signal-weak px-1 uppercase text-signal" title={t('status.operationProgress', { operation: gitSummary.operation })}>
               {gitSummary.operation}
             </span>
           ) : null}
           {gitSummary.conflicts > 0 ? (
-            <span className="inline-flex items-center gap-0.5 text-signal" title={`${String(gitSummary.conflicts)} conflict(s)`}>
+            <span className="inline-flex items-center gap-0.5 text-signal" title={tp('status.conflicts', gitSummary.conflicts)}>
               <AlertTriangle size={10} />
               {gitSummary.conflicts}
             </span>
           ) : null}
           {gitSummary.ahead > 0 ? (
-            <span className="inline-flex items-center gap-0.5" title={`${String(gitSummary.ahead)} ahead`}>
+            <span className="inline-flex items-center gap-0.5" title={tp('status.ahead', gitSummary.ahead)}>
               <ArrowUp size={10} />
               {gitSummary.ahead}
             </span>
           ) : null}
           {gitSummary.behind > 0 ? (
-            <span className="inline-flex items-center gap-0.5" title={`${String(gitSummary.behind)} behind`}>
+            <span className="inline-flex items-center gap-0.5" title={tp('status.behind', gitSummary.behind)}>
               <ArrowDown size={10} />
               {gitSummary.behind}
             </span>
@@ -134,28 +152,33 @@ export default function StatusBar({
         <span
           className="inline-flex min-w-0 shrink items-center gap-1 rounded px-0.5"
           title={`${blame.path}:${String(blame.line)} · ${blame.oid.slice(0, 8)} · ${
-            blame.committed ? blame.author : 'Not committed yet'
-          } · ${new Date(blame.authorTime * 1000).toLocaleString()}${blame.summary ? ` · ${blame.summary}` : ''}`}
+            blame.committed ? blame.author : t('status.notCommitted')
+          } · ${formatDateTime(locale, blame.authorTime * 1000)}${blame.summary ? ` · ${blame.summary}` : ''}`}
           data-testid="statusbar-blame"
         >
           <span className="max-w-[120px] truncate text-foreground">
-            {blame.committed ? blame.author : 'You'}
+            {blame.committed ? blame.author : t('status.you')}
           </span>
           <span className="max-w-[180px] truncate">
-            {blame.committed ? blame.summary : 'uncommitted'}
+            {blame.committed ? blame.summary : t('status.uncommitted')}
           </span>
         </span>
       ) : null}
       <span className="shrink-0" data-testid="task-slots">
-        <span className="hidden md:inline">Global task slots </span>
-        <span className="md:hidden">Global </span>
+        <span className="hidden md:inline">{t('status.globalTaskSlots')}</span>
+        <span className="md:hidden">{t('status.global')}</span>
         {slotCount}/{maxConcurrent}
       </span>
       <span className="inline-flex shrink-0 items-center gap-1" data-testid="live-sessions">
         <TerminalSquare size={11} />
-        {liveSessions}
-        <span className="hidden md:inline"> live session{liveSessions === 1 ? '' : 's'}</span>
-        <span className="md:hidden"> live</span>
+        <span className="hidden md:inline">
+          {liveSessions}
+          {tp('status.liveSessions', liveSessions)}
+        </span>
+        <span className="md:hidden">
+          {liveSessions}
+          {t('status.liveShort')}
+        </span>
       </span>
       {notice ? (
         <span
@@ -184,7 +207,7 @@ export default function StatusBar({
             type="button"
             className="shrink-0 rounded p-0.5 opacity-70 hover:bg-white/10 hover:opacity-100"
             onClick={onDismissNotice}
-            aria-label="Dismiss notification"
+            aria-label={t('status.dismiss')}
           >
             <X size={10} />
           </button>
@@ -198,14 +221,14 @@ export default function StatusBar({
         className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
         onClick={onRefresh}
         disabled={refreshing}
-        title="Refresh repositories, sessions, Harnesses and tasks"
+        title={t('status.refreshTitle')}
         data-testid="refresh-all"
       >
         <RefreshCw size={11} className={refreshing ? 'animate-spin' : ''} />
       </button>
       <span
         className="hidden shrink-0 font-mono text-[9px] text-muted-foreground lg:inline"
-        title={runtime ? `Electron ${runtime.electron ?? '?'} · Node ${runtime.node}` : undefined}
+        title={runtime ? t('status.electronTitle', { electron: runtime.electron ?? '?', node: runtime.node }) : undefined}
       >
         v{runtime?.appVersion ?? '—'}
       </span>

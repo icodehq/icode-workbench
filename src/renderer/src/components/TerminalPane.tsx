@@ -6,6 +6,7 @@ import type { AppError } from '../../../shared/domain/errors'
 import type { SessionSummary } from '../../../shared/schemas/ipc'
 import { SessionTerminal, type TerminalStatus } from '../terminal/session-terminal'
 import { rememberTerminalSize } from '../terminal/terminal-size'
+import { useT } from '../i18n/use-i18n'
 
 /**
  * Terminal palettes, one per application appearance.
@@ -90,6 +91,7 @@ function describesTerminal(state: SessionSummary['state']): boolean {
 }
 
 export default function TerminalPane({ session, active, onError, preview = false }: Props): React.JSX.Element {
+  const t = useT()
   const containerRef = useRef<HTMLDivElement | null>(null)
   const termRef = useRef<Terminal | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
@@ -296,38 +298,40 @@ export default function TerminalPane({ session, active, onError, preview = false
         <div className="pointer-events-none absolute left-3 top-2 z-10 flex items-center gap-2 rounded-md border border-border bg-card/95 px-2 py-1 text-[10px] text-muted-foreground">
           <Loader2 size={11} className="animate-spin" />
           {status.phase === 'connecting'
-            ? 'Connecting to the terminal host…'
-            : 'Synchronizing terminal output…'}
+            ? t('terminal.connecting')
+            : t('terminal.synchronizing')}
         </div>
       ) : null}
       {finished && !preview ? (
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 border-t border-border bg-card/95 px-3 py-1.5 text-[10px] text-muted-foreground">
           {session.sleeping === true
-            ? 'Session is sleeping. Wake it to start a new process.'
+            ? t('terminal.sleeping')
             : status.phase === 'exited'
-              ? `Process exited${status.exitCode === null ? '' : ` (code ${String(status.exitCode)})`}. The output above is final.`
+              ? status.exitCode === null
+                ? t('terminal.exitedFinalNoCode')
+                : t('terminal.exitedFinal', { code: status.exitCode })
               : status.phase === 'unavailable'
-                ? (status.message ?? 'The terminal host no longer owns this session.')
-                : (status.message ?? 'The process failed.')}
+                ? (status.message ?? t('terminal.noLongerOwned'))
+                : (status.message ?? t('terminal.processFailed'))}
           {session.sleeping !== true && describesTerminal(session.state)
-            ? ' The host has not confirmed this state yet.'
+            ? ` ${t('terminal.hostUnconfirmed')}`
             : ''}
         </div>
       ) : null}
       {showOverlay ? (
         preview ? (
           <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/90 px-2 text-center text-[9px] text-muted-foreground">
-            Preview unavailable
+            {t('terminal.previewUnavailable')}
           </div>
         ) : (
           <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/85 p-6">
             <div className="w-full max-w-md rounded-lg border border-destructive/40 bg-card p-4">
               <div className="flex items-center gap-2 text-[12px] font-medium text-destructive">
                 <AlertTriangle size={14} />
-                Terminal unavailable
+                {t('terminal.unavailableTitle')}
               </div>
               <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-                {status.message ?? 'The terminal could not be synchronized.'}
+                {status.message ?? t('terminal.couldNotSync')}
               </p>
               <button
                 type="button"
@@ -336,7 +340,7 @@ export default function TerminalPane({ session, active, onError, preview = false
                 data-testid="terminal-retry"
               >
                 <RefreshCw size={12} />
-                Reconnect
+                {t('terminal.reconnect')}
               </button>
             </div>
           </div>

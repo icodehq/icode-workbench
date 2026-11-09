@@ -1,5 +1,7 @@
 import { z } from 'zod'
 import { APP_ERROR_CODES, isRetryableAppErrorCode } from '../domain/errors'
+import { en } from '../i18n/catalogs'
+import type { MessageKey } from '../i18n/messages'
 import { HARNESS_IDS } from '../domain/harness'
 import {
   HOST_SESSION_STATUSES,
@@ -20,13 +22,26 @@ import {
 
 export const appErrorCodeSchema = z.enum(APP_ERROR_CODES)
 
+/** A catalog key that exists in the source catalog. */
+export const appErrorMessageKeySchema = z.custom<MessageKey>(
+  (value) => typeof value === 'string' && Object.prototype.hasOwnProperty.call(en, value),
+  { message: 'Unknown message key' }
+)
+
 export const appErrorSchema = z
   .strictObject({
     code: appErrorCodeSchema,
     message: errorMessageSchema,
     detail: errorDetailSchema.optional(),
     retryable: z.boolean(),
-    context: z.record(z.string().max(100), z.string().max(1000)).optional()
+    context: z.record(z.string().max(100), z.string().max(1000)).optional(),
+    messageKey: appErrorMessageKeySchema.optional(),
+    messageParams: z
+      .record(
+        z.string().max(64),
+        z.union([z.string().max(500), z.number()])
+      )
+      .optional()
   })
   .refine((error) => error.retryable === isRetryableAppErrorCode(error.code), {
     message: 'retryable must match the code policy',

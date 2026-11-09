@@ -64,8 +64,8 @@ async function readRevision(
       ? { ok: true, text: '' }
       : { ok: false, error: value.detail }
   }
-  if (value.binary) return { ok: false, error: 'Binary content cannot be shown side by side.' }
-  if (value.tooLarge) return { ok: false, error: 'This file is too large for a side-by-side view.' }
+  if (value.binary) return { ok: false, error: translate('diff.sideBySideBinary') }
+  if (value.tooLarge) return { ok: false, error: translate('diff.sideBySideTooLarge') }
   return { ok: true, text: value.text }
 }
 
@@ -82,8 +82,8 @@ async function readIndex(
   if (value.status !== 'ok') {
     return allowMissing ? { ok: true, text: '' } : { ok: false, error: value.detail }
   }
-  if (value.binary) return { ok: false, error: 'Binary content cannot be shown side by side.' }
-  if (value.tooLarge) return { ok: false, error: 'This file is too large for a side-by-side view.' }
+  if (value.binary) return { ok: false, error: translate('diff.sideBySideBinary') }
+  if (value.tooLarge) return { ok: false, error: translate('diff.sideBySideTooLarge') }
   return { ok: true, text: value.text }
 }
 
@@ -99,10 +99,13 @@ async function readWorktree(
     if (allowMissing && value.reason === 'not-found') return { ok: true, text: '' }
     return { ok: false, error: value.detail }
   }
-  if (value.binary) return { ok: false, error: 'Binary content cannot be shown side by side.' }
-  if (value.tooLarge) return { ok: false, error: 'This file is too large for a side-by-side view.' }
+  if (value.binary) return { ok: false, error: translate('diff.sideBySideBinary') }
+  if (value.tooLarge) return { ok: false, error: translate('diff.sideBySideTooLarge') }
   return { ok: true, text: value.text }
 }
+
+import { translate } from '../i18n/i18n-store'
+import { useT, useTp } from '../i18n/use-i18n'
 
 function LayoutToggle({
   mode,
@@ -111,12 +114,13 @@ function LayoutToggle({
   mode: WorkingDiffMode
   onChange: (mode: WorkingDiffMode) => void
 }): React.JSX.Element {
+  const t = useT()
   const base =
     'px-1.5 py-0.5 text-[9.5px] font-medium outline-none transition-colors focus-visible:ring-1 focus-visible:ring-signal'
   return (
     <span
       role="group"
-      aria-label="Diff layout"
+      aria-label={t('diff.layoutAria')}
       className="inline-flex overflow-hidden rounded-sm border border-border bg-card"
     >
       <button
@@ -127,11 +131,11 @@ function LayoutToggle({
             : 'text-muted-foreground hover:bg-muted hover:text-foreground'
         }`}
         aria-pressed={mode === 'sideBySide'}
-        title="Show both sides side by side; line notes use the Unified view"
+        title={t('diff.sideBySideTitle')}
         data-testid="diff-view-split"
         onClick={() => onChange('sideBySide')}
       >
-        Split
+        {t('diff.split')}
       </button>
       <button
         type="button"
@@ -141,11 +145,11 @@ function LayoutToggle({
             : 'text-muted-foreground hover:bg-muted hover:text-foreground'
         }`}
         aria-pressed={mode === 'inline'}
-        title="Show one unified diff with line notes"
+        title={t('diff.unifiedTitle')}
         data-testid="diff-view-unified"
         onClick={() => onChange('inline')}
       >
-        Unified
+        {t('diff.unified')}
       </button>
     </span>
   )
@@ -174,6 +178,8 @@ export default function WorkingDiffView({
   onApplyHunk,
   onResolveConflict
 }: Props): React.JSX.Element {
+  const t = useT()
+  const tp = useTp()
   const { area, entry: resource } = entry
   const path = resource.path
   const oldPath = resource.oldPath ?? resource.path
@@ -273,7 +279,7 @@ export default function WorkingDiffView({
     if (diff === null || onApplyHunk === undefined) return
     const patch = hunkPatch(diff.patch, index)
     if (patch === null) {
-      setHunkError('That hunk is no longer in the diff.')
+      setHunkError(t('review.hunkGone'))
       return
     }
     setHunkError(null)
@@ -282,7 +288,7 @@ export default function WorkingDiffView({
     else setHunkPending(index)
     try {
       const result = await onApplyHunk(patch, actionMode)
-      if (!result.ok) setHunkError(result.message ?? 'Git did not apply that hunk.')
+      if (!result.ok) setHunkError(result.message ?? t('scm.notice.hunkFailed'))
     } finally {
       if (actionMode === 'discard') setDiscardPending(null)
       else setHunkPending(null)
@@ -310,7 +316,7 @@ export default function WorkingDiffView({
     else setLinePending(index)
     try {
       const result = await onApplyHunk(built.patch, actionMode)
-      if (!result.ok) setHunkError(result.message ?? 'Git did not apply those lines.')
+      if (!result.ok) setHunkError(result.message ?? t('review.linesApplyFailed'))
     } finally {
       if (actionMode === 'discard') setLineDiscardPending(null)
       else setLinePending(null)
@@ -380,7 +386,7 @@ export default function WorkingDiffView({
               data-testid="merge-open"
               onClick={() => setConflictMode('merge')}
             >
-              Merge Editor
+              {t('diff.mergeEditor')}
             </button>
           ) : undefined
         }
@@ -434,8 +440,8 @@ export default function WorkingDiffView({
         hunkAction={hunkAction}
         notice={
           diff.binary || diff.symlink === true
-            ? 'Side-by-side view is unavailable for this entry.'
-            : 'Side-by-side view is unavailable for a truncated diff.'
+            ? translate('diff.sideBySideUnavailable')
+            : translate('diff.sideBySideTruncated')
         }
       />
     )
@@ -455,8 +461,8 @@ export default function WorkingDiffView({
         hunkAction={hunkAction}
         notice={
           hunkError !== null
-            ? `${hunkError} Side-by-side view is unavailable: ${sides.reason}`
-            : `Side-by-side view is unavailable: ${sides.reason}`
+            ? `${hunkError} ${t('diff.sideBySideUnavailableReason', { reason: sides.reason })}`
+            : t('diff.sideBySideUnavailableReason', { reason: sides.reason })
         }
       />
     )
@@ -485,7 +491,7 @@ export default function WorkingDiffView({
           data-testid="diff-notes-banner"
         >
           <span>
-            {comments.length} line note{comments.length === 1 ? '' : 's'} on this file.
+            {tp('diff.lineNotes', comments.length)}
           </span>
           <button
             type="button"
@@ -493,7 +499,7 @@ export default function WorkingDiffView({
             data-testid="diff-notes-show-unified"
             onClick={() => onModeChange('inline')}
           >
-            Open Unified to read or edit
+            {t('diff.openUnified')}
           </button>
         </div>
       ) : null}
@@ -508,7 +514,7 @@ export default function WorkingDiffView({
         ) : (
           <div className="flex h-full items-center justify-center text-[11px] text-muted-foreground">
             <Loader2 size={12} className="mr-2 animate-spin" />
-            Reading both sides…
+            {t('diff.readingBoth')}
           </div>
         )}
       </div>

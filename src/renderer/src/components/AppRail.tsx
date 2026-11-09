@@ -1,5 +1,6 @@
 import { CalendarClock, LayoutGrid, Settings } from 'lucide-react'
 import type { Surface } from '../router/routes'
+import { useT } from '../i18n/use-i18n'
 
 type Props = {
   surface: Surface
@@ -42,6 +43,7 @@ function PersonItem({
   status: Props['assistantStatus']
   onClick: () => void
 }): React.JSX.Element {
+  const t = useT()
   return (
     <button
       type="button"
@@ -52,8 +54,10 @@ function PersonItem({
       }`}
       onClick={onClick}
       aria-current={active ? 'page' : undefined}
-      aria-label={`${name}${unread > 0 ? `, ${String(unread)} unread` : ''}`}
-      title={`${name} — your assistant`}
+      aria-label={
+        unread > 0 ? t('rail.assistantUnread', { name, count: unread }) : name
+      }
+      title={t('rail.assistantTitle', { name })}
       data-testid="rail-assistant"
       data-unread={unread}
     >
@@ -130,18 +134,19 @@ export default function AppRail({
   onAssistant,
   onSettings
 }: Props): React.JSX.Element {
+  const t = useT()
   const projectsActive =
     surface === 'projects' || surface === 'sessions' || surface === 'tasks'
 
   return (
     <nav
       className="flex h-12 w-full shrink-0 items-center gap-1 overflow-x-auto border-b border-border bg-card px-2 min-[900px]:h-auto min-[900px]:w-[66px] min-[900px]:flex-col min-[900px]:items-center min-[900px]:overflow-visible min-[900px]:border-b-0 min-[900px]:border-r min-[900px]:py-2"
-      aria-label="Primary navigation"
+      aria-label={t('rail.primaryNavigation')}
       data-testid="app-rail"
     >
       <Item
         active={projectsActive}
-        label="Projects"
+        label={t('rail.projects')}
         testId="rail-projects"
         onClick={onProjects}
       >
@@ -149,7 +154,7 @@ export default function AppRail({
       </Item>
       <Item
         active={surface === 'schedules'}
-        label="Schedules"
+        label={t('rail.schedules')}
         testId="rail-schedules"
         onClick={onSchedules}
       >
@@ -167,7 +172,7 @@ export default function AppRail({
       <RailDivider />
       <Item
         active={surface === 'settings'}
-        label="Settings"
+        label={t('rail.settings')}
         testId="rail-settings"
         onClick={onSettings}
       >

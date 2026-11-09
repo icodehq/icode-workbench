@@ -1,3 +1,4 @@
+import { translate } from '../i18n/i18n-store'
 import type {
   GitStatusEntry,
   GitWorkspaceStatus
@@ -21,19 +22,19 @@ const EMPTY: FileDecorations = { files: new Map(), folders: new Set() }
 function decorationFor(entry: GitStatusEntry): FileDecoration {
   switch (entry.status) {
     case 'added':
-      return { letter: 'A', tone: 'text-add', title: 'Added' }
+      return { letter: 'A', tone: 'text-add', title: translate('fileDecoration.added') }
     case 'untracked':
-      return { letter: 'U', tone: 'text-add', title: 'Untracked' }
+      return { letter: 'U', tone: 'text-add', title: translate('fileDecoration.untracked') }
     case 'deleted':
-      return { letter: 'D', tone: 'text-destructive', title: 'Deleted' }
+      return { letter: 'D', tone: 'text-destructive', title: translate('fileDecoration.deleted') }
     case 'renamed':
-      return { letter: 'R', tone: 'text-info', title: 'Renamed' }
+      return { letter: 'R', tone: 'text-info', title: translate('fileDecoration.renamed') }
     case 'copied':
-      return { letter: 'C', tone: 'text-info', title: 'Copied' }
+      return { letter: 'C', tone: 'text-info', title: translate('fileDecoration.copied') }
     case 'unmerged':
-      return { letter: '!', tone: 'text-destructive', title: 'Conflict' }
+      return { letter: '!', tone: 'text-destructive', title: translate('fileDecoration.conflict') }
     default:
-      return { letter: 'M', tone: 'text-signal', title: 'Modified' }
+      return { letter: 'M', tone: 'text-signal', title: translate('fileDecoration.modified') }
   }
 }
 

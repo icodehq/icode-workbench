@@ -46,6 +46,8 @@ import { compileTextMatcher } from '../../../shared/domain/text-search'
 import { clearWorktreeFileIndex } from '../files/file-index'
 import { buildFileDecorations, type FileDecorations } from '../files/file-decorations'
 import { useFilesSettings } from '../files/files-settings'
+import { translate, translatePlural } from '../i18n/i18n-store'
+import { useT, useTp } from '../i18n/use-i18n'
 import { buildTreeRows } from '../files/tree-layout'
 import {
   openFilesStore,
@@ -162,11 +164,11 @@ const isGitMetadata = (path: string): boolean => path.split('/').includes('.git'
 const unavailableText = (payload: WorkspaceUnavailablePayload): string => {
   switch (payload.reason) {
     case 'worktree-unavailable':
-      return 'This distro could not be reached, so its files are unavailable right now.'
+      return translate('files.unavailable.distro')
     case 'worktree-missing':
-      return 'The session worktree is missing.'
+      return translate('files.unavailable.worktreeMissing')
     case 'primary-checkout':
-      return 'This session runs in the primary checkout, so it has no isolated file scope.'
+      return translate('files.unavailable.primaryCheckout')
     default:
       return payload.detail
   }
@@ -218,6 +220,8 @@ export default function FilesPanel({
   onOpenHistory,
   editorEngine = 'plain'
 }: FilesPanelProps): React.JSX.Element {
+  const t = useT()
+  const tp = useTp()
   const sessionFiles = useSessionFiles(sessionId)
   const settings = useFilesSettings()
   const tabs = sessionFiles.tabs
@@ -453,7 +457,7 @@ export default function FilesPanel({
       }
       if (path === '') {
         setRootState('ready')
-        setRootNote(value.truncated ? 'Showing the first 2000 entries.' : '')
+        setRootNote(value.truncated ? translate('files.truncatedRoot') : '')
       }
       if (excludeGitIgnoreRef.current && value.entries.length > 0) {
         const check = await callApi<GitCheckIgnorePayload>(
@@ -473,7 +477,7 @@ export default function FilesPanel({
             delete next[path]
             return next
           })
-          setIgnoreNote('Ignore rules unavailable; ignored files stay visible.')
+          setIgnoreNote(translate('files.ignoreUnavailable'))
         }
       } else if (excludeGitIgnoreRef.current) {
         setIgnoredByDirectory((current) => ({ ...current, [path]: new Set() }))
@@ -784,11 +788,11 @@ export default function FilesPanel({
         return false
       }
       if (value.binary) {
-        openFilesStore.setFailure(sessionId, path, 'That file is binary, so it is not shown here.')
+        openFilesStore.setFailure(sessionId, path, translate('files.binary'))
         return false
       }
       if (value.tooLarge) {
-        openFilesStore.setFailure(sessionId, path, 'That file is too large to open in the editor.')
+        openFilesStore.setFailure(sessionId, path, translate('files.tooLarge'))
         return false
       }
       openFilesStore.setContent(sessionId, path, { text: value.text, etag: value.etag })
@@ -883,18 +887,18 @@ export default function FilesPanel({
         return
       }
       if (value.binary) {
-        openFilesStore.setFailure(sessionId, path, 'That file is binary, so it is not shown here.')
+        openFilesStore.setFailure(sessionId, path, translate('files.binary'))
         return
       }
       if (value.tooLarge) {
-        openFilesStore.setFailure(sessionId, path, 'That file is too large to open in the editor.')
+        openFilesStore.setFailure(sessionId, path, translate('files.tooLarge'))
         return
       }
       if (!openFilesStore.canStore(sessionId, path, value.text.length)) {
         openFilesStore.setFailure(
           sessionId,
           path,
-          'This file would exceed the open-file text budget. Close a tab and try again.'
+          translate('files.budget')
         )
         return
       }
@@ -921,7 +925,7 @@ export default function FilesPanel({
       setFileNote('')
       if (isGitMetadata(path)) {
         setEditorMode('tab')
-        setFileNote('Git metadata is managed by Git and is not editable here.')
+        setFileNote(translate('files.gitMetadataReadOnly'))
         return
       }
       await loadTab(path, line)
@@ -1176,7 +1180,7 @@ export default function FilesPanel({
       }
       const to = parent === '' ? value : `${parent}/${value}`
       if (isGitMetadata(edit.path) || isGitMetadata(to)) {
-        setEditError('Git metadata cannot be renamed here.')
+        setEditError(translate('files.gitMetadataRename'))
         return
       }
       const result = await callApi<FilesMutatePayload>(
@@ -1196,8 +1200,8 @@ export default function FilesPanel({
       pushUndoEntry({ kind: 'rename', from: edit.path, to, at: Date.now() })
       notify({
         tone: 'success',
-        message: `Renamed to ${to}`,
-        action: { label: 'Undo', run: () => void undoLast() }
+        message: t('files.notice.renamed', { path: to }),
+        action: { label: translate('files.undo'), run: () => void undoLast() }
       })
       clearWorktreeFileIndex(sessionId)
       await reloadExpanded()
@@ -1211,7 +1215,7 @@ export default function FilesPanel({
 
     const path = edit.parent === '' ? value : `${edit.parent}/${value}`
     if (isGitMetadata(path)) {
-      setEditError('Git metadata cannot be created here.')
+      setEditError(translate('files.gitMetadataCreate'))
       return
     }
     const kind = edit.kind === 'create-directory' ? 'directory' : 'file'
@@ -1236,7 +1240,7 @@ export default function FilesPanel({
     notify({
       tone: 'success',
       message: `Created ${path}`,
-      action: { label: 'Undo', run: () => void undoLast() }
+      action: { label: translate('files.undo'), run: () => void undoLast() }
     })
     clearWorktreeFileIndex(sessionId)
     await reloadExpanded()
@@ -1289,7 +1293,7 @@ export default function FilesPanel({
       }
       notify({
         tone: 'success',
-        message: `Restored ${String(successes.length)} item${successes.length === 1 ? '' : 's'}`
+        message: tp('files.notice.restored', successes.length)
       })
     } else {
       const first = failures[0]
@@ -1301,7 +1305,11 @@ export default function FilesPanel({
       setEditorMode('folder')
       notify({
         tone: 'error',
-        message: `${String(successes.length)} restored · ${String(failures.length)} failed: ${first?.detail ?? 'unknown error'}`
+        message: t('files.notice.restoredSummary', {
+          restored: successes.length,
+          failed: failures.length,
+          detail: first?.detail ?? t('files.notice.unknownError')
+        })
       })
     }
     clearWorktreeFileIndex(sessionId)
@@ -1347,7 +1355,7 @@ export default function FilesPanel({
       setEditorMode('tab')
       notify({
         tone: 'success',
-        message: `Deleted ${String(successes.length)} item${successes.length === 1 ? '' : 's'} permanently`
+        message: tp('files.notice.deletedForever', successes.length)
       })
     } else {
       const first = failures[0]
@@ -1359,7 +1367,11 @@ export default function FilesPanel({
       setEditorMode('folder')
       notify({
         tone: 'error',
-        message: `${String(successes.length)} deleted · ${String(failures.length)} failed: ${first?.detail ?? 'unknown error'}`
+        message: t('files.notice.deletedSummary', {
+          deleted: successes.length,
+          failed: failures.length,
+          detail: first?.detail ?? t('files.notice.unknownError')
+        })
       })
     }
     clearWorktreeFileIndex(sessionId)
@@ -1403,10 +1415,12 @@ export default function FilesPanel({
         notify({
           tone: failures.length === 0 ? 'success' : 'info',
           message:
-            `Moved ${String(successes.length)} item${successes.length === 1 ? '' : 's'} to Trash` +
-            (failures.length > 0 ? ` · ${String(failures.length)} failed` : ''),
+            tp('files.notice.trashed', successes.length) +
+            (failures.length > 0
+              ? ` · ${t('files.notice.failedCount', { count: failures.length })}`
+              : ''),
           action: {
-            label: 'Undo',
+            label: translate('files.undo'),
             run: () => {
               void restoreTrashOp(opId)
             }
@@ -1417,7 +1431,7 @@ export default function FilesPanel({
       notify({
         tone: 'error',
         message:
-          failures[0]?.detail ?? 'Nothing could be moved to Trash.'
+          failures[0]?.detail ?? translate('files.notice.trashFailed')
       })
     }
     if (failures.length > 0) {
@@ -1452,7 +1466,7 @@ export default function FilesPanel({
     if (undoing || transferBusy) return
     const entry = peekUndo(undoStack)
     if (entry === null) {
-      notify({ tone: 'info', message: 'Nothing to undo.' })
+      notify({ tone: 'info', message: translate('files.notice.nothingToUndo') })
       return
     }
     setUndoing(true)
@@ -1476,18 +1490,18 @@ export default function FilesPanel({
           )
           if (listing.ok && listing.value.status === 'ok') {
             safe = listing.value.entries.length === 0
-            if (!safe) detail = 'The new folder now contains files.'
+            if (!safe) detail = translate('files.notice.newFolderHasFiles')
           } else if (!listing.ok) {
             detail = listing.error.message
           } else if (listing.value.status === 'unavailable') {
             detail = unavailableText(listing.value)
           }
         } else if (entry.etag === null) {
-          detail = 'That file has no recorded version to compare.'
+          detail = translate('files.notice.noRecordedVersion')
         } else if (stat.value.etag === entry.etag) {
           safe = true
         } else {
-          detail = 'That file changed after it was created.'
+          detail = translate('files.notice.changedAfterCreate')
         }
         if (safe) {
           const result = await callApi<FilesBatchPayload>(
@@ -1564,7 +1578,7 @@ export default function FilesPanel({
             safe.push(item.path)
           } else {
             unsafe.push(item)
-            detail = 'A copy changed after it was made.'
+            detail = translate('files.notice.copyChanged')
           }
         }
         if (safe.length > 0) {
@@ -1607,16 +1621,20 @@ export default function FilesPanel({
     await reloadExpanded()
     scheduleDecorationsRef.current?.(0)
     if (ok) {
-      notify({ tone: 'success', message: `Undid ${undoLabel(entry).replace(/^Undo /u, '')}` })
+      notify({ tone: 'success', message: translate('files.notice.undoneLast') })
     } else if (!partial) {
       notify({
         tone: 'error',
-        message: `Could not undo: ${detail || 'the path changed on disk'}`
+        message: t('files.notice.undoFailed', {
+          detail: detail || t('files.notice.pathChanged')
+        })
       })
     } else {
       notify({
         tone: 'info',
-        message: `Undo partially applied: ${detail || 'some paths were not changed'}`
+        message: t('files.notice.undoPartial', {
+          detail: detail || t('files.notice.pathsUnchanged')
+        })
       })
     }
   }
@@ -1648,7 +1666,7 @@ export default function FilesPanel({
   const duplicateSelection = async (paths = selectedPaths()): Promise<void> => {
     const targets = collapseSelectedPaths(paths.filter((path) => path !== ''))
     if (targets.length === 0) {
-      notify({ tone: 'info', message: 'Select something to duplicate.' })
+      notify({ tone: 'info', message: translate('files.notice.duplicateSelect') })
       return
     }
     if (transferBusy) return
@@ -1680,7 +1698,9 @@ export default function FilesPanel({
     if (created.length === 0) {
       notify({
         tone: 'error',
-        message: `Nothing could be duplicated${detail ? `: ${detail}` : '.'}`
+        message: translate('files.notice.duplicateFailed', {
+          detail: detail ? `: ${detail}` : ''
+        })
       })
       return
     }
@@ -1702,8 +1722,8 @@ export default function FilesPanel({
     setEditorMode(created.length === 1 ? 'tab' : 'folder')
     notify({
       tone: 'success',
-      message: `Duplicated ${String(created.length)} item${created.length === 1 ? '' : 's'}`,
-      action: { label: 'Undo', run: () => void undoLast() }
+      message: tp('files.notice.duplicated', created.length),
+      action: { label: translate('files.undo'), run: () => void undoLast() }
     })
   }
 
@@ -1726,7 +1746,7 @@ export default function FilesPanel({
     }
     notify({
       tone: 'success',
-      message: `Copied ${String(result.value.count)} path${result.value.count === 1 ? '' : 's'}`
+      message: tp('files.notice.copiedPaths', result.value.count)
     })
   }
 
@@ -1745,7 +1765,7 @@ export default function FilesPanel({
     if (targets.length === 0) return { allOk: false, succeeded: 0, failures: [] }
     for (const target of targets) {
       if (destination === target || destination.startsWith(`${target}/`)) {
-        notify({ tone: 'error', message: 'An item cannot be moved or copied into itself.' })
+        notify({ tone: 'error', message: translate('files.notice.cannotIntoSelf') })
         return { allOk: false, succeeded: 0, failures: [] }
       }
     }
@@ -1823,21 +1843,35 @@ export default function FilesPanel({
     }
 
     if (failures.length > 0) {
-      const detail = failures[0]?.detail ?? 'unknown error'
+      const detail = failures[0]?.detail ?? t('files.notice.unknownError')
       notify({
         tone: 'error',
-        message: `${String(successes.length)} ${mode === 'move' ? 'moved' : 'copied'} · ${String(failures.length)} failed: ${detail}`,
+        message:
+          mode === 'move'
+            ? t('files.notice.movedSummary', {
+                moved: successes.length,
+                failed: failures.length,
+                detail
+              })
+            : t('files.notice.copiedSummary', {
+                copied: successes.length,
+                failed: failures.length,
+                detail
+              }),
         ...(successes.length === 0
           ? {}
-          : { action: { label: 'Undo', run: () => void undoLast() } })
+          : { action: { label: translate('files.undo'), run: () => void undoLast() } })
       })
     } else if (successes.length === 0) {
-      notify({ tone: 'info', message: 'No items needed moving.' })
+      notify({ tone: 'info', message: translate('files.notice.noMoveNeeded') })
     } else {
       notify({
         tone: 'success',
-        message: `${mode === 'move' ? 'Moved' : 'Copied'} ${String(successes.length)} item${successes.length === 1 ? '' : 's'}`,
-        action: { label: 'Undo', run: () => void undoLast() }
+        message:
+          mode === 'move'
+            ? translatePlural('files.notice.moved', successes.length)
+            : translatePlural('files.notice.copied', successes.length),
+        action: { label: translate('files.undo'), run: () => void undoLast() }
       })
     }
     setTransferBusy(false)
@@ -1850,8 +1884,8 @@ export default function FilesPanel({
         tone: 'error',
         message:
           current === null
-            ? 'The Files clipboard is empty.'
-            : 'Files can only be pasted into the same session worktree.'
+            ? translate('files.notice.clipboardEmpty')
+            : translate('files.notice.sameWorktree')
       })
       return
     }
@@ -2053,7 +2087,7 @@ export default function FilesPanel({
     }
     const movable = drag.paths.filter((path) => parentPathOf(path) !== destination)
     if (movable.length === 0) {
-      notify({ tone: 'info', message: 'Those items are already in that folder.' })
+      notify({ tone: 'info', message: translate('files.notice.alreadyThere') })
       return
     }
     setMovePrompt({ paths: movable, destination })
@@ -2285,7 +2319,7 @@ export default function FilesPanel({
     if (matcher.error !== null) {
       // Keep the previous results visible; the error explains why nothing new
       // is coming without erasing the user's last working scan.
-      setSearchError(matcher.error)
+      setSearchError(translate('files.search.invalidRegex'))
       return
     }
     const sequence = ++searchSequence.current
@@ -2328,7 +2362,7 @@ export default function FilesPanel({
         const ignored = new Set(check.value.ignored)
         matches = matches.filter((match) => !ignored.has(match.path))
       } else {
-        note = 'Git ignore rules unavailable; ignored results stay visible.'
+        note = translate('files.notice.ignoreSearchUnavailable')
       }
     }
     if (searchSequence.current !== sequence) return
@@ -2341,7 +2375,7 @@ export default function FilesPanel({
     searchSequence.current += 1
     setSearching(false)
     setResults(null)
-    setSearchNote('Search cancelled.')
+    setSearchNote(translate('files.notice.searchCancelled'))
     await callApi<{ cancelled: boolean }>(window.icode.files.cancelSearch({ sessionId }))
   }
 
@@ -2349,16 +2383,16 @@ export default function FilesPanel({
     const trimmed = query.trim()
     if (trimmed.length === 0) return
     if (searchRegex) {
-      setSearchError('Regex replace is not supported yet. Turn off Use regex to replace literal text.')
+      setSearchError(translate('files.notice.regexReplaceUnsupported'))
       return
     }
     if (results === null || results.status !== 'ok' || results.matches.length === 0) {
-      setSearchNote('Run a search before replacing.')
+      setSearchNote(translate('files.notice.runSearchFirst'))
       return
     }
     const matcher = compileTextMatcher(trimmed, searchOptions)
     if (matcher.error !== null) {
-      setSearchError(matcher.error)
+      setSearchError(translate('files.search.invalidRegex'))
       return
     }
     setSearchError(null)
@@ -2415,9 +2449,11 @@ export default function FilesPanel({
     notify({
       tone: skipped > 0 ? 'info' : 'success',
       message:
-        `Replaced ${String(value.replacements)} match(es) in ${String(value.files)} file(s)` +
-        (skipped > 0 ? ` · ${String(skipped)} skipped` : '') +
-        (value.truncated ? ' · search was truncated' : '')
+        tp('files.notice.replaced', value.replacements, {
+          files: tp('files.summary.files', value.files)
+        }) +
+        (skipped > 0 ? ` · ${t('files.notice.skipped', { count: skipped })}` : '') +
+        (value.truncated ? ` · ${t('files.notice.truncated')}` : '')
     })
     await reloadExpanded(true)
     scheduleDecorationsRef.current?.(0)
@@ -2469,7 +2505,7 @@ export default function FilesPanel({
     clearWorktreeFileIndex(sessionId)
     void loadDirectory(parentPathOf(path), true, 0, false)
     scheduleDecorationsRef.current?.(0)
-    if (announce) notify({ tone: 'success', message: `Saved ${path}` })
+    if (announce) notify({ tone: 'success', message: translate('files.notice.saved', { path }) })
     return true
   }
 
@@ -2489,7 +2525,7 @@ export default function FilesPanel({
         return
       }
     }
-    notify({ tone: 'success', message: `Saved ${String(dirty.length)} file(s)` })
+    notify({ tone: 'success', message: translatePlural('files.notice.savedMany', dirty.length) })
   }
 
   /**
@@ -2569,7 +2605,7 @@ export default function FilesPanel({
     openFilesStore.closeAll(sessionId)
     setGotoLine(null)
     setEditorMode('tab')
-    notify({ tone: 'success', message: `Saved ${String(dirty.length)} file(s)` })
+    notify({ tone: 'success', message: translatePlural('files.notice.savedMany', dirty.length) })
   }
 
   const confirmUnsavedDiscard = (): void => {
@@ -2593,7 +2629,7 @@ export default function FilesPanel({
     if (!ok) return
     setConflict(null)
     closeAfterSaveIfNeeded(conflict.path)
-    notify({ tone: 'success', message: `Saved ${conflict.path}` })
+    notify({ tone: 'success', message: translate('files.notice.saved', { path: conflict.path }) })
   }
 
   const resolveConflictReload = async (): Promise<void> => {
@@ -2685,7 +2721,9 @@ export default function FilesPanel({
             ref={editInput}
             autoFocus
             value={editValue}
-            aria-label={edit?.kind === 'rename' ? 'Rename' : 'New name'}
+            aria-label={
+              edit?.kind === 'rename' ? t('files.edit.rename') : t('files.edit.newName')
+            }
             aria-invalid={editError !== null}
             aria-describedby={note === null ? undefined : 'files-edit-note'}
             className="min-w-0 flex-1 rounded border border-accent/60 bg-background px-1 py-0.5 font-mono text-[11px] text-foreground outline-none"
@@ -2714,7 +2752,7 @@ export default function FilesPanel({
           <button
             type="button"
             className="rounded px-1 text-[10px] text-accent hover:bg-accent/15"
-            aria-label="Confirm"
+            aria-label={t('common.confirm')}
             data-testid="files-pending-confirm"
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => void commitEdit()}
@@ -2724,7 +2762,7 @@ export default function FilesPanel({
           <button
             type="button"
             className="rounded px-1 text-[10px] text-muted-foreground hover:text-foreground"
-            aria-label="Cancel"
+            aria-label={t('common.cancel')}
             data-testid="files-pending-cancel"
             onMouseDown={(event) => event.preventDefault()}
             onClick={cancelEdit}
@@ -2819,8 +2857,12 @@ export default function FilesPanel({
               type="button"
               tabIndex={-1}
               className="rounded text-[9px] leading-none text-muted-foreground hover:text-foreground"
-              aria-label={nestedCollapsed ? 'Show nested files' : 'Hide nested files'}
-              title={nestedCollapsed ? 'Show nested files' : 'Hide nested files'}
+              aria-label={
+                nestedCollapsed ? t('files.tree.showNested') : t('files.tree.hideNested')
+              }
+              title={
+                nestedCollapsed ? t('files.tree.showNested') : t('files.tree.hideNested')
+              }
               data-testid={`files-nested-toggle-${entry.path}`}
               onClick={(event) => {
                 event.stopPropagation()
@@ -2840,8 +2882,8 @@ export default function FilesPanel({
         {folderDecorated ? (
           <span
             className="h-1.5 w-1.5 shrink-0 rounded-full bg-signal"
-            title="Contains changes"
-            aria-label="Contains changes"
+            title={t('files.tree.containsChanges')}
+            aria-label={t('files.tree.containsChanges')}
             data-testid={`files-folder-decorated-${entry.path}`}
           />
         ) : null}
@@ -2920,7 +2962,7 @@ export default function FilesPanel({
     if (target.kind === 'file') {
       items.push({
         id: 'open',
-        label: 'Open',
+        label: translate('files.menu.open'),
         icon: <FileText size={12} />,
         shortcut: 'Enter',
         testId: 'files-menu-open',
@@ -2930,29 +2972,29 @@ export default function FilesPanel({
     if (targetIsFolder) {
       items.push({
         id: 'new-file',
-        label: 'New File',
+        label: translate('files.menu.newFile'),
         icon: <FilePlus2 size={12} />,
         testId: 'files-menu-new-file',
         onSelect: () => beginCreate('create-file', target.path)
       })
       items.push({
         id: 'new-folder',
-        label: 'New Folder',
+        label: translate('files.menu.newFolder'),
         icon: <FolderPlus size={12} />,
         testId: 'files-menu-new-folder',
         onSelect: () => beginCreate('create-directory', target.path)
       })
       items.push({
         id: 'paste',
-        label: 'Paste',
+        label: translate('files.menu.paste'),
         icon: <ClipboardPaste size={12} />,
         shortcut: shortcutLabel('V'),
         disabled: !canPaste || transferBusy,
         reason: transferBusy
-          ? 'Wait for the current operation to finish.'
+          ? translate('files.reason.busy')
           : clipboard !== null && !clipboardHere
-            ? 'The clipboard belongs to another session.'
-            : 'Copy or cut something first.',
+            ? translate('files.reason.otherSession')
+            : translate('files.reason.copyFirst'),
         testId: 'files-menu-paste',
         onSelect: () => void pasteInto(target.path)
       })
@@ -2961,62 +3003,68 @@ export default function FilesPanel({
     items.push(
       {
         id: 'cut',
-        label: 'Cut',
+        label: translate('files.menu.cut'),
         icon: <Scissors size={12} />,
         shortcut: shortcutLabel('X'),
         separatorBefore: true,
         disabled: paths.length === 0,
-        reason: 'Select something to cut.',
+        reason: translate('files.reason.selectCut'),
         testId: 'files-menu-cut',
         onSelect: () => copySelection('cut', paths)
       },
       {
         id: 'copy',
-        label: 'Copy',
+        label: translate('files.menu.copy'),
         icon: <Copy size={12} />,
         shortcut: shortcutLabel('C'),
         disabled: paths.length === 0,
-        reason: 'Select something to copy.',
+        reason: translate('files.reason.selectCopy'),
         testId: 'files-menu-copy',
         onSelect: () => copySelection('copy', paths)
       },
       {
         id: 'duplicate',
-        label: 'Duplicate',
+        label: translate('files.menu.duplicate'),
         icon: <Copy size={12} />,
         disabled: paths.length === 0 || transferBusy,
         reason: transferBusy
-          ? 'Wait for the current operation to finish.'
-          : 'Select something to duplicate.',
+          ? translate('files.reason.busy')
+          : translate('files.reason.selectDuplicate'),
         testId: 'files-menu-duplicate',
         onSelect: () => void duplicateSelection(paths)
       },
       {
         id: 'copy-path',
-        label: paths.length > 1 ? 'Copy Paths' : 'Copy Path',
+        label:
+        paths.length > 1 ? translate('files.menu.copyPaths') : translate('files.menu.copyPath'),
         icon: <Copy size={12} />,
         disabled: paths.length === 0,
-        reason: 'Select something to copy.',
+        reason: translate('files.reason.selectCopy'),
         testId: 'files-menu-copy-path',
         onSelect: () => void copyPathsToClipboard('absolute', paths)
       },
       {
         id: 'copy-relative-path',
-        label: paths.length > 1 ? 'Copy Relative Paths' : 'Copy Relative Path',
+        label:
+        paths.length > 1
+          ? translate('files.menu.copyRelativePaths')
+          : translate('files.menu.copyRelativePath'),
         icon: <Copy size={12} />,
         disabled: paths.length === 0,
-        reason: 'Select something to copy.',
+        reason: translate('files.reason.selectCopy'),
         testId: 'files-menu-copy-relative-path',
         onSelect: () => void copyPathsToClipboard('relative', paths)
       },
       {
         id: 'rename',
-        label: 'Rename',
+        label: translate('files.menu.rename'),
         icon: <Pencil size={12} />,
         shortcut: 'F2',
         separatorBefore: true,
         disabled: paths.length !== 1 || transferBusy,
-        reason: transferBusy ? 'Wait for the current operation to finish.' : 'Select one item to rename.',
+        reason: transferBusy
+          ? translate('files.reason.busy')
+          : translate('files.reason.selectOneRename'),
         testId: 'files-menu-rename',
         onSelect: () => {
           const path = paths[0]
@@ -3025,12 +3073,16 @@ export default function FilesPanel({
       },
       {
         id: 'delete',
-        label: settings.useTrash ? 'Move to Trash' : 'Delete',
+        label: settings.useTrash
+        ? translate('files.menu.moveToTrash')
+        : translate('files.menu.delete'),
         icon: <Trash2 size={12} />,
         shortcut: 'Del',
         danger: true,
         disabled: paths.length === 0 || transferBusy,
-        reason: transferBusy ? 'Wait for the current operation to finish.' : 'Select something to delete.',
+        reason: transferBusy
+          ? translate('files.reason.busy')
+          : translate('files.reason.selectDelete'),
         testId: 'files-menu-delete',
         onSelect: () => requestDelete(paths)
       }
@@ -3039,7 +3091,7 @@ export default function FilesPanel({
     if (onOpenHistory !== undefined && target.path !== '') {
       items.push({
         id: 'history',
-        label: 'History',
+        label: translate('files.menu.history'),
         icon: <History size={12} />,
         separatorBefore: true,
         testId: 'files-menu-history',
@@ -3050,7 +3102,7 @@ export default function FilesPanel({
       items.push(
         {
           id: 'select-all',
-          label: 'Select All',
+          label: translate('files.menu.selectAll'),
           shortcut: shortcutLabel('A'),
           separatorBefore: true,
           testId: 'files-menu-select-all',
@@ -3061,7 +3113,7 @@ export default function FilesPanel({
         },
         {
           id: 'refresh',
-          label: 'Refresh',
+          label: translate('files.menu.refresh'),
           icon: <RefreshCw size={12} />,
           testId: 'files-menu-refresh',
           onSelect: () => void reloadExpanded(false, true)
@@ -3112,7 +3164,7 @@ export default function FilesPanel({
         data-testid="files-disk-changed"
       >
         <span className="min-w-0 flex-1">
-          This file changed on disk while you were editing. Saving will ask before overwriting.
+          {t('files.disk.changed')}
         </span>
         <button
           type="button"
@@ -3120,7 +3172,7 @@ export default function FilesPanel({
           onClick={() => void reloadFromDisk(activeTab.path)}
           data-testid="files-disk-reload"
         >
-          Reload
+          {t('files.disk.reload')}
         </button>
         <button
           type="button"
@@ -3128,7 +3180,7 @@ export default function FilesPanel({
           onClick={() => void keepMine(activeTab.path)}
           data-testid="files-disk-keep"
         >
-          Keep mine
+          {t('files.disk.keepMine')}
         </button>
       </div>
     ) : activeTab !== null && activeTab.disk === 'deleted' ? (
@@ -3136,14 +3188,14 @@ export default function FilesPanel({
         className="flex flex-wrap items-center gap-2 border-b border-signal/40 bg-signal-weak px-3 py-1.5 text-[10px] text-signal"
         data-testid="files-disk-deleted"
       >
-        <span className="min-w-0 flex-1">This file was deleted or moved on disk.</span>
+        <span className="min-w-0 flex-1">{t('files.disk.deleted')}</span>
         <button
           type="button"
           className="rounded border border-signal/50 px-1.5 py-0.5 hover:bg-signal/10"
           onClick={() => void saveTabAt(activeTab.path, null, false)}
           data-testid="files-disk-recreate"
         >
-          Save to recreate
+          {t('files.disk.recreate')}
         </button>
         <button
           type="button"
@@ -3151,7 +3203,7 @@ export default function FilesPanel({
           onClick={() => requestClose(activeTab.path)}
           data-testid="files-disk-close"
         >
-          Close
+          {t('files.disk.close')}
         </button>
       </div>
     ) : null
@@ -3161,7 +3213,7 @@ export default function FilesPanel({
       <div className="flex h-8 shrink-0 items-center border-b border-border bg-card">
         <div
           role="tablist"
-          aria-label="Open files"
+          aria-label={t('files.tabs.openFiles')}
           className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto px-1"
           data-testid="files-tabs"
         >
@@ -3192,7 +3244,7 @@ export default function FilesPanel({
               ) : isDirty(tab) ? (
                 <span
                   role="img"
-                  aria-label="Unsaved changes"
+                  aria-label={t('files.tabs.unsavedChanges')}
                   className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent"
                   data-testid="files-tab-dirty"
                 />
@@ -3201,7 +3253,7 @@ export default function FilesPanel({
               <button
                 type="button"
                 className="ml-0.5 rounded p-0.5 text-muted-foreground opacity-0 hover:bg-muted hover:text-foreground group-hover:opacity-100 focus:opacity-100"
-                aria-label={`Close ${tab.path}`}
+                aria-label={t('files.tabs.close', { path: tab.path })}
                 onClick={(event) => {
                   event.stopPropagation()
                   requestClose(tab.path)
@@ -3217,14 +3269,14 @@ export default function FilesPanel({
         <div className="flex shrink-0 items-center gap-0.5 px-1">
           {dirtyCount > 0 ? (
             <span className="px-1 text-[9px] text-muted-foreground" data-testid="files-dirty-count">
-              {dirtyCount} unsaved
+              {t('files.tabs.unsaved', { count: dirtyCount })}
             </span>
           ) : null}
           <button
             type="button"
             className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
-            title="Save all files"
-            aria-label="Save all files"
+            title={t('files.toolbar.saveAll')}
+            aria-label={t('files.toolbar.saveAll')}
             disabled={dirtyCount === 0}
             onClick={() => void saveAllTabs()}
             data-testid="files-save-all"
@@ -3234,8 +3286,8 @@ export default function FilesPanel({
           <button
             type="button"
             className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
-            title="Close all files"
-            aria-label="Close all files"
+            title={t('files.toolbar.closeAll')}
+            aria-label={t('files.toolbar.closeAll')}
             disabled={tabs.length === 0}
             onClick={requestCloseAll}
             data-testid="files-close-all"
@@ -3259,7 +3311,7 @@ export default function FilesPanel({
           <input
             ref={searchInput}
             value={query}
-            placeholder="Search in files"
+            placeholder={t('files.toolbar.search')}
             className="min-w-0 flex-1 bg-transparent text-[11.5px] text-foreground outline-none placeholder:text-muted-foreground"
             data-testid="files-search-input"
             onChange={(event) => {
@@ -3288,7 +3340,7 @@ export default function FilesPanel({
                 setSearchNote('')
               }}
               data-testid="files-search-clear"
-              title="Clear search"
+              title={t('files.toolbar.clearSearch')}
             >
               <X size={11} />
             </button>
@@ -3303,9 +3355,9 @@ export default function FilesPanel({
             <div className="flex flex-wrap items-center gap-0.5">
               {(
                 [
-                  ['files-search-case', 'Aa', 'Match case', searchCaseSensitive, setSearchCaseSensitive],
-                  ['files-search-whole-word', 'W', 'Match whole word', searchWholeWord, setSearchWholeWord],
-                  ['files-search-regex', '.*', 'Use regular expression', searchRegex, setSearchRegex]
+                  ['files-search-case', 'Aa', t('files.toolbar.matchCase'), searchCaseSensitive, setSearchCaseSensitive],
+                  ['files-search-whole-word', 'W', t('files.toolbar.matchWholeWord'), searchWholeWord, setSearchWholeWord],
+                  ['files-search-regex', '.*', t('files.toolbar.useRegex'), searchRegex, setSearchRegex]
                 ] as const
               ).map(([testId, label, title, active, setter]) => (
                 <button
@@ -3328,7 +3380,7 @@ export default function FilesPanel({
                 type="button"
                 aria-pressed={searchFiltersOpen}
                 aria-expanded={searchFiltersOpen}
-                title="Include and exclude filters"
+                title={t('files.toolbar.filtersTitle')}
                 className={`ml-1 inline-flex h-6 items-center rounded px-1.5 text-[10px] ${
                   searchFiltersOpen
                     ? 'bg-accent/15 text-accent'
@@ -3337,7 +3389,7 @@ export default function FilesPanel({
                 data-testid="files-search-filters"
                 onClick={() => setSearchFiltersOpen((open) => !open)}
               >
-                Filters
+                {t('files.toolbar.filters')}
               </button>
               <span className="ml-auto flex items-center gap-1">
                 {searching ? (
@@ -3347,7 +3399,7 @@ export default function FilesPanel({
                     data-testid="files-search-stop"
                     onClick={() => void stopSearch()}
                   >
-                    Stop
+                    {t('files.toolbar.stop')}
                   </button>
                 ) : null}
                 <button
@@ -3355,8 +3407,8 @@ export default function FilesPanel({
                   className="inline-flex h-6 items-center rounded border border-border px-1.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
                   title={
                     searchRegex
-                      ? 'Regex replace is not supported yet'
-                      : 'Replace every match in the searched files'
+                      ? t('files.toolbar.regexReplaceTitle')
+                      : t('files.toolbar.replaceAllTitle')
                   }
                   disabled={
                     searchRegex ||
@@ -3368,7 +3420,7 @@ export default function FilesPanel({
                   data-testid="files-replace-run"
                   onClick={requestReplace}
                 >
-                  Replace all
+                  {t('files.toolbar.replaceAll')}
                 </button>
               </span>
             </div>
@@ -3376,14 +3428,14 @@ export default function FilesPanel({
               <div className="mt-1 grid gap-1">
                 <input
                   value={searchInclude}
-                  placeholder="files to include: src/**, *.ts"
+                  placeholder={t('files.toolbar.include')}
                   className="h-6 rounded border border-border bg-background px-1.5 font-mono text-[10px] text-foreground outline-none placeholder:text-muted-foreground"
                   data-testid="files-search-include"
                   onChange={(event) => setSearchInclude(event.target.value)}
                 />
                 <input
                   value={searchExclude}
-                  placeholder="files to exclude: *.min.js, dist/"
+                  placeholder={t('files.toolbar.exclude')}
                   className="h-6 rounded border border-border bg-background px-1.5 font-mono text-[10px] text-foreground outline-none placeholder:text-muted-foreground"
                   data-testid="files-search-exclude"
                   onChange={(event) => setSearchExclude(event.target.value)}
@@ -3391,10 +3443,12 @@ export default function FilesPanel({
               </div>
             ) : null}
             <label className="mt-1 flex items-center gap-1">
-              <span className="shrink-0 text-[9.5px] text-muted-foreground">Replace</span>
+              <span className="shrink-0 text-[9.5px] text-muted-foreground">
+                {t('files.toolbar.replaceLabel')}
+              </span>
               <input
                 value={replaceText}
-                placeholder="replacement text"
+                placeholder={t('files.toolbar.replacement')}
                 className="h-6 min-w-0 flex-1 rounded border border-border bg-background px-1.5 font-mono text-[10px] text-foreground outline-none placeholder:text-muted-foreground"
                 data-testid="files-replace-input"
                 onChange={(event) => setReplaceText(event.target.value)}
@@ -3407,27 +3461,27 @@ export default function FilesPanel({
           <button
             type="button"
             className="inline-flex h-7 items-center gap-1 rounded px-2 text-[10.5px] text-muted-foreground hover:bg-muted hover:text-foreground"
-            title="New file"
+            title={t('files.toolbar.newFile')}
             data-testid="files-new-file"
             onClick={() => beginCreate('create-file', createParent())}
           >
             <FilePlus2 size={10} />
-            New file
+            {t('files.toolbar.newFile')}
           </button>
           <button
             type="button"
             className="inline-flex h-7 items-center gap-1 rounded px-2 text-[10.5px] text-muted-foreground hover:bg-muted hover:text-foreground"
-            title="New folder"
+            title={t('files.toolbar.newFolder')}
             data-testid="files-new-directory"
             onClick={() => beginCreate('create-directory', createParent())}
           >
             <FolderPlus size={10} />
-            New folder
+            {t('files.toolbar.newFolder')}
           </button>
           <button
             type="button"
             className="inline-flex h-7 items-center gap-1 rounded px-2 text-[10.5px] text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
-            title="Rename"
+            title={t('files.toolbar.rename')}
             disabled={selectionSummary.total !== 1 || singleSelectedEntry === null || transferBusy}
             data-testid="files-rename"
             onClick={() => {
@@ -3436,24 +3490,24 @@ export default function FilesPanel({
             }}
           >
             <Pencil size={10} />
-            Rename
+            {t('files.toolbar.rename')}
           </button>
           <button
             type="button"
             className="inline-flex h-7 items-center gap-1 rounded px-2 text-[10.5px] text-destructive hover:bg-destructive/10 disabled:opacity-30"
-            title="Delete"
+            title={t('files.toolbar.delete')}
             disabled={selectionSummary.total === 0 || transferBusy}
             data-testid="files-delete"
             onClick={() => requestDelete(selectedPaths())}
           >
             <Trash2 size={10} />
-            Delete
+            {t('files.toolbar.delete')}
           </button>
           <button
             type="button"
             className="ml-auto rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
             title={undoLabel(peekUndo(undoStack))}
-            aria-label="Undo last file operation"
+            aria-label={t('files.toolbar.undo')}
             disabled={undoStack.length === 0 || undoing || transferBusy}
             data-testid="files-undo"
             onClick={() => void undoLast()}
@@ -3463,8 +3517,8 @@ export default function FilesPanel({
           <button
             type="button"
             className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
-            title="Duplicate selection"
-            aria-label="Duplicate selection"
+            title={t('files.toolbar.duplicate')}
+            aria-label={t('files.toolbar.duplicate')}
             disabled={selectionSummary.total === 0 || transferBusy}
             data-testid="files-duplicate"
             onClick={() => void duplicateSelection()}
@@ -3474,8 +3528,8 @@ export default function FilesPanel({
           <button
             type="button"
             className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-            title="Refresh the tree"
-            aria-label="Refresh tree"
+            title={t('files.toolbar.refresh')}
+            aria-label={t('files.toolbar.refreshAria')}
             data-testid="files-refresh"
             onClick={() => void reloadExpanded(false, true)}
           >
@@ -3488,28 +3542,32 @@ export default function FilesPanel({
           data-testid="files-selection"
         >
           {selectionSummary.total === 0 ? (
-            'Select a file or folder to rename or delete it.'
+            t('files.selection.hint')
           ) : selectionSummary.total === 1 ? (
             <>
-              Selected{' '}
-              <span className="font-mono text-foreground" title={singleSelectedPath ?? undefined}>
-                {singleSelectedPath}
-              </span>{' '}
-              · {singleSelectedEntry?.kind === 'directory' ? 'folder' : 'file'}
+              {t('files.selection.selected', {
+                path: singleSelectedPath ?? '',
+                kind:
+                  singleSelectedEntry?.kind === 'directory'
+                    ? t('files.selection.folder')
+                    : t('files.selection.file')
+              })}
             </>
           ) : (
             <>
-              {selectionSummary.total} selected · {selectionSummary.files} file
-              {selectionSummary.files === 1 ? '' : 's'} · {selectionSummary.directories} folder
-              {selectionSummary.directories === 1 ? '' : 's'}
+              {t('files.selection.summary', {
+                total: selectionSummary.total,
+                files: tp('files.selection.files', selectionSummary.files),
+                folders: tp('files.selection.folders', selectionSummary.directories)
+              })}
             </>
           )}
           {liveState === 'poll' ? (
-            <span className="ml-1 text-signal" title="The live watcher is unavailable; Files is checking periodically.">
-              · polling
+            <span className="ml-1 text-signal" title={t('files.toolbar.watcherUnavailable')}>
+              {t('files.toolbar.polling')}
             </span>
           ) : null}
-          {transferBusy ? <span className="ml-1 text-signal">· working…</span> : null}
+          {transferBusy ? <span className="ml-1 text-signal">{t('files.toolbar.working')}</span> : null}
         </div>
 
         {hotExitNote.length > 0 ? (
@@ -3521,7 +3579,7 @@ export default function FilesPanel({
             <button
               type="button"
               className="shrink-0 rounded px-1 hover:bg-signal/10"
-              aria-label="Dismiss"
+              aria-label={t('files.toolbar.dismiss')}
               onClick={() => setHotExitNote('')}
             >
               <X size={10} />
@@ -3536,8 +3594,7 @@ export default function FilesPanel({
           >
             <Trash2 size={10} className="shrink-0" />
             <span className="min-w-0 flex-1 truncate">
-              {trashBanner.paths.length} deleted item
-              {trashBanner.paths.length === 1 ? '' : 's'} in Trash
+              {tp('files.trash.deleted', trashBanner.paths.length)}
             </span>
             <button
               type="button"
@@ -3546,7 +3603,7 @@ export default function FilesPanel({
               data-testid="files-trash-restore"
               onClick={() => void restoreTrashOp(trashBanner.opId)}
             >
-              Restore
+              {t('files.trash.restore')}
             </button>
           </div>
         ) : null}
@@ -3554,7 +3611,7 @@ export default function FilesPanel({
         <div
           ref={treeScrollRef}
           role={showSearch ? undefined : 'tree'}
-          aria-label={showSearch ? undefined : 'Worktree files'}
+          aria-label={showSearch ? undefined : t('files.toolbar.worktreeFiles')}
           aria-multiselectable={showSearch ? undefined : true}
           tabIndex={-1}
           className={`relative min-h-0 flex-1 overflow-auto px-1 py-1 outline-none ${
@@ -3579,7 +3636,9 @@ export default function FilesPanel({
           }}
         >
           {rootState === 'loading' ? (
-            <p role="presentation" className="px-2 py-1 text-[11px] text-muted-foreground">Loading…</p>
+            <p role="presentation" className="px-2 py-1 text-[11px] text-muted-foreground">
+              {t('files.toolbar.loading')}
+            </p>
           ) : null}
           {rootState === 'unavailable' ? (
             <p role="presentation" className="px-2 py-1 text-[11px] text-signal" data-testid="files-unavailable">
@@ -3602,7 +3661,7 @@ export default function FilesPanel({
                   void reloadExpanded(true)
                 }}
               >
-                Retry
+                {t('common.retry')}
               </button>
             </p>
           ) : null}
@@ -3611,14 +3670,18 @@ export default function FilesPanel({
             <div data-testid="files-search-results">
               <p className="px-1 py-1 text-[10px] text-muted-foreground" data-testid="files-search-summary">
                 {searching
-                  ? 'Searching…'
+                  ? t('files.search.searching')
                   : results === null
-                    ? 'Press Enter to search'
+                    ? t('files.search.pressEnter')
                     : results.status === 'unavailable'
-                      ? 'Search unavailable'
-                      : `${String(results.matches.length)} match(es) in ${String(groupedSearch.length)} file(s) · ${String(results.scannedFiles)} scanned${
-                          results.truncated ? ' · truncated' : ''
-                        }${results.cancelled ? ' · stopped' : ''}`}
+                      ? t('files.search.unavailable')
+                      : `${t('files.search.summary', {
+                          matches: results.matches.length,
+                          files: groupedSearch.length,
+                          scanned: results.scannedFiles
+                        })}${results.truncated ? t('files.search.truncated') : ''}${
+                          results.cancelled ? t('files.search.stopped') : ''
+                        }`}
               </p>
               {searchError !== null ? (
                 <p
@@ -3698,7 +3761,7 @@ export default function FilesPanel({
               {rootState === 'ready' ? (
                 <div role="presentation" className="mb-1 flex items-center gap-1 px-1 text-[9px] text-muted-foreground">
                   <FolderOpen size={9} />
-                  <span className="truncate">{rootNote || 'worktree root'}</span>
+                  <span className="truncate">{rootNote || t('files.move.root')}</span>
                 </div>
               ) : null}
               <div
@@ -3713,7 +3776,7 @@ export default function FilesPanel({
               </div>
               {rootState === 'ready' && rows.length === 0 && edit === null ? (
                 <p role="presentation" className="px-2 py-1 text-[11px] text-muted-foreground" data-testid="files-folder-empty">
-                  This folder is empty.
+                  {t('files.folderEmpty')}
                 </p>
               ) : null}
             </>
@@ -3736,9 +3799,10 @@ export default function FilesPanel({
                 {selectionSummary.total} items selected
               </h2>
               <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-                {selectionSummary.files} file{selectionSummary.files === 1 ? '' : 's'} ·{' '}
-                {selectionSummary.directories} folder
-                {selectionSummary.directories === 1 ? '' : 's'}
+                {t('files.selectionSummary', {
+                  files: tp('files.summary.files', selectionSummary.files),
+                  directories: tp('files.summary.directories', selectionSummary.directories)
+                })}
               </p>
               <div className="mt-3 flex flex-wrap gap-2">
                 <button
@@ -3748,7 +3812,7 @@ export default function FilesPanel({
                   onClick={() => void copyPathsToClipboard('absolute', selectedPaths())}
                 >
                   <Copy size={10} />
-                  Copy Path
+                  {t('files.menu.copyPath')}
                 </button>
                 <button
                   type="button"
@@ -3757,7 +3821,7 @@ export default function FilesPanel({
                   onClick={() => void copyPathsToClipboard('relative', selectedPaths())}
                 >
                   <Copy size={10} />
-                  Copy Relative Path
+                  {t('files.menu.copyRelativePath')}
                 </button>
                 <button
                   type="button"
@@ -3766,7 +3830,7 @@ export default function FilesPanel({
                   onClick={() => requestDelete(selectedPaths())}
                 >
                   <Trash2 size={10} />
-                  Delete…
+                  {t('files.menu.deleteEllipsis')}
                 </button>
               </div>
             </div>
@@ -3779,7 +3843,7 @@ export default function FilesPanel({
                 {singleFolder.path}
               </p>
               <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-                Rename is name-only. Move this folder with drag & drop or Cut and Paste.
+                {t('files.folderRenameNote')}
               </p>
               <div className="mt-3 flex flex-wrap gap-2">
                 {onOpenHistory ? (
@@ -3790,7 +3854,7 @@ export default function FilesPanel({
                     onClick={() => onOpenHistory(singleFolder.path)}
                   >
                     <History size={10} />
-                    History
+                    {t('files.menu.history')}
                   </button>
                 ) : null}
                 <button
@@ -3800,7 +3864,7 @@ export default function FilesPanel({
                   onClick={() => beginRename(singleFolder.path)}
                 >
                   <Pencil size={10} />
-                  Rename…
+                  {t('files.menu.renameEllipsis')}
                 </button>
                 <button
                   type="button"
@@ -3809,7 +3873,7 @@ export default function FilesPanel({
                   onClick={() => requestDelete([singleFolder.path])}
                 >
                   <Trash2 size={10} />
-                  Delete folder…
+                  {t('files.deleteFolder')}
                 </button>
               </div>
             </div>
@@ -3817,13 +3881,14 @@ export default function FilesPanel({
         ) : activeTab === null ? (
           <div className="flex flex-1 items-center justify-center p-6 text-center">
             <p className="max-w-sm text-[11.5px] leading-relaxed text-muted-foreground" data-testid="files-empty">
-              Pick a file to read or edit it here. Saved edits land in this session's worktree, so the
-              Agent and the Changes review see them immediately.
+              {t('files.emptyEditor')}
             </p>
           </div>
         ) : activeTab.load === 'loading' ? (
           <div className="flex flex-1 items-center justify-center p-6" data-testid="files-tab-loading">
-            <p className="text-[11.5px] text-muted-foreground">Opening {activeTab.path}…</p>
+            <p className="text-[11.5px] text-muted-foreground">
+              {t('files.opening', { path: activeTab.path })}
+            </p>
           </div>
         ) : activeTab.load === 'failed' ? (
           <div
@@ -3839,7 +3904,7 @@ export default function FilesPanel({
                   onClick={() => void loadTab(activeTab.path, 1)}
                   data-testid="files-tab-retry"
                 >
-                  Retry
+                  {t('common.retry')}
                 </button>
                 <button
                   type="button"
@@ -3847,7 +3912,7 @@ export default function FilesPanel({
                   onClick={() => requestClose(activeTab.path)}
                   data-testid="files-tab-failure-close"
                 >
-                  Close
+                  {t('common.close')}
                 </button>
               </div>
             </div>
@@ -3944,7 +4009,7 @@ export default function FilesPanel({
           x={context.x}
           y={context.y}
           items={buildContextItems()}
-          ariaLabel="Files actions"
+          ariaLabel={t('files.actions')}
           testId="files-context-menu"
           onClose={() => setContext(null)}
         />

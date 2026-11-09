@@ -20,6 +20,9 @@ import {
 } from '../../shared/schemas/ipc'
 import { app } from 'electron'
 import { respondToWindowClose } from '../window-close'
+import { localeSetInputSchema } from '../../shared/schemas/locale'
+import type { LocaleService } from '../i18n/locale-service'
+import { getMainLocale } from '../i18n/main-i18n'
 
 export const WINDOW_CONTROL_CHANNELS: readonly string[] = [
   IPC_CHANNELS.windowMinimize,
@@ -30,7 +33,13 @@ export const WINDOW_CONTROL_CHANNELS: readonly string[] = [
   IPC_CHANNELS.windowOpenExternal
 ]
 
+export const LOCALE_CHANNELS: readonly string[] = [
+  IPC_CHANNELS.localeGet,
+  IPC_CHANNELS.localeSet
+]
+
 export const HANDLED_CHANNELS: readonly string[] = [
+  ...LOCALE_CHANNELS,
   IPC_CHANNELS.reposList,
   IPC_CHANNELS.reposAdd,
   IPC_CHANNELS.reposInspect,
@@ -187,6 +196,7 @@ export function createAppDispatcher(
             ? dialog.showOpenDialog(options)
             : dialog.showOpenDialog(parent, options)
         },
+        locale: getMainLocale(),
         localHome: () => app.getPath('home'),
         readGuestHome: (distro) => runtime.readGuestHome(distro)
       })
@@ -398,10 +408,11 @@ async function outcomeOrThrowAsync<T>(
 export function registerAppIpc(
   runtime: AppRuntime,
   getPersistence: () => import('../persistence').AppPersistence,
-  options: { devServerUrl?: string } = {}
+  options: { devServerUrl?: string; locale?: LocaleService } = {}
 ): () => void {
   const dispatcher = createAppDispatcher(runtime, getPersistence)
   const windowChannels = new Set<string>(WINDOW_CONTROL_CHANNELS)
+  const localeChannels = new Set<string>(LOCALE_CHANNELS)
   const handlers: string[] = []
 
   for (const channel of WINDOW_CONTROL_CHANNELS) {
@@ -461,7 +472,44 @@ export function registerAppIpc(
     handlers.push(channel)
   }
 
-  for (const channel of HANDLED_CHANNELS.filter((entry) => !windowChannels.has(entry))) {
+  for (const channel of LOCALE_CHANNELS) {
+    const handler = async (
+      event: IpcMainInvokeEvent,
+      rawInput?: unknown
+    ): Promise<IpcResult<unknown>> => {
+      if (!isTrustedFrame(event.senderFrame, options.devServerUrl)) {
+        return {
+          ok: false,
+          error: makeAppError('INVALID_ARGUMENT', 'Request did not come from the iCode renderer.')
+        }
+      }
+      if (options.locale === undefined) {
+        return {
+          ok: false,
+          error: makeAppError('INTERNAL', 'Language settings are unavailable.')
+        }
+      }
+      if (channel === IPC_CHANNELS.localeGet) {
+        return { ok: true, value: options.locale.state() }
+      }
+      const parsed = localeSetInputSchema.safeParse(rawInput)
+      if (!parsed.success) {
+        return {
+          ok: false,
+          error: makeAppError('INVALID_ARGUMENT', 'Invalid language preference.', {
+            context: { path: parsed.error.issues[0]?.path.join('.') ?? 'input' }
+          })
+        }
+      }
+      return { ok: true, value: options.locale.set(parsed.data.preference) }
+    }
+    ipcMain.handle(channel, handler as Parameters<typeof ipcMain.handle>[1])
+    handlers.push(channel)
+  }
+
+  for (const channel of HANDLED_CHANNELS.filter(
+    (entry) => !windowChannels.has(entry) && !localeChannels.has(entry)
+  )) {
     const handler = async (event: IpcMainInvokeEvent, input?: unknown): Promise<IpcResult<unknown>> => {
       if (!isTrustedFrame(event.senderFrame, options.devServerUrl)) {
         return {

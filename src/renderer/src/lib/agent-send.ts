@@ -1,3 +1,4 @@
+import { translate } from '../i18n/i18n-store'
 /**
  * A review send is only complete when the paste and the submit Enter were both
  * accepted by the PTY.
@@ -42,7 +43,7 @@ export async function sendAgentText(
   } = {}
 ): Promise<AgentSendResult> {
   if (normalizeAgentPromptText(text).trim().length === 0) {
-    return { ok: false, message: 'There are no notes to send.' }
+    return { ok: false, message: translate('agentSend.noNotes') }
   }
   const pasted = await write(buildAgentPromptPaste(text))
   if (!pasted.ok) return pasted

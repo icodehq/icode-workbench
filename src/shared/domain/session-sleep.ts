@@ -1,4 +1,5 @@
 import type { HarnessId } from './harness'
+import { DEFAULT_LOCALE, t, type Locale } from '../i18n'
 
 /**
  * What Wake does for each harness.
@@ -34,8 +35,8 @@ export function wakePlan(harness: HarnessId, resumeToken: string | null): WakePl
   }
 }
 
-export function wakeDescription(harness: HarnessId): string {
+export function wakeDescription(harness: HarnessId, locale: Locale = DEFAULT_LOCALE): string {
   return wakePlan(harness, null).resumesConversation
-    ? 'Wake resumes the most recent conversation in this worktree.'
-    : 'Wake starts a new shell in this worktree; running commands and environment are not restored.'
+    ? t(locale, 'session.wake.resumes')
+    : t(locale, 'session.wake.fresh')
 }

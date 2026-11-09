@@ -1,3 +1,4 @@
+import { translate, translatePlural } from '../i18n/i18n-store'
 /**
  * Per-session undo entries for Files operations.
  *
@@ -39,16 +40,16 @@ export function popUndo(stack: readonly FileUndoEntry[]): FileUndoEntry[] {
 export function undoLabel(entry: FileUndoEntry | null): string {
   switch (entry?.kind) {
     case 'create':
-      return `Undo create ${entry.path}`
+      return translate('files.undoCreate', { path: entry.path })
     case 'rename':
-      return `Undo rename ${entry.from}`
+      return translate('files.undoRename', { path: entry.from })
     case 'move':
-      return `Undo move of ${String(entry.pairs.length)} item${entry.pairs.length === 1 ? '' : 's'}`
+      return translatePlural('files.undoMove', entry.pairs.length)
     case 'copy':
-      return `Undo copy of ${String(entry.created.length)} item${entry.created.length === 1 ? '' : 's'}`
+      return translatePlural('files.undoCopy', entry.created.length)
     case 'delete':
-      return `Undo delete of ${String(entry.paths.length)} item${entry.paths.length === 1 ? '' : 's'}`
+      return translatePlural('files.undoDelete', entry.paths.length)
     default:
-      return 'Nothing to undo'
+      return translate('files.undoNothing')
   }
 }

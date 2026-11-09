@@ -15,6 +15,7 @@ import {
   sessionStateLabelFor,
   sessionStateDotClass
 } from './status'
+import { useT, useTp } from '../i18n/use-i18n'
 
 type Props = {
   repo: RepositorySummary
@@ -49,6 +50,8 @@ export default function ProjectSessionsList({
   onRemoveBranch,
   onCollapse
 }: Props): React.JSX.Element {
+  const t = useT()
+  const tp = useTp()
   return (
     <aside
       className="flex w-[326px] shrink-0 flex-col border-r border-border bg-card max-[900px]:max-h-[34vh] max-[900px]:w-full max-[900px]:border-b max-[900px]:border-r-0"
@@ -56,7 +59,7 @@ export default function ProjectSessionsList({
     >
       <div className="flex shrink-0 items-center gap-2 px-3 pb-2 pt-3">
         <span className="text-[14px] font-semibold tracking-[-0.01em] text-foreground">
-          Sessions
+          {t('sessionsList.title')}
         </span>
         <span className="font-mono text-[10.5px] text-muted-foreground">{sessions.length}</span>
         {onCollapse !== undefined ? (
@@ -64,8 +67,8 @@ export default function ProjectSessionsList({
             type="button"
             className="ml-auto inline-flex h-7 w-7 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-muted hover:text-foreground"
             onClick={onCollapse}
-            title="Hide sessions list"
-            aria-label="Hide sessions list"
+            title={t('sessionsList.hide')}
+            aria-label={t('sessionsList.hide')}
             data-testid="sessions-list-collapse"
           >
             <PanelLeftClose size={11} />
@@ -75,18 +78,18 @@ export default function ProjectSessionsList({
           type="button"
           className={`${onCollapse === undefined ? 'ml-auto' : ''} inline-flex h-7 items-center gap-1 rounded-md border border-border px-2 text-[11px] hover:bg-muted`}
           onClick={onNewSession}
-          title={`Start a direct session in ${repo.displayName}`}
+          title={t('sessionsList.startIn', { project: repo.displayName })}
           data-testid="project-new-session"
         >
           <Plus size={11} />
-          New
+          {t('sessionsList.new')}
         </button>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3 pt-0">
         {sessions.length === 0 ? (
           <div className="px-2 py-3 text-[11px] leading-relaxed text-muted-foreground">
-            No direct sessions yet. Tasks have their own list and never appear here.
+            {t('sessionsList.empty')}
             <div className="mt-2">
               <button
                 type="button"
@@ -95,7 +98,7 @@ export default function ProjectSessionsList({
                 data-testid="empty-new-session"
               >
                 <Plus size={11} />
-                New session
+                {t('sessions.newSession')}
               </button>
             </div>
           </div>
@@ -125,7 +128,14 @@ export default function ProjectSessionsList({
                     data-session-incarnation={session.incarnationId ?? ''}
                     data-session-activity={activity?.state ?? 'unknown'}
                     data-session-activity-unread={String(activity?.unread ?? false)}
-                    title={`${session.title} — ${session.role === 'supervisor' ? 'Supervisor' : harnessName(session.harness)}${suffix ? ` — ${activityTooltip(activity)}` : ''}`}
+                    title={t('sessionsList.itemTitle', {
+                      title: session.title,
+                      harness:
+                        session.role === 'supervisor'
+                          ? t('sessionsList.supervisor')
+                          : harnessName(session.harness),
+                      activity: suffix ? ` — ${activityTooltip(activity)}` : ''
+                    })}
                   >
                     <span className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${sessionStateDotClass(session, action)}`} />
                     <span className="min-w-0 flex-1">
@@ -133,12 +143,15 @@ export default function ProjectSessionsList({
                         <span className="block min-w-0 flex-1 truncate text-[12px]">{session.title}</span>
                         {session.role === 'supervisor' ? (
                           <span className="shrink-0 rounded bg-accent/15 px-1 text-[8px] font-medium uppercase tracking-wide text-accent">
-                            Supervisor
+                            {t('sessionsList.supervisor')}
                           </span>
                         ) : null}
                       </span>
                       <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">
-                        {session.role === 'supervisor' ? 'Supervisor' : harnessName(session.harness)} · {sessionStateLabelFor(session, action)}
+                        {session.role === 'supervisor'
+                          ? t('sessionsList.supervisor')
+                          : harnessName(session.harness)}{' '}
+                        · {sessionStateLabelFor(session, action)}
                         {session.worktree ? ` · ${session.worktree.branch}` : ''}
                       </span>
                       {suffix ? (
@@ -153,7 +166,9 @@ export default function ProjectSessionsList({
                           <span className={`h-1 w-1 shrink-0 rounded-full ${activityDotClass(activity)}`} />
                           <span className="truncate">{suffix}</span>
                           {activity?.unread ? (
-                            <span className="ml-auto shrink-0 text-[9px] uppercase tracking-wide">new</span>
+                            <span className="ml-auto shrink-0 text-[9px] uppercase tracking-wide">
+                              {t('sessionsList.newActivity')}
+                            </span>
                           ) : null}
                         </span>
                       ) : null}
@@ -163,7 +178,7 @@ export default function ProjectSessionsList({
                         session.worktree.status === 'failed' ||
                         session.worktree.status === 'incomplete') ? (
                         <span className="mt-0.5 block truncate text-[9px] text-signal">
-                          {session.worktree.status}
+                          {t(`worktree.status.${session.worktree.status}`)}
                         </span>
                       ) : null}
                     </span>
@@ -179,7 +194,7 @@ export default function ProjectSessionsList({
         <section className="mx-2 mb-2 rounded-md border border-border px-2 pb-3 pt-0">
           <div className="flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground">
             <GitBranch size={11} />
-            Retained branches
+            {t('sessionsList.retainedBranches')}
           </div>
           <ul className="mt-1 space-y-0.5">
             {branches.map((branch) => (
@@ -193,7 +208,7 @@ export default function ProjectSessionsList({
                 <span className="min-w-0 flex-1 truncate font-mono text-[9px] text-muted-foreground">
                   {branch.branch}
                   {branch.unmergedCommits !== null && branch.unmergedCommits > 0
-                    ? ` · ${String(branch.unmergedCommits)} unmerged`
+                    ? ` · ${t('sessionsList.unmerged', { count: branch.unmergedCommits })}`
                     : ''}
                 </span>
                 <button
@@ -203,12 +218,12 @@ export default function ProjectSessionsList({
                   disabled={!branch.exists || branch.worktreePath !== null}
                   title={
                     branch.worktreePath !== null
-                      ? 'A worktree still uses this branch'
+                      ? t('sessionsList.worktreeInUse')
                       : branch.exists
-                        ? `Delete branch ${branch.branch}`
-                        : 'Branch no longer exists'
+                        ? t('sessionsList.deleteBranch', { branch: branch.branch })
+                        : t('sessionsList.branchGone')
                   }
-                  aria-label={`Delete branch ${branch.branch}`}
+                  aria-label={t('sessionsList.deleteBranch', { branch: branch.branch })}
                 >
                   <Trash2 size={10} />
                 </button>
@@ -222,11 +237,10 @@ export default function ProjectSessionsList({
         <section className="mx-2 mb-2 rounded-md border border-signal-line bg-signal/10 px-2 pb-3 pt-0">
           <div className="flex items-center gap-1.5 text-[10px] font-medium text-signal">
             <AlertTriangle size={11} />
-            {orphans.length} untracked terminal{orphans.length === 1 ? '' : 's'}
+            {tp('sessionsList.orphans', orphans.length)}
           </div>
           <p className="mt-1 text-[10px] leading-relaxed text-signal opacity-80">
-            The terminal host still owns sessions iCode does not track. They are not attached here and
-            are left running.
+            {t('sessionsList.orphansBody')}
           </p>
           <ul className="mt-1 space-y-0.5">
             {orphans.slice(0, 4).map((orphan) => (
@@ -243,7 +257,13 @@ export default function ProjectSessionsList({
       ) : null}
 
       <div className="flex h-7 shrink-0 items-center gap-1.5 border-t border-border px-3 text-[9px] text-muted-foreground">
-        {repo.target.kind === 'wsl' ? `WSL ${repo.target.distro}` : 'Local'} · {sessions.length} direct
+        {t('sessionsList.footer', {
+          target:
+            repo.target.kind === 'wsl'
+              ? `WSL ${repo.target.distro}`
+              : t('projects.target.local'),
+          count: sessions.length
+        })}
       </div>
     </aside>
   )

@@ -25,6 +25,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   includes action results, failures and notifications, so write outcomes are
   not lost. SQLite migration v12 adds segment ranges (`start_seq`/`end_seq`);
   pre-v12 conversation rows are shown as one legacy segment.
+- Full app-chrome localization for English, Simplified Chinese, Japanese,
+  Korean, Spanish, Brazilian Portuguese, German and French: renderer UI,
+  native menus, dialogs, folder pickers, OS notifications and user-facing
+  application errors. A Language card in Settings offers System or a pinned
+  language and applies changes without restarting. English is authoritative
+  and the fallback; the other catalogs are AI-assisted and marked for native
+  review in `src/shared/i18n/README.md`. Terminal, harness, Git and model output
+  and user content are never translated. Persisted task, schedule and assistant
+  text keeps the language it was written in.
 
 ### Changed
 

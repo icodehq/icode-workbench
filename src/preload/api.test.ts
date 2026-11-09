@@ -47,6 +47,7 @@ describe('preload API surface', () => {
         'getRuntimeInfo',
         'git',
         'harness',
+        'locale',
         'onRepoEvent',
         'onSessionEvent',
         'onTaskEvent',
@@ -142,6 +143,39 @@ describe('preload API surface', () => {
       IPC_CHANNELS.windowOpenExternal
     ])
     expect(subscribe).toHaveBeenCalledWith(IPC_CHANNELS.windowMaximizedEvent, expect.any(Function))
+    off()
+    expect(unsubscribe).toHaveBeenCalledTimes(1)
+  })
+
+  it('exposes the initial locale synchronously and routes locale changes', async () => {
+    const invoke = vi.fn(async (_channel: string, _input?: unknown) => ({
+      ok: true,
+      value: { preference: 'de', locale: 'de', systemLocale: 'en' }
+    }))
+    const unsubscribe = vi.fn()
+    const subscribe = vi.fn(
+      (_channel: string, _listener: (payload: unknown) => void) => unsubscribe
+    )
+    const api = createIcodeApi(
+      invoke as unknown as (channel: string, input?: unknown) => Promise<unknown>,
+      subscribe as unknown as (
+        channel: string,
+        listener: (payload: unknown) => void
+      ) => () => void,
+      'de'
+    )
+
+    expect(api.locale.initial).toBe('de')
+    await api.locale.get()
+    await api.locale.set({ preference: 'ja' })
+    const off = api.locale.onChanged(() => undefined)
+
+    expect(invoke.mock.calls.map((call) => call[0])).toEqual([
+      IPC_CHANNELS.localeGet,
+      IPC_CHANNELS.localeSet
+    ])
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.localeSet, { preference: 'ja' })
+    expect(subscribe).toHaveBeenCalledWith(IPC_CHANNELS.localeChangedEvent, expect.any(Function))
     off()
     expect(unsubscribe).toHaveBeenCalledTimes(1)
   })

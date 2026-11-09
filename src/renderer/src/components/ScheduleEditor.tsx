@@ -1,3 +1,6 @@
+import { getLocale, translate } from '../i18n/i18n-store'
+import { useT } from '../i18n/use-i18n'
+import { formatDateTime } from '../../../shared/i18n'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Loader2, Trash2, X } from 'lucide-react'
 import type { TaskSchedulePayload } from '../../../shared/icode-api'
@@ -33,8 +36,8 @@ function toLocalInput(instant: number | undefined): string {
 }
 
 function formatInstant(instant: number | null): string {
-  if (instant === null) return 'No future run'
-  return new Date(instant).toLocaleString(undefined, {
+  if (instant === null) return translate('schedules.noFutureRun')
+  return formatDateTime(getLocale(), instant, {
     weekday: 'short',
     month: 'short',
     day: '2-digit',
@@ -75,6 +78,7 @@ export default function ScheduleEditor({
   onClose,
   onSaved
 }: Props): React.JSX.Element {
+  const t = useT()
   const [repoId, setRepoId] = useState(schedule?.repoId ?? repos[0]?.id ?? '')
   const [title, setTitle] = useState(schedule?.title ?? '')
   const [prompt, setPrompt] = useState(schedule?.prompt ?? '')
@@ -145,14 +149,18 @@ export default function ScheduleEditor({
 
   const availableHarnesses = harnesses.filter((entry) => entry.state === 'available')
   const nextRun = shapeKind === 'once' ? (shape.runAt ?? null) : nextOccurrence(shape, Date.now())
-  const promptProblem = prompt.trim().length === 0 ? 'An instruction is required.' : null
+  const promptProblem =
+    prompt.trim().length === 0 ? t('schedules.editor.promptRequired') : null
   const runAtProblem =
     shapeKind === 'once' && (runAt.trim().length === 0 || !Number.isFinite(shape.runAt))
-      ? 'Choose a date and time.'
+      ? t('schedules.editor.timeRequired')
       : null
-  const repoProblem = repoId.length === 0 ? 'Choose a repository.' : null
+  const repoProblem =
+    repoId.length === 0 ? t('schedules.editor.repoRequired') : null
   const harnessProblem =
-    harnessLoading || availableHarnesses.length === 0 ? 'No available Harness for this project.' : null
+    harnessLoading || availableHarnesses.length === 0
+      ? t('schedules.editor.harnessRequired')
+      : null
   const canSave =
     !busy && promptProblem === null && runAtProblem === null && repoProblem === null && harnessProblem === null
 
@@ -181,7 +189,10 @@ export default function ScheduleEditor({
       }
       notify({
         tone: 'success',
-        message: mode === 'edit' ? `Saved ${result.value.title}.` : `Scheduled ${result.value.title}.`
+        message:
+          mode === 'edit'
+            ? t('schedules.editor.saved', { title: result.value.title })
+            : t('schedules.editor.created', { title: result.value.title })
       })
       await onSaved()
       onClose()
@@ -200,7 +211,10 @@ export default function ScheduleEditor({
         setError(result.error.message)
         return
       }
-      notify({ tone: 'success', message: `Deleted ${schedule.title}. Its tasks were kept.` })
+      notify({
+        tone: 'success',
+        message: t('schedules.editor.deleted', { title: schedule.title })
+      })
       await onSaved()
       onClose()
     } finally {
@@ -213,7 +227,9 @@ export default function ScheduleEditor({
       className="fixed inset-0 z-[65] bg-black/50"
       role="dialog"
       aria-modal="true"
-      aria-label={mode === 'edit' ? 'Edit schedule' : 'New schedule'}
+      aria-label={
+        mode === 'edit' ? t('schedules.editor.editTitle') : t('schedules.editor.newTitle')
+      }
       data-testid="schedule-editor"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget && !busy) onClose()
@@ -223,10 +239,10 @@ export default function ScheduleEditor({
         <div className="flex items-start gap-3 border-b border-border px-4 py-3">
           <div className="min-w-0 flex-1">
             <h2 className="text-[15px] font-semibold">
-              {mode === 'edit' ? 'Edit schedule' : 'New schedule'}
+              {mode === 'edit' ? t('schedules.editor.editTitle') : t('schedules.editor.newTitle')}
             </h2>
             <p className="mt-1 text-[10.5px] leading-relaxed text-muted-foreground">
-              Every occurrence becomes an ordinary task in the selected project.
+              {t('schedules.editor.subtitle')}
             </p>
           </div>
           <button
@@ -234,7 +250,7 @@ export default function ScheduleEditor({
             className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
             onClick={onClose}
             disabled={busy}
-            aria-label="Close schedule editor"
+            aria-label={t('schedules.editor.close')}
           >
             <X size={14} />
           </button>
@@ -249,27 +265,27 @@ export default function ScheduleEditor({
         >
           <div className="min-h-0 flex-1 space-y-3.5 overflow-y-auto px-4 py-4">
             <div>
-              <FieldLabel htmlFor="schedule-title" hint="(optional)">
-                Name
+              <FieldLabel htmlFor="schedule-title" hint={t('schedules.editor.optional')}>
+                {t('schedules.editor.name')}
               </FieldLabel>
               <input
                 ref={titleRef}
                 id="schedule-title"
                 value={title}
                 onChange={(event) => setTitle(event.target.value)}
-                placeholder="Nightly dependency audit"
+                placeholder={t('schedules.editor.namePlaceholder')}
                 className="mt-1 h-8 w-full rounded-md border border-border bg-background px-2 text-[11.5px] text-foreground outline-none placeholder:text-muted-foreground"
                 data-testid="schedule-title"
               />
             </div>
 
             <div>
-              <FieldLabel htmlFor="schedule-prompt">Instruction</FieldLabel>
+              <FieldLabel htmlFor="schedule-prompt">{t('schedules.editor.instruction')}</FieldLabel>
               <textarea
                 id="schedule-prompt"
                 value={prompt}
                 onChange={(event) => setPrompt(event.target.value)}
-                placeholder="What should the agent do on each run?"
+                placeholder={t('schedules.editor.instructionPlaceholder')}
                 className="mt-1 h-24 w-full resize-none rounded-md border border-border bg-background px-2.5 py-2 text-[11.5px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground"
                 data-testid="schedule-prompt"
               />
@@ -277,7 +293,7 @@ export default function ScheduleEditor({
 
             <div className="grid grid-cols-2 gap-2.5">
               <div>
-                <FieldLabel htmlFor="schedule-repo">Repository</FieldLabel>
+                <FieldLabel htmlFor="schedule-repo">{t('schedules.editor.repository')}</FieldLabel>
                 <select
                   id="schedule-repo"
                   value={repoId}
@@ -285,7 +301,7 @@ export default function ScheduleEditor({
                   className="mt-1 h-8 w-full rounded-md border border-border bg-background px-2 text-[11px] text-foreground"
                   data-testid="schedule-repo"
                 >
-                  {repos.length === 0 ? <option value="">No project</option> : null}
+                  {repos.length === 0 ? <option value="">{t('schedules.editor.noProject')}</option> : null}
                   {repos.map((repo) => (
                     <option key={repo.id} value={repo.id}>
                       {repo.displayName}
@@ -294,7 +310,7 @@ export default function ScheduleEditor({
                 </select>
               </div>
               <div>
-                <FieldLabel htmlFor="schedule-harness">Harness</FieldLabel>
+                <FieldLabel htmlFor="schedule-harness">{t('schedules.editor.harness')}</FieldLabel>
                 <select
                   id="schedule-harness"
                   value={harness}
@@ -303,12 +319,14 @@ export default function ScheduleEditor({
                   className="mt-1 h-8 w-full rounded-md border border-border bg-background px-2 text-[11px] text-foreground disabled:opacity-50"
                   data-testid="schedule-harness"
                 >
-                  {harnessLoading ? <option>Detecting…</option> : null}
-                  {!harnessLoading && harnesses.length === 0 ? <option value="">No Harness</option> : null}
+                  {harnessLoading ? <option>{t('schedules.editor.detecting')}</option> : null}
+                  {!harnessLoading && harnesses.length === 0 ? (
+                    <option value="">{t('schedules.editor.noHarness')}</option>
+                  ) : null}
                   {harnesses.map((entry) => (
                     <option key={entry.harness} value={entry.harness} disabled={entry.state !== 'available'}>
                       {entry.harness}
-                      {entry.state === 'available' ? '' : ' (unavailable)'}
+                      {entry.state === 'available' ? '' : t('schedules.editor.unavailable')}
                     </option>
                   ))}
                 </select>
@@ -316,7 +334,7 @@ export default function ScheduleEditor({
             </div>
 
             <div>
-              <FieldLabel htmlFor="schedule-cadence">Cadence</FieldLabel>
+              <FieldLabel htmlFor="schedule-cadence">{t('schedules.editor.cadence')}</FieldLabel>
               <select
                 id="schedule-cadence"
                 value={shapeKind}
@@ -324,17 +342,17 @@ export default function ScheduleEditor({
                 className="mt-1 h-8 w-full rounded-md border border-border bg-background px-2 text-[11px] text-foreground"
                 data-testid="schedule-shape"
               >
-                <option value="once">Once</option>
-                <option value="daily">Daily</option>
-                <option value="weekdays">Weekdays</option>
-                <option value="weekly">Weekly</option>
-                <option value="hours">Every N hours</option>
+                <option value="once">{t('schedules.editor.once')}</option>
+                <option value="daily">{t('schedules.editor.daily')}</option>
+                <option value="weekdays">{t('schedules.editor.weekdays')}</option>
+                <option value="weekly">{t('schedules.editor.weekly')}</option>
+                <option value="hours">{t('schedules.editor.hours')}</option>
               </select>
             </div>
 
             {shapeKind === 'once' ? (
               <div>
-                <FieldLabel htmlFor="schedule-once">Date and time</FieldLabel>
+                <FieldLabel htmlFor="schedule-once">{t('schedules.editor.dateTime')}</FieldLabel>
                 <input
                   id="schedule-once"
                   type="datetime-local"
@@ -346,7 +364,7 @@ export default function ScheduleEditor({
               </div>
             ) : shapeKind === 'hours' ? (
               <div>
-                <FieldLabel htmlFor="schedule-every">Every</FieldLabel>
+                <FieldLabel htmlFor="schedule-every">{t('schedules.editor.every')}</FieldLabel>
                 <select
                   id="schedule-every"
                   value={every}
@@ -356,7 +374,7 @@ export default function ScheduleEditor({
                 >
                   {[1, 2, 3, 4, 6, 8, 12].map((value) => (
                     <option key={value} value={value}>
-                      {value} hours
+                      {t('schedules.editor.hoursCount', { count: value })}
                     </option>
                   ))}
                 </select>
@@ -364,7 +382,7 @@ export default function ScheduleEditor({
             ) : (
               <div className="grid grid-cols-3 gap-2.5">
                 <div>
-                  <FieldLabel htmlFor="schedule-hour">Hour</FieldLabel>
+                  <FieldLabel htmlFor="schedule-hour">{t('schedules.editor.hour')}</FieldLabel>
                   <input
                     id="schedule-hour"
                     type="number"
@@ -377,7 +395,7 @@ export default function ScheduleEditor({
                   />
                 </div>
                 <div>
-                  <FieldLabel htmlFor="schedule-minute">Minute</FieldLabel>
+                  <FieldLabel htmlFor="schedule-minute">{t('schedules.editor.minute')}</FieldLabel>
                   <input
                     id="schedule-minute"
                     type="number"
@@ -391,7 +409,7 @@ export default function ScheduleEditor({
                 </div>
                 {shapeKind === 'weekly' ? (
                   <div>
-                    <FieldLabel htmlFor="schedule-day">Day</FieldLabel>
+                    <FieldLabel htmlFor="schedule-day">{t('schedules.editor.day')}</FieldLabel>
                     <select
                       id="schedule-day"
                       value={day}
@@ -399,7 +417,11 @@ export default function ScheduleEditor({
                       className="mt-1 h-8 w-full rounded-md border border-border bg-background px-2 text-[11px] text-foreground"
                       data-testid="schedule-day"
                     >
-                      {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((name, index) => (
+                      {Array.from({ length: 7 }, (_, index) =>
+                        new Intl.DateTimeFormat(getLocale(), { weekday: 'short' }).format(
+                          new Date(2024, 0, index + 1)
+                        )
+                      ).map((name, index) => (
                         <option key={name} value={index + 1}>
                           {name}
                         </option>
@@ -413,7 +435,7 @@ export default function ScheduleEditor({
             )}
 
             <div>
-              <FieldLabel htmlFor="schedule-overlap">If a run is still busy</FieldLabel>
+              <FieldLabel htmlFor="schedule-overlap">{t('schedules.editor.overlap')}</FieldLabel>
               <select
                 id="schedule-overlap"
                 value={overlap}
@@ -421,21 +443,23 @@ export default function ScheduleEditor({
                 className="mt-1 h-8 w-full rounded-md border border-border bg-background px-2 text-[11px] text-foreground"
                 data-testid="schedule-overlap"
               >
-                <option value="queue">Queue the new run</option>
-                <option value="skip">Skip this occurrence</option>
+                <option value="queue">{t('schedules.editor.queue')}</option>
+                <option value="skip">{t('schedules.editor.skip')}</option>
               </select>
               <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
-                Queue keeps every occurrence. Skip avoids a pile-up when a run takes longer than its cadence.
+                {t('schedules.editor.overlapHelp')}
               </p>
             </div>
 
             <div className="rounded-md border border-border bg-muted/30 px-3 py-2">
-              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Schedule</p>
-              <p className="mt-1 text-[11.5px] text-foreground">{scheduleLabel(shape)}</p>
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                {t('schedules.editor.schedule')}
+              </p>
+              <p className="mt-1 text-[11.5px] text-foreground">{scheduleLabel(shape, getLocale())}</p>
               <p className="mt-0.5 text-[10.5px] text-muted-foreground">
                 {schedule?.enabled === false
-                  ? 'Paused · resume it from the list to arm the timer'
-                  : `Next run · ${formatInstant(nextRun)}`}
+                  ? t('schedules.editor.pausedHelp')
+                  : t('schedules.editor.nextRun', { time: formatInstant(nextRun) })}
               </p>
             </div>
 
@@ -455,8 +479,7 @@ export default function ScheduleEditor({
                 {confirmDelete ? (
                   <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2" data-testid="schedule-delete-confirm">
                     <p className="text-[10.5px] leading-relaxed text-destructive">
-                      Delete <span className="font-medium">{schedule.title}</span>? Tasks it already
-                      created stay in Tasks.
+                      {t('schedules.editor.deleteConfirm', { title: schedule.title })}
                     </p>
                     <div className="mt-2 flex items-center gap-2">
                       <button
@@ -467,7 +490,7 @@ export default function ScheduleEditor({
                         data-testid="schedule-delete"
                       >
                         {busy ? <Loader2 size={10} className="animate-spin" /> : <Trash2 size={10} />}
-                        Delete schedule
+                        {t('schedules.editor.delete')}
                       </button>
                       <button
                         type="button"
@@ -475,7 +498,7 @@ export default function ScheduleEditor({
                         onClick={() => setConfirmDelete(false)}
                         disabled={busy}
                       >
-                        Cancel
+                        {t('schedules.editor.cancel')}
                       </button>
                     </div>
                   </div>
@@ -488,7 +511,7 @@ export default function ScheduleEditor({
                     data-testid="schedule-delete-ask"
                   >
                     <Trash2 size={10} />
-                    Delete schedule
+                    {t('schedules.editor.delete')}
                   </button>
                 )}
               </div>
@@ -502,10 +525,12 @@ export default function ScheduleEditor({
               onClick={onClose}
               disabled={busy}
             >
-              Cancel
+              {t('schedules.editor.cancel')}
             </button>
             <span className="ml-auto text-[10px] text-muted-foreground">
-              {mode === 'edit' ? 'Existing tasks are kept.' : 'Every occurrence creates a task.'}
+              {mode === 'edit'
+                ? t('schedules.editor.keepTasks')
+                : t('schedules.editor.createsTask')}
             </span>
             <button
               type="submit"
@@ -513,7 +538,11 @@ export default function ScheduleEditor({
               disabled={!canSave}
               data-testid="schedule-save"
             >
-              {busy ? 'Saving…' : mode === 'edit' ? 'Save changes' : 'Add schedule'}
+              {busy
+                ? t('schedules.editor.saving')
+                : mode === 'edit'
+                  ? t('schedules.editor.save')
+                  : t('schedules.editor.add')}
             </button>
           </div>
         </form>

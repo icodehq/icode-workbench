@@ -10,6 +10,7 @@ import type { ExecutionTarget } from '../../../shared/domain/repository'
 import { isActiveSessionState, isTerminalSessionState } from '../../../shared/domain/session'
 import { wakeDescription, wakePlan } from '../../../shared/domain/session-sleep'
 import { callApi, errorNotice, isAbsolutePathLike } from '../lib/api'
+import { getLocale, translate, translatePlural } from '../i18n/i18n-store'
 import { readTerminalSize } from '../terminal/terminal-size'
 import {
   createInitialState,
@@ -224,7 +225,7 @@ export function useWorkspace(): {
       const reposOk = await refreshRepos()
       await refreshSessions()
       if (!reposOk) {
-        dispatch({ type: 'bootFailed', message: 'Could not load registered repositories.' })
+        dispatch({ type: 'bootFailed', message: translate('workspace.bootFailed') })
       } else {
         dispatch({ type: 'booted' })
       }
@@ -320,8 +321,8 @@ export function useWorkspace(): {
         return makeAppError('INVALID_ARGUMENT', 'Enter the absolute path of a Git repository.', {
           detail:
             input.target.kind === 'wsl'
-              ? `That is a path inside ${input.target.distro}.`
-              : 'That is a path on this machine.'
+              ? translate('workspace.pathInsideDistro', { distro: input.target.distro })
+              : translate('workspace.pathOnMachine')
         })
       }
       // A guest path is POSIX because the distro is Linux; a local path follows
@@ -340,7 +341,11 @@ export function useWorkspace(): {
     async (value: AddRepositoryResultPayload, message: string): Promise<AppError | null> => {
       const reposOk = await refreshRepos()
       if (!reposOk) {
-        return makeAppError('INTERNAL', 'The repository was registered but the list could not be refreshed.')
+        return makeAppError(
+          'INTERNAL',
+          'The repository was registered but the list could not be refreshed.',
+          { messageKey: 'workspace.notice.repoRefreshFailed' }
+        )
       }
       dispatch({ type: 'selectRepo', repoId: value.id })
       await refreshSessions()
@@ -375,8 +380,8 @@ export function useWorkspace(): {
       return finishRepositoryAdd(
         result.value,
         result.value.alreadyRegistered
-          ? `${result.value.displayName} was already registered — selected it instead.`
-          : `Registered ${result.value.displayName}.`
+          ? translate('workspace.notice.alreadySelected', { name: result.value.displayName })
+          : translate('workspace.notice.registered', { name: result.value.displayName })
       )
     },
     [finishRepositoryAdd, notify, validateAddPath]
@@ -402,11 +407,11 @@ export function useWorkspace(): {
       const preparing = value.initialized && value.preparation?.state === 'preparing'
       const message = value.alreadyRegistered
         ? preparing
-          ? `${value.displayName} was already registered — preparing its first commit.`
-          : `${value.displayName} was already registered — selected it instead.`
+          ? translate('workspace.notice.alreadyPreparing', { name: value.displayName })
+          : translate('workspace.notice.alreadySelected', { name: value.displayName })
         : preparing
-          ? `Preparing ${value.displayName}. The first commit is running in the background.`
-          : `Registered ${value.displayName}.`
+          ? translate('workspace.notice.preparing', { name: value.displayName })
+          : translate('workspace.notice.registered', { name: value.displayName })
       return finishRepositoryAdd(value, message)
     },
     [finishRepositoryAdd, notify, validateAddPath]
@@ -422,7 +427,9 @@ export function useWorkspace(): {
       await refreshRepos()
       notify({
         tone: 'info',
-        message: `Retrying the first commit for ${result.value.displayName}.`
+        message: translate('workspace.notice.retryingFirstCommit', {
+          project: result.value.displayName
+        })
       })
     },
     [notify, refreshRepos]
@@ -438,7 +445,7 @@ export function useWorkspace(): {
       const outcome = result.value
       if (outcome.status === 'removed') {
         dispatch({ type: 'removalPrompt', prompt: null })
-        notify({ tone: 'success', message: 'Repository removed.' })
+        notify({ tone: 'success', message: translate('workspace.notice.repositoryRemoved') })
         await Promise.all([refreshRepos(), refreshSessions()])
         return
       }
@@ -457,7 +464,7 @@ export function useWorkspace(): {
       if (outcome.status === 'blocked_live_sessions') {
         notify({
           tone: 'error',
-          message: 'This repository still has live sessions. Stop them before removing it.',
+          message: translate('workspace.notice.repositoryStillLive'),
           detail: outcome.sessions.map((session) => session.title).join(', ')
         })
         return
@@ -465,7 +472,7 @@ export function useWorkspace(): {
       if (outcome.status === 'blocked_worktree_changes') {
         notify({
           tone: 'error',
-          message: 'Session worktrees still hold unprotected work, so removal was not attempted.',
+          message: translate('workspace.notice.worktreesHoldWork'),
           detail: outcome.blockers
             .map((entry) => `${entry.session.title}: ${entry.blocker.kind}`)
             .join(', ')
@@ -474,7 +481,7 @@ export function useWorkspace(): {
       }
       notify({
         tone: 'error',
-        message: 'Could not verify live sessions, so removal was not attempted.',
+        message: translate('workspace.notice.couldNotVerify'),
         detail: outcome.error.message
       })
     },
@@ -497,7 +504,10 @@ export function useWorkspace(): {
     const outcome = result.value
     if (outcome.status === 'removed') {
       dispatch({ type: 'removalPrompt', prompt: null })
-      notify({ tone: 'success', message: `${prompt.repoName} was removed.` })
+      notify({
+        tone: 'success',
+        message: translate('workspace.notice.projectRemoved', { project: prompt.repoName })
+      })
       await Promise.all([refreshRepos(), refreshSessions()])
       return
     }
@@ -505,7 +515,7 @@ export function useWorkspace(): {
       dispatch({ type: 'removalPrompt', prompt: null })
       notify({
         tone: 'error',
-        message: 'Removal was blocked because sessions are still live.',
+        message: translate('workspace.notice.removalLive'),
         detail: outcome.sessions.map((session) => session.title).join(', ')
       })
       return
@@ -514,7 +524,7 @@ export function useWorkspace(): {
       dispatch({ type: 'removalPrompt', prompt: null })
       notify({
         tone: 'error',
-        message: 'Removal was blocked by session worktrees that still hold work.',
+        message: translate('workspace.notice.removalWorktrees'),
         detail: outcome.blockers
           .map((entry) => `${entry.session.title}: ${entry.blocker.kind}`)
           .join(', ')
@@ -524,7 +534,7 @@ export function useWorkspace(): {
     dispatch({ type: 'removalPrompt', prompt: null })
     notify({
       tone: 'error',
-      message: 'Repository removal did not complete.',
+      message: translate('workspace.notice.removalIncomplete'),
       ...(outcome.status === 'host_unavailable' ? { detail: outcome.error.message } : {})
     })
   }, [notify, refreshRepos, refreshSessions, state.removal])
@@ -549,7 +559,7 @@ export function useWorkspace(): {
         // The backend has deleted the row. Drop it from this window immediately
         // instead of making the user wait for a full Host/Git refresh first.
         dispatch({ type: 'sessionRemoved', sessionId })
-        notify({ tone: 'success', message: 'Session removed.' })
+        notify({ tone: 'success', message: translate('workspace.notice.sessionRemoved') })
         void Promise.all([refreshSessions(), refreshBranches()])
         return
       }
@@ -557,14 +567,14 @@ export function useWorkspace(): {
       if (outcome.status === 'blocked_live_sessions') {
         notify({
           tone: 'error',
-          message: 'This session is still running. Try again in a moment.'
+          message: translate('workspace.notice.sessionStillRunning')
         })
         return
       }
       if (outcome.status === 'host_unavailable') {
         notify({
           tone: 'error',
-          message: 'The session could not be removed because the terminal service is unavailable.',
+          message: translate('workspace.notice.terminalUnavailable'),
           detail: outcome.error.message
         })
         return
@@ -599,8 +609,11 @@ export function useWorkspace(): {
         dispatch({ type: 'sessionCleanup', prompt: null })
         notify({
           tone: 'success',
-          message: `Worktree discarded. Branch ${outcome.branch} was retained.`,
-          detail: `${String(outcome.files.length)} modified file(s) and ${String(outcome.commits)} unmerged commit(s) were removed with the checkout.`
+          message: translate('workspace.notice.discarded', { branch: outcome.branch }),
+          detail: translate('workspace.discard.summary', {
+            files: translatePlural('workspace.discard.files', outcome.files.length),
+            commits: translatePlural('workspace.discard.commits', outcome.commits)
+          })
         })
         await Promise.all([refreshSessions(), refreshBranches()])
         return true
@@ -610,14 +623,16 @@ export function useWorkspace(): {
           type: 'sessionCleanup',
           prompt: {
             sessionId,
-            title: state.sessions.find((entry) => entry.id === sessionId)?.title ?? 'Session',
+            title:
+              state.sessions.find((entry) => entry.id === sessionId)?.title ??
+              translate('workspace.notice.sessionFallback'),
             branch: state.sessions.find((entry) => entry.id === sessionId)?.worktree?.branch ?? '',
             blocker: outcome.blocker
           }
         })
         notify({
           tone: 'error',
-          message: 'Discard is blocked: the worktree cannot be verified.',
+          message: translate('workspace.notice.discardBlocked'),
           detail: outcome.blocker.detail ?? outcome.blocker.kind
         })
         return false
@@ -626,8 +641,8 @@ export function useWorkspace(): {
         tone: 'error',
         message:
           outcome.status === 'host_unavailable'
-            ? 'The terminal host is unreachable, so nothing was discarded.'
-            : 'A live terminal blocks discard. Stop the session first.'
+            ? translate('workspace.notice.hostUnreachableNothingDiscarded')
+            : translate('workspace.notice.liveBlocksDiscard')
       })
       return false
     },
@@ -645,7 +660,7 @@ export function useWorkspace(): {
       dispatch({ type: 'sessionCleanup', prompt: null })
       notify({
         tone: 'success',
-        message: 'Worktree re-created from its retained branch. Start the session to continue.'
+        message: translate('workspace.notice.recovered')
       })
       await refreshSessions()
     },
@@ -674,7 +689,10 @@ export function useWorkspace(): {
       const outcome = result.value
       if (outcome.status === 'removed') {
         dispatch({ type: 'branchCleanup', prompt: null })
-        notify({ tone: 'success', message: `Branch ${outcome.branch} deleted.` })
+        notify({
+          tone: 'success',
+          message: translate('workspace.notice.branchDeleted', { branch: outcome.branch })
+        })
         await refreshBranches()
         return
       }
@@ -688,14 +706,14 @@ export function useWorkspace(): {
       if (outcome.status === 'blocked_worktree') {
         notify({
           tone: 'error',
-          message: 'A worktree still uses this branch, so it was not deleted.',
+          message: translate('workspace.notice.branchWorktree'),
           detail: outcome.path
         })
         return
       }
       notify({
         tone: 'error',
-        message: 'iCode does not own this branch, so it will not delete it.'
+        message: translate('workspace.notice.branchNotOwned')
       })
     },
     [notify, refreshBranches, state.activeRepoId]
@@ -711,7 +729,7 @@ export function useWorkspace(): {
       if (!detection || detection.state !== 'available') {
         notify({
           tone: 'error',
-          message: 'That Harness is not available, so no session was started.'
+          message: translate('workspace.notice.harnessUnavailable')
         })
         return false
       }
@@ -747,7 +765,10 @@ export function useWorkspace(): {
       }
       dispatch({ type: 'sessionUpserted', session: result.value })
       dispatch({ type: 'selectSession', sessionId: result.value.id })
-      notify({ tone: 'success', message: `Started ${result.value.title}.` })
+      notify({
+        tone: 'success',
+        message: translate('workspace.notice.started', { title: result.value.title })
+      })
       return true
     },
     [notify, refreshHarnesses, refreshSessions, state.harnesses]
@@ -766,7 +787,9 @@ export function useWorkspace(): {
       }
       notify({
         tone: 'info',
-        message: `Stop requested for ${session?.title ?? 'the session'}. Waiting for the process to exit.`
+        message: translate('workspace.notice.stopRequested', {
+          title: session?.title ?? translate('workspace.notice.theSession')
+        })
       })
       const existing = stopTimers.current.get(sessionId)
       if (existing !== undefined) clearTimeout(existing)
@@ -787,7 +810,7 @@ export function useWorkspace(): {
               dispatch({ type: 'pendingClear', sessionId })
               notify({
                 tone: 'error',
-                message: 'A stop was requested, but the process is still running.',
+                message: translate('workspace.notice.stillRunning'),
                 ...(fresh.value.error ? { detail: fresh.value.error.message } : {})
               })
             } else {
@@ -819,7 +842,9 @@ export function useWorkspace(): {
       dispatch({ type: 'sessionUpserted', session: result.value })
       notify({
         tone: 'success',
-        message: `Restarted ${session?.title ?? 'the session'}.`
+        message: translate('workspace.notice.restarted', {
+          title: session?.title ?? translate('workspace.notice.theSession')
+        })
       })
     },
     [notify, refreshSessions, state.sessions]
@@ -839,11 +864,13 @@ export function useWorkspace(): {
       dispatch({ type: 'sessionUpserted', session: result.value })
       notify({
         tone: 'info',
-        message: `Slept ${session?.title ?? 'the session'}.`,
+        message: translate('workspace.notice.slept', {
+          title: session?.title ?? translate('workspace.notice.theSession')
+        }),
         detail:
           session === undefined
             ? undefined
-            : wakeDescription(session.harness)
+            : wakeDescription(session.harness, getLocale())
       })
     },
     [notify, refreshSessions, state.sessions]
@@ -863,13 +890,15 @@ export function useWorkspace(): {
       dispatch({ type: 'sessionUpserted', session: result.value })
       notify({
         tone: 'success',
-        message: `Woke ${session?.title ?? 'the session'}.`,
+        message: translate('workspace.notice.woke', {
+          title: session?.title ?? translate('workspace.notice.theSession')
+        }),
         detail:
           session === undefined
             ? undefined
             : wakePlan(session.harness, null).resumesConversation
-              ? 'The conversation was resumed in this worktree.'
-              : 'A new shell was started in this worktree.'
+              ? translate('workspace.resumed')
+              : translate('workspace.notice.newShell')
       })
     },
     [notify, refreshSessions, state.sessions]
@@ -887,9 +916,11 @@ export function useWorkspace(): {
       if (isTerminalSessionState(result.value.state)) {
         notify({
           tone: 'info',
-          message: `Session is ${result.value.state}.`,
+          message: translate('workspace.notice.sessionState', {
+            state: translate(`session.state.${result.value.state}`)
+          }),
           ...(result.value.exitCode !== null
-            ? { detail: `Exit code ${String(result.value.exitCode)}.` }
+            ? { detail: translate('workspace.notice.exitCode', { code: result.value.exitCode }) }
             : {})
         })
       }

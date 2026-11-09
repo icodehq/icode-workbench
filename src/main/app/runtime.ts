@@ -38,6 +38,7 @@ import { AssistantPolicy } from '../assistant/assistant-policy'
 import { AssistantNotifier } from '../assistant/assistant-notifier'
 import { ActivityService } from '../activity/activity-service'
 import { ActivityHookServer } from '../activity/hook-server'
+import { mainT } from '../i18n/main-i18n'
 import { activitySocketPath as activityEndpoint } from '../activity/endpoint'
 import { installClaudeHooks } from '../activity/claude-hooks'
 import { ActivityBroadcaster } from '../activity/activity-broadcaster'
@@ -176,7 +177,7 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     isKnownSession: (sessionId) => persistence.sessions.findById(sessionId as never) !== null,
     onTransition: (transition) => {
       const row = persistence.sessions.findById(transition.sessionId as never)
-      activityBroadcaster.handle(transition, row?.title ?? 'iCode session')
+      activityBroadcaster.handle(transition, row?.title ?? mainT('notifications.sessionTitle'))
       assistantNotifier?.onChange()
       if (transition.harnessSessionId !== null) {
         persistence.sessions.setResumeToken(

@@ -30,6 +30,7 @@ import type { RepositorySummary, SessionSummary } from '../../../shared/schemas/
 import { fuzzyScore } from '../files/fuzzy'
 import { getWorktreeFileIndex } from '../files/file-index'
 import { shortcutHint } from '../lib/platform'
+import { useT } from '../i18n/use-i18n'
 import type { Notice } from '../state/workspace'
 import {
   filterAndSortProjects,
@@ -84,20 +85,28 @@ type Props = {
   onOpenFile: (path: string, line: number) => void
 }
 
-const kindTitle: Record<PaletteKind, string> = {
-  action: 'Actions',
-  project: 'Projects',
-  work: 'Sessions & Tasks',
-  file: 'Files'
+const KIND_TITLE_KEY: Record<PaletteKind, 'palette.kind.actions' | 'palette.kind.projects' | 'palette.kind.work' | 'palette.kind.files'> = {
+  action: 'palette.kind.actions',
+  project: 'palette.kind.projects',
+  work: 'palette.kind.work',
+  file: 'palette.kind.files'
 }
 
-function repoName(repos: RepositorySummary[], id: string): string {
-  return repos.find((repo) => repo.id === id)?.displayName ?? 'unknown project'
+function repoName(
+  repos: RepositorySummary[],
+  id: string,
+  t: ReturnType<typeof useT>
+): string {
+  return repos.find((repo) => repo.id === id)?.displayName ?? t('palette.unknownProject')
 }
 
-function workHint(task: TaskRecordPayload, repos: RepositorySummary[]): string {
+function workHint(
+  task: TaskRecordPayload,
+  repos: RepositorySummary[],
+  t: ReturnType<typeof useT>
+): string {
   const attention = taskAttention(task)
-  return `${repoName(repos, task.repoId)} · ${attention ?? taskStatusLabel(task)}`
+  return `${repoName(repos, task.repoId, t)} · ${attention ?? taskStatusLabel(task)}`
 }
 
 function workMatches(
@@ -141,6 +150,7 @@ export default function CommandPalette({
   onOpenTask,
   onOpenFile
 }: Props): React.JSX.Element | null {
+  const t = useT()
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
   const [files, setFiles] = useState<string[]>([])
@@ -193,11 +203,11 @@ export default function CommandPalette({
         label,
         hint:
           scmSessionId === null
-            ? 'open a session first'
+            ? t('palette.openSessionFirst')
             : !available
-              ? 'Source Control is not ready'
+              ? t('palette.sourceControlNotReady')
               : !entry.enabled
-                ? entry.disabledReason ?? 'unavailable'
+                ? entry.disabledReason ?? t('common.unavailable')
                 : hint,
         icon,
         disabled,
@@ -210,12 +220,12 @@ export default function CommandPalette({
       {
         id: 'new-session',
         kind: 'action',
-        label: 'New session',
+        label: t('palette.action.newSession'),
         hint: !canStartSession
-          ? 'Host unreachable'
+          ? t('palette.hostUnreachable')
           : repos.length === 0
-            ? 'add a repository first'
-            : 'direct',
+            ? t('palette.addRepositoryFirst')
+            : t('palette.direct'),
         icon: TerminalSquare,
         disabled: !canStartSession,
         run: onNewSession
@@ -223,16 +233,16 @@ export default function CommandPalette({
       {
         id: 'queue-task',
         kind: 'action',
-        label: 'Queue task',
-        hint: 'unattended',
+        label: t('palette.action.queueTask'),
+        hint: t('palette.unattended'),
         icon: ListTodo,
         run: onQueueTask
       },
       {
         id: 'assistant',
         kind: 'action',
-        label: 'Talk to Mira',
-        hint: 'all projects',
+        label: t('palette.action.assistant'),
+        hint: t('palette.allProjects'),
         icon: Bot,
         disabled: !onOpenAssistant,
         run: () => onOpenAssistant?.()
@@ -240,57 +250,60 @@ export default function CommandPalette({
       {
         id: 'projects',
         kind: 'action',
-        label: 'Go to Projects',
-        hint: 'all projects',
+        label: t('palette.action.projects'),
+        hint: t('palette.allProjects'),
         icon: LayoutGrid,
         run: onProjects
       },
       {
         id: 'source-control',
         kind: 'action',
-        label: 'Go to Source Control',
+        label: t('palette.action.sourceControl'),
         hint:
           fileSession === null
-            ? 'open a session first'
-            : `staging and commits · ${fileSession.title}`,
+            ? t('palette.openSessionFirst')
+            : t('palette.stagingCommits', { session: fileSession.title }),
         icon: GitBranch,
         disabled: fileSession === null,
         run: onSourceControl
       },
-      scmAction('git.commit', 'Commit', 'commit the staged changes', GitCommitHorizontal),
-      scmAction('git.commitAll', 'Commit All', 'stage and commit every change', GitCommitHorizontal),
-      scmAction('git.refresh', 'Refresh Source Control', 're-read Git status', RefreshCw),
-      scmAction('git.stageAll', 'Stage All Changes', 'stage every unstaged file', Plus),
-      scmAction('git.unstageAll', 'Unstage All Changes', 'unstage every staged file', Minus),
-      scmAction('git.discardAll', 'Discard All Changes', 'revert every uncommitted change', Trash2),
-      scmAction('git.pull', 'Git: Pull', 'pull from the upstream remote', ArrowDownToLine),
-      scmAction('git.push', 'Git: Push', 'push to the upstream remote', ArrowUpFromLine),
-      scmAction('git.sync', 'Git: Sync', 'pull then push', RefreshCw),
-      scmAction('git.publish', 'Git: Publish Branch', 'push a branch without an upstream', CloudUpload),
-      scmAction('git.viewHistory', 'Git: View History', 'browse the commit graph', History),
-      scmAction('git.continueOperation', 'Git: Continue Operation', 'continue a merge or rebase', Play),
-      scmAction('git.abortOperation', 'Git: Abort Operation', 'abort a merge or rebase', Square),
+      scmAction('git.commit', t('palette.action.commit'), t('palette.hint.commit'), GitCommitHorizontal),
+      scmAction('git.commitAll', t('palette.action.commitAll'), t('palette.hint.commitAll'), GitCommitHorizontal),
+      scmAction('git.refresh', t('palette.action.refreshScm'), t('palette.hint.refreshScm'), RefreshCw),
+      scmAction('git.stageAll', t('palette.action.stageAll'), t('palette.hint.stageAll'), Plus),
+      scmAction('git.unstageAll', t('palette.action.unstageAll'), t('palette.hint.unstageAll'), Minus),
+      scmAction('git.discardAll', t('palette.action.discardAll'), t('palette.hint.discardAll'), Trash2),
+      scmAction('git.pull', t('palette.action.pull'), t('palette.hint.pull'), ArrowDownToLine),
+      scmAction('git.push', t('palette.action.push'), t('palette.hint.push'), ArrowUpFromLine),
+      scmAction('git.sync', t('palette.action.sync'), t('palette.hint.sync'), RefreshCw),
+      scmAction('git.publish', t('palette.action.publish'), t('palette.hint.publish'), CloudUpload),
+      scmAction('git.viewHistory', t('palette.action.history'), t('palette.hint.history'), History),
+      scmAction('git.continueOperation', t('palette.action.continue'), t('palette.hint.continue'), Play),
+      scmAction('git.abortOperation', t('palette.action.abort'), t('palette.hint.abort'), Square),
       {
         id: 'schedules',
         kind: 'action',
-        label: 'Go to Schedules',
-        hint: 'recurring tasks',
+        label: t('palette.action.schedules'),
+        hint: t('palette.hint.recurring'),
         icon: CalendarClock,
         run: onSchedules
       },
       {
         id: 'settings',
         kind: 'action',
-        label: 'Go to Settings',
-        hint: 'appearance, slots, Harnesses',
+        label: t('palette.action.settings'),
+        hint: t('palette.hint.settings'),
         icon: Settings,
         run: onSettings
       },
       {
         id: 'toggle-theme',
         kind: 'action',
-        label: 'Toggle appearance',
-        hint: resolvedTheme === 'dark' ? 'switch to light' : 'switch to dark',
+        label: t('palette.action.toggleAppearance'),
+        hint:
+          resolvedTheme === 'dark'
+            ? t('palette.hint.toggleLight')
+            : t('palette.hint.toggleDark'),
         icon: resolvedTheme === 'dark' ? Sun : Moon,
         run: onToggleTheme
       }
@@ -311,7 +324,8 @@ export default function CommandPalette({
     onToggleTheme,
     repos.length,
     resolvedTheme,
-    scmCommands
+    scmCommands,
+    t
   ])
 
   const projects = useMemo<PaletteItem[]>(() => {
@@ -322,13 +336,13 @@ export default function CommandPalette({
         id: `project:${project.repo.id}`,
         kind: 'project',
         label: project.repo.displayName,
-        hint: `${project.repo.target.kind === 'wsl' ? 'WSL' : 'Local'} · ${
-          project.repo.currentBranch ?? 'no branch'
+        hint: `${project.repo.target.kind === 'wsl' ? 'WSL' : t('projects.target.local')} · ${
+          project.repo.currentBranch ?? t('palette.hint.noBranch')
         }`,
         icon: FolderGit2,
         run: () => onOpenProject(project.repo.id)
       }))
-  }, [normalizedQuery, onOpenProject, repos, sessions, tasks])
+  }, [normalizedQuery, onOpenProject, repos, sessions, tasks, t])
 
   const work = useMemo<PaletteItem[]>(() => {
     const taskSessionIds = new Set(
@@ -339,7 +353,7 @@ export default function CommandPalette({
       .filter((session) =>
         workMatches(
           session.title,
-          repoName(repos, session.repoId),
+          repoName(repos, session.repoId, t),
           normalizedQuery
         )
       )
@@ -349,24 +363,26 @@ export default function CommandPalette({
         id: `session:${session.id}`,
         kind: 'work',
         label: session.title,
-        hint: `${repoName(repos, session.repoId)} · ${sessionStateLabel(session.state, null)}`,
+        hint: `${repoName(repos, session.repoId, t)} · ${sessionStateLabel(session.state, null)}`,
         icon: TerminalSquare,
         run: () => onOpenSession(session.id)
       }))
     const taskItems = tasks
-      .filter((task) => workMatches(task.title, workHint(task, repos), normalizedQuery))
+      .filter((task) =>
+        workMatches(task.title, workHint(task, repos, t), normalizedQuery)
+      )
       .sort((left, right) => right.updatedAt - left.updatedAt)
       .slice(0, 12)
       .map<PaletteItem>((task) => ({
         id: `task:${task.id}`,
         kind: 'work',
         label: task.title,
-        hint: workHint(task, repos),
+        hint: workHint(task, repos, t),
         icon: task.sessionLive ? TerminalSquare : ListTodo,
         run: () => onOpenTask(task)
       }))
     return [...sessionItems, ...taskItems].slice(0, 14)
-  }, [normalizedQuery, onOpenSession, onOpenTask, repos, sessions, tasks])
+  }, [normalizedQuery, onOpenSession, onOpenTask, repos, sessions, tasks, t])
 
   const fileItems = useMemo<PaletteItem[]>(() => {
     if (fileSession === null) return []
@@ -382,11 +398,11 @@ export default function CommandPalette({
       id: `file:${path}`,
       kind: 'file',
       label: path,
-      hint: `Open in ${fileSession.title} · Files`,
+      hint: t('palette.filesGroup', { session: fileSession.title }),
       icon: FileText,
       run: () => onOpenFile(path, 1)
     }))
-  }, [fileSession, files, filesIndexed, normalizedQuery, onOpenFile])
+  }, [fileSession, files, filesIndexed, normalizedQuery, onOpenFile, t])
 
   const groups = [
     { kind: 'action' as const, items: actions },
@@ -444,7 +460,7 @@ export default function CommandPalette({
         className="icode-command-palette w-[min(680px,100%)] overflow-hidden rounded-xl border border-line-strong bg-overlay shadow-[var(--icode-shadow-overlay)]"
         role="dialog"
         aria-modal="true"
-        aria-label="Command palette"
+        aria-label={t('palette.aria')}
       >
         <div className="flex items-center gap-2.5 border-b border-border px-3.5">
           <Search size={14} className="shrink-0 text-muted-foreground" />
@@ -456,9 +472,9 @@ export default function CommandPalette({
               setActive(0)
             }}
             onKeyDown={onKeyDown}
-            placeholder="Search projects, work, files and commands"
+            placeholder={t('palette.placeholder')}
             className="h-[46px] min-w-0 flex-1 bg-transparent text-[13.5px] text-foreground outline-none placeholder:text-muted-foreground"
-            aria-label="Search projects, work, files and commands"
+            aria-label={t('palette.placeholder')}
             data-testid="command-palette-input"
             autoComplete="off"
             spellCheck={false}
@@ -471,7 +487,7 @@ export default function CommandPalette({
         <div className="max-h-[calc(72vh-50px)] overflow-y-auto p-1.5" data-testid="command-palette-results">
           {flat.length === 0 && normalizedQuery.length > 0 ? (
             <p className="px-3 py-5 text-[11.5px] text-muted-foreground">
-              No match. Try a project, session, task, file path or command.
+              {t('palette.noMatch')}
             </p>
           ) : null}
           {groups.map((group) => {
@@ -490,13 +506,17 @@ export default function CommandPalette({
             return (
               <section key={group.kind} className="mb-1.5 last:mb-0" data-testid={`command-group-${group.kind}`}>
                 <h2 className="px-2 pb-1 pt-1.5 text-[9px] font-semibold uppercase tracking-[0.09em] text-muted-foreground">
-                  {kindTitle[group.kind]}
+                  {t(KIND_TITLE_KEY[group.kind])}
                 </h2>
                 {showIndexing ? (
-                  <p className="px-2 py-1.5 text-[11px] text-muted-foreground">Indexing worktree…</p>
+                  <p className="px-2 py-1.5 text-[11px] text-muted-foreground">
+                    {t('palette.indexing')}
+                  </p>
                 ) : null}
                 {showEmpty ? (
-                  <p className="px-2 py-1.5 text-[11px] text-muted-foreground">No matching files.</p>
+                  <p className="px-2 py-1.5 text-[11px] text-muted-foreground">
+                    {t('palette.noMatchingFiles')}
+                  </p>
                 ) : null}
                 {group.items.map((item) => {
                   const index = indexById.get(item.id) ?? 0
@@ -534,15 +554,17 @@ export default function CommandPalette({
         </div>
 
         <div className="flex items-center gap-2 border-t border-border px-3 py-2 text-[10px] text-muted-foreground">
-          <span>↑↓ navigate</span>
+          <span>{t('palette.navigate')}</span>
           <span>·</span>
-          <span>Enter open</span>
+          <span>{t('palette.enterOpen')}</span>
           <span>·</span>
-          <span>Esc close</span>
+          <span>{t('palette.escClose')}</span>
           {fileSession === null ? (
-            <span className="ml-auto truncate">Files need an active session</span>
+            <span className="ml-auto truncate">{t('palette.filesNeedSession')}</span>
           ) : (
-            <span className="ml-auto max-w-[45%] truncate">Files · {fileSession.title}</span>
+            <span className="ml-auto max-w-[45%] truncate">
+              {t('palette.filesGroup', { session: fileSession.title })}
+            </span>
           )}
         </div>
       </div>

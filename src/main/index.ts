@@ -11,6 +11,9 @@ import { clampWindowState, loadWindowState, trackWindowState } from './window-st
 import { installWindowCloseGuard } from './window-close'
 import { applyLoginEnvironment } from './app/login-environment'
 import { APP_LOCAL_PROFILE_DIR_NAME, APP_NAME } from '../shared/domain/app-identity'
+import { LocaleService } from './i18n/locale-service'
+import { setMainLocale } from './i18n/main-i18n'
+import type { Locale } from '../shared/i18n'
 
 app.setName(APP_NAME)
 
@@ -32,20 +35,45 @@ mkdirSync(profileDirectory, { recursive: true })
 app.setPath('userData', profileDirectory)
 app.setPath('sessionData', profileDirectory)
 
+/**
+ * Language preference is read from the profile before any UI exists. The
+ * resolved locale drives the native menu, dialogs, notifications, and the
+ * renderer's first paint; changing it later rebuilds the menu and reaches every
+ * open window without a restart.
+ */
+const localeService = new LocaleService({
+  directory: profileDirectory,
+  systemLanguages: () => [app.getPreferredSystemLanguages(), app.getLocale()].flat(),
+  onChange: (state) => {
+    setMainLocale(state.locale)
+    installApplicationMenu(state.locale)
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (window.isDestroyed() || window.webContents.isDestroyed()) continue
+      window.webContents.send(IPC_CHANNELS.localeChangedEvent, state)
+    }
+  }
+})
+setMainLocale(localeService.locale)
+
 // WSLg needs software rendering; Windows and macOS keep hardware acceleration.
 const disableGpu =
   process.env.ICODE_DISABLE_GPU === '1' ||
   (process.platform === 'linux' && process.env.ICODE_ENABLE_GPU !== '1')
 if (disableGpu) app.disableHardwareAcceleration()
 
-function installRuntimeInfoHandler(): void {
-  ipcMain.handle('icode:runtime-info', () => ({
-    appVersion: app.getVersion(),
-    electron: process.versions.electron ?? null,
-    node: process.versions.node,
-    platform: process.platform,
-    packaged: app.isPackaged
-  }))
+function installRuntimeInfoHandler(localeService?: LocaleService): void {
+  ipcMain.handle('icode:runtime-info', () => {
+    const locale = localeService?.state()
+    return {
+      appVersion: app.getVersion(),
+      electron: process.versions.electron ?? null,
+      node: process.versions.node,
+      platform: process.platform,
+      packaged: app.isPackaged,
+      locale: locale?.locale ?? 'en',
+      systemLocale: locale?.systemLocale ?? 'en'
+    }
+  })
 }
 
 /**
@@ -74,7 +102,7 @@ function watchSystemAppearance(): void {
   })
 }
 
-function createWindow(): void {
+function createWindow(locale: Locale): void {
   const backgroundLaunch = process.env.ICODE_BACKGROUND_LAUNCH === '1'
   const profileDirectory = app.getPath('userData')
   const saved = loadWindowState(profileDirectory)
@@ -102,7 +130,10 @@ function createWindow(): void {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true
+      sandbox: true,
+      // The preload reads this before the renderer mounts, so the first frame
+      // is painted in the selected language without an async IPC round-trip.
+      additionalArguments: [`--icode-locale=${locale}`]
     }
   })
 
@@ -186,13 +217,18 @@ if (gateFlag || packagedSmoke) {
       // Registered before the window exists so a live appearance change also
       // reaches the first window.
       watchSystemAppearance()
-      installApplicationMenu()
+      // The OS language is authoritative only after `ready`; re-resolve here so
+      // the menu, first window argument and renderer agree on one locale.
+      const startupLocale = localeService.state().locale
+      setMainLocale(startupLocale)
+      installApplicationMenu(startupLocale)
       // Diagnostics stay available even if persistence cannot open, so the
       // renderer can show an actionable error instead of a blank window.
-      installRuntimeInfoHandler()
+      installRuntimeInfoHandler(localeService)
       try {
         const runtime = await startAppRuntime()
         registerAppIpc(runtime, () => getAppPersistence(), {
+          locale: localeService,
           ...(process.env.ELECTRON_RENDERER_URL
             ? { devServerUrl: process.env.ELECTRON_RENDERER_URL }
             : {})
@@ -202,9 +238,9 @@ if (gateFlag || packagedSmoke) {
         // usable so the failure can be surfaced instead of silently recreating.
         process.stderr.write(`[icode] application services failed to start: ${String(error)}\n`)
       }
-      createWindow()
+      createWindow(startupLocale)
       app.on('activate', () => {
-        if (BrowserWindow.getAllWindows().length === 0) createWindow()
+        if (BrowserWindow.getAllWindows().length === 0) createWindow(localeService.locale)
       })
     })
     app.on('window-all-closed', () => {

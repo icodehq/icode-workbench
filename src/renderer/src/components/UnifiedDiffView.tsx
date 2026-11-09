@@ -4,6 +4,9 @@ import type { AppError } from '../../../shared/domain/errors'
 import type { FileDiffPayload } from '../../../shared/schemas/changes'
 import type { LineComment } from '../review/drafts'
 import { lineSelectionKey } from '../review/hunk-patch'
+import { useT, useTp } from '../i18n/use-i18n'
+import { formatNumber } from '../../../shared/i18n'
+import { getLocale } from '../i18n/i18n-store'
 import { collapseContext, parseUnifiedDiff, type DiffHunk } from '../review/parse-unified-diff'
 
 export type DiffViewState =
@@ -87,6 +90,8 @@ function HunkView({
   onRemoveComment?: (id: string) => void
   hunkAction?: HunkAction
 }): React.JSX.Element {
+  const t = useT()
+  const tp = useTp()
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [composing, setComposing] = useState<{ side: 'new' | 'old'; line: number } | null>(null)
   const [draft, setDraft] = useState('')
@@ -121,7 +126,7 @@ function HunkView({
         <textarea
           autoFocus
           value={draft}
-          placeholder={`Comment on ${path}:${line}`}
+          placeholder={t('diff.commentPlaceholder', { path, line })}
           className="h-12 w-full resize-none bg-transparent text-[11px] text-foreground outline-none placeholder:text-muted-foreground"
           data-testid="line-comment-input"
           onChange={(event) => setDraft(event.target.value)}
@@ -153,7 +158,7 @@ function HunkView({
               setDraft('')
             }}
           >
-            Add note
+            {t('diff.addNote')}
           </button>
           <button
             type="button"
@@ -163,7 +168,7 @@ function HunkView({
               setDraft('')
             }}
           >
-            Cancel
+            {t('diff.cancel')}
           </button>
         </div>
       </div>
@@ -180,7 +185,7 @@ function HunkView({
           data-testid={`line-comment-${comment.side}-${String(comment.line)}`}
         >
           <span className="font-mono text-[9px] text-add">
-            {comment.side === 'old' ? 'removed' : ''} line {comment.line}
+            {comment.side === 'old' ? t('diff.commentRemovedLine', { line: comment.line }) : t('diff.commentAddedLine', { line: comment.line })}
           </span>
           <span className="min-w-0 flex-1 whitespace-pre-wrap text-[11px] text-foreground">{comment.text}</span>
           <button
@@ -189,7 +194,7 @@ function HunkView({
             onClick={() => onRemoveComment?.(comment.id)}
             data-testid={`line-comment-remove-${comment.side}-${String(comment.line)}`}
           >
-            remove
+            {t('diff.removeNote')}
           </button>
         </div>
       ))
@@ -207,18 +212,20 @@ function HunkView({
                   className="rounded border border-signal-line bg-signal-weak px-1.5 py-0.5 font-sans text-[9.5px] text-signal hover:brightness-95 disabled:opacity-50"
                   disabled={lineAction.pending === index}
                   data-testid={`hunk-lines-${lineAction.mode}-${String(index)}`}
-                  title={`${lineAction.mode === 'stage' ? 'Stage' : 'Unstage'} the selected changed lines`}
+                  title={lineAction.mode === 'stage' ? t('diff.lineStageTitle') : t('diff.lineUnstageTitle')}
                   onClick={() => lineAction.onRun(index, new Set(selected))}
                 >
                   {lineAction.pending === index
-                    ? 'Applying…'
-                    : `${lineAction.mode === 'stage' ? 'Stage' : 'Unstage'} ${String(selected.size)} Line${selected.size === 1 ? '' : 's'}`}
+                    ? t('diff.applying')
+                    : lineAction.mode === 'stage'
+                      ? tp('diff.lineStageAction', selected.size)
+                      : tp('diff.lineUnstageAction', selected.size)}
                 </button>
                 {lineAction.discard ? (
                   lineConfirm ? (
                     <>
                       <span className="font-sans text-[9px] text-destructive">
-                        Discard {String(selected.size)} line{selected.size === 1 ? '' : 's'}?
+                        {tp('diff.discardLinesConfirm', selected.size)}
                       </span>
                       <button
                         type="button"
@@ -230,7 +237,9 @@ function HunkView({
                           lineAction.discard?.onRun(index, new Set(selected))
                         }}
                       >
-                        {lineAction.discard.pending === index ? 'Discarding…' : 'Discard'}
+                        {lineAction.discard.pending === index
+                          ? t('diff.discarding')
+                          : t('diff.discardLine')}
                       </button>
                       <button
                         type="button"
@@ -238,7 +247,7 @@ function HunkView({
                         data-testid={`hunk-lines-discard-cancel-${String(index)}`}
                         onClick={() => setLineConfirm(false)}
                       >
-                        Cancel
+                        {t('diff.cancel')}
                       </button>
                     </>
                   ) : (
@@ -247,10 +256,15 @@ function HunkView({
                       className="rounded border border-destructive/40 bg-card px-1.5 py-0.5 font-sans text-[9.5px] text-destructive hover:bg-destructive/10 disabled:opacity-50"
                       disabled={lineAction.discard.pending === index}
                       data-testid={`hunk-lines-discard-${String(index)}`}
-                      title="Discard the selected changed lines from the worktree"
+                      title={t('diff.discardLinesTitle')}
                       onClick={() => setLineConfirm(true)}
                     >
-                      Discard {String(selected.size)} Line{selected.size === 1 ? '' : 's'}
+                      {t(
+                        selected.size === 1
+                          ? 'diff.discardLines.one'
+                          : 'diff.discardLines.other',
+                        { count: selected.size }
+                      )}
                     </button>
                   )
                 ) : null}
@@ -260,7 +274,7 @@ function HunkView({
                   data-testid={`hunk-lines-clear-${String(index)}`}
                   onClick={() => setSelected(new Set())}
                 >
-                  Clear
+                  {t('diff.clear')}
                 </button>
               </>
             ) : null}
@@ -271,21 +285,21 @@ function HunkView({
               data-testid={`hunk-${hunkAction.mode}-${String(index)}`}
               title={
                 hunkAction.mode === 'stage'
-                  ? 'Stage this hunk'
-                  : 'Unstage this hunk, leaving the worktree unchanged'
+                  ? t('diff.stageHunkTitle')
+                  : t('diff.unstageHunkTitle')
               }
               onClick={() => hunkAction.onRun(index)}
             >
               {hunkAction.pending === index
-                ? 'Applying…'
+                ? t('diff.applying')
                 : hunkAction.mode === 'stage'
-                  ? 'Stage Hunk'
-                  : 'Unstage Hunk'}
+                  ? t('diff.stageHunk')
+                  : t('diff.unstageHunk')}
             </button>
             {hunkAction.discard ? (
               hunkAction.discard.confirm === index ? (
                 <>
-                  <span className="font-sans text-[9px] text-destructive">Discard hunk?</span>
+                  <span className="font-sans text-[9px] text-destructive">{t('diff.discardHunkConfirm')}</span>
                   <button
                     type="button"
                     className="rounded border border-destructive bg-destructive px-1.5 py-0.5 font-sans text-[9.5px] text-white hover:opacity-90 disabled:opacity-50"
@@ -293,7 +307,9 @@ function HunkView({
                     data-testid={`hunk-discard-yes-${String(index)}`}
                     onClick={() => hunkAction.discard?.onRun(index)}
                   >
-                    {hunkAction.discard.pending === index ? 'Discarding…' : 'Discard'}
+                    {hunkAction.discard.pending === index
+                      ? t('diff.discarding')
+                      : t('diff.discard')}
                   </button>
                   <button
                     type="button"
@@ -301,7 +317,7 @@ function HunkView({
                     data-testid={`hunk-discard-cancel-${String(index)}`}
                     onClick={() => hunkAction.discard?.onCancel()}
                   >
-                    Cancel
+                    {t('diff.cancel')}
                   </button>
                 </>
               ) : (
@@ -310,10 +326,12 @@ function HunkView({
                   className="rounded border border-destructive/40 bg-card px-1.5 py-0.5 font-sans text-[9.5px] text-destructive hover:bg-destructive/10 disabled:opacity-50"
                   disabled={hunkAction.discard.pending === index}
                   data-testid={`hunk-discard-${String(index)}`}
-                  title="Discard this hunk from the worktree"
+                  title={t('diff.discardHunkTitle')}
                   onClick={() => hunkAction.discard?.onAsk(index)}
                 >
-                  {hunkAction.discard.pending === index ? 'Discarding…' : 'Discard Hunk'}
+                  {hunkAction.discard.pending === index
+                    ? t('diff.discarding')
+                    : t('diff.discardHunk')}
                 </button>
               )
             ) : null}
@@ -351,7 +369,7 @@ function HunkView({
                 className={`group flex ${tone} ${canComment ? 'cursor-pointer hover:bg-muted/30' : ''}`}
                 onClick={canComment ? openComposer : undefined}
                 data-testid={canComment ? `diff-line-${anchorSide}-${String(anchorLine)}` : undefined}
-                title={canComment ? `Comment on line ${String(anchorLine)}` : undefined}
+                title={canComment ? t('diff.commentLineTitle', { line: anchorLine ?? '' }) : undefined}
               >
                 {lineAction ? (
                   <span
@@ -363,8 +381,12 @@ function HunkView({
                         type="checkbox"
                         className="h-2.5 w-2.5 cursor-pointer accent-signal"
                         checked={selected.has(lineSelectionKey(selectSide, selectLine))}
-                        title={`Select ${selectSide === 'old' ? 'removed' : 'added'} line ${String(selectLine)}`}
-                        aria-label={`Select ${selectSide === 'old' ? 'removed' : 'added'} line ${String(selectLine)}`}
+                        title={selectSide === 'old'
+                          ? t('diff.selectRemovedLine', { line: selectLine })
+                          : t('diff.selectAddedLine', { line: selectLine })}
+                        aria-label={selectSide === 'old'
+                          ? t('diff.selectRemovedLine', { line: selectLine })
+                          : t('diff.selectAddedLine', { line: selectLine })}
                         data-testid={`diff-select-${selectSide}-${String(selectLine)}`}
                         onClick={(event) => event.stopPropagation()}
                         onChange={() => toggleLine(selectSide, selectLine)}
@@ -453,10 +475,11 @@ export default function UnifiedDiffView({
   notice,
   hunkAction
 }: Props): React.JSX.Element {
+  const t = useT()
   if (state.phase === 'loading' || state.phase === 'idle') {
     return (
       <div className="flex h-full items-center justify-center text-[11px] text-muted-foreground">
-        Loading diff…
+        {t('diff.loading')}
       </div>
     )
   }
@@ -464,7 +487,7 @@ export default function UnifiedDiffView({
     return (
       <div className="flex h-full items-center justify-center p-6">
         <div className="w-full max-w-md rounded-md border border-destructive/40 bg-card p-4">
-          <p className="text-[12px] font-medium text-destructive">The diff could not be read</p>
+          <p className="text-[12px] font-medium text-destructive">{t('diff.readError')}</p>
           <p className="mt-1 text-[11px] text-muted-foreground">{state.error.message}</p>
           {state.error.detail ? (
             <p className="mt-1 break-words font-mono text-[10.5px] text-muted-foreground">
@@ -477,7 +500,7 @@ export default function UnifiedDiffView({
             onClick={onRetry}
             data-testid="review-diff-retry"
           >
-            Retry
+            {t('diff.retry')}
           </button>
         </div>
       </div>
@@ -518,6 +541,7 @@ export function DiffHeader({
   headerActions?: React.ReactNode
   notice?: string
 }): React.JSX.Element {
+  const t = useT()
   return (
     <>
       <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-1.5">
@@ -540,7 +564,7 @@ export function DiffHeader({
             className="shrink-0 text-[10px] text-muted-foreground"
             data-testid="review-diff-updating"
           >
-            updating…
+            {t('diff.updating')}
           </span>
         ) : null}
         <span className="ml-auto shrink-0 font-mono text-[10.5px] text-muted-foreground">
@@ -588,6 +612,7 @@ export function DiffBody({
   showHeader?: boolean
   hunkAction?: HunkAction
 }): React.JSX.Element {
+  const t = useT()
   const parsed = useMemo(() => parseUnifiedDiff(diff.patch), [diff.patch])
   const totalLines = parsed.hunks.reduce((sum, hunk) => sum + hunk.lines.length, 0)
   const omitted = Math.max(0, totalLines - MAX_RENDERED_LINES)
@@ -609,29 +634,31 @@ export function DiffBody({
           className="shrink-0 border-b border-signal-line bg-signal-weak px-3 py-1.5 text-[10px] text-signal"
           data-testid="review-diff-truncated"
         >
-          This diff is incomplete: Git output exceeded the {diff.truncatedReason === 'timeout' ? 'time limit' : '2 MiB view limit'}.
-          Open the session terminal if you need the full change.
+          {diff.truncatedReason === 'timeout'
+            ? t('diff.truncatedTime')
+            : t('diff.truncatedSize')}{' '}
+          {t('diff.truncatedNote')}
         </div>
       ) : null}
 
       {diff.symlink === true ? (
         <div className="shrink-0 border-b border-border bg-muted/30 px-3 py-1.5 text-[10px] text-muted-foreground">
-          This entry is a symbolic link. The diff shows the link target, never the target file's contents.
+          {t('diff.symlinkNote')}
         </div>
       ) : null}
 
       {diff.binary ? (
         <div className="flex flex-1 items-center justify-center p-6" data-testid="review-diff-binary">
           <div className="text-center">
-            <p className="text-[12px] font-medium">Binary file</p>
+            <p className="text-[12px] font-medium">{t('diff.binaryTitle')}</p>
             <p className="mt-1 text-[11px] text-muted-foreground">
-              Git cannot show a text diff for this file. Nothing else is read.
+              {t('diff.binaryBody')}
             </p>
           </div>
         </div>
       ) : parsed.hunks.length === 0 ? (
         <div className="flex flex-1 items-center justify-center p-6 text-[11px] text-muted-foreground">
-          Git returned no textual changes for this file.
+          {t('diff.noTextual')}
         </div>
       ) : (
         <div className="min-h-0 flex-1 overflow-auto font-mono" data-testid="review-diff-body">
@@ -665,8 +692,10 @@ export function DiffBody({
               className="border-t border-border bg-muted/20 px-3 py-2 text-[10px] text-muted-foreground"
               data-testid="review-diff-render-cap"
             >
-              Showing the first {MAX_RENDERED_LINES.toLocaleString()} of {totalLines.toLocaleString()}{' '}
-              lines. Open the session terminal to inspect the rest.
+              {t('diff.renderCap', {
+                shown: formatNumber(getLocale(), MAX_RENDERED_LINES),
+                total: formatNumber(getLocale(), totalLines)
+              })}
             </div>
           ) : null}
         </div>

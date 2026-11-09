@@ -40,6 +40,8 @@ import { type DiffViewState } from './UnifiedDiffView'
 import WorkingDiffView, { type WorkingDiffMode } from './WorkingDiffView'
 import CommittedFileDiff from './history/CommittedFileDiff'
 import ScmContextMenu, { type ScmMenuItem } from '../scm/ScmContextMenu'
+import { useT } from '../i18n/use-i18n'
+import { translate } from '../i18n/i18n-store'
 import {
   EMPTY_SELECTION,
   pruneSelection,
@@ -121,6 +123,14 @@ type Props = {
 
 const SECTION_ORDER: WorkingTreeArea[] = ['conflicts', 'staged', 'unstaged', 'untracked']
 
+const GROUP_KEY = {
+  conflicts: 'scm.group.conflicts',
+  staged: 'scm.group.staged',
+  unstaged: 'scm.group.unstaged',
+  untracked: 'scm.group.untracked',
+  committed: 'scm.group.committed'
+} as const
+
 function fileParts(path: string): { name: string; dir: string } {
   const index = path.lastIndexOf('/')
   return index === -1 ? { name: path, dir: '' } : { name: path.slice(index + 1), dir: path.slice(0, index) }
@@ -185,7 +195,9 @@ function diffViewState(state: DiffState | undefined): DiffViewState {
   if (state.phase === 'error') {
     return {
       phase: 'error',
-      error: state.error ?? makeAppError('GIT_READ_FAILED', 'The diff could not be read.')
+      error: state.error ?? makeAppError('GIT_READ_FAILED', translate('diff.readError'), {
+        messageKey: 'diff.readError'
+      })
     }
   }
   return { phase: 'ready', diff: state.diff!, ...(state.stale === true ? { stale: true } : {}) }
@@ -223,6 +235,7 @@ export default function WorkingTreeView({
   onApplyHunk,
   onResolveConflict
 }: Props): React.JSX.Element {
+  const t = useT()
   const statusGroups = useMemo(() => workingTreeGroups(snapshot), [snapshot])
   const committedEntries = useMemo(
     () => (committed === null ? [] : committedTreeEntries(committed)),
@@ -406,7 +419,7 @@ export default function WorkingTreeView({
           value: {
             status: 'unavailable' as const,
             reason: 'invalid-baseline' as const,
-            detail: 'This row is committed work, not a working-tree change.'
+            detail: t('scm.worktree.committedRow')
           }
         })
       }
@@ -453,7 +466,8 @@ export default function WorkingTreeView({
           setDiffs((prev) => ({ ...prev, [entry.key]: { phase: 'ready', diff: value } }))
           return
         }
-        const detail = 'detail' in result.value ? result.value.detail : 'The diff is unavailable.'
+        const detail =
+        'detail' in result.value ? result.value.detail : t('review.diffUnavailable')
         setDiffs((prev) => ({
           ...prev,
           [entry.key]: {
@@ -549,7 +563,7 @@ export default function WorkingTreeView({
       x,
       y,
       items: menuItems(entry),
-      label: `Actions for ${entry.entry.path}`
+      label: t('scm.worktree.actionsFor', { path: entry.entry.path })
     })
   }
 
@@ -568,7 +582,7 @@ export default function WorkingTreeView({
     const items: ScmMenuItem[] = [
       {
         id: 'folder-stage',
-        label: `Stage Folder (${String(stageable.length)})`,
+        label: t('scm.worktree.menu.folderStage', { count: stageable.length }),
         icon: <Plus size={12} />,
         disabled: stageable.length === 0,
         onSelect: () => {
@@ -578,7 +592,7 @@ export default function WorkingTreeView({
       },
       {
         id: 'folder-unstage',
-        label: `Unstage Folder (${String(unstageable.length)})`,
+        label: t('scm.worktree.menu.folderUnstage', { count: unstageable.length }),
         icon: <Minus size={12} />,
         disabled: unstageable.length === 0,
         onSelect: () => {
@@ -588,7 +602,7 @@ export default function WorkingTreeView({
       },
       {
         id: 'folder-discard',
-        label: `Discard Folder (${String(discardable.length)})`,
+        label: t('scm.worktree.menu.folderDiscard', { count: discardable.length }),
         icon: <Trash2 size={12} />,
         danger: true,
         separatorBefore: true,
@@ -599,7 +613,7 @@ export default function WorkingTreeView({
         }
       }
     ]
-    setMenu({ x, y, items, label: `Actions for ${row.path}` })
+    setMenu({ x, y, items, label: t('scm.worktree.menu.actionsFor', { path: row.path }) })
   }
 
   const menuItems = (entry: WorkingTreeEntry): ScmMenuItem[] => {
@@ -610,25 +624,25 @@ export default function WorkingTreeView({
       return [
         {
           id: 'open-changes',
-          label: 'Open Changes',
+          label: t('scm.worktree.menu.openChanges'),
           icon: <FileSearch size={12} />,
           onSelect: () => setSelectedKey(entry.key)
         },
         {
           id: 'open-files',
-          label: 'Open in Files',
+          label: t('scm.worktree.menu.openInFiles'),
           icon: <FolderOpen size={12} />,
           onSelect: () => onOpenPath(entry.entry.path)
         },
         {
           id: 'copy-path',
-          label: 'Copy Path',
+          label: t('scm.worktree.menu.copyPath'),
           icon: <Copy size={12} />,
           onSelect: () => copy(entry.entry.path)
         },
         {
           id: 'open-terminal',
-          label: 'Open in Agent Terminal',
+          label: t('scm.worktree.menu.openTerminal'),
           icon: <TerminalSquare size={12} />,
           separatorBefore: true,
           onSelect: onOpenTerminal
@@ -644,35 +658,37 @@ export default function WorkingTreeView({
     const discardTargets = targets.filter(
       (target) => target.area !== 'conflicts' && target.area !== 'committed'
     )
-    const suffix = inSelection ? ` ${String(targets.length)} Selected` : ''
+    const suffix = inSelection
+      ? t('scm.worktree.menu.selectedSuffix', { count: targets.length })
+      : ''
     return [
       {
         id: 'open-changes',
-        label: 'Open Changes',
+        label: t('scm.worktree.menu.openChanges'),
         icon: <FileSearch size={12} />,
         onSelect: () => setSelectedKey(entry.key)
       },
       {
         id: 'open-files',
-        label: 'Open in Files',
+        label: t('scm.worktree.menu.openInFiles'),
         icon: <FolderOpen size={12} />,
         onSelect: () => onOpenPath(entry.entry.path)
       },
       {
         id: 'copy-path',
-        label: 'Copy Path',
+        label: t('scm.worktree.menu.copyPath'),
         icon: <Copy size={12} />,
         onSelect: () => copy(entry.entry.path)
       },
       {
         id: 'copy-relative',
-        label: 'Copy Relative Path',
+        label: t('scm.worktree.menu.copyRelativePath'),
         icon: <Copy size={12} />,
         onSelect: () => copy(entry.entry.path)
       },
       {
         id: 'open-terminal',
-        label: 'Open in Agent Terminal',
+        label: t('scm.worktree.menu.openTerminal'),
         icon: <TerminalSquare size={12} />,
         separatorBefore: true,
         onSelect: onOpenTerminal
@@ -680,14 +696,14 @@ export default function WorkingTreeView({
       entry.area === 'conflicts'
         ? {
             id: 'conflict-terminal',
-            label: 'Resolve in Agent Terminal',
+            label: t('scm.worktree.menu.resolveTerminal'),
             icon: <AlertTriangle size={12} />,
             onSelect: onOpenTerminal
           }
         : entry.area === 'staged'
           ? {
               id: 'unstage',
-              label: `Unstage${suffix}`,
+              label: `${t('scm.worktree.menu.unstage')}${suffix}`,
               icon: <Minus size={12} />,
               disabled: unstageTargets.length === 0,
               onSelect: () =>
@@ -697,7 +713,7 @@ export default function WorkingTreeView({
             }
           : {
               id: 'stage',
-              label: `Stage${suffix}`,
+              label: `${t('scm.worktree.menu.stage')}${suffix}`,
               icon: <Plus size={12} />,
               disabled: stageTargets.length === 0,
               onSelect: () =>
@@ -709,15 +725,15 @@ export default function WorkingTreeView({
         id: 'discard',
         label:
           discardTargets.length > 1
-            ? `Discard ${String(discardTargets.length)} Selected`
+            ? t('scm.worktree.menu.discardSelected', { count: discardTargets.length })
             : entry.area === 'untracked'
-              ? 'Delete Untracked File'
-              : 'Discard Changes',
+              ? t('scm.worktree.menu.deleteUntracked')
+              : t('scm.worktree.menu.discardChanges'),
         icon: <Trash2 size={12} />,
         danger: true,
         separatorBefore: true,
         disabled: discardTargets.length === 0,
-        reason: 'Resolve the conflict before discarding it.',
+        reason: t('scm.worktree.menu.resolveBeforeDiscard'),
         onSelect: () =>
           discardTargets.length > 1
             ? onDiscardEntries(discardTargets)
@@ -758,7 +774,7 @@ export default function WorkingTreeView({
         className="flex shrink-0 flex-col border-r border-border bg-card"
         style={{ width: `${String(sidebarWidth)}px` }}
         role="tree"
-        aria-label="Changed files in this worktree"
+        aria-label={t('scm.worktree.changedFilesAria')}
         aria-multiselectable="true"
         onKeyDown={(event) => {
           const target = event.target
@@ -821,7 +837,7 @@ export default function WorkingTreeView({
             className="flex flex-wrap items-center gap-1 border-b border-signal/40 bg-signal-weak px-2 py-1 text-[10px]"
             data-testid="scm-batch-bar"
           >
-            <strong className="mr-1 text-foreground">{selection.selected.size} selected</strong>
+            <strong className="mr-1 text-foreground">{t('scm.selection.selected', { count: selection.selected.size })}</strong>
             <button
               type="button"
               className="rounded border border-border px-1.5 py-0.5 hover:bg-card disabled:opacity-40"
@@ -829,7 +845,7 @@ export default function WorkingTreeView({
               onClick={() => onStageEntries(selectedActions.stageable)}
               data-testid="scm-stage-selected"
             >
-              Stage
+              {t('scm.worktree.stage')}
             </button>
             <button
               type="button"
@@ -838,7 +854,7 @@ export default function WorkingTreeView({
               onClick={() => onUnstageEntries(selectedActions.unstageable)}
               data-testid="scm-unstage-selected"
             >
-              Unstage
+              {t('scm.worktree.unstage')}
             </button>
             <button
               type="button"
@@ -847,7 +863,7 @@ export default function WorkingTreeView({
               onClick={() => onDiscardEntries(selectedActions.discardable)}
               data-testid="scm-discard-selected"
             >
-              Discard
+              {t('scm.worktree.discard')}
             </button>
             <button
               type="button"
@@ -855,7 +871,7 @@ export default function WorkingTreeView({
               data-testid="scm-clear-selection"
               onClick={() => setSelection(EMPTY_SELECTION)}
             >
-              Clear
+              {t('scm.worktree.clear')}
             </button>
           </div>
         ) : null}
@@ -864,17 +880,17 @@ export default function WorkingTreeView({
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Filter files…"
-            aria-label="Filter changed files"
+            placeholder={t('scm.worktree.filter')}
+            aria-label={t('scm.worktree.filterAria')}
             className="h-7 min-w-0 flex-1 rounded border border-border bg-transparent px-2 text-[11px] text-foreground outline-none placeholder:text-muted-foreground"
             data-testid="working-tree-search"
           />
           <button
             type="button"
             className={`rounded p-1 ${viewMode === 'list' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-            aria-label="List view"
+            aria-label={t('scm.worktree.listView')}
             aria-pressed={viewMode === 'list'}
-            title="List view"
+            title={t('scm.worktree.listView')}
             data-testid="scm-view-list"
             onClick={() => updateViewMode('list')}
           >
@@ -883,9 +899,9 @@ export default function WorkingTreeView({
           <button
             type="button"
             className={`rounded p-1 ${viewMode === 'tree' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-            aria-label="Tree view"
+            aria-label={t('scm.worktree.treeView')}
             aria-pressed={viewMode === 'tree'}
-            title="Tree view"
+            title={t('scm.worktree.treeView')}
             data-testid="scm-view-tree"
             onClick={() => updateViewMode('tree')}
           >
@@ -894,14 +910,14 @@ export default function WorkingTreeView({
           <select
             value={sort}
             onChange={(event) => updateSort(event.target.value as ScmSortKey)}
-            aria-label="Sort changed files"
-            title="Sort changed files"
+            aria-label={t('scm.worktree.sortAria')}
+            title={t('scm.worktree.sortAria')}
             className="h-7 rounded border border-border bg-transparent px-1 text-[9.5px] text-muted-foreground outline-none"
             data-testid="scm-sort"
           >
-            <option value="name">Name</option>
-            <option value="path">Path</option>
-            <option value="status">Status</option>
+            <option value="name">{t('scm.worktree.sort.name')}</option>
+            <option value="path">{t('scm.worktree.sort.path')}</option>
+            <option value="status">{t('scm.worktree.sort.status')}</option>
           </select>
         </div>
         {snapshot === null ? (
@@ -912,22 +928,24 @@ export default function WorkingTreeView({
             {loading ? (
               <span className="inline-flex items-center gap-2">
                 <Loader2 size={12} className="animate-spin" />
-                Reading Git state…
+                {t('scm.changes.reading')}
               </span>
             ) : (
-              'Git state is unavailable for this worktree.'
+              t('review.gitStateUnavailable')
             )}
           </div>
         ) : !hasAnyChanges ? (
           <p className="px-3 py-4 text-[11px] text-muted-foreground">
             {baseOid === null
-              ? 'No uncommitted changes.'
-              : `No changes since base ${baseOid.slice(0, 7)}.`}
+              ? t('scm.worktree.noChanges')
+              : t('scm.worktree.matchesBase', { base: baseOid.slice(0, 7) })}
           </p>
         ) : (
         <div className="min-h-0 flex-1 overflow-auto">
           {rows.length === 0 ? (
-            <p className="px-3 py-3 text-[11px] text-muted-foreground">No files match this filter.</p>
+            <p className="px-3 py-3 text-[11px] text-muted-foreground">
+              {t('scm.worktree.noMatch')}
+            </p>
           ) : (
             groupedRows.map(({ group, rows: groupRows }) => {
               const groupEntries = displayEntries.get(group.id) ?? []
@@ -935,7 +953,7 @@ export default function WorkingTreeView({
                 <section
                   key={group.id}
                   role="group"
-                  aria-label={group.label}
+                  aria-label={t(GROUP_KEY[group.id])}
                   data-testid={`working-section-${group.id}`}
                 >
                   <div className="flex h-7 items-center gap-1 border-b border-border bg-card px-1.5">
@@ -947,7 +965,7 @@ export default function WorkingTreeView({
                       data-testid={`working-section-toggle-${group.id}`}
                     >
                       {group.collapsed ? <ChevronRight size={11} /> : <ChevronDown size={11} />}
-                      <span className="truncate">{group.label}</span>
+                      <span className="truncate">{t(GROUP_KEY[group.id])}</span>
                       <span className="font-mono text-[9px] text-muted-foreground">{group.count}</span>
                     </button>
                     <span className="flex shrink-0 items-center gap-0.5">
@@ -955,7 +973,7 @@ export default function WorkingTreeView({
                         <button
                           type="button"
                           className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-                          title="Resolve conflicts in the terminal"
+                          title={t('scm.worktree.resolveConflicts')}
                           onClick={onOpenTerminal}
                         >
                           <TerminalSquare size={11} />
@@ -966,7 +984,7 @@ export default function WorkingTreeView({
                             <button
                               type="button"
                               className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-                              title="Unstage all"
+                              title={t('scm.worktree.unstageAll')}
                               data-testid="git-unstage-all"
                               onClick={() => onUnstageEntries(groupEntries)}
                             >
@@ -976,7 +994,7 @@ export default function WorkingTreeView({
                             <button
                               type="button"
                               className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-                              title="Stage all"
+                              title={t('scm.worktree.stageAll')}
                               data-testid={group.id === 'unstaged' ? 'git-stage-all' : undefined}
                               onClick={() => onStageEntries(groupEntries)}
                             >
@@ -986,7 +1004,7 @@ export default function WorkingTreeView({
                           <button
                             type="button"
                             className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                            title="Discard all changes"
+                            title={t('scm.worktree.discardAll')}
                             onClick={() =>
                               onDiscardEntries(
                                 groupEntries.filter(
@@ -1028,7 +1046,7 @@ export default function WorkingTreeView({
                                   type="checkbox"
                                   className="h-3 w-3 shrink-0 accent-signal"
                                   checked={allSelected}
-                                  aria-label={`Select folder ${row.path}`}
+                                  aria-label={t('scm.worktree.selectFolder', { path: row.path })}
                                   data-testid={`scm-folder-check-${row.group}-${row.path}`}
                                   onClick={(event) => event.stopPropagation()}
                                   onChange={() => {
@@ -1068,8 +1086,8 @@ export default function WorkingTreeView({
                                 <button
                                   type="button"
                                   className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-                                  title="Folder actions"
-                                  aria-label={`Actions for ${row.path}`}
+                                  title={t('scm.worktree.folderActions')}
+                                  aria-label={t('scm.worktree.actionsFor', { path: row.path })}
                                   data-testid={`scm-folder-more-${row.group}-${row.path}`}
                                   onClick={(event) => {
                                     const rect = event.currentTarget.getBoundingClientRect()
@@ -1163,7 +1181,7 @@ export default function WorkingTreeView({
                                 <button
                                   type="button"
                                   className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-                                  title="Open the conflict in the terminal"
+                                  title={t('scm.worktree.openConflict')}
                                   onClick={onOpenTerminal}
                                 >
                                   <AlertTriangle size={11} />
@@ -1172,7 +1190,7 @@ export default function WorkingTreeView({
                                 <button
                                   type="button"
                                   className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
-                                  title="Unstage"
+                                  title={t('scm.worktree.unstage')}
                                   aria-label={`Unstage ${entry.entry.path}`}
                                   data-testid={`change-stage-${entry.area}-${entry.entry.path}`}
                                   onClick={() => onUnstage(entry.entry.path)}
@@ -1183,7 +1201,7 @@ export default function WorkingTreeView({
                                 <button
                                   type="button"
                                   className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
-                                  title="Stage"
+                                  title={t('scm.worktree.stage')}
                                   aria-label={`Stage ${entry.entry.path}`}
                                   data-testid={`change-stage-${entry.area}-${entry.entry.path}`}
                                   onClick={() => onStage(entry.entry.path)}
@@ -1195,7 +1213,11 @@ export default function WorkingTreeView({
                                 <button
                                   type="button"
                                   className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                                  title={entry.area === 'untracked' ? 'Delete untracked file' : 'Discard changes'}
+                                  title={
+                                    entry.area === 'untracked'
+                                      ? t('scm.worktree.deleteUntrackedTitle')
+                                      : t('scm.worktree.discardChangesTitle')
+                                  }
                                   aria-label={`Discard ${entry.entry.path}`}
                                   data-testid={`change-discard-${entry.area}-${entry.entry.path}`}
                                   onClick={() => onDiscard(entry)}
@@ -1206,8 +1228,8 @@ export default function WorkingTreeView({
                               <button
                                 type="button"
                                 className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-                                title="Open in Files"
-                                aria-label={`Open ${entry.entry.path} in Files`}
+                                title={t('scm.worktree.openInFiles')}
+                                aria-label={t('scm.worktree.openPathInFiles', { path: entry.entry.path })}
                                 onClick={() => onOpenPath(entry.entry.path)}
                               >
                                 <Search size={11} />
@@ -1215,8 +1237,8 @@ export default function WorkingTreeView({
                               <button
                                 type="button"
                                 className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-                                title="More actions"
-                                aria-label={`More actions for ${entry.entry.path}`}
+                                title={t('scm.worktree.moreActions')}
+                                aria-label={t('scm.worktree.moreActionsFor', { path: entry.entry.path })}
                                 data-testid={`scm-more-${entry.area}-${entry.entry.path}`}
                                 onClick={(event) => {
                                   const rect = event.currentTarget.getBoundingClientRect()
@@ -1241,8 +1263,8 @@ export default function WorkingTreeView({
       <div
         role="separator"
         aria-orientation="vertical"
-        aria-label="Resize Source Control sidebar"
-        title="Drag to resize the Source Control sidebar"
+        aria-label={t('scm.worktree.resizeAria')}
+        title={t('scm.worktree.resizeTitle')}
         tabIndex={0}
         className="w-1 shrink-0 cursor-col-resize bg-transparent hover:bg-border focus-visible:bg-signal focus-visible:outline-none"
         data-testid="scm-sidebar-resizer"
@@ -1263,14 +1285,14 @@ export default function WorkingTreeView({
           loading ? (
             <div className="flex h-full items-center justify-center text-[11px] text-muted-foreground">
               <Loader2 size={12} className="mr-2 animate-spin" />
-              Reading Git state…
+              {t('scm.changes.reading')}
             </div>
           ) : (
             <div
               className="flex h-full items-center justify-center px-6 text-center text-[11px] text-signal"
               data-testid="working-tree-unavailable"
             >
-              Git state is unavailable for this worktree.
+              {t('scm.worktree.gitUnavailable')}
             </div>
           )
         ) : !hasAnyChanges ? (
@@ -1280,12 +1302,14 @@ export default function WorkingTreeView({
           >
             <div>
               <p className="text-[13px] font-medium text-foreground">
-                {baseOid === null ? 'No uncommitted changes' : 'No changes since base'}
+                {baseOid === null
+                  ? t('scm.worktree.noChanges')
+                  : t('scm.worktree.noChangesSince')}
               </p>
               <p className="mt-1 text-[11px] text-muted-foreground">
                 {baseOid === null
-                  ? 'Nothing is staged, modified or untracked.'
-                  : `This worktree matches ${baseOid.slice(0, 7)}.`}
+                  ? t('scm.worktree.nothingDirty')
+                  : t('scm.worktree.matchesBase', { base: baseOid.slice(0, 7) })}
               </p>
             </div>
           </div>
@@ -1303,15 +1327,15 @@ export default function WorkingTreeView({
               comments={comments.filter((comment) => comment.path === selected.entry.path)}
               onAddComment={onAddComment}
               onRemoveComment={onRemoveComment}
-              scopeLabel={
+              scopeLabel={t(
                 selected.area === 'staged'
-                  ? 'staged'
+                  ? 'scm.scope.staged'
                   : selected.area === 'untracked'
-                    ? 'untracked'
+                    ? 'scm.scope.untracked'
                     : selected.area === 'conflicts'
-                      ? 'conflict'
-                      : 'unstaged'
-              }
+                      ? 'scm.scope.conflict'
+                      : 'scm.scope.unstaged'
+              )}
               mode={settings.diffView}
               onModeChange={updateDiffView}
               onApplyHunk={
@@ -1328,7 +1352,7 @@ export default function WorkingTreeView({
           )
         ) : (
           <div className="flex h-full items-center justify-center px-4 text-center text-[11px] text-muted-foreground">
-            Select a file to see its change.
+            {t('scm.worktree.selectFile')}
           </div>
         )}
       </div>

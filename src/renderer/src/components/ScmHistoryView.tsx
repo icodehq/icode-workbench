@@ -22,6 +22,9 @@ import {
   X
 } from 'lucide-react'
 import { callApi } from '../lib/api'
+import { useT, useTp } from '../i18n/use-i18n'
+import { getLocale } from '../i18n/i18n-store'
+import { formatDateTime } from '../../../shared/i18n'
 import type {
   GitCommitActionPayload,
   GitCommitDetailPayload,
@@ -94,6 +97,8 @@ export default function ScmHistoryView({
   initialPath = '',
   onChanged
 }: Props): React.JSX.Element {
+  const t = useT()
+  const tp = useTp()
   const [page, setPage] = useState<PageState>({ status: 'loading' })
   const [loadingMore, setLoadingMore] = useState(false)
   const [scope, setScope] = useState(baseOid === null ? 'HEAD' : 'SESSION')
@@ -497,10 +502,10 @@ export default function ScmHistoryView({
           other.getMonth() === date.getMonth() &&
           other.getDate() === date.getDate()
         const label = sameDay(today)
-          ? 'Today'
+          ? t('scm.history.today')
           : sameDay(yesterday)
-            ? 'Yesterday'
-            : date.toLocaleDateString(undefined, {
+            ? t('scm.history.yesterday')
+            : formatDateTime(getLocale(), date, {
                 weekday: 'short',
                 month: 'short',
                 day: 'numeric',
@@ -531,9 +536,9 @@ export default function ScmHistoryView({
   const copy = async (text: string): Promise<void> => {
     try {
       await navigator.clipboard.writeText(text)
-      notify({ tone: 'success', message: `Copied ${text}` })
+      notify({ tone: 'success', message: t('scm.history.copied', { text }) })
     } catch {
-      notify({ tone: 'error', message: 'Clipboard is unavailable.' })
+      notify({ tone: 'error', message: t('scm.history.clipboardUnavailable') })
     }
   }
 
@@ -565,8 +570,14 @@ export default function ScmHistoryView({
           tone: 'success',
           message:
             action === 'cherry-pick'
-              ? `Cherry-picked as ${result.value.shortOid}: ${result.value.subject}`
-              : `Reverted as ${result.value.shortOid}: ${result.value.subject}`
+              ? t('scm.history.cherryPicked', {
+                  oid: result.value.shortOid,
+                  subject: result.value.subject
+                })
+              : t('scm.history.reverted', {
+                  oid: result.value.shortOid,
+                  subject: result.value.subject
+                })
         })
         setDialogKind(null)
         await load(0, false)
@@ -580,7 +591,11 @@ export default function ScmHistoryView({
         if (result.value.status === 'unavailable') return fail(result.value.detail)
         notify({
           tone: 'success',
-          message: `Reset ${result.value.branch ?? 'HEAD'} to ${selected.shortOid} (${mode})`
+          message: t('scm.history.resetNotice', {
+            branch: result.value.branch ?? 'HEAD',
+            oid: selected.shortOid,
+            mode
+          })
         })
         setDialogKind(null)
         setSelected(null)
@@ -590,7 +605,7 @@ export default function ScmHistoryView({
       }
       setActionBusy(false)
     } catch (error) {
-      fail(error instanceof Error ? error.message : 'The Git action failed.')
+      fail(error instanceof Error ? error.message : t('scm.history.gitActionFailed'))
     }
   }
 
@@ -599,21 +614,21 @@ export default function ScmHistoryView({
     return [
       {
         id: 'cherry-pick',
-        label: 'Cherry-pick commit',
+        label: t('scm.history.menu.cherryPick'),
         icon: <GitCommitHorizontal size={12} />,
         testId: 'scm-commit-cherry-pick',
         onSelect: () => openDialog('cherry-pick')
       },
       {
         id: 'revert',
-        label: 'Revert commit',
+        label: t('scm.history.menu.revert'),
         icon: <Undo2 size={12} />,
         testId: 'scm-commit-revert',
         onSelect: () => openDialog('revert')
       },
       {
         id: 'reset',
-        label: 'Reset branch to here…',
+        label: t('scm.history.menu.reset'),
         icon: <RotateCcw size={12} />,
         danger: true,
         separatorBefore: true,
@@ -622,7 +637,7 @@ export default function ScmHistoryView({
       },
       {
         id: 'copy-message',
-        label: 'Copy commit message',
+        label: t('scm.history.menu.copyMessage'),
         icon: <Copy size={12} />,
         separatorBefore: true,
         testId: 'scm-commit-copy-message',
@@ -640,7 +655,7 @@ export default function ScmHistoryView({
           type="checkbox"
           className="ml-2 mt-2 h-3 w-3 shrink-0 accent-signal"
           checked={selectedOids.has(entry.oid)}
-          aria-label={`Select commit ${entry.shortOid}`}
+          aria-label={t('scm.history.selectCommitAria', { oid: entry.shortOid })}
           data-testid={`scm-history-check-${entry.shortOid}`}
           onChange={() => toggleSelected(entry.oid)}
         />
@@ -655,7 +670,10 @@ export default function ScmHistoryView({
           onClick={() => void openCommit(entry)}
           aria-current={active ? 'true' : undefined}
           data-testid={`scm-history-commit-${entry.shortOid}`}
-          title={`${entry.subject}\n${entry.author} <${entry.authorEmail}>\n${new Date(entry.authoredAt * 1000).toLocaleString()}`}
+          title={`${entry.subject}\n${entry.author} <${entry.authorEmail}>\n${formatDateTime(
+            getLocale(),
+            entry.authoredAt * 1000
+          )}`}
         >
           <LaneGraph row={row} maxLane={maxLane} />
           <span className="min-w-0 flex-1 pt-0.5">
@@ -748,7 +766,7 @@ export default function ScmHistoryView({
     <div className="flex h-full min-h-0 flex-col bg-background" data-testid="scm-history">
       <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border bg-card px-3">
         <History size={13} className="shrink-0 text-muted-foreground" />
-        <span className="text-[11.5px] font-semibold text-foreground">History</span>
+        <span className="text-[11.5px] font-semibold text-foreground">{t('scm.history.title')}</span>
         {page.status === 'ready' && page.branch !== null ? (
           <span className="min-w-0 truncate font-mono text-[10px] text-muted-foreground">
             {page.branch}
@@ -757,7 +775,9 @@ export default function ScmHistoryView({
         {page.status === 'ready' && page.ahead > 0 ? (
           <span
             className="shrink-0 rounded-full border border-info/40 bg-info-weak px-1.5 py-0.5 font-mono text-[9px] text-info"
-            title={`${String(page.ahead)} commit(s) to push to ${page.upstream ?? 'the upstream'}`}
+            title={tp('scm.history.pushTooltip', page.ahead, {
+              upstream: page.upstream ?? t('scm.history.upstreamFallback')
+            })}
             data-testid="scm-history-outgoing"
           >
             ↑{page.ahead}
@@ -766,7 +786,9 @@ export default function ScmHistoryView({
         {page.status === 'ready' && page.behind > 0 ? (
           <span
             className="shrink-0 rounded-full border border-signal-line bg-signal-weak px-1.5 py-0.5 font-mono text-[9px] text-signal"
-            title={`${String(page.behind)} commit(s) to pull from ${page.upstream ?? 'the upstream'}`}
+            title={tp('scm.history.pullTooltip', page.behind, {
+              upstream: page.upstream ?? t('scm.history.upstreamFallback')
+            })}
             data-testid="scm-history-incoming"
           >
             ↓{page.behind}
@@ -781,14 +803,14 @@ export default function ScmHistoryView({
             data-testid="scm-history-refresh"
           >
             <RefreshCw size={10} className={page.status === 'loading' ? 'animate-spin' : ''} />
-            Refresh
+            {t('scm.history.refresh')}
           </button>
           <button
             type="button"
             className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
             onClick={onClose}
-            aria-label="Close commit history"
-            title="Back to changes"
+            aria-label={t('scm.history.close')}
+            title={t('scm.history.back')}
             data-testid="scm-history-close"
           >
             <X size={13} />
@@ -803,26 +825,26 @@ export default function ScmHistoryView({
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Filter commits by subject, author, hash or ref…"
-              aria-label="Filter commits"
+              placeholder={t('scm.history.filter')}
+              aria-label={t('scm.history.filterAria')}
               className="h-7 min-w-0 flex-1 rounded border border-border bg-transparent px-2 text-[11px] text-foreground outline-none placeholder:text-muted-foreground"
               data-testid="scm-history-search"
             />
             <select
               value={scope}
               onChange={(event) => changeScope(event.target.value)}
-              aria-label="History ref"
-              title="History ref"
+              aria-label={t('scm.history.refAria')}
+              title={t('scm.history.refTitle')}
               className="h-7 max-w-[170px] shrink-0 rounded border border-border bg-transparent px-1 text-[9.5px] text-muted-foreground outline-none"
               data-testid="scm-history-ref"
             >
-              <option value="SESSION">This session</option>
-              <option value="HEAD">Current branch</option>
+              <option value="SESSION">{t('scm.history.session')}</option>
+              <option value="HEAD">{t('scm.history.currentBranch')}</option>
             </select>
             {pathFilter.length > 0 ? (
               <span
                 className="inline-flex h-7 min-w-0 max-w-[190px] shrink items-center gap-1 rounded border border-info/40 bg-info-weak px-1.5 font-mono text-[9px] text-info"
-                title={`Only commits touching ${pathFilter}`}
+                title={t('scm.history.onlyTouching', { path: pathFilter })}
                 data-testid="scm-history-path"
               >
                 <span className="min-w-0 truncate">{pathFilter}</span>
@@ -830,7 +852,7 @@ export default function ScmHistoryView({
                   type="button"
                   className="shrink-0 rounded p-0.5 hover:bg-info/15"
                   onClick={clearPathFilter}
-                  aria-label="Clear path filter"
+                  aria-label={t('scm.history.clearPath')}
                   data-testid="scm-history-clear-path"
                 >
                   <X size={9} />
@@ -843,8 +865,8 @@ export default function ScmHistoryView({
                 className={`p-1 ${historyView === 'list' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
                 onClick={() => setHistoryView('list')}
                 aria-pressed={historyView === 'list'}
-                aria-label="List view"
-                title="List view"
+                aria-label={t('scm.history.listView')}
+                title={t('scm.history.listView')}
                 data-testid="scm-history-view-list"
               >
                 <List size={10} />
@@ -854,15 +876,15 @@ export default function ScmHistoryView({
                 className={`border-l border-border p-1 ${historyView === 'timeline' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
                 onClick={() => setHistoryView('timeline')}
                 aria-pressed={historyView === 'timeline'}
-                aria-label="Timeline view"
-                title="Timeline view"
+                aria-label={t('scm.history.timeline')}
+                title={t('scm.history.timeline')}
                 data-testid="scm-history-view-timeline"
               >
                 <Clock size={10} />
               </button>
             </span>
             <span className="shrink-0 font-mono text-[9px] text-muted-foreground">
-              {page.status === 'ready' ? `${String(page.commits.length)} loaded` : ''}
+              {page.status === 'ready' ? t('scm.history.loaded', { count: page.commits.length }) : ''}
             </span>
           </div>
 
@@ -872,7 +894,7 @@ export default function ScmHistoryView({
               data-testid="scm-history-selection"
             >
               <span className="text-[10px] text-foreground">
-                {selectedOids.size} commit{selectedOids.size === 1 ? '' : 's'} selected
+                {tp('scm.history.selectedCommits', selectedOids.size)}
               </span>
               <span className="ml-auto flex items-center gap-1">
                 <button
@@ -882,7 +904,7 @@ export default function ScmHistoryView({
                   onClick={() => void copySelectedHashes()}
                 >
                   <Copy size={9} />
-                  Copy hashes
+                  {t('scm.history.copyHashes')}
                 </button>
                 <button
                   type="button"
@@ -890,13 +912,13 @@ export default function ScmHistoryView({
                   disabled={selectedCommits.length < 2 || rangeBusy}
                   title={
                     selectedCommits.length < 2
-                      ? 'Select at least two commits to compare'
-                      : 'Compare the oldest and newest selected commits'
+                      ? t('diff.compareSelectTwo')
+                      : t('diff.compareRange')
                   }
                   data-testid="scm-history-compare-selected"
                   onClick={() => void compareSelected()}
                 >
-                  {rangeBusy ? 'Comparing…' : 'Compare'}
+                  {rangeBusy ? t('diff.comparing') : t('diff.compare')}
                 </button>
                 <button
                   type="button"
@@ -904,7 +926,7 @@ export default function ScmHistoryView({
                   data-testid="scm-history-clear-selection"
                   onClick={() => setSelectedOids(new Set())}
                 >
-                  Clear
+                  {t('scm.history.clear')}
                 </button>
               </span>
               {rangeError !== null ? (
@@ -918,7 +940,7 @@ export default function ScmHistoryView({
           {page.status === 'loading' ? (
             <div className="flex flex-1 items-center justify-center text-[11px] text-muted-foreground">
               <Loader2 size={12} className="mr-2 animate-spin" />
-              Reading commit history…
+              {t('scm.history.readingHistory')}
             </div>
           ) : page.status === 'error' ? (
             <div
@@ -932,19 +954,19 @@ export default function ScmHistoryView({
                 className="rounded border border-border px-2 py-1 text-[10.5px] text-foreground hover:bg-muted"
                 onClick={() => void load(0, false)}
               >
-                Try again
+                {t('scm.history.tryAgain')}
               </button>
             </div>
           ) : page.commits.length === 0 ? (
             <div className="flex flex-1 items-center justify-center px-6 text-[11px] text-muted-foreground" data-testid="scm-history-empty">
-              This worktree has no commits yet.
+              {t('scm.history.emptyWorktree')}
             </div>
           ) : (
             <>
               <div className="min-h-0 flex-1 overflow-y-auto" data-testid="scm-history-list">
                 {visibleRows.length === 0 ? (
                   <p className="px-3 py-4 text-[11px] text-muted-foreground">
-                    No commits match this filter.
+                    {t('scm.history.noCommitsFilter')}
                   </p>
                 ) : (
                   historyView === 'timeline' ? (
@@ -968,7 +990,7 @@ export default function ScmHistoryView({
                       ))}
                     </div>
                   ) : (
-                    <ul role="listbox" aria-label="Commit history" aria-multiselectable="true">
+                    <ul role="listbox" aria-label={t('scm.history.commitHistory')} aria-multiselectable="true">
                       {visibleRows.map(renderCommitRow)}
                     </ul>
                   )
@@ -984,7 +1006,7 @@ export default function ScmHistoryView({
                     data-testid="scm-history-load-more"
                   >
                     {loadingMore ? <Loader2 size={10} className="animate-spin" /> : <ChevronDown size={10} />}
-                    Load more commits
+                    {t('scm.history.loadMore')}
                   </button>
                 </div>
               ) : null}
@@ -1016,7 +1038,7 @@ export default function ScmHistoryView({
                   data-testid="scm-range-back"
                 >
                   <ArrowLeft size={11} />
-                  History
+                  {t('scm.history.historyBack')}
                 </button>
                 <span
                   className="min-w-0 flex-1 truncate font-mono text-[10.5px] text-foreground"
@@ -1025,7 +1047,7 @@ export default function ScmHistoryView({
                   {range.from.shortOid}..{range.to.shortOid}
                 </span>
                 <span className="shrink-0 text-[9.5px] text-muted-foreground">
-                  {String(range.files.length)} file{range.files.length === 1 ? '' : 's'}
+                  {tp('files.summary.files', range.files.length)}
                 </span>
               </div>
               {file !== null ? (
@@ -1043,7 +1065,7 @@ export default function ScmHistoryView({
                       data-testid="scm-range-file-back"
                     >
                       <ArrowLeft size={11} />
-                      Files
+                      {t('scm.history.filesBack')}
                     </button>
                     <span className="min-w-0 flex-1 truncate font-mono text-[10.5px] text-foreground">
                       {file.path}
@@ -1081,12 +1103,12 @@ export default function ScmHistoryView({
                 <div className="min-h-0 flex-1 overflow-y-auto">
                   {range.truncated ? (
                     <p className="border-b border-signal-line bg-signal-weak px-3 py-1.5 text-[10px] text-signal">
-                      This comparison is truncated to the first 5,000 files.
+                      {t('scm.history.rangeTruncated')}
                     </p>
                   ) : null}
                   {range.files.length === 0 ? (
                     <p className="px-3 py-4 text-[11px] text-muted-foreground">
-                      The selected commits have no file changes between them.
+                      {t('scm.history.rangeNoFiles')}
                     </p>
                   ) : (
                     <ul>
@@ -1106,7 +1128,7 @@ export default function ScmHistoryView({
                             </span>
                             <span className="shrink-0 font-mono text-[9px] text-muted-foreground">
                               {entry.binary
-                                ? 'binary'
+                                ? t('scm.history.binary')
                                 : `${entry.additions === null ? '—' : `+${String(entry.additions)}`} ${
                                     entry.deletions === null ? '' : `−${String(entry.deletions)}`
                                   }`}
@@ -1129,19 +1151,22 @@ export default function ScmHistoryView({
                   data-testid="scm-multi-diff-back"
                 >
                   <ArrowLeft size={11} />
-                  Commit
+                  {t('scm.history.commitBack')}
                 </button>
                 <span className="min-w-0 flex-1 truncate text-[11px] text-foreground">
                   {detail.subject}
                 </span>
                 <span className="shrink-0 text-[9.5px] text-muted-foreground">
-                  {String(Math.min(detail.files.length, 50))} of {String(detail.files.length)} files
+                  {t('scm.history.filesOf', {
+                    shown: Math.min(detail.files.length, 50),
+                    total: detail.files.length
+                  })}
                 </span>
               </div>
               <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2">
                 {detail.files.length === 0 ? (
                   <p className="px-2 py-4 text-[11px] text-muted-foreground">
-                    This commit changed no files.
+                    {t('scm.history.noFilesChanged')}
                   </p>
                 ) : (
                   detail.files.slice(0, 50).map((entry) => (
@@ -1155,20 +1180,19 @@ export default function ScmHistoryView({
                 )}
                 {detail.files.length > 50 ? (
                   <p className="px-2 py-2 text-[10px] text-signal">
-                    The first 50 files are shown. Open the remaining files one at a time from the
-                    commit detail.
+                    {t('scm.history.first50')}
                   </p>
                 ) : null}
               </div>
             </div>
           ) : selected === null ? (
             <div className="flex flex-1 items-center justify-center px-6 text-center text-[11px] text-muted-foreground">
-              Select a commit to see its details.
+              {t('scm.history.selectCommit')}
             </div>
           ) : detailLoading ? (
             <div className="flex flex-1 items-center justify-center text-[11px] text-muted-foreground">
               <Loader2 size={12} className="mr-2 animate-spin" />
-              Reading commit…
+              {t('scm.history.readingCommit')}
             </div>
           ) : detailError !== null ? (
             <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-[11px] text-signal">
@@ -1179,7 +1203,7 @@ export default function ScmHistoryView({
                 className="rounded border border-border px-2 py-1 text-[10.5px] text-foreground hover:bg-muted"
                 onClick={() => void openCommit(selected, parentChoice ?? undefined)}
               >
-                Try again
+                {t('scm.history.tryAgain')}
               </button>
             </div>
           ) : detail === null ? null : file !== null ? (
@@ -1197,7 +1221,7 @@ export default function ScmHistoryView({
                   data-testid="scm-history-file-back"
                 >
                   <ArrowLeft size={11} />
-                  Files
+                  {t('scm.history.filesBack')}
                 </button>
                 <span className="min-w-0 flex-1 truncate font-mono text-[10.5px] text-foreground">
                   {file.path}
@@ -1242,7 +1266,7 @@ export default function ScmHistoryView({
                     </p>
                     <p className="mt-1 text-[10px] text-muted-foreground">
                       {detail.author} &lt;{detail.authorEmail}&gt; ·{' '}
-                      {new Date(detail.authoredAt * 1000).toLocaleString()}
+                      {formatDateTime(getLocale(), detail.authoredAt * 1000)}
                     </p>
                   </div>
                   <button
@@ -1257,8 +1281,8 @@ export default function ScmHistoryView({
                   <button
                     type="button"
                     className="shrink-0 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-                    aria-label="Commit actions"
-                    title="Commit actions"
+                    aria-label={t('scm.history.commitActions')}
+                    title={t('scm.history.commitActions')}
                     data-testid="scm-commit-actions"
                     onClick={(event) => {
                       const rect = event.currentTarget.getBoundingClientRect()
@@ -1283,7 +1307,7 @@ export default function ScmHistoryView({
                   <span className="font-mono text-add">+{String(detail.additions)}</span>
                   <span className="font-mono text-destructive">−{String(detail.deletions)}</span>
                   {detail.truncated ? (
-                    <span className="text-signal">first 5,000 files</span>
+                    <span className="text-signal">{t('scm.history.firstFiles')}</span>
                   ) : null}
                   {detail.files.length > 0 ? (
                     <span className="ml-auto inline-flex overflow-hidden rounded border border-border">
@@ -1292,8 +1316,8 @@ export default function ScmHistoryView({
                         className={`p-1 ${fileView === 'list' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
                         onClick={() => setFileView('list')}
                         aria-pressed={fileView === 'list'}
-                        aria-label="Show changed files as a list"
-                        title="Show changed files as a list"
+                        aria-label={t('scm.history.listFiles')}
+                        title={t('scm.history.listFiles')}
                         data-testid="scm-history-files-list"
                       >
                         <List size={10} />
@@ -1303,8 +1327,8 @@ export default function ScmHistoryView({
                         className={`border-l border-border p-1 ${fileView === 'tree' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
                         onClick={() => setFileView('tree')}
                         aria-pressed={fileView === 'tree'}
-                        aria-label="Show changed files as a tree"
-                        title="Show changed files as a tree"
+                        aria-label={t('scm.history.treeFiles')}
+                        title={t('scm.history.treeFiles')}
                         data-testid="scm-history-files-tree"
                       >
                         <Folder size={10} />
@@ -1319,16 +1343,16 @@ export default function ScmHistoryView({
                       data-testid="scm-history-open-all"
                     >
                       <Layers size={10} />
-                      Open all changes
+                      {t('scm.history.openAll')}
                     </button>
                   ) : null}
                 </div>
                 <div className="mt-2 flex items-center gap-1.5">
                   <span className="text-[9.5px] uppercase tracking-wider text-muted-foreground">
-                    Compare with
+                    {t('scm.history.compareWith')}
                   </span>
                   {detail.parents.length === 0 ? (
-                    <span className="font-mono text-[10px] text-muted-foreground">empty tree</span>
+                    <span className="font-mono text-[10px] text-muted-foreground">{t('scm.history.emptyTree')}</span>
                   ) : detail.parents.length === 1 ? (
                     <span className="font-mono text-[10px] text-foreground">
                       {detail.parents[0]!.slice(0, 7)}
@@ -1341,7 +1365,7 @@ export default function ScmHistoryView({
                         const parent = event.target.value
                         if (parent.length > 0) void openCommit(selected, parent)
                       }}
-                      aria-label="Compare commit with parent"
+                      aria-label={t('scm.history.compareParent')}
                       data-testid="scm-history-parent"
                     >
                       {detail.parents.map((parent) => (
@@ -1356,7 +1380,7 @@ export default function ScmHistoryView({
               <ul>
                 {detail.files.length === 0 ? (
                   <li className="px-3 py-4 text-[11px] text-muted-foreground">
-                    This commit changed no files.
+                    {t('scm.history.noFilesChanged')}
                   </li>
                 ) : fileView === 'tree' ? (
                   commitFileRows.map((row) =>
@@ -1409,7 +1433,7 @@ export default function ScmHistoryView({
           x={commitMenu.x}
           y={commitMenu.y}
           items={commitMenuItems()}
-          ariaLabel="Commit actions"
+          ariaLabel={t('scm.history.commitActions')}
           onClose={() => setCommitMenu(null)}
         />
       ) : null}

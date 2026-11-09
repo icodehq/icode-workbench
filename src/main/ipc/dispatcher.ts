@@ -73,6 +73,8 @@ import { DatabaseError } from '../persistence/database'
 import { RepositoryPathError } from '../repositories/repository-path'
 import type { ExecutionTarget } from '../../shared/domain/repository'
 import { SessionServiceError } from '../sessions/session-service'
+import { localizeAppError } from '../../shared/i18n'
+import { getMainLocale } from '../i18n/main-i18n'
 
 export type DispatcherServices = {
   reposList: () => Promise<unknown>
@@ -268,7 +270,9 @@ async function run<T>(work: () => Promise<T> | T): Promise<IpcResult<unknown>> {
     const value = await work()
     return { ok: true, value: value ?? null }
   } catch (error) {
-    return { ok: false, error: toAppError(error) }
+    // Localize once at the process boundary. Service-level errors keep their
+    // English message and optional key, so persisted rows are not rewritten.
+    return { ok: false, error: localizeAppError(toAppError(error), getMainLocale()) }
   }
 }
 

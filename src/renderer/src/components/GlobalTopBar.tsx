@@ -19,6 +19,7 @@ import {
 import type { TaskRecordPayload } from '../../../shared/icode-api'
 import { isMacPlatform, modifierLabel } from '../lib/platform'
 import type { ThemeName, ThemePreference } from '../theme/apply-theme'
+import { useT, useTp } from '../i18n/use-i18n'
 
 export type NeedsYouEntry = {
   task: TaskRecordPayload
@@ -63,9 +64,27 @@ export default function GlobalTopBar({
   onSetTheme,
   platform
 }: Props): React.JSX.Element {
+  const t = useT()
+  const tp = useTp()
   // The UA identifies macOS before the runtime IPC resolves, so native traffic
   // lights never share the window with the custom Windows/Linux controls.
   const isMac = isMacPlatform(platform)
+  const themeName =
+    resolvedTheme === 'dark' ? t('common.dark') : t('common.light')
+  const appearance =
+    themePreference === 'system'
+      ? `${t('common.system')} (${themeName})`
+      : themePreference === 'dark'
+        ? t('common.dark')
+        : t('common.light')
+  const needsYouLabel =
+    needsTasks.length === 0
+      ? t('topbar.notificationsActivity')
+      : tp('topbar.notificationsAria', needsTasks.length)
+  const needsYouTitle =
+    needsTasks.length === 0
+      ? t('topbar.notificationsActivity')
+      : tp('topbar.notificationsTitle', needsTasks.length)
   const [newMenuOpen, setNewMenuOpen] = useState(false)
   const [themeOpen, setThemeOpen] = useState(false)
   const [maximized, setMaximized] = useState(false)
@@ -129,7 +148,7 @@ export default function GlobalTopBar({
         type="button"
         className="flex shrink-0 items-center gap-2 rounded-md px-1 py-1 text-left hover:bg-muted/50"
         onClick={onProjects}
-        title="Back to Projects"
+        title={t('topbar.backToProjects')}
         data-testid="brand-home"
       >
         <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[7px] border border-line bg-muted text-brand">
@@ -149,11 +168,11 @@ export default function GlobalTopBar({
         type="button"
         className="ml-3 inline-flex h-8 min-w-0 max-w-[520px] flex-1 items-center gap-2 rounded-md border border-border bg-muted/60 px-2.5 text-left text-[11.5px] text-muted-foreground hover:border-line-strong hover:bg-muted hover:text-foreground"
         onClick={onSearch}
-        title={`Search projects, work, files and commands (${modifierLabel(platform)}+K)`}
+        title={t('topbar.searchTitle', { shortcut: `${modifierLabel(platform)}+K` })}
         data-testid="global-search"
       >
         <Search size={13} className="shrink-0" />
-        <span className="min-w-0 flex-1 truncate">Search projects, work, files and commands</span>
+        <span className="min-w-0 flex-1 truncate">{t('topbar.searchPlaceholder')}</span>
         <span className="hidden shrink-0 rounded border border-border bg-card px-1.5 py-0.5 font-mono text-[10px] sm:inline">
           {modifierLabel(platform)} K
         </span>
@@ -169,21 +188,21 @@ export default function GlobalTopBar({
               disabled={hostUnreachable}
               title={
                 hostUnreachable
-                  ? 'Host unreachable. Retry the connection before starting a session.'
-                  : 'Start a direct session'
+                  ? t('topbar.hostUnreachable')
+                  : t('topbar.startDirectSession')
               }
               data-testid="new-session-open"
             >
               <TerminalSquare size={13} />
-              <span className="hidden sm:inline">New session</span>
+              <span className="hidden sm:inline">{t('topbar.newSession')}</span>
             </button>
             <button
               type="button"
               className="inline-flex h-8 items-center rounded-r-md border-l border-accent-ink/20 bg-accent px-2 text-accent-ink hover:opacity-90"
               onClick={() => setNewMenuOpen((open) => !open)}
-              aria-label="More ways to start work"
+              aria-label={t('topbar.moreWays')}
               aria-expanded={newMenuOpen}
-              title="More ways to start work"
+              title={t('topbar.moreWays')}
               data-testid="new-menu"
             >
               <ChevronDown size={13} />
@@ -201,7 +220,7 @@ export default function GlobalTopBar({
                 data-testid="queue-task-from-menu"
               >
                 <ListTodo size={12} />
-                Queue task
+                {t('topbar.queueTask')}
               </button>
               <button
                 type="button"
@@ -213,7 +232,7 @@ export default function GlobalTopBar({
                 data-testid="schedules-from-menu"
               >
                 <CalendarClock size={12} />
-                Schedules
+                {t('topbar.schedules')}
               </button>
             </div>
           ) : null}
@@ -224,9 +243,9 @@ export default function GlobalTopBar({
             type="button"
             className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground"
             onClick={() => setThemeOpen((open) => !open)}
-            aria-label={`Appearance: ${themePreference === 'system' ? `System (${resolvedTheme})` : themePreference}`}
+            aria-label={t('topbar.appearanceLabel', { appearance })}
             aria-expanded={themeOpen}
-            title={`Appearance: ${themePreference === 'system' ? `System (${resolvedTheme})` : themePreference}`}
+            title={t('topbar.appearanceLabel', { appearance })}
             data-testid="theme-menu-button"
             data-theme-preference={themePreference}
             data-theme-resolved={resolvedTheme}
@@ -243,17 +262,17 @@ export default function GlobalTopBar({
             <div
               className="absolute right-0 top-[calc(100%+6px)] z-30 w-48 rounded-md border border-border bg-card p-1 shadow-2xl"
               role="dialog"
-              aria-label="Appearance"
+              aria-label={t('topbar.appearance')}
               data-testid="theme-menu"
             >
               <p className="px-2 py-1 text-[10px] uppercase tracking-wide text-muted-foreground">
-                Appearance
+                {t('topbar.appearance')}
               </p>
               {(
                 [
-                  ['system', 'System', Monitor],
-                  ['dark', 'Dark', Moon],
-                  ['light', 'Light', Sun]
+                  ['system', t('common.system'), Monitor],
+                  ['dark', t('common.dark'), Moon],
+                  ['light', t('common.light'), Sun]
                 ] as const
               ).map(([value, label, Icon]) => (
                 <button
@@ -274,7 +293,7 @@ export default function GlobalTopBar({
                   <span className="flex-1">
                     {label}
                     {value === 'system' ? (
-                      <span className="ml-1 text-[9px] text-muted-foreground">({resolvedTheme})</span>
+                      <span className="ml-1 text-[9px] text-muted-foreground">({themeName})</span>
                     ) : null}
                   </span>
                   {themePreference === value ? <Check size={11} /> : null}
@@ -288,12 +307,8 @@ export default function GlobalTopBar({
           type="button"
           className="relative rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground"
           onClick={onOpenNotifications}
-          aria-label={`Notifications: ${String(needsTasks.length)} task${needsTasks.length === 1 ? '' : 's'} need you`}
-          title={
-            needsTasks.length === 0
-              ? 'Notifications and activity'
-              : `${String(needsTasks.length)} task${needsTasks.length === 1 ? '' : 's'} need you across all projects`
-          }
+          aria-label={needsYouLabel}
+          title={needsYouTitle}
           data-testid="needs-you-bell"
           data-count={needsTasks.length}
         >
@@ -310,15 +325,15 @@ export default function GlobalTopBar({
       <div
         className="ml-2 flex h-full shrink-0 items-stretch"
         role="group"
-        aria-label="Window controls"
+        aria-label={t('topbar.windowControls')}
         data-testid="window-controls"
       >
         <button
           type="button"
           className="flex w-[42px] items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground min-[900px]:w-[46px]"
           onClick={() => { void window.icode.window.minimize() }}
-          aria-label="Minimize"
-          title="Minimize"
+          aria-label={t('topbar.minimize')}
+          title={t('topbar.minimize')}
           data-testid="window-minimize"
         >
           <Minus size={12} />
@@ -327,9 +342,9 @@ export default function GlobalTopBar({
           type="button"
           className="flex w-[42px] items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground min-[900px]:w-[46px]"
           onClick={toggleMaximize}
-          aria-label={maximized ? 'Restore' : 'Maximize'}
+          aria-label={maximized ? t('topbar.restore') : t('topbar.maximize')}
           aria-pressed={maximized}
-          title={maximized ? 'Restore' : 'Maximize'}
+          title={maximized ? t('topbar.restore') : t('topbar.maximize')}
           data-testid="window-toggle"
         >
           {maximized ? <Copy size={12} /> : <Square size={12} />}
@@ -338,8 +353,8 @@ export default function GlobalTopBar({
           type="button"
           className="flex w-[42px] items-center justify-center text-muted-foreground hover:bg-destructive hover:text-white min-[900px]:w-[46px]"
           onClick={() => { void window.icode.window.close() }}
-          aria-label="Close"
-          title="Close"
+          aria-label={t('topbar.close')}
+          title={t('topbar.close')}
           data-testid="window-close"
         >
           <X size={13} />

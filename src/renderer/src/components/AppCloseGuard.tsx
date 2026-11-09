@@ -9,7 +9,10 @@ import { AppCloseDialog } from './FilesDialogs'
  * write cancels the close and says which file needs attention; the user can
  * return to Files, resolve it, and close again.
  */
+import { useT } from '../i18n/use-i18n'
+
 export default function AppCloseGuard(): React.JSX.Element | null {
+  const t = useT()
   const [prompt, setPrompt] = useState<{ files: number; sessions: number } | null>(null)
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
@@ -44,17 +47,22 @@ export default function AppCloseGuard(): React.JSX.Element | null {
       })
       if (!result.ok) {
         setBusy(false)
-        setFailure(`Could not save ${tab.path}: ${result.error.message}. Resolve it in Files, then close again.`)
+        setFailure(
+          t('files.appClose.saveError', {
+            path: tab.path,
+            detail: result.error.message
+          })
+        )
         await window.icode.window.respondClose('cancel')
         return
       }
       if (result.value.status === 'unavailable') {
         const detail =
           result.value.reason === 'changed-on-disk'
-            ? 'changed on disk'
+            ? t('files.appClose.changedOnDisk')
             : result.value.detail
         setBusy(false)
-        setFailure(`Could not save ${tab.path}: ${detail}. Resolve it in Files, then close again.`)
+        setFailure(t('files.appClose.saveError', { path: tab.path, detail }))
         await window.icode.window.respondClose('cancel')
         return
       }
@@ -88,11 +96,11 @@ export default function AppCloseGuard(): React.JSX.Element | null {
         className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-6"
         role="dialog"
         aria-modal="true"
-        aria-label="Unsaved files before closing"
+        aria-label={t('files.appClose.label')}
         data-testid="files-app-close-failure"
       >
         <div className="icode-modal w-full max-w-md rounded-lg border border-border bg-card p-6 shadow-2xl">
-          <h2 className="text-[16px] font-semibold">Files were not saved</h2>
+          <h2 className="text-[16px] font-semibold">{t('files.appClose.failedTitle')}</h2>
           <p className="mt-2 text-[12px] leading-relaxed text-signal">{failure}</p>
           <div className="mt-4 flex justify-end">
             <button
@@ -104,7 +112,7 @@ export default function AppCloseGuard(): React.JSX.Element | null {
               }}
               data-testid="files-app-close-failure-dismiss"
             >
-              Back to iCode
+              {t('files.appClose.back')}
             </button>
           </div>
         </div>

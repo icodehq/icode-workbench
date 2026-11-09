@@ -28,12 +28,16 @@ type Sides = {
   incoming: GitConflictSide
 }
 
+import { useT, useTp } from '../i18n/use-i18n'
+
 export default function MergeEditor({
   sessionId,
   path,
   onResolve,
   onShowDiff
 }: Props): React.JSX.Element {
+  const t = useT()
+  const tp = useTp()
   const [sides, setSides] = useState<Sides | null>(null)
   const [resultText, setResultText] = useState('')
   const [initialResult, setInitialResult] = useState('')
@@ -93,7 +97,7 @@ export default function MergeEditor({
         result.value.tooLarge
       ) {
         setLoadError(
-          'The merge editor needs textual conflict stages. Resolve this binary or oversized conflict in Files or the terminal.'
+          t('merge.binaryStagesFailed')
         )
         setLoading(false)
         return
@@ -142,7 +146,7 @@ export default function MergeEditor({
     setSaveError(null)
     try {
       const result = await onResolve(resultText)
-      if (!result.ok) setSaveError(result.message ?? 'The conflict could not be saved.')
+      if (!result.ok) setSaveError(result.message ?? t('merge.saveFailed'))
     } finally {
       setSaving(false)
     }
@@ -155,7 +159,7 @@ export default function MergeEditor({
         className="rounded-sm border border-destructive/40 bg-destructive/10 px-1 text-[9px] font-semibold uppercase text-destructive"
         data-testid="merge-conflict-count"
       >
-        {blocks.length === 0 ? 'resolved' : `${String(blocks.length)} conflict${blocks.length === 1 ? '' : 's'}`}
+        {blocks.length === 0 ? t('merge.resolved') : tp('merge.conflicts', blocks.length)}
       </span>
       <span className="ml-auto flex shrink-0 items-center gap-1">
         {sides?.base ? (
@@ -170,7 +174,7 @@ export default function MergeEditor({
             data-testid="merge-toggle-base"
             onClick={() => setShowBase((value) => !value)}
           >
-            Base
+            {t('merge.base')}
           </button>
         ) : null}
         <button
@@ -184,7 +188,7 @@ export default function MergeEditor({
           }}
         >
           <RotateCcw size={10} />
-          Reset
+          {t('merge.reset')}
         </button>
         <button
           type="button"
@@ -192,7 +196,7 @@ export default function MergeEditor({
           data-testid="merge-show-diff"
           onClick={onShowDiff}
         >
-          Show diff
+          {t('merge.showDiff')}
         </button>
         <button
           type="button"
@@ -200,13 +204,13 @@ export default function MergeEditor({
           disabled={saving || loading || sides === null || blocks.length > 0 || loadError !== null}
           title={
             blocks.length > 0
-              ? 'Resolve every conflict block before staging'
-              : 'Write the result and mark this path resolved'
+              ? t('merge.resolveBeforeStage')
+              : t('merge.resolveMarkers')
           }
           data-testid="merge-save"
           onClick={() => void save()}
         >
-          {saving ? 'Saving…' : 'Save & Stage'}
+          {saving ? t('files.saving') : t('merge.saveStage')}
         </button>
       </span>
     </div>
@@ -218,7 +222,7 @@ export default function MergeEditor({
         {header}
         <div className="flex flex-1 items-center justify-center text-[11px] text-muted-foreground">
           <Loader2 size={12} className="mr-2 animate-spin" />
-          Reading conflict stages…
+          {t('merge.readingStages')}
         </div>
       </div>
     )
@@ -231,16 +235,16 @@ export default function MergeEditor({
         <div className="flex flex-1 items-center justify-center p-6">
           <div className="max-w-md rounded-md border border-destructive/40 bg-card p-4 text-center">
             <AlertTriangle size={16} className="mx-auto text-destructive" />
-            <p className="mt-2 text-[12px] font-medium text-destructive">Merge editor unavailable</p>
+            <p className="mt-2 text-[12px] font-medium text-destructive">{t('merge.unavailable')}</p>
             <p className="mt-1 text-[11px] text-muted-foreground">
-              {loadError ?? 'The conflict stages could not be read.'}
+              {loadError ?? t('merge.stagesFailed')}
             </p>
             <button
               type="button"
               className="mt-3 rounded border border-border px-2 py-1 text-[10.5px] hover:bg-muted"
               onClick={onShowDiff}
             >
-              Show diff
+              {t('merge.showDiff')}
             </button>
           </div>
         </div>
@@ -306,7 +310,7 @@ export default function MergeEditor({
           className="rounded border border-border p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
           disabled={blocks.length === 0}
           data-testid="merge-prev"
-          aria-label="Previous conflict"
+          aria-label={t('merge.previousConflict')}
           onClick={() => go(-1)}
         >
           <ChevronLeft size={11} />
@@ -316,13 +320,15 @@ export default function MergeEditor({
           className="rounded border border-border p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
           disabled={blocks.length === 0}
           data-testid="merge-next"
-          aria-label="Next conflict"
+          aria-label={t('merge.nextConflict')}
           onClick={() => go(1)}
         >
           <ChevronRight size={11} />
         </button>
         <span className="ml-1 font-mono text-[10px] text-muted-foreground" data-testid="merge-active-conflict">
-          {blocks.length === 0 ? 'No conflict markers' : `${String(active + 1)} / ${String(blocks.length)}`}
+          {blocks.length === 0
+              ? t('merge.noMarkers')
+              : `${String(active + 1)} / ${String(blocks.length)}`}
         </span>
         <span className="ml-auto flex flex-wrap items-center gap-1">
           <button
@@ -332,7 +338,7 @@ export default function MergeEditor({
             data-testid="merge-accept-current"
             onClick={() => applyChoice('current')}
           >
-            Accept Current
+            {t('merge.acceptCurrent')}
           </button>
           <button
             type="button"
@@ -341,7 +347,7 @@ export default function MergeEditor({
             data-testid="merge-accept-incoming"
             onClick={() => applyChoice('incoming')}
           >
-            Accept Incoming
+            {t('merge.acceptIncoming')}
           </button>
           <button
             type="button"
@@ -350,7 +356,7 @@ export default function MergeEditor({
             data-testid="merge-accept-both"
             onClick={() => applyChoice('both')}
           >
-            Accept Both
+            {t('merge.acceptBoth')}
           </button>
         </span>
       </div>
@@ -367,12 +373,12 @@ export default function MergeEditor({
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="flex shrink-0 items-center gap-2 border-b border-border bg-muted/30 px-2 py-1">
           <span className="text-[9.5px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Result
+            {t('merge.result')}
           </span>
           <span className="text-[9.5px] text-muted-foreground">
             {blocks.length > 0
-              ? 'Resolve every marker, or edit the result directly.'
-              : 'No markers remain. Save & Stage writes this file and stages it.'}
+              ? t('merge.resolveMarkers')
+              : t('merge.noMarkersLeft')}
           </span>
         </div>
         <div className="min-h-0 flex-1">
@@ -381,7 +387,7 @@ export default function MergeEditor({
             value={resultText}
             readOnly={false}
             testId="merge-result"
-            ariaLabel="Merge result"
+            ariaLabel={t('merge.resultAria')}
             onChange={(value) => {
               setSaveError(null)
               setResultText(value)

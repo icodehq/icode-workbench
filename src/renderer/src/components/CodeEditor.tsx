@@ -10,6 +10,9 @@ import type {
 import type { FileDiffResult } from '../../../shared/schemas/changes'
 import { callApi } from '../lib/api'
 import { shortcutLabel } from '../lib/platform'
+import { useT } from '../i18n/use-i18n'
+import { translate, getLocale } from '../i18n/i18n-store'
+import { formatDateTime } from '../../../shared/i18n'
 import type { MonacoApi } from '../editor/monaco'
 import { lineDiff, quickDiffCounts, type LineChange } from '../editor/line-diff'
 import { quickChangeForLine, quickDiffPatch } from '../editor/quick-diff-actions'
@@ -128,6 +131,7 @@ export default function CodeEditor({
   sessionId,
   engine = 'plain'
 }: CodeEditorProps): React.JSX.Element {
+  const t = useT()
   const [caret, setCaret] = useState({ line: 1, column: 1 })
   const [monacoState, setMonacoState] = useState<'loading' | 'ready' | 'failed'>(
     engine === 'monaco' ? 'loading' : 'failed'
@@ -306,11 +310,11 @@ export default function CodeEditor({
     setPeekNote(null)
     setConfirmRevert(false)
     if (sessionId === undefined) {
-      setPeekState({ phase: 'error', reason: 'Quick-diff actions need a session worktree.' })
+      setPeekState({ phase: 'error', reason: t('editor.quickDiffNeedSession') })
       return
     }
     if (dirty) {
-      setPeekState({ phase: 'ready', reason: 'Save the file before staging or reverting a change.' })
+      setPeekState({ phase: 'ready', reason: t('editor.quickDiffSaveFirst') })
       return
     }
     let cancelled = false
@@ -345,8 +349,7 @@ export default function CodeEditor({
       if (stagedPatch.includes('@@ ')) {
         setPeekState({
           phase: 'ready',
-          reason:
-            'This file already has staged changes. Stage or unstage it in Source Control so the quick diff and the index agree.'
+          reason: t('editor.quickDiffAlreadyStaged')
         })
         return
       }
@@ -358,7 +361,7 @@ export default function CodeEditor({
       const gitPatch =
         unstaged.ok && unstaged.value.status === 'available' ? unstaged.value.patch : ''
       if (!gitPatch.includes('@@ ')) {
-        setPeekState({ phase: 'ready', reason: 'Git reports no unstaged changes for this file.' })
+        setPeekState({ phase: 'ready', reason: t('editor.quickDiffNoUnstaged') })
         return
       }
       setPeekState({ phase: 'ready', gitPatch })
@@ -466,7 +469,7 @@ export default function CodeEditor({
     if (info !== undefined) {
       const text = info.committed
         ? `${info.author} · ${relativeTime(info.authorTime)}${info.summary ? ` · ${info.summary}` : ''}`
-        : 'You · uncommitted'
+        : t('editor.blameYou')
       const line = Math.min(Math.max(1, info.line), current.model.getLineCount())
       const column = current.model.getLineMaxColumn(line)
       // Monaco 0.57 does not render `after` content for an empty range at
@@ -479,9 +482,10 @@ export default function CodeEditor({
             inlineClassName: 'icode-blame-inline'
           },
           hoverMessage: {
-            value: `${info.oid.slice(0, 12)} · ${info.author} · ${new Date(
+            value: `${info.oid.slice(0, 12)} · ${info.author} · ${formatDateTime(
+              getLocale(),
               info.authorTime * 1000
-            ).toLocaleString()}${info.summary ? `\n${info.summary}` : ''}`
+            )}${info.summary ? `\n${info.summary}` : ''}`
           }
         }
       })
@@ -604,10 +608,10 @@ export default function CodeEditor({
         return
       }
       if (action === 'stage') {
-        setPeekNote('Staged this change. The file now has staged changes; finish it in Source Control.')
+        setPeekNote(t('editor.quickDiffStagedNote'))
         setPeekState({
           phase: 'ready',
-          reason: 'This file now has staged changes. Use Source Control to review or commit them.'
+          reason: t('editor.quickDiffStagedReason')
         })
         return
       }
@@ -615,7 +619,7 @@ export default function CodeEditor({
       if (read.ok && read.value.status === 'ok') {
         onQuickDiffChanged?.(read.value.text)
       } else {
-        setPeekNote('Reverted the change, but the editor could not reload the file.')
+        setPeekNote(t('editor.quickDiffRevertedReload'))
       }
       setPeekIndex(null)
       setConfirmRevert(false)
@@ -663,7 +667,7 @@ export default function CodeEditor({
           </span>
           {dirty ? (
             <span className="shrink-0 rounded bg-signal-weak px-1 text-[9px] text-signal" data-testid="editor-dirty">
-              unsaved
+              {t('editor.unsaved')}
             </span>
           ) : null}
           {showMonaco ? (
@@ -675,7 +679,7 @@ export default function CodeEditor({
             <button
               type="button"
               className="shrink-0 rounded border border-border px-1 font-mono text-[8.5px] text-muted-foreground hover:bg-muted disabled:opacity-50"
-              title="Review changes against HEAD"
+              title={t('editor.reviewHead')}
               aria-pressed={peekIndex !== null}
               disabled={quickChanges.length === 0}
               data-testid="editor-quick-diff"
@@ -696,10 +700,10 @@ export default function CodeEditor({
               className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
               onClick={onHistory}
               data-testid="files-open-history"
-              title="History for this file"
+              title={t('editor.historyTitle')}
             >
               <History size={10} />
-              History
+              {t('editor.history')}
             </button>
           ) : null}
           {showMonaco && sessionId !== undefined ? (
@@ -715,9 +719,9 @@ export default function CodeEditor({
                 saveScmSettings({ ...settings, inlineBlame: !settings.inlineBlame })
               }
               data-testid="editor-blame-toggle"
-              title="Show inline blame for the caret line"
+              title={t('editor.blameTitle')}
             >
-              Blame
+              {t('editor.blame')}
             </button>
           ) : null}
           <button
@@ -725,18 +729,18 @@ export default function CodeEditor({
             className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground hover:text-foreground"
             onClick={onSave}
             data-testid="editor-save"
-            title={`Save (${shortcutLabel('S')})`}
+            title={t('editor.saveTitle', { shortcut: shortcutLabel('S') })}
           >
-            Save
+            {t('editor.save')}
           </button>
           <button
             type="button"
             className="rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:text-foreground"
             onClick={onClose}
             data-testid="editor-close"
-            title="Close file"
+            title={t('editor.close')}
           >
-            Close
+            {t('editor.close')}
           </button>
         </div>
       </div>
@@ -746,8 +750,7 @@ export default function CodeEditor({
           className="border-b border-signal/40 bg-signal-weak px-3 py-1 text-[10px] text-signal"
           data-testid="editor-monaco-fallback"
         >
-          The rich editor could not load, so the plain editor is active. Editing and saving still
-          work.
+          {t('editor.fallback')}
         </p>
       ) : null}
 
@@ -761,19 +764,22 @@ export default function CodeEditor({
             />
             {monacoState === 'loading' ? (
               <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-[11px] text-muted-foreground">
-                Loading editor…
+                {t('editor.loading')}
               </div>
             ) : null}
             {peekChange !== null && peekIndex !== null ? (
               <div
                 className="absolute right-3 top-3 z-20 flex max-h-[72%] w-[min(560px,calc(100%-1.5rem))] flex-col overflow-hidden rounded-md border border-border bg-card shadow-xl"
                 role="dialog"
-                aria-label="Quick diff change"
+                aria-label={t('editor.quickDiffAria')}
                 data-testid="quick-diff-peek"
               >
                 <div className="flex shrink-0 items-center gap-2 border-b border-border px-2.5 py-1.5">
                   <span className="text-[10.5px] font-medium text-foreground">
-                    Quick change {peekIndex + 1} of {quickChanges.length}
+                    {t('editor.quickChange', {
+                      index: peekIndex + 1,
+                      count: quickChanges.length
+                    })}
                   </span>
                   <span className="font-mono text-[9.5px] text-muted-foreground">
                     {peekChange.oldCount > 0 ? `−${String(peekChange.oldCount)}` : ''}{' '}
@@ -782,7 +788,7 @@ export default function CodeEditor({
                   <button
                     type="button"
                     className="ml-auto rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-                    aria-label="Close quick diff"
+                    aria-label={t('editor.closeQuickDiff')}
                     data-testid="quick-diff-close"
                     onClick={() => setPeekIndex(null)}
                   >
@@ -791,7 +797,9 @@ export default function CodeEditor({
                 </div>
                 <div className="min-h-0 flex-1 overflow-auto p-2 font-mono text-[10.5px] leading-[1.55]">
                   {peekRows.length === 0 ? (
-                    <p className="px-1 py-2 text-muted-foreground">This change has no visible lines.</p>
+<p className="px-1 py-2 text-muted-foreground">
+                      {t('editor.noVisibleLines')}
+                    </p>
                   ) : (
                     peekRows.map((row, rowIndex) => (
                       <div key={`${row.kind}-${String(rowIndex)}`} className="flex gap-2">
@@ -810,13 +818,13 @@ export default function CodeEditor({
                   )}
                   {peekPeekTruncated ? (
                     <p className="px-1 py-1 text-[9.5px] text-muted-foreground">
-                      Showing the first 60 removed/added lines.
+                      {t('editor.quickDiffTruncated')}
                     </p>
                   ) : null}
                 </div>
                 {peekState.phase === 'checking' ? (
                   <p className="shrink-0 border-t border-border px-2.5 py-1 text-[9.5px] text-muted-foreground">
-                    Checking the index…
+                    {t('editor.checkingIndex')}
                   </p>
                 ) : null}
                 {peekMessage !== null && peekMessage !== undefined ? (
@@ -833,7 +841,7 @@ export default function CodeEditor({
                   {confirmRevert ? (
                     <>
                       <span className="text-[9.5px] text-destructive">
-                        Discard this change from the worktree?
+                        {t('editor.quickDiscardConfirm')}
                       </span>
                       <span className="ml-auto flex items-center gap-1">
                         <button
@@ -843,7 +851,7 @@ export default function CodeEditor({
                           data-testid="quick-diff-revert-confirm"
                           onClick={() => void applyQuickChange('revert')}
                         >
-                          {applyingQuick ? 'Reverting…' : 'Revert'}
+                          {applyingQuick ? t('editor.reverting') : t('editor.revert')}
                         </button>
                         <button
                           type="button"
@@ -851,7 +859,7 @@ export default function CodeEditor({
                           data-testid="quick-diff-revert-cancel"
                           onClick={() => setConfirmRevert(false)}
                         >
-                          Cancel
+                          {t('common.cancel')}
                         </button>
                       </span>
                     </>
@@ -864,7 +872,7 @@ export default function CodeEditor({
                         data-testid="quick-diff-stage"
                         onClick={() => void applyQuickChange('stage')}
                       >
-                        {applyingQuick ? 'Applying…' : 'Stage Change'}
+                        {applyingQuick ? t('editor.applying') : t('editor.stageChange')}
                       </button>
                       <button
                         type="button"
@@ -873,7 +881,7 @@ export default function CodeEditor({
                         data-testid="quick-diff-revert"
                         onClick={() => setConfirmRevert(true)}
                       >
-                        Revert Change
+                        {t('editor.revertChange')}
                       </button>
                     </>
                   )}
@@ -941,9 +949,19 @@ export default function CodeEditor({
 function relativeTime(seconds: number): string {
   if (seconds <= 0) return ''
   const delta = Math.max(0, Math.floor(Date.now() / 1000) - seconds)
-  if (delta < 60) return 'just now'
-  if (delta < 3600) return `${String(Math.floor(delta / 60))}m ago`
-  if (delta < 86_400) return `${String(Math.floor(delta / 3600))}h ago`
-  if (delta < 86_400 * 30) return `${String(Math.floor(delta / 86_400))}d ago`
-  return new Date(seconds * 1000).toLocaleDateString()
+  if (delta < 60) return translate('relative.justNow')
+  if (delta < 3600) {
+    return translate('relative.minutesAgo', { count: Math.floor(delta / 60) })
+  }
+  if (delta < 86_400) {
+    return translate('relative.hoursAgo', { count: Math.floor(delta / 3600) })
+  }
+  if (delta < 86_400 * 30) {
+    return translate('relative.daysAgo', { count: Math.floor(delta / 86_400) })
+  }
+  return formatDateTime(getLocale(), seconds * 1000, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric'
+  })
 }

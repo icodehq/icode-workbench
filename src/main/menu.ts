@@ -1,5 +1,7 @@
 import { app, BrowserWindow, Menu, type MenuItemConstructorOptions } from 'electron'
 import { IPC_CHANNELS } from '../shared/schemas/ipc'
+import { t } from '../shared/i18n'
+import type { Locale } from '../shared/i18n'
 import type { ViewCommand } from '../shared/icode-api'
 
 /**
@@ -20,35 +22,37 @@ function sendViewCommand(command: ViewCommand): void {
   }
 }
 
-export function installApplicationMenu(): void {
+export function installApplicationMenu(locale: Locale): void {
   const isMac = process.platform === 'darwin'
   const template: MenuItemConstructorOptions[] = [
     ...(isMac ? [{ role: 'appMenu' as const }] : []),
     {
-      label: 'File',
+      label: t(locale, 'menu.file'),
       submenu: isMac
         ? [{ role: 'close' }]
         : [
             {
-              label: 'Exit',
+              label: t(locale, 'menu.exit'),
               click: (): void => app.quit()
             }
           ]
     },
     { role: 'editMenu' },
     {
-      label: 'View',
+      label: t(locale, 'menu.view'),
       submenu: [
         { role: 'reload' },
         { role: 'forceReload' },
         { role: 'toggleDevTools' },
         { type: 'separator' },
         {
-          label: `Focus Terminal (${isMac ? 'Cmd' : 'Ctrl'}+J / F11)`,
+          label: t(locale, 'menu.focusTerminal', {
+            modifier: isMac ? 'Cmd' : 'Ctrl'
+          }),
           click: (): void => sendViewCommand('focus')
         },
         {
-          label: 'Toggle Sessions List',
+          label: t(locale, 'menu.toggleSessions'),
           click: (): void => sendViewCommand('sessions')
         },
         { type: 'separator' },

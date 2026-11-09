@@ -14,6 +14,8 @@
  * means 04:00 where the user is, which is also where the repository lives.
  */
 
+import { DEFAULT_LOCALE, t, type Locale } from '../i18n'
+import { formatDateTime } from '../i18n/format'
 import type { HarnessId } from './harness'
 import type { RepoId } from './ids'
 
@@ -62,20 +64,37 @@ const pad = (value: number): string => String(value).padStart(2, '0')
 const hm = (hour: number, minute: number): string => `${pad(hour)}:${pad(minute)}`
 
 /** The one-line description shown in the schedule list. */
-export function scheduleLabel(shape: TaskScheduleShape): string {
+export function scheduleLabel(
+  shape: TaskScheduleShape,
+  locale: Locale = DEFAULT_LOCALE
+): string {
   const s = normalizeShape(shape)
   switch (s.type) {
     case 'once':
-      return s.runAt === null ? 'once (not scheduled)' : `once at ${formatInstant(s.runAt)}`
+      return s.runAt === null
+        ? t(locale, 'schedule.label.onceNotScheduled')
+        : t(locale, 'schedule.label.onceAt', { time: formatInstant(s.runAt, locale) })
     case 'daily':
-      return `every day at ${hm(s.hour, s.minute)}`
+      return t(locale, 'schedule.label.daily', { time: hm(s.hour, s.minute) })
     case 'weekdays':
-      return `weekdays at ${hm(s.hour, s.minute)}`
+      return t(locale, 'schedule.label.weekdays', { time: hm(s.hour, s.minute) })
     case 'weekly':
-      return `${['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][s.day - 1]} at ${hm(s.hour, s.minute)}`
+      return t(locale, 'schedule.label.weekly', {
+        weekday: new Intl.DateTimeFormat(locale, { weekday: 'short' }).format(
+          weeklyReference(s.day)
+        ),
+        time: hm(s.hour, s.minute)
+      })
     case 'hours':
-      return s.every === 1 ? 'every hour' : `every ${String(s.every)} hours`
+      return s.every === 1
+        ? t(locale, 'schedule.label.everyHour')
+        : t(locale, 'schedule.label.everyHours', { count: s.every })
   }
+}
+
+/** 2024-01-01 was a Monday; formatting only needs the weekday. */
+function weeklyReference(day: number): Date {
+  return new Date(2024, 0, day)
 }
 
 /** Display-only cron text; never parsed back. */
@@ -96,8 +115,8 @@ export function cronOf(shape: TaskScheduleShape): string {
   }
 }
 
-function formatInstant(instant: number): string {
-  return new Date(instant).toLocaleString(undefined, {
+function formatInstant(instant: number, locale: Locale): string {
+  return formatDateTime(locale, instant, {
     year: 'numeric',
     month: 'short',
     day: '2-digit',

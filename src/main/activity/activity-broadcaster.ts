@@ -2,6 +2,7 @@ import { BrowserWindow, Notification } from 'electron'
 import type { ActivityTransition } from './activity-service'
 import { IPC_CHANNELS } from '../../shared/schemas/ipc'
 import type { ActivityEvent } from '../../shared/schemas/activity'
+import { mainT } from '../i18n/main-i18n'
 
 export type ActivityBroadcasterOptions = {
   /** Test seam; production uses `Notification`. */
@@ -85,11 +86,11 @@ export class ActivityBroadcaster {
     const body =
       transition.attention === 'done'
         ? transition.next.outcome === 'failed'
-          ? 'The agent stopped with an error.'
-          : 'The agent finished.'
+          ? mainT('notifications.agentFailed')
+          : mainT('notifications.agentFinished')
         : transition.next.toolName && transition.next.toolName !== ''
-          ? `Waiting for you · ${transition.next.toolName}`
-          : 'The agent needs your input.'
+          ? mainT('notifications.agentWaiting', { tool: transition.next.toolName })
+          : mainT('notifications.agentNeedsInput')
 
     try {
       this.notify(title, body, transition.sessionId)

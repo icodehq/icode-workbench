@@ -10,6 +10,9 @@ import ScmSettingsCard from '../scm/ScmSettingsCard'
 import FilesSettingsCard from '../files/FilesSettingsCard'
 import SettingsCard from '../components/SettingsCard'
 import AssistantSettingsCard from '../components/AssistantSettingsCard'
+import LanguageSettingsCard from '../components/LanguageSettingsCard'
+import { useT } from '../i18n/use-i18n'
+import type { Translator } from '../i18n/i18n-store'
 
 type SettingsPageProps = {
   state: WorkspaceState
@@ -28,14 +31,17 @@ type SettingsPageProps = {
   onSaveAssistantSettings: (settings: AssistantSettingsPayload) => Promise<void>
 }
 
-function harnessState(detection: HarnessDetection): { label: string; tone: string } {
+function harnessState(
+  detection: HarnessDetection,
+  t: Translator
+): { label: string; tone: string } {
   if (detection.state === 'available') {
-    return { label: 'Available', tone: 'border-add/50 bg-add-weak text-add' }
+    return { label: t('common.available'), tone: 'border-add/50 bg-add-weak text-add' }
   }
   if (detection.state === 'detection_failed') {
-    return { label: 'Probe failed', tone: 'border-signal-line bg-signal-weak text-signal' }
+    return { label: t('common.probeFailed'), tone: 'border-signal-line bg-signal-weak text-signal' }
   }
-  return { label: 'Missing', tone: 'border-border bg-muted text-muted-foreground' }
+  return { label: t('common.missing'), tone: 'border-border bg-muted text-muted-foreground' }
 }
 
 
@@ -70,34 +76,35 @@ export default function SettingsPage({
   assistantTarget,
   onSaveAssistantSettings
 }: SettingsPageProps): React.JSX.Element {
+  const t = useT()
   const host = hostStatus(state)
   const available = state.harnesses.filter((entry) => entry.state === 'available').length
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto" data-testid="settings-view">
       <div className="mx-auto w-full max-w-5xl px-5 py-5">
-        <h1 className="text-[20px] font-semibold tracking-[-0.02em]">Settings</h1>
+        <h1 className="text-[20px] font-semibold tracking-[-0.02em]">{t('settings.title')}</h1>
         <p className="mt-1 max-w-2xl text-[11.5px] leading-relaxed text-muted-foreground">
-          Runtime and execution settings. Appearance can follow the operating system or be fixed.
+          {t('settings.subtitle')}
         </p>
 
         <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
           <div className="flex min-w-0 flex-col gap-4">
-            <SettingsCard title="Appearance">
+            <SettingsCard title={t('settings.appearance.title')}>
               <div className="flex flex-wrap items-baseline gap-2">
-                <p className="text-[12px] font-medium text-foreground">Theme</p>
-                <span className="text-[10.5px] text-muted-foreground">currently {resolvedTheme}</span>
+                <p className="text-[12px] font-medium text-foreground">{t('settings.appearance.theme')}</p>
+                <span className="text-[10.5px] text-muted-foreground">{t('settings.appearance.currently', { theme: resolvedTheme })}</span>
               </div>
               <div
                 className="mt-2 inline-flex flex-wrap gap-1 rounded-md border border-border bg-muted/40 p-1"
                 role="group"
-                aria-label="Appearance"
+                aria-label={t('settings.appearance.title')}
               >
                 {(
                   [
-                    ['system', 'System', Monitor],
-                    ['dark', 'Dark', Moon],
-                    ['light', 'Light', Sun]
+                    ['system', t('common.system'), Monitor],
+                    ['dark', t('common.dark'), Moon],
+                    ['light', t('common.light'), Sun]
                   ] as const
                 ).map(([value, label, Icon]) => (
                   <button
@@ -119,10 +126,11 @@ export default function SettingsPage({
                 ))}
               </div>
               <p className="mt-3 text-[10.5px] leading-relaxed text-muted-foreground">
-                System follows the desktop setting. The terminal keeps its own dark palette in both
-                appearances.
+                {t('settings.appearance.help')}
               </p>
             </SettingsCard>
+
+            <LanguageSettingsCard />
 
             <AssistantSettingsCard
               settings={assistantSettings}
@@ -136,14 +144,14 @@ export default function SettingsPage({
 
             <FilesSettingsCard />
 
-            <SettingsCard title="Task execution">
+            <SettingsCard title={t('settings.taskExecution.title')}>
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <label className="text-[12px] font-medium text-foreground" htmlFor="settings-concurrency">
-                    Run at once
+                    {t('settings.taskExecution.runAtOnce')}
                   </label>
                   <p className="mt-0.5 text-[10.5px] text-muted-foreground">
-                    Direct sessions do not consume a task slot.
+                    {t('settings.taskExecution.help')}
                   </p>
                 </div>
                 <select
@@ -155,17 +163,17 @@ export default function SettingsPage({
                 >
                   {[1, 2, 3, 4].map((value) => (
                     <option key={value} value={value}>
-                      {value} task{value === 1 ? '' : 's'}
+                      {t(value === 1 ? 'settings.taskExecution.task.one' : 'settings.taskExecution.task.other', { count: value })}
                     </option>
                   ))}
                 </select>
               </div>
             </SettingsCard>
 
-            <SettingsCard title="Harnesses">
+            <SettingsCard title={t('settings.harnesses.title')}>
               <ul className="space-y-2" data-testid="settings-harnesses">
                 {state.harnesses.map((entry) => {
-                  const stateInfo = harnessState(entry)
+                  const stateInfo = harnessState(entry, t)
                   return (
                     <li
                       key={entry.harness}
@@ -186,7 +194,7 @@ export default function SettingsPage({
                   )
                 })}
                 {state.harnesses.length === 0 ? (
-                  <li className="text-[11px] text-muted-foreground">No Harness detected yet.</li>
+                  <li className="text-[11px] text-muted-foreground">{t('settings.harnesses.none')}</li>
                 ) : null}
               </ul>
             </SettingsCard>
@@ -194,7 +202,7 @@ export default function SettingsPage({
 
           <div className="flex min-w-0 flex-col gap-4">
             <SettingsCard
-              title="Host & runtime"
+              title={t('settings.hostRuntime.title')}
               action={
                 <button
                   type="button"
@@ -204,41 +212,47 @@ export default function SettingsPage({
                   data-testid="settings-refresh"
                 >
                   <RefreshCw size={11} className={refreshing ? 'animate-spin' : ''} />
-                  {host === 'unreachable' ? 'Retry connection' : 'Refresh'}
+                  {host === 'unreachable' ? t('common.retryConnection') : t('common.refresh')}
                 </button>
               }
             >
-              <Row label="Host">
+              <Row label={t('settings.hostRuntime.host')}>
                 <span className={host === 'unreachable' ? 'text-signal' : host === 'reachable' ? 'text-add' : ''}>
-                  {host}
+                  {host === 'reachable'
+                    ? t('host.reachable')
+                    : host === 'unreachable'
+                      ? t('host.unreachable')
+                      : t('host.unknown')}
                 </span>
               </Row>
-              <Row label="Harnesses">
+              <Row label={t('settings.hostRuntime.harnesses')}>
                 <span className="font-mono">
-                  {available}/{state.harnesses.length || 4} available
+                  {t('settings.hostRuntime.availableCount', {
+                    available,
+                    total: state.harnesses.length || 4
+                  })}
                 </span>
               </Row>
-              <Row label="Projects">
+              <Row label={t('settings.hostRuntime.projects')}>
                 <span className="font-mono">{state.repos.length}</span>
               </Row>
-              <Row label="App">
+              <Row label={t('settings.hostRuntime.app')}>
                 <span className="font-mono">v{runtime?.appVersion ?? '—'}</span>
               </Row>
-              <Row label="Electron">
+              <Row label={t('settings.hostRuntime.electron')}>
                 <span className="font-mono">{runtime?.electron ?? '—'}</span>
               </Row>
-              <Row label="Node">
+              <Row label={t('settings.hostRuntime.node')}>
                 <span className="font-mono">{runtime?.node ?? '—'}</span>
               </Row>
-              <Row label="Platform">
+              <Row label={t('settings.hostRuntime.platform')}>
                 <span className="font-mono">{runtime?.platform ?? '—'}</span>
               </Row>
             </SettingsCard>
 
-            <SettingsCard title="About">
+            <SettingsCard title={t('settings.about.title')}>
               <p className="text-[11px] leading-relaxed text-muted-foreground">
-                Internal application identifiers still use the existing iCode package and data paths.
-                The visible iCode wordmark is a UI treatment.
+                {t('settings.about.body')}
               </p>
             </SettingsCard>
           </div>

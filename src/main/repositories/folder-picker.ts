@@ -1,4 +1,6 @@
 import type { ExecutionTarget } from '../../shared/domain/repository'
+import { t } from '../../shared/i18n'
+import type { Locale } from '../../shared/i18n'
 import { fromWslUncPath, parseWslUnc, toWslUncPath } from '../wsl/unc-path'
 
 /**
@@ -38,6 +40,7 @@ export type PickFolderResult =
 
 export type FolderPickerDeps = {
   platform?: NodeJS.Platform
+  locale?: Locale
   showOpenDialog: (options: FolderDialogOptions) => Promise<FolderDialogResult>
   /** The machine's home directory, used as the local dialog's starting point. */
   localHome: () => string
@@ -64,6 +67,7 @@ export class RepositoryFolderPicker {
     options: PickFolderOptions = {}
   ): Promise<PickFolderResult> {
     const platform = this.deps.platform ?? process.platform
+    const locale = this.deps.locale ?? 'en'
     if (target.kind === 'local') return this.pickLocal()
 
     if (options.source === 'windows') return this.pickWindowsForWsl(target)
@@ -78,8 +82,7 @@ export class RepositoryFolderPicker {
       return {
         status: 'unavailable',
         reason: 'not_windows',
-        detail:
-          'Browsing a distro folder needs Windows. Enter the Linux path by hand on this machine.'
+        detail: t(locale, 'folderPicker.unavailable.notWindows')
       }
     }
 
@@ -88,7 +91,9 @@ export class RepositoryFolderPicker {
       return {
         status: 'unavailable',
         reason: 'guest_home_unknown',
-        detail: `${target.distro} did not report a home directory, so the picker has nowhere to start. Enter the Linux path by hand, or check that the distro is installed.`
+        detail: t(locale, 'folderPicker.unavailable.guestHome', {
+          distro: target.distro
+        })
       }
     }
 
@@ -97,14 +102,16 @@ export class RepositoryFolderPicker {
       return {
         status: 'unavailable',
         reason: 'guest_home_unknown',
-        detail: `${target.distro} reported a home directory that is not a Linux path.`
+        detail: t(locale, 'folderPicker.unavailable.guestHomeNotLinux', {
+          distro: target.distro
+        })
       }
     }
 
     let picked: FolderDialogResult
     try {
       picked = await this.deps.showOpenDialog({
-        title: `Select a folder inside ${target.distro}`,
+        title: t(locale, 'folderPicker.wslFolder', { distro: target.distro }),
         defaultPath: start,
         properties: ['openDirectory']
       })
@@ -153,19 +160,19 @@ export class RepositoryFolderPicker {
     target: Extract<ExecutionTarget, { kind: 'wsl' }>
   ): Promise<PickFolderResult> {
     const platform = this.deps.platform ?? process.platform
+    const locale = this.deps.locale ?? 'en'
     if (platform !== 'win32') {
       return {
         status: 'unavailable',
         reason: 'not_windows',
-        detail:
-          'Choosing a Windows folder needs Windows. Enter the Linux path by hand on this machine.'
+        detail: t(locale, 'folderPicker.unavailable.windowsNotWindows')
       }
     }
 
     let picked: FolderDialogResult
     try {
       picked = await this.deps.showOpenDialog({
-        title: `Select a Windows folder to use in ${target.distro}`,
+        title: t(locale, 'folderPicker.windowsFolder', { distro: target.distro }),
         defaultPath: this.deps.localHome(),
         properties: ['openDirectory']
       })
@@ -178,10 +185,11 @@ export class RepositoryFolderPicker {
   }
 
   private async pickLocal(): Promise<PickFolderResult> {
+    const locale = this.deps.locale ?? 'en'
     let picked: FolderDialogResult
     try {
       picked = await this.deps.showOpenDialog({
-        title: 'Select a Git repository folder',
+        title: t(locale, 'folderPicker.repository'),
         defaultPath: this.deps.localHome(),
         properties: ['openDirectory']
       })

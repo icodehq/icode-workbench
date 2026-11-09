@@ -1,7 +1,13 @@
+import type { MessageKey } from '../i18n/messages'
+
 /**
  * Stable error vocabulary shared by main, the host client, and the renderer.
  * Messages are user-facing; details carry diagnostics but must never include
  * tokens or environment dumps.
+ *
+ * `message` stays the authoritative English text. `messageKey` names the same
+ * message in the shared catalogs so a renderer can localize it; persisted rows
+ * written before keys existed keep their English message as a safe fallback.
  */
 
 export const APP_ERROR_CODES = [
@@ -85,6 +91,8 @@ export type HostFailureCode = (typeof HOST_FAILURE_CODES)[number]
 /** Main-side transport failures that never reach the wire. */
 export type HostTransportFailureCode = 'HOST_TIMEOUT' | 'HOST_CONNECT_FAILED' | 'HOST_UNREACHABLE'
 
+export type AppErrorMessageParams = Record<string, string | number>
+
 export type AppError = {
   code: AppErrorCode
   message: string
@@ -92,6 +100,8 @@ export type AppError = {
   /** Whether the same action can reasonably be retried without changing inputs. */
   retryable: boolean
   context?: Record<string, string>
+  messageKey?: MessageKey
+  messageParams?: AppErrorMessageParams
 }
 
 const RETRYABLE_CODES: ReadonlySet<AppErrorCode> = new Set<AppErrorCode>([
@@ -119,7 +129,12 @@ export function isRetryableAppErrorCode(code: AppErrorCode): boolean {
 export function makeAppError(
   code: AppErrorCode,
   message: string,
-  options: { detail?: string; context?: Record<string, string> } = {}
+  options: {
+    detail?: string
+    context?: Record<string, string>
+    messageKey?: MessageKey
+    messageParams?: AppErrorMessageParams
+  } = {}
 ): AppError {
   const error: AppError = {
     code,
@@ -128,6 +143,10 @@ export function makeAppError(
   }
   if (options.detail) error.detail = options.detail
   if (options.context && Object.keys(options.context).length > 0) error.context = options.context
+  if (options.messageKey) error.messageKey = options.messageKey
+  if (options.messageParams && Object.keys(options.messageParams).length > 0) {
+    error.messageParams = options.messageParams
+  }
   return error
 }
 

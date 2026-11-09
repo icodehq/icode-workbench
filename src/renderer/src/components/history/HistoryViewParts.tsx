@@ -1,3 +1,5 @@
+import { translate, getLocale } from '../../i18n/i18n-store'
+import { formatDateTime } from '../../../../shared/i18n'
 import { useCallback, useEffect, useState } from 'react'
 import { callApi } from '../../lib/api'
 import type {
@@ -30,11 +32,15 @@ function laneColor(color: number): string {
 
 export function relativeTime(seconds: number): string {
   const delta = Math.max(0, Math.floor(Date.now() / 1000) - seconds)
-  if (delta < 60) return 'just now'
-  if (delta < 3600) return `${String(Math.floor(delta / 60))}m ago`
-  if (delta < 86_400) return `${String(Math.floor(delta / 3600))}h ago`
-  if (delta < 86_400 * 30) return `${String(Math.floor(delta / 86_400))}d ago`
-  return new Date(seconds * 1000).toLocaleDateString()
+  if (delta < 60) return translate('relative.justNow')
+  if (delta < 3600) return translate('relative.minutesAgo', { count: Math.floor(delta / 60) })
+  if (delta < 86_400) return translate('relative.hoursAgo', { count: Math.floor(delta / 3600) })
+  if (delta < 86_400 * 30) return translate('relative.daysAgo', { count: Math.floor(delta / 86_400) })
+  return formatDateTime(getLocale(), seconds * 1000, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric'
+  })
 }
 
 export function statusLetter(status: string): string {

@@ -4,6 +4,7 @@ import type { RepositorySummary, SessionSummary } from '../../../shared/schemas/
 import type { Notice } from '../state/workspace'
 import type { ProjectMode } from '../router/routes'
 import ProjectsWall from '../components/ProjectsWall'
+import { useT } from '../i18n/use-i18n'
 
 export type ProjectsPageProps = {
   repos: RepositorySummary[]
@@ -32,17 +33,17 @@ export default function ProjectsPage({
   onRetryPreparation,
   notify
 }: ProjectsPageProps): React.JSX.Element {
+  const t = useT()
   if (repos.length === 0) {
     return (
       <div className="flex flex-1 items-center justify-center p-8" data-testid="empty-workspace">
         <div className="w-full max-w-md rounded-lg border border-border bg-card p-6">
           <div className="flex items-center gap-2">
             <FolderGit2 size={15} className="text-muted-foreground" />
-            <h1 className="text-[14px] font-semibold">Add a project</h1>
+            <h1 className="text-[14px] font-semibold">{t('projects.empty.title')}</h1>
           </div>
           <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-            iCode runs coding agents in isolated worktrees on this machine or in a WSL distro.
-            Add an existing Git checkout, or initialize a folder once to make it usable.
+            {t('projects.empty.body')}
           </p>
           <button
             type="button"
@@ -51,7 +52,7 @@ export default function ProjectsPage({
             data-testid="empty-add-repo"
           >
             <Plus size={12} />
-            Add project
+            {t('projects.addProject')}
           </button>
         </div>
       </div>

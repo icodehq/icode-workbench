@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import type { AssistantSettingsPayload } from '../../../shared/schemas/assistant'
 import type { AssistantStatus, AssistantTarget } from '../../../shared/domain/assistant'
 import SettingsCard from './SettingsCard'
+import { useT } from '../i18n/use-i18n'
+import type { MessageKey } from '../../../shared/i18n'
 
 function Row({
   label,
@@ -31,6 +33,13 @@ export default function AssistantSettingsCard({
   target: string | null
   onSave: (settings: AssistantSettingsPayload) => Promise<void>
 }): React.JSX.Element {
+  const t = useT()
+  const statusKey: Record<AssistantStatus, MessageKey> = {
+    working: 'assistant.status.working',
+    idle: 'assistant.status.ready',
+    offline: 'assistant.status.noHarness',
+    error: 'assistant.status.needsAttention'
+  }
   const [name, setName] = useState(settings.personaName)
   const [distros, setDistros] = useState<Array<{ name: string }>>([])
 
@@ -84,9 +93,9 @@ export default function AssistantSettingsCard({
   }
 
   return (
-    <SettingsCard title="Mira">
+    <SettingsCard title={t('assistant.settings.title')}>
       <div className="space-y-1">
-        <Row label="Name">
+        <Row label={t('assistant.settings.name')}>
           <input
             className="h-7 w-40 rounded border border-border bg-muted/40 px-2 text-[11px] text-foreground outline-none focus:border-line-strong"
             value={name}
@@ -102,22 +111,22 @@ export default function AssistantSettingsCard({
             data-testid="settings-mira-name"
           />
         </Row>
-        <Row label="Status">
+        <Row label={t('assistant.settings.status')}>
           <span data-testid="settings-mira-status">
-            {status}
+            {t(statusKey[status])}
             {harness ? ` · ${harness}` : ''}
             {target ? ` · ${target}` : ''}
           </span>
         </Row>
-        <Row label="Run on">
+        <Row label={t('assistant.settings.runOn')}>
           <select
             className="h-7 max-w-[240px] rounded border border-border bg-muted/40 px-2 text-[11px] text-foreground"
             value={targetValue}
             onChange={(event) => setTarget(event.target.value)}
             data-testid="settings-mira-target"
           >
-            <option value="auto">Auto — this computer, then WSL</option>
-            <option value="local">This computer</option>
+            <option value="auto">{t('assistant.settings.autoTarget')}</option>
+            <option value="local">{t('assistant.settings.localTarget')}</option>
             {distros.map((distro) => (
               <option key={distro.name} value={`wsl:${distro.name}`}>
                 WSL · {distro.name}
@@ -125,7 +134,7 @@ export default function AssistantSettingsCard({
             ))}
           </select>
         </Row>
-        <Row label="Preferred harness">
+        <Row label={t('assistant.settings.preferredHarness')}>
           <select
             className="h-7 rounded border border-border bg-muted/40 px-2 text-[11px] text-foreground"
             value={settings.harnessPriority[0]}
@@ -136,12 +145,12 @@ export default function AssistantSettingsCard({
             }
             data-testid="settings-mira-harness"
           >
-            <option value="claude">Claude Code first</option>
-            <option value="codex">Codex first</option>
-            <option value="opencode">OpenCode first</option>
+            <option value="claude">{t('assistant.settings.claudeFirst')}</option>
+            <option value="codex">{t('assistant.settings.codexFirst')}</option>
+            <option value="opencode">{t('assistant.settings.opencodeFirst')}</option>
           </select>
         </Row>
-        <Row label="Auto-dispatch">
+        <Row label={t('assistant.settings.autoDispatch')}>
           <select
             className="h-7 rounded border border-border bg-muted/40 px-2 text-[11px] text-foreground"
             value={settings.autoDispatch.mode}
@@ -156,12 +165,12 @@ export default function AssistantSettingsCard({
             }
             data-testid="settings-mira-auto-dispatch"
           >
-            <option value="off">Off — every task needs approval</option>
-            <option value="low-risk">Low risk only</option>
-            <option value="all">All Mira tasks</option>
+            <option value="off">{t('assistant.settings.offApproval')}</option>
+            <option value="low-risk">{t('assistant.settings.lowRisk')}</option>
+            <option value="all">{t('assistant.settings.allTasks')}</option>
           </select>
         </Row>
-        <Row label="Notifications">
+        <Row label={t('assistant.settings.notifications')}>
           <label className="inline-flex items-center gap-1.5">
             <input
               type="checkbox"
@@ -177,10 +186,10 @@ export default function AssistantSettingsCard({
               }
               data-testid="settings-mira-notifications"
             />
-            enabled
+            {t('assistant.settings.enabled')}
           </label>
         </Row>
-        <Row label="Quiet mode">
+        <Row label={t('assistant.settings.quietMode')}>
           <select
             className="h-7 rounded border border-border bg-muted/40 px-2 text-[11px] text-foreground"
             value={settings.notifications.quietMode}
@@ -196,15 +205,14 @@ export default function AssistantSettingsCard({
             }
             data-testid="settings-mira-quiet-mode"
           >
-            <option value="off">Off — OS notifications allowed</option>
-            <option value="in-app">In-app only</option>
-            <option value="respect-hours">Respect quiet hours</option>
+            <option value="off">{t('assistant.settings.offOs')}</option>
+            <option value="in-app">{t('assistant.settings.inApp')}</option>
+            <option value="respect-hours">{t('assistant.settings.respectHours')}</option>
           </select>
         </Row>
       </div>
       <p className="mt-3 text-[10.5px] leading-relaxed text-muted-foreground">
-        Mira can propose and run tasks, but review acceptance and merge stay with you.
-        Low-risk auto-dispatch is capped per project and per day.
+        {t('assistant.settings.footnote')}
       </p>
     </SettingsCard>
   )

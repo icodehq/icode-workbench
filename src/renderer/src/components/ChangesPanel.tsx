@@ -25,6 +25,7 @@ import AmendDialog from './AmendDialog'
 import ScmHistoryView from './ScmHistoryView'
 import type { LineComment } from './UnifiedDiffView'
 import WorkingTreeView from './WorkingTreeView'
+import { useT, useTp } from '../i18n/use-i18n'
 
 type Props = {
   sessionId: string
@@ -51,10 +52,6 @@ type Props = {
   /** A Files request to open History for one path. */
   initialHistoryPath?: { path: string; nonce: number } | null
   onHistoryPathHandled?: () => void
-}
-
-function plural(count: number, singular: string, pluralForm = `${singular}s`): string {
-  return `${String(count)} ${count === 1 ? singular : pluralForm}`
 }
 
 function MenuAction({
@@ -112,6 +109,8 @@ export default function ChangesPanel({
   initialHistoryPath = null,
   onHistoryPathHandled
 }: Props): React.JSX.Element {
+  const t = useT()
+  const tp = useTp()
   const draft = useWorkbenchDraft(drafts, sessionId)
   const comments = draft.comments
   const controller = useScmController({
@@ -214,20 +213,23 @@ export default function ChangesPanel({
       ? workingSummary
       : changedPathCount === 0
         ? baseShort === null
-          ? 'No uncommitted changes'
-          : `No changes since base ${baseShort}`
+          ? t('scm.changes.noUncommitted')
+          : t('scm.changes.noChangesSince', { base: baseShort })
         : [
-            commitCount > 0 ? plural(commitCount, 'commit') : null,
-            `${String(changedPathCount)} ${changedPathCount === 1 ? 'file' : 'files'} changed${
-              baseShort === null ? '' : ` since base ${baseShort}`
-            }`,
-            uncommittedCount === 0 ? 'clean' : `${String(uncommittedCount)} uncommitted`
+            commitCount > 0 ? tp('scm.changes.commits', commitCount) : null,
+            tp('scm.changes.filesChanged', changedPathCount, {
+              suffix:
+                baseShort === null ? '' : t('scm.changes.sinceBase', { base: baseShort })
+            }),
+            uncommittedCount === 0
+              ? t('scm.changes.clean')
+              : t('scm.changes.uncommitted', { count: uncommittedCount })
           ]
             .filter((part): part is string => part !== null)
             .join(' · ')
   const summaryText =
     committedLoading && committed === null && snapshot !== null
-      ? 'Reading this worktree…'
+      ? t('scm.changes.readingWorktree')
       : sessionSummary
 
   // The command palette is app-global; these handlers make the active session's
@@ -252,7 +254,7 @@ export default function ChangesPanel({
       register(
         'git.commit',
         primary.kind === 'commit' && !primary.disabled && idle,
-        primary.reason ?? 'No staged changes to commit',
+        primary.reason ?? t('scm.changes.noStagedToCommit'),
         () => void commit(false)
       ),
       register(
@@ -260,65 +262,67 @@ export default function ChangesPanel({
         !protectedBranch &&
           groups.staged.length + groups.unstaged.length + groups.untracked.length > 0 &&
           idle,
-        protectedBranch ? 'This branch is protected by Settings' : 'No changes to commit',
+        protectedBranch
+          ? t('scm.changes.protectedShort')
+          : t('scm.changes.noChangesToCommit'),
         () => void commitAll()
       ),
       register('git.refresh', true, '', refresh),
       register(
         'git.stageAll',
         changeEntries.length > 0 && !busy && !stagePending,
-        'No unstaged changes to stage',
+        t('scm.changes.noUnstagedToStage'),
         () => void setEntriesStaged(changeEntries, true)
       ),
       register(
         'git.unstageAll',
         groups.staged.length > 0 && !busy && !stagePending,
-        'No staged changes to unstage',
+        t('scm.changes.noStagedToUnstage'),
         () => void setEntriesStaged(groups.staged, false)
       ),
       register(
         'git.discardAll',
         discardable.length > 0 && !busy && !stagePending,
-        'No changes to discard',
+        t('scm.changes.noChangesToDiscard'),
         () => requestDiscard(discardable)
       ),
       register(
         'git.pull',
         snapshot !== null && snapshot.upstream !== null && !busy,
-        'No upstream branch to pull from',
+        t('scm.changes.noUpstreamPull'),
         () => void runRemoteAction('pull')
       ),
       register(
         'git.push',
         snapshot !== null && snapshot.upstream !== null && !busy,
-        'No upstream branch to push to',
+        t('scm.changes.noUpstreamPush'),
         () => void runRemoteAction('push')
       ),
       register(
         'git.sync',
         snapshot !== null && snapshot.upstream !== null && !busy,
-        'No upstream branch to sync with',
+        t('scm.changes.noUpstreamSync'),
         () => void runRemoteAction('sync')
       ),
       register(
         'git.publish',
         snapshot !== null && snapshot.upstream === null && snapshot.branch !== null && !busy,
-        'This branch already has an upstream',
+        t('scm.changes.alreadyUpstream'),
         () => void runRemoteAction('publish')
       ),
-      register('git.viewHistory', snapshot !== null, 'Git state is unavailable', () =>
+      register('git.viewHistory', snapshot !== null, t('scm.changes.gitUnavailable'), () =>
         setHistoryOpen(true)
       ),
       register(
         'git.continueOperation',
         operation !== null && !busy,
-        'No merge, rebase or cherry-pick in progress',
+        t('scm.changes.noOperation'),
         () => void continueOperation()
       ),
       register(
         'git.abortOperation',
         operation !== null && !busy,
-        'No merge, rebase or cherry-pick in progress',
+        t('scm.changes.noOperation'),
         () => void abortOperation()
       )
     ]
@@ -393,7 +397,9 @@ export default function ChangesPanel({
     } catch (error) {
       result = {
         ok: false,
-        message: error instanceof Error ? error.message : 'The terminal did not accept the notes.'
+        message: error instanceof Error
+          ? error.message
+          : t('scm.changes.notesNotAccepted')
       }
     }
     setSending(false)
@@ -414,7 +420,7 @@ export default function ChangesPanel({
       ? ''
       : discardTargets.length === 1
         ? (discardTargets[0]?.entry.path ?? '')
-        : plural(discardTargets.length, 'changed path')
+        : tp('scm.changes.discardLabel.path', discardTargets.length)
 
   const partialStaged = groups.staged.some((staged) =>
     groups.unstaged.some((unstaged) => unstaged.entry.path === staged.entry.path)
@@ -427,7 +433,8 @@ export default function ChangesPanel({
     >
       <GitBranch size={12} className="shrink-0 text-muted-foreground" />
       <span className="min-w-0 max-w-[220px] truncate font-mono text-[10.5px] text-foreground">
-        {snapshot?.branch ?? (loading ? 'Reading branch…' : 'No branch')}
+        {snapshot?.branch ??
+          (loading ? t('scm.changes.readingBranch') : t('scm.changes.noBranch'))}
       </span>
       {baseShort !== null ? (
         <span className="shrink-0 font-mono text-[9px] text-muted-foreground">
@@ -440,25 +447,27 @@ export default function ChangesPanel({
         data-testid="review-count"
         data-commit-count={commitCount}
         data-committed-files={committed?.length ?? 0}
-        title={baseNote.length > 0 ? baseNote : "Changes since this session's base commit"}
+        title={baseNote.length > 0 ? baseNote : t('scm.changes.baseTitle')}
       >
         {summaryText}
       </span>
       {groups.conflicts.length > 0 ? (
         <span className="inline-flex shrink-0 items-center gap-0.5 text-[9px] text-destructive">
           <AlertTriangle size={9} />
-          {String(groups.conflicts.length)} conflict{groups.conflicts.length === 1 ? '' : 's'}
+          {tp('scm.changes.conflicts', groups.conflicts.length)}
         </span>
       ) : null}
       <span className="ml-auto flex shrink-0 items-center gap-2">
         {sent ? (
           <span className="text-[10px] text-add" data-testid="review-notes-sent">
-            Sent
+            {t('scm.changes.sent')}
           </span>
         ) : null}
         {comments.length > 0 ? (
           <>
-            <span className="text-[10px] text-signal">{plural(comments.length, 'draft note')}</span>
+            <span className="text-[10px] text-signal">
+              {tp('scm.changes.draftNotes', comments.length)}
+            </span>
             <button
               type="button"
               className="inline-flex h-7 items-center gap-2 rounded-md border border-add/40 px-2 text-[10.5px] text-foreground hover:bg-add-weak disabled:opacity-40"
@@ -467,11 +476,11 @@ export default function ChangesPanel({
               data-testid="review-line-comments-send"
               title={
                 canSendToAgent
-                  ? 'Send the line notes to the Agent terminal'
-                  : 'This session cannot receive notes.'
+                  ? t('scm.changes.sendTitle')
+                  : t('scm.changes.sendDisabled')
               }
             >
-              Send {plural(comments.length, 'note')}
+              {tp('scm.changes.sendNotes', comments.length)}
             </button>
           </>
         ) : null}
@@ -492,14 +501,18 @@ export default function ChangesPanel({
             }
           }}
           aria-pressed={historyOpen}
-          title="Browse this session's commits"
+          title={t('scm.changes.historyOpenTitle')}
           data-testid="scm-history-open"
         >
           <History size={10} />
-          History
+          {t('scm.changes.history')}
         </button>
         <span className="font-mono text-[9px] text-muted-foreground">
-          {watchMode === 'watch' ? 'watched' : watchMode === 'poll' ? 'polling' : ''}
+          {watchMode === 'watch'
+            ? t('scm.changes.watched')
+            : watchMode === 'poll'
+              ? t('scm.changes.polling')
+              : ''}
         </span>
         <button
           type="button"
@@ -509,7 +522,7 @@ export default function ChangesPanel({
           data-testid="review-refresh"
         >
           <RefreshCw size={10} className={loading ? 'animate-spin' : ''} />
-          Refresh
+          {t('scm.changes.refresh')}
         </button>
       </span>
     </div>
@@ -524,7 +537,7 @@ export default function ChangesPanel({
         <div className="flex items-center gap-1.5 text-[10px] text-signal">
           <AlertTriangle size={10} />
           <strong className="uppercase tracking-wide">{operation}</strong>
-          <span className="text-foreground">in progress</span>
+          <span className="text-foreground">{t('scm.changes.inProgress')}</span>
         </div>
         <div className="mt-1 flex items-center gap-1">
           <button
@@ -533,27 +546,27 @@ export default function ChangesPanel({
             disabled={busy || groups.conflicts.length > 0}
             title={
               groups.conflicts.length > 0
-                ? 'Resolve conflicts before continuing.'
-                : `Continue the ${operation}.`
+                ? t('scm.changes.continueBlocked')
+                : t('scm.changes.continueTitle', { operation })
             }
             data-testid="scm-operation-continue"
             onClick={() => void continueOperation()}
           >
-            Continue
+            {t('scm.changes.continue')}
           </button>
           <button
             type="button"
             className="inline-flex h-6 items-center rounded border border-destructive/50 px-2 text-[10px] text-destructive hover:bg-destructive/10 disabled:opacity-40"
             disabled={busy}
-            title={`Abort the ${operation} and return to the previous state.`}
+            title={t('scm.changes.abortTitle', { operation })}
             data-testid="scm-operation-abort"
             onClick={() => void abortOperation()}
           >
-            Abort
+            {t('scm.changes.abort')}
           </button>
           {groups.conflicts.length > 0 ? (
             <span className="ml-auto text-[9px] text-destructive">
-              {groups.conflicts.length} conflict{groups.conflicts.length === 1 ? '' : 's'}
+              {tp('scm.changes.conflicts', groups.conflicts.length)}
             </span>
           ) : null}
         </div>
@@ -569,18 +582,17 @@ export default function ChangesPanel({
         <div className="flex items-center gap-2">
           <div className="flex min-w-0 items-baseline gap-2">
             <strong className="text-[11px] text-foreground" data-testid="staged-count">
-              {String(stagedCount)} staged
+              {t('scm.changes.staged', { count: stagedCount })}
             </strong>
             <span className="text-[10px] text-muted-foreground">
-              {String(uncommittedCount)} uncommitted
+              {t('scm.changes.uncommitted', { count: uncommittedCount })}
             </span>
           </div>
           {isAgentHarness(harness) ? (
             <span
               className="ml-auto shrink-0"
               title={
-                generation.disabledReason ||
-                'Draft a message from the staged diff. The diff is sent to the agent provider.'
+                generation.disabledReason || t('scm.changes.generateTitle')
               }
             >
               {generation.status === 'generating' ? (
@@ -591,7 +603,7 @@ export default function ChangesPanel({
                   data-testid="scm-generate-cancel"
                 >
                   <Loader2 size={9} className="animate-spin" />
-                  Cancel
+                  {t('scm.changes.cancel')}
                 </button>
               ) : (
                 <button
@@ -600,13 +612,12 @@ export default function ChangesPanel({
                   onClick={generation.generate}
                   disabled={!generation.canGenerate}
                   title={
-                    generation.disabledReason ||
-                    'Draft a message from the staged diff. The diff is sent to the agent provider.'
+                    generation.disabledReason || t('scm.changes.generateTitle')
                   }
                   data-testid="scm-generate-message"
                 >
                   <Sparkles size={9} />
-                  Generate
+                  {t('scm.changes.generate')}
                 </button>
               )}
             </span>
@@ -628,7 +639,7 @@ export default function ChangesPanel({
             role="status"
             data-testid="scm-protected-branch"
           >
-            This branch is protected by Settings. Commit and amend are disabled.
+            {t('scm.changes.protected')}
           </p>
         ) : null}
         <textarea
@@ -636,10 +647,10 @@ export default function ChangesPanel({
           rows={3}
           placeholder={
             groups.conflicts.length > 0
-              ? 'Resolve conflicts before writing a commit message'
+              ? t('scm.changes.messageConflicts')
               : stagedCount === 0
-                ? 'Commit message (stage files first)'
-                : 'Commit message (staged files only)'
+                ? t('scm.changes.messageStageFirst')
+                : t('scm.changes.messageStagedOnly')
           }
           className="mt-1.5 h-16 w-full min-w-0 resize-none rounded border border-border bg-transparent px-2 py-1 font-mono text-[11.5px] text-foreground outline-none placeholder:text-muted-foreground disabled:opacity-60"
           data-testid="git-commit-message"
@@ -657,7 +668,7 @@ export default function ChangesPanel({
             className="mt-1.5 rounded border border-info/40 bg-info-weak px-2 py-1 text-[9.5px] text-foreground"
             data-testid="scm-generate-replace"
           >
-            <p className="truncate">Replace the current draft with the generated message?</p>
+<p className="truncate">{t('scm.changes.replacePrompt')}</p>
             <div className="mt-1 flex items-center gap-1">
               <button
                 type="button"
@@ -665,7 +676,7 @@ export default function ChangesPanel({
                 onClick={generation.applyPending}
                 data-testid="scm-generate-apply"
               >
-                Replace
+                {t('scm.changes.replace')}
               </button>
               <button
                 type="button"
@@ -673,14 +684,14 @@ export default function ChangesPanel({
                 onClick={generation.dismissPending}
                 data-testid="scm-generate-dismiss"
               >
-                Keep draft
+                {t('scm.changes.keepDraft')}
               </button>
             </div>
           </div>
         ) : null}
         {partialStaged ? (
           <p className="mt-1 text-[9.5px] text-info">
-            Only the staged side is committed for partially staged files.
+            {t('scm.changes.partialStaged')}
           </p>
         ) : null}
         <div className="relative mt-1.5 flex items-center gap-1">
@@ -704,9 +715,9 @@ export default function ChangesPanel({
           <button
             type="button"
             className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-            aria-label="Commit and remote actions"
+            aria-label={t('scm.changes.actions')}
             aria-expanded={commitMenuOpen}
-            title="Commit and remote actions"
+            title={t('scm.changes.actions')}
             data-testid="git-commit-menu-button"
             onClick={() => setCommitMenuOpen((current) => !current)}
           >
@@ -716,18 +727,18 @@ export default function ChangesPanel({
             <div
               className="absolute right-0 top-8 z-30 w-64 rounded-md border border-border bg-card p-1 shadow-xl"
               role="menu"
-              aria-label="Commit and remote actions"
+              aria-label={t('scm.changes.actions')}
               data-testid="git-commit-menu"
             >
               <MenuAction
-                label="Amend last commit"
+                label={t('scm.changes.menu.amend')}
                 disabled={!canAmend}
                 title={
                   snapshot.headOid === null
-                    ? 'Commit once before amending.'
+                    ? t('scm.changes.amendNoHead')
                     : stagedCount === 0 && message.trim().length === 0
-                      ? 'Stage a change or write a message first.'
-                      : 'Rewrite the last local commit'
+                      ? t('scm.changes.amendNothing')
+                      : t('scm.changes.amendReason')
                 }
                 testId="git-amend"
                 onClick={() => {
@@ -738,7 +749,7 @@ export default function ChangesPanel({
                 <Undo2 size={10} />
               </MenuAction>
               <MenuAction
-                label="Commit all changes"
+                label={t('scm.changes.menu.commitAll')}
                 disabled={
                   message.trim().length === 0 ||
                   groups.conflicts.length > 0 ||
@@ -749,12 +760,12 @@ export default function ChangesPanel({
                 }
                 title={
                   message.trim().length === 0
-                    ? 'Write a commit message first.'
+                    ? t('scm.changes.commitAllNoMessage')
                     : groups.conflicts.length > 0
-                      ? 'Resolve conflicts before committing.'
+                      ? t('scm.changes.commitAllConflicts')
                       : stagedCount === 0 && groups.unstaged.length === 0
-                        ? 'There are no tracked changes to commit.'
-                        : 'Stage tracked changes and commit them together'
+                        ? t('scm.changes.commitAllNothing')
+                        : t('scm.changes.commitAllReason')
                 }
                 testId="git-commit-all"
                 onClick={() => {
@@ -765,7 +776,7 @@ export default function ChangesPanel({
                 <GitCommitHorizontal size={10} />
               </MenuAction>
               <MenuAction
-                label="Commit & push"
+                label={t('scm.changes.menu.commitPush')}
                 disabled={
                   primary.kind !== 'commit' ||
                   primary.disabled ||
@@ -773,7 +784,7 @@ export default function ChangesPanel({
                   commitBusy ||
                   stagePending
                 }
-                title={snapshot.upstream ? primary.reason : 'Set an upstream before pushing.'}
+                title={snapshot.upstream ? primary.reason : t('scm.changes.commitPushNoUpstream')}
                 testId="git-commit-push"
                 onClick={() => {
                   setCommitMenuOpen(false)
@@ -784,9 +795,9 @@ export default function ChangesPanel({
               </MenuAction>
               <div className="my-1 border-t border-border" />
               <MenuAction
-                label="Push"
+                label={t('scm.changes.menu.push')}
                 disabled={!snapshot.upstream || busy}
-                title={snapshot.upstream ? 'Push the current branch' : 'Publish the branch first.'}
+                title={snapshot.upstream ? t('scm.changes.pushReason') : t('scm.changes.pushNoUpstream')}
                 testId="git-push"
                 onClick={() => {
                   setCommitMenuOpen(false)
@@ -796,9 +807,9 @@ export default function ChangesPanel({
                 <ArrowUpRight size={10} />
               </MenuAction>
               <MenuAction
-                label="Pull"
+                label={t('scm.changes.menu.pull')}
                 disabled={!snapshot.upstream || busy}
-                title={snapshot.upstream ? 'Pull with fast-forward only' : 'Publish the branch first.'}
+                title={snapshot.upstream ? t('scm.changes.pullReason') : t('scm.changes.pushNoUpstream')}
                 testId="git-pull"
                 onClick={() => {
                   setCommitMenuOpen(false)
@@ -808,12 +819,12 @@ export default function ChangesPanel({
                 <RefreshCw size={10} />
               </MenuAction>
               <MenuAction
-                label="Publish branch"
+                label={t('scm.changes.menu.publish')}
                 disabled={snapshot.upstream !== null && snapshot.upstream !== undefined}
                 title={
                   snapshot.upstream
-                    ? 'The branch is already published.'
-                    : 'Set an upstream for this branch.'
+                    ? t('scm.changes.publishExists')
+                    : t('scm.changes.publishReason')
                 }
                 testId="git-publish"
                 onClick={() => {
@@ -825,7 +836,7 @@ export default function ChangesPanel({
               </MenuAction>
               <div className="my-1 border-t border-border" />
               <MenuAction
-                label="Open Git in terminal"
+                label={t('scm.changes.menu.openTerminal')}
                 onClick={() => {
                   setCommitMenuOpen(false)
                   onOpenTerminal()
@@ -837,20 +848,20 @@ export default function ChangesPanel({
           ) : null}
         </div>
         <p className="mt-1 text-[10px] leading-snug text-muted-foreground">
-          Commits in this worktree only. {primary.disabled ? primary.reason : ''}
+          {t('scm.changes.commitsOnly')} {primary.disabled ? primary.reason : ''}
         </p>
       </div>
     ) : loading ? (
       <div className="flex shrink-0 items-center gap-2 border-b border-border bg-card px-3 py-2.5 text-[10.5px] text-muted-foreground">
         <Loader2 size={11} className="animate-spin" />
-        Reading Git state…
+        {t('scm.changes.reading')}
       </div>
     ) : (
       <div
         className="shrink-0 border-b border-border bg-card px-3 py-2.5 text-[10.5px] text-signal"
         data-testid="changes-git-unavailable"
       >
-        {note || 'Git state is unavailable, so staging and committing are disabled.'}
+        {note || t('scm.changes.unavailable')}
       </div>
     )
 
@@ -862,7 +873,7 @@ export default function ChangesPanel({
       >
         <AlertTriangle size={11} />
         <span className="min-w-0 flex-1">
-          Discard {discardLabel}? This changes the worktree and cannot be undone.
+          {t('scm.changes.discard', { label: discardLabel })}
         </span>
         <button
           type="button"
@@ -871,7 +882,7 @@ export default function ChangesPanel({
           data-testid="change-discard-yes"
           onClick={() => void confirmDiscard()}
         >
-          Discard
+          {t('scm.changes.discardAction')}
         </button>
         <button
           type="button"
@@ -880,7 +891,7 @@ export default function ChangesPanel({
           data-testid="change-discard-cancel"
           onClick={cancelDiscard}
         >
-          Cancel
+          {t('common.cancel')}
         </button>
       </div>
     ) : null
@@ -902,9 +913,7 @@ export default function ChangesPanel({
         >
           <AlertTriangle size={11} className="mt-0.5 shrink-0 text-signal" />
           <span>
-            Too many changes to list in full. Showing the first{' '}
-            {String(snapshot.statusLength ?? 0)} paths; stage or commit some work, then
-            refresh.
+            {t('scm.changes.tooMany', { count: snapshot.statusLength ?? 0 })}
           </span>
         </div>
       ) : null}
@@ -914,7 +923,7 @@ export default function ChangesPanel({
           data-testid="review-send-error"
         >
           <AlertTriangle size={11} className="mt-0.5 shrink-0" />
-          <span>The note draft was kept. {sendError}</span>
+          <span>{t('scm.changes.noteKept', { error: sendError })}</span>
         </div>
       ) : null}
       {discardBar}

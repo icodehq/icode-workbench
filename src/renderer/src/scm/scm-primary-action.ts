@@ -6,6 +6,7 @@
  * detached/unborn states. The old helper stays until the migration removes it.
  */
 
+import { translate } from '../i18n/i18n-store'
 import type { WorkingTreeGroups } from '../review/working-tree'
 
 export type GitOperationState = 'merge' | 'rebase' | 'cherry-pick' | 'revert' | 'bisect' | null
@@ -51,9 +52,22 @@ export type ScmPrimaryActionInput = {
 }
 
 function commitVerb(headOid: string | null, branch: string | null): string {
-  if (headOid === null) return 'Create first commit'
-  if (branch === null) return 'Commit on detached HEAD'
-  return 'Commit'
+  if (headOid === null) return translate('scm.primary.createFirstCommit')
+  if (branch === null) return translate('scm.primary.commitDetached')
+  return translate('scm.primary.commit')
+}
+
+function operationLabel(operation: Exclude<GitOperationState, null | 'bisect'>): string {
+  switch (operation) {
+    case 'merge':
+      return translate('scm.operation.merge')
+    case 'rebase':
+      return translate('scm.operation.rebase')
+    case 'cherry-pick':
+      return translate('scm.operation.cherryPick')
+    case 'revert':
+      return translate('scm.operation.revert')
+  }
 }
 
 export function scmPrimaryAction(input: ScmPrimaryActionInput): ScmPrimaryAction {
@@ -67,25 +81,20 @@ export function scmPrimaryAction(input: ScmPrimaryActionInput): ScmPrimaryAction
     if (input.operation === 'bisect') {
       return {
         kind: 'disabled',
-        label: 'Bisecting',
+        label: translate('scm.primary.bisecting'),
         disabled: true,
-        reason: 'A bisect is in progress. Finish or reset it in the terminal.'
+        reason: translate('scm.primary.bisectReason')
       }
     }
     const conflict = groups.conflicts.length > 0
-    const operationLabel =
-      input.operation === 'merge'
-        ? 'Merge'
-        : input.operation === 'rebase'
-          ? 'Rebase'
-          : input.operation === 'cherry-pick'
-            ? 'Cherry-pick'
-            : 'Revert'
+    const operation = operationLabel(input.operation)
     return {
       kind: 'continue',
-      label: `Continue ${operationLabel}`,
+      label: translate('scm.primary.continue', { operation }),
       disabled: conflict,
-      reason: conflict ? 'Resolve conflicts before continuing.' : `Continue the ${operationLabel.toLowerCase()}.`,
+      reason: conflict
+        ? translate('scm.primary.resolveBeforeContinue')
+        : translate('scm.primary.continueThe', { operation }),
       operation: input.operation
     }
   }
@@ -93,9 +102,9 @@ export function scmPrimaryAction(input: ScmPrimaryActionInput): ScmPrimaryAction
   if (groups.conflicts.length > 0) {
     return {
       kind: 'disabled',
-      label: 'Resolve conflicts',
+      label: translate('scm.primary.resolveConflicts'),
       disabled: true,
-      reason: 'Resolve conflicts before committing.'
+      reason: translate('scm.primary.resolveBeforeCommit')
     }
   }
 
@@ -105,10 +114,10 @@ export function scmPrimaryAction(input: ScmPrimaryActionInput): ScmPrimaryAction
         kind: 'disabled',
         label: verb,
         disabled: true,
-        reason: 'Enter a commit message.'
+        reason: translate('scm.primary.enterMessage')
       }
     }
-    return { kind: 'commit', label: verb, disabled: false, reason: 'Commit the staged changes.' }
+    return { kind: 'commit', label: verb, disabled: false, reason: translate('scm.primary.commitStaged') }
   }
 
   if (input.smartCommit !== 'off' && stageable > 0) {
@@ -117,17 +126,20 @@ export function scmPrimaryAction(input: ScmPrimaryActionInput): ScmPrimaryAction
         kind: 'disabled',
         label: verb,
         disabled: true,
-        reason: 'Enter a commit message.'
+        reason: translate('scm.primary.enterMessage')
       }
     }
     return {
       kind: 'commit',
-      label: input.smartCommit === 'all' ? 'Commit All' : 'Commit Tracked',
+      label:
+        input.smartCommit === 'all'
+          ? translate('scm.primary.commitAll')
+          : translate('scm.primary.commitTracked'),
       disabled: false,
       reason:
         input.smartCommit === 'all'
-          ? 'Stage every change and commit the index.'
-          : 'Stage tracked changes and commit the index.',
+          ? translate('scm.primary.commitAllReason')
+          : translate('scm.primary.commitTrackedReason'),
       stageFirst: input.smartCommit
     }
   }
@@ -135,9 +147,9 @@ export function scmPrimaryAction(input: ScmPrimaryActionInput): ScmPrimaryAction
   if (input.headOid !== null && input.branch !== null && !input.hasUpstream) {
     return {
       kind: 'publish',
-      label: 'Publish Branch',
+      label: translate('scm.primary.publishBranch'),
       disabled: false,
-      reason: 'Publish this branch and set its upstream.'
+      reason: translate('scm.primary.publishReason')
     }
   }
 
@@ -145,25 +157,28 @@ export function scmPrimaryAction(input: ScmPrimaryActionInput): ScmPrimaryAction
     if (input.ahead > 0 && input.behind > 0) {
       return {
         kind: 'sync',
-        label: 'Sync Changes',
+        label: translate('scm.primary.sync'),
         disabled: false,
-        reason: `Pull ${String(input.behind)} and push ${String(input.ahead)} commit(s).`
+        reason: translate('scm.primary.syncReason', {
+          behind: input.behind,
+          ahead: input.ahead
+        })
       }
     }
     if (input.ahead > 0) {
       return {
         kind: 'push',
-        label: `Push ${String(input.ahead)}`,
+        label: translate('scm.primary.push', { count: input.ahead }),
         disabled: false,
-        reason: 'Push local commits to the upstream.'
+        reason: translate('scm.primary.pushReason')
       }
     }
     if (input.behind > 0) {
       return {
         kind: 'pull',
-        label: `Pull ${String(input.behind)}`,
+        label: translate('scm.primary.pull', { count: input.behind }),
         disabled: false,
-        reason: 'Pull commits from the upstream.'
+        reason: translate('scm.primary.pullReason')
       }
     }
   }
@@ -171,11 +186,11 @@ export function scmPrimaryAction(input: ScmPrimaryActionInput): ScmPrimaryAction
   if (stageable > 0) {
     return {
       kind: 'disabled',
-      label: 'Nothing staged',
+      label: translate('scm.primary.nothingStaged'),
       disabled: true,
-      reason: 'Stage changes before committing.'
+      reason: translate('scm.primary.stageBeforeCommit')
     }
   }
 
-  return { kind: 'noop', label: 'Up to date', disabled: true, reason: 'Nothing to commit.' }
+  return { kind: 'noop', label: translate('scm.primary.upToDate'), disabled: true, reason: translate('scm.primary.nothingToCommit') }
 }

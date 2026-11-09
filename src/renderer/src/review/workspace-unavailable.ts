@@ -1,14 +1,15 @@
+import { translate } from '../i18n/i18n-store'
 import type { WorkspaceUnavailablePayload } from '../../../shared/icode-api'
 
 /** Shared copy for a checkout that cannot answer Git or file requests. */
 export function workspaceUnavailableText(payload: WorkspaceUnavailablePayload): string {
   switch (payload.reason) {
     case 'worktree-unavailable':
-      return 'This distro could not be reached, so its Git state is unavailable right now.'
+      return translate('review.distroUnavailable')
     case 'worktree-missing':
-      return 'The session worktree is missing.'
+      return translate('review.worktreeMissing')
     case 'primary-checkout':
-      return 'This session runs in the primary checkout, so it has no worktree Git state.'
+      return translate('review.primaryCheckoutGit')
     default:
       return payload.detail
   }

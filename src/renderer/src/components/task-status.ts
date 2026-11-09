@@ -1,4 +1,5 @@
 import type { TaskRecordPayload } from '../../../shared/icode-api'
+import { translate } from '../i18n/i18n-store'
 
 export type TaskAttentionKind = 'Approval' | 'Answer' | 'Retry' | 'Review'
 
@@ -70,11 +71,17 @@ export function sortFinishedTasks(tasks: readonly TaskRecordPayload[]): TaskReco
 }
 
 export function taskStatusLabel(task: TaskRecordPayload): string {
-  if (task.approval === 'pending' && task.status === 'queued') return 'Proposed'
-  if (task.status === 'waiting') return 'Needs input'
-  if (task.status === 'dispatching') return 'Dispatching'
-  if (task.status === 'completed') return task.reviewDecision === 'pending' ? 'Review' : 'Completed'
-  return task.status.charAt(0).toUpperCase() + task.status.slice(1)
+  if (task.approval === 'pending' && task.status === 'queued') {
+    return translate('task.status.proposed')
+  }
+  if (task.status === 'waiting') return translate('task.status.needsInput')
+  if (task.status === 'dispatching') return translate('task.status.dispatching')
+  if (task.status === 'completed') {
+    return task.reviewDecision === 'pending'
+      ? translate('task.status.review')
+      : translate('task.status.completed')
+  }
+  return translate(`task.status.${task.status}`)
 }
 
 export function taskStatusTone(task: TaskRecordPayload): string {

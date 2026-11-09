@@ -3,6 +3,7 @@ import { fuzzyScore } from '../files/fuzzy'
 import { getWorktreeFileIndex } from '../files/file-index'
 import type { FileEntry } from '../../../shared/domain/workspace-files'
 import type { Notice } from '../state/workspace'
+import { useT, useTp } from '../i18n/use-i18n'
 
 export type QuickOpenProps = {
   open: boolean
@@ -43,6 +44,8 @@ export default function QuickOpen({
   onClose,
   onOpen
 }: QuickOpenProps): React.JSX.Element | null {
+  const t = useT()
+  const tp = useTp()
   const [files, setFiles] = useState<string[]>([])
   const [query, setQuery] = useState('')
   const [indexed, setIndexed] = useState(false)
@@ -109,7 +112,9 @@ export default function QuickOpen({
         <input
           ref={input}
           value={query}
-          placeholder={indexed ? 'Go to file… (path:line)' : 'Indexing worktree…'}
+          placeholder={
+            indexed ? t('quickOpen.goToFile') : t('quickOpen.indexing')
+          }
           className="w-full border-b border-border bg-transparent px-4 py-3 text-[13px] text-foreground outline-none placeholder:text-muted-foreground"
           data-testid="quick-open-input"
           onChange={(event) => setQuery(event.target.value)}
@@ -139,7 +144,7 @@ export default function QuickOpen({
         <div className="max-h-96 overflow-auto py-1.5" data-testid="quick-open-results">
           {note ? <p className="px-4 py-2 text-[11px] text-signal">{note}</p> : null}
           {!note && indexed && matches.length === 0 ? (
-            <p className="px-4 py-2 text-[11px] text-muted-foreground">No file matches that.</p>
+            <p className="px-4 py-2 text-[11px] text-muted-foreground">{t('quickOpen.noMatch')}</p>
           ) : null}
           {matches.map((path, index) => (
             <button
@@ -160,8 +165,11 @@ export default function QuickOpen({
           ))}
         </div>
         <p className="border-t border-border px-4 py-2 text-[10px] text-muted-foreground">
-          {indexed ? `${String(files.length)} file(s) in this worktree` : 'reading the worktree…'}
-          {requestedLine === null ? '' : ` · opens at line ${String(requestedLine)}`} · Enter opens · Esc closes
+          {indexed
+            ? tp('quickOpen.filesInWorktree', files.length)
+            : t('quickOpen.reading')}
+          {requestedLine === null ? '' : t('quickOpen.opensAt', { line: requestedLine })}
+          {t('quickOpen.footer')}
         </p>
       </div>
     </div>

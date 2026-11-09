@@ -13,21 +13,35 @@ import {
 import AssistantAvatar from '../components/AssistantAvatar'
 import AssistantCardView, { type AssistantTaskAction } from '../components/AssistantCardView'
 import Markdown from '../components/Markdown'
+import { useT } from '../i18n/use-i18n'
+import { getLocale } from '../i18n/i18n-store'
+import { formatDateTime } from '../../../shared/i18n'
 
-const STATUS_LABEL: Record<AssistantState['status'], string> = {
-  working: 'working',
-  idle: 'ready',
-  offline: 'no harness',
-  error: 'needs attention'
+const STATUS_KEY: Record<
+  AssistantState['status'],
+  'assistant.status.working' | 'assistant.status.ready' | 'assistant.status.noHarness' | 'assistant.status.needsAttention'
+> = {
+  working: 'assistant.status.working',
+  idle: 'assistant.status.ready',
+  offline: 'assistant.status.noHarness',
+  error: 'assistant.status.needsAttention'
 }
 
-const STAGE_LABEL: Record<AssistantRunStage, string> = {
-  selecting: 'Finding a harness',
-  calling: 'Contacting the agent',
-  thinking: 'Thinking',
-  reading: 'Reading project state',
-  acting: 'Taking action',
-  done: 'Finishing'
+const STAGE_KEY: Record<
+  AssistantRunStage,
+  | 'assistant.stage.selecting'
+  | 'assistant.stage.calling'
+  | 'assistant.stage.thinking'
+  | 'assistant.stage.reading'
+  | 'assistant.stage.acting'
+  | 'assistant.stage.done'
+> = {
+  selecting: 'assistant.stage.selecting',
+  calling: 'assistant.stage.calling',
+  thinking: 'assistant.stage.thinking',
+  reading: 'assistant.stage.reading',
+  acting: 'assistant.stage.acting',
+  done: 'assistant.stage.done'
 }
 
 function useElapsedSeconds(startedAt: number | null): number {
@@ -40,14 +54,14 @@ function useElapsedSeconds(startedAt: number | null): number {
   return startedAt === null ? 0 : Math.max(0, Math.floor((Date.now() - startedAt) / 1000))
 }
 
-const SUGGESTIONS = [
-  'What needs me across all projects?',
-  'Catch me up on the last day.',
-  'Plan the next step for the active project.'
-]
+const SUGGESTION_KEYS = [
+  'assistant.suggestion.needs',
+  'assistant.suggestion.catchUp',
+  'assistant.suggestion.plan'
+] as const
 
 function formatTime(value: number): string {
-  return new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  return formatDateTime(getLocale(), value, { hour: '2-digit', minute: '2-digit' })
 }
 
 function liveTaskCard(
@@ -78,6 +92,7 @@ export default function AssistantPage({
   onTaskAction?: (action: AssistantTaskAction, taskId: string) => void
   onOpenSettings: () => void
 }): React.JSX.Element {
+  const t = useT()
   const [draft, setDraft] = useState('')
   const [focusedId, setFocusedId] = useState<string | null>(null)
   const threadRef = useRef<HTMLDivElement | null>(null)
@@ -185,11 +200,11 @@ export default function AssistantPage({
             <h1 className="truncate text-[15px] font-semibold tracking-[-0.01em] text-foreground">
               {assistant.personaName}
             </h1>
-            <span className="text-[10.5px] text-muted-foreground">{STATUS_LABEL[assistant.status]}</span>
+            <span className="text-[10.5px] text-muted-foreground">{t(STATUS_KEY[assistant.status])}</span>
           </div>
           <p className="truncate text-[10.5px] text-muted-foreground">
             {assistant.harness ? `${assistant.harness} · ` : ''}
-            {assistant.target ?? 'all projects'}
+            {assistant.target ?? t('assistant.targetAll')}
           </p>
         </div>
         {assistant.conversations.length > 0 ? (
@@ -217,12 +232,12 @@ export default function AssistantPage({
           </select>
         ) : (
           <span className="ml-auto rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[10px] text-muted-foreground">
-            {contextRepo?.displayName ?? 'All projects'}
+            {contextRepo?.displayName ?? t('assistant.allProjects')}
           </span>
         )}
         {assistant.conversations.length > 0 ? (
           <span className="rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[10px] text-muted-foreground">
-            {contextRepo?.displayName ?? 'All projects'}
+            {contextRepo?.displayName ?? t('assistant.allProjects')}
           </span>
         ) : null}
         <button
@@ -240,8 +255,8 @@ export default function AssistantPage({
           type="button"
           className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-muted hover:text-foreground"
           onClick={onOpenSettings}
-          title="Mira settings"
-          aria-label="Mira settings"
+          title={t('assistant.settings')}
+          aria-label={t('assistant.settings')}
           data-testid="assistant-settings"
         >
           <Settings2 size={12} />
@@ -371,11 +386,13 @@ export default function AssistantPage({
             <div className="flex items-center gap-2 pl-8 text-[11px] text-muted-foreground">
               <Loader2 size={11} className="animate-spin" />
               <span data-testid="assistant-working">
-                {STAGE_LABEL[live?.stage ?? 'selecting']}…
+                {t('assistant.runningStage', {
+                  stage: t(STAGE_KEY[live?.stage ?? 'selecting'])
+                })}
               </span>
-              {elapsed > 0 ? <span>{elapsed}s</span> : null}
+              {elapsed > 0 ? <span>{t('duration.seconds', { seconds: elapsed })}</span> : null}
               {live?.thinkingTokens ? (
-                <span>· {live.thinkingTokens} thinking tokens</span>
+                <span>{t('assistant.thinkingTokens', { count: live.thinkingTokens })}</span>
               ) : null}
               {live?.target ? <span>· {live.target}</span> : null}
               <button
@@ -385,21 +402,21 @@ export default function AssistantPage({
                 data-testid="assistant-stop"
               >
                 <Square size={8} />
-                Stop
+                {t('assistant.stop')}
               </button>
             </div>
           ) : null}
 
           {followingLatest && !hasUserMessage && !working ? (
             <div className="mt-2 flex flex-wrap gap-1.5">
-              {SUGGESTIONS.map((suggestion) => (
+              {SUGGESTION_KEYS.map((suggestionKey) => (
                 <button
-                  key={suggestion}
+                  key={suggestionKey}
                   type="button"
                   className="rounded-full border border-border bg-card px-2.5 py-1 text-[10.5px] text-muted-foreground hover:bg-muted hover:text-foreground"
-                  onClick={() => void send(suggestion)}
+                  onClick={() => void send(t(suggestionKey))}
                 >
-                  {suggestion}
+                  {t(suggestionKey)}
                 </button>
               ))}
             </div>
@@ -414,9 +431,9 @@ export default function AssistantPage({
             className="min-h-[38px] max-h-32 flex-1 resize-none rounded-md border border-border bg-background px-3 py-2 text-[12px] text-foreground outline-none placeholder:text-muted-foreground focus:border-line-strong"
             placeholder={
               working
-                ? 'Mira is working…'
+                ? t('assistant.workingPlaceholder')
                 : followingLatest
-                  ? 'Ask Mira about any project…'
+                  ? t('assistant.placeholder')
                   : 'Viewing an earlier conversation — sending returns to the current one'
             }
             rows={1}
@@ -436,7 +453,7 @@ export default function AssistantPage({
             className="inline-flex h-[38px] w-[38px] items-center justify-center rounded-md bg-accent text-accent-ink hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
             disabled={working || draft.trim().length === 0}
             onClick={() => void send(draft)}
-            aria-label="Send"
+            aria-label={t('assistant.send')}
             data-testid="assistant-send"
           >
             <ArrowUp size={15} />

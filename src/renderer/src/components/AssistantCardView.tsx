@@ -1,5 +1,7 @@
 import { AlertCircle, CheckCircle2, ListTodo } from 'lucide-react'
 import type { AssistantCardPayload } from '../../../shared/schemas/assistant'
+import { useT } from '../i18n/use-i18n'
+import type { MessageKey } from '../../../shared/i18n'
 
 const STATUS_TONE: Record<string, string> = {
   queued: 'text-muted-foreground',
@@ -24,6 +26,7 @@ export default function AssistantCardView({
   onOpenTask?: (taskId: string) => void
   onTaskAction?: (action: AssistantTaskAction, taskId: string) => void
 }): React.JSX.Element {
+  const t = useT()
   if (card.type === 'task') {
     return (
       <div
@@ -37,17 +40,17 @@ export default function AssistantCardView({
           </span>
           {card.approval === 'pending' ? (
             <span className="shrink-0 rounded bg-signal-weak px-1.5 py-0.5 text-[9px] font-medium text-signal">
-              needs approval
+              {t('assistant.card.needsApproval')}
             </span>
           ) : card.autoApproved ? (
             <span className="shrink-0 rounded bg-add-weak px-1.5 py-0.5 text-[9px] font-medium text-add">
-              auto-dispatched
+              {t('assistant.card.autoDispatched')}
             </span>
           ) : null}
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground">
           {repoName ? <span>{repoName}</span> : null}
-          <span className={STATUS_TONE[card.status] ?? 'text-muted-foreground'}>{card.status}</span>
+          <span className={STATUS_TONE[card.status] ?? 'text-muted-foreground'}>{t(`task.status.${card.status}` as MessageKey)}</span>
           {card.reasons && card.reasons.length > 0 ? (
             <span className="text-signal">{card.reasons.join(' · ')}</span>
           ) : null}
@@ -60,7 +63,7 @@ export default function AssistantCardView({
               onClick={() => onOpenTask(card.taskId)}
               data-testid={`assistant-open-task-${card.taskId}`}
             >
-              Open task
+              {t('assistant.card.openTask')}
             </button>
           ) : null}
           {onTaskAction && card.approval === 'pending' ? (
@@ -71,7 +74,7 @@ export default function AssistantCardView({
                 onClick={() => onTaskAction('approve', card.taskId)}
                 data-testid={`assistant-approve-task-${card.taskId}`}
               >
-                Approve
+                {t('assistant.card.approve')}
               </button>
               <button
                 type="button"
@@ -79,7 +82,7 @@ export default function AssistantCardView({
                 onClick={() => onTaskAction('reject', card.taskId)}
                 data-testid={`assistant-reject-task-${card.taskId}`}
               >
-                Reject
+                {t('assistant.card.reject')}
               </button>
             </>
           ) : null}
@@ -90,7 +93,7 @@ export default function AssistantCardView({
               onClick={() => onTaskAction('retry', card.taskId)}
               data-testid={`assistant-retry-task-${card.taskId}`}
             >
-              Retry
+              {t('assistant.card.retry')}
             </button>
           ) : null}
           {onTaskAction &&
@@ -104,7 +107,7 @@ export default function AssistantCardView({
               onClick={() => onTaskAction('cancel', card.taskId)}
               data-testid={`assistant-cancel-task-${card.taskId}`}
             >
-              Cancel
+              {t('assistant.card.cancel')}
             </button>
           ) : null}
         </div>

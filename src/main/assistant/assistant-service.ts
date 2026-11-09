@@ -13,6 +13,7 @@ import type {
 } from '../../shared/domain/assistant'
 import { DEFAULT_ASSISTANT_SETTINGS } from '../../shared/domain/assistant'
 import type { AssistantConversationPayload } from '../../shared/schemas/assistant'
+import { mainT } from '../i18n/main-i18n'
 import type {
   AssistantMessageRecord,
   AssistantStore
@@ -91,9 +92,6 @@ class AssistantServiceError extends Error {
   }
 }
 
-const WELCOME =
-  "Hi, I'm Mira. I watch all your projects. Ask me what needs you, or tell me what to do."
-
 function runStage(value: string | null): AssistantRunStage {
   if (value === 'planning' || value === 'harness') return 'selecting'
   if (value === 'calling') return 'calling'
@@ -135,7 +133,7 @@ export class AssistantService {
         threadId: thread.id,
         role: 'system',
         kind: 'error',
-        body: 'iCode restarted before Mira finished the last request. Send it again when you are ready.',
+        body: mainT('assistant.restarted'),
         createdAt: this.deps.now()
       })
     }
@@ -201,7 +199,7 @@ export class AssistantService {
       threadId: thread.id,
       role: 'assistant',
       kind: 'welcome',
-      body: WELCOME,
+      body: mainT('assistant.welcome'),
       createdAt: now
     })
     if (welcome) this.deps.store.markRead(thread.id, welcome.seq, now)
@@ -363,7 +361,7 @@ export class AssistantService {
       if (!message || message.threadId !== thread.id) {
         throw new AssistantServiceError(
           'INVALID_ARGUMENT',
-          'That message is not part of this conversation.'
+          mainT('assistant.notYourMessage')
         )
       }
       seq = message.seq
@@ -389,7 +387,7 @@ export class AssistantService {
     if (!this.deps.store.claimRun(thread.id, runId)) {
       throw new AssistantServiceError(
         'ASSISTANT_BUSY',
-        'Mira is still working on the previous request.'
+        mainT('assistant.busy')
       )
     }
 
@@ -405,7 +403,7 @@ export class AssistantService {
     })
     if (!userMessage) {
       this.deps.store.releaseRun(thread.id, runId)
-      throw new AssistantServiceError('INTERNAL', 'The message could not be recorded.')
+      throw new AssistantServiceError('INTERNAL', mainT('assistant.messageNotRecorded'))
     }
 
     const runner = this.deps.runner
@@ -441,15 +439,14 @@ export class AssistantService {
         runId,
         role: 'assistant',
         kind: 'error',
-        body:
-          'I need an agent harness before I can answer. Install Claude Code, Codex, or OpenCode, then try again.',
+        body: mainT('assistant.noHarnessBody'),
         createdAt: this.deps.now()
       })
       this.deps.store.updateRun(runId, {
         status: 'failed',
         stage: 'harness',
         finishedAt: this.deps.now(),
-        error: 'No assistant harness is configured.'
+        error: mainT('assistant.noHarnessError')
       })
       this.deps.store.releaseRun(thread.id, runId)
       this.emit({ type: 'changed' })
@@ -528,7 +525,9 @@ export class AssistantService {
         runId: input.runId,
         role: 'system',
         kind: stopped ? 'status' : 'error',
-        body: stopped ? 'Stopped.' : `Mira could not finish that request: ${message}`,
+        body: stopped
+          ? mainT('assistant.stopped')
+          : mainT('assistant.failed', { detail: message }),
         createdAt: this.deps.now()
       })
       this.deps.store.updateRun(input.runId, {
