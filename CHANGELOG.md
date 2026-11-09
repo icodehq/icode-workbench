@@ -42,6 +42,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The installer, executable and desktop icons now use the transparent green
+  brand mark from the README instead of the retired black tile.
 - Codex runs for Mira no longer use `--ephemeral` when resume is available, so
   the harness persists a resumable thread. Mira conversations now live in each
   harness's default state directory (`~/.claude`, `~/.codex`, OpenCode's data

@@ -52,6 +52,7 @@
     "smoke:worktree": "node tests/compat/worktree-isolation-smoke.cjs",
     "test:watch": "vitest --config config/vitest.config.mts",
     "check:brand": "node config/scripts/check-brand.cjs",
+    "icons:generate": "node config/scripts/generate-icons.cjs",
     "perf:scm": "node config/scripts/gates.cjs perf-scm",
     "smoke:activity": "node tests/compat/activity-smoke.cjs",
     "smoke:features": "node tests/compat/feature-smoke.cjs",
