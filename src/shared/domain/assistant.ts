@@ -34,6 +34,50 @@ export type AssistantStatus = (typeof ASSISTANT_STATUSES)[number]
 export const ASSISTANT_TRIGGERS = ['user', 'retry', 'proactive'] as const
 export type AssistantTrigger = (typeof ASSISTANT_TRIGGERS)[number]
 
+export const ASSISTANT_CONVERSATION_STATES = ['active', 'reset', 'invalid'] as const
+export type AssistantConversationState = (typeof ASSISTANT_CONVERSATION_STATES)[number]
+
+export const ASSISTANT_CONVERSATION_RESET_REASONS = [
+  'user',
+  'harness-changed',
+  'target-changed',
+  'resume-failed',
+  'resume-unsupported'
+] as const
+export type AssistantConversationResetReason =
+  (typeof ASSISTANT_CONVERSATION_RESET_REASONS)[number]
+
+export const ASSISTANT_CONVERSATION_HISTORY_MODES = ['bridge', 'clean'] as const
+export type AssistantConversationHistoryMode =
+  (typeof ASSISTANT_CONVERSATION_HISTORY_MODES)[number]
+
+/**
+ * One native harness conversation owned by Mira's single thread.
+ *
+ * The row rotates: at most one `active` conversation per thread. Retired rows
+ * are kept for audit and explain why Mira started over. `nativeSessionId` is
+ * the harness's own continuation handle; iCode never parses its transcript.
+ */
+export type AssistantConversation = {
+  id: string
+  threadId: string
+  harness: 'claude' | 'codex' | 'opencode'
+  targetKind: 'local' | 'wsl'
+  targetDistro: string | null
+  nativeSessionId: string | null
+  state: AssistantConversationState
+  resetReason: AssistantConversationResetReason | null
+  historyMode: AssistantConversationHistoryMode
+  lastPromptSeq: number | null
+  /** First message seq in this segment; null only for pre-v12 audit rows. */
+  startSeq: number | null
+  /** Retirement watermark; display ranges use the next segment's startSeq. */
+  endSeq: number | null
+  createdAt: number
+  updatedAt: number
+  observedAt: number | null
+}
+
 export const ASSISTANT_RUN_STATUSES = [
   'queued',
   'running',
@@ -68,6 +112,7 @@ export const ASSISTANT_LIMITS = {
   maxHarnessCalls: 3,
   maxTaskCreatesPerRun: 2,
   maxSessionMessagesPerRun: 2,
+  maxNotificationFeed: 50,
   maxMemoryEntries: 50,
   maxMemoryKeyLength: 120,
   maxMemoryValueLength: 2_000
@@ -247,7 +292,13 @@ export type AssistantState = {
 export type AssistantEvent =
   | { type: 'changed' }
   | { type: 'status'; status: AssistantStatus }
-  | { type: 'focus'; threadId: string; messageId: string }
+  | {
+      type: 'focus'
+      threadId: string
+      messageId: string
+      conversationId: string | null
+      seq: number | null
+    }
   | {
       type: 'run'
       runId: string

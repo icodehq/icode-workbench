@@ -496,5 +496,74 @@ export const MIGRATIONS: readonly Migration[] = [
       `ALTER TABLE tasks ADD COLUMN archived_at INTEGER`,
       `CREATE INDEX tasks_archived_updated_idx ON tasks (archived_at, updated_at)`
     ]
+  },
+  {
+    version: 11,
+    name: 'assistant-conversations',
+    /**
+     * One native harness conversation per Mira thread at a time.
+     *
+     * The thread is durable and user-visible; the native conversation is a
+     * rotating resource. Retired rows stay for audit and explain why Mira
+     * started over. `history_mode` is only read before the native id exists:
+     * `bridge` replays recent messages on the first turn, `clean` does not.
+     */
+    statements: [
+      `CREATE TABLE assistant_conversations (
+         id TEXT PRIMARY KEY NOT NULL,
+         thread_id TEXT NOT NULL REFERENCES assistant_threads(id) ON DELETE CASCADE,
+         harness TEXT NOT NULL CHECK (harness IN ('claude', 'codex', 'opencode')),
+         target_kind TEXT NOT NULL CHECK (target_kind IN ('local', 'wsl')),
+         target_distro TEXT,
+         native_session_id TEXT
+           CHECK (native_session_id IS NULL OR length(native_session_id) BETWEEN 1 AND 128),
+         state TEXT NOT NULL CHECK (state IN ('active', 'reset', 'invalid')),
+         reset_reason TEXT
+           CHECK (reset_reason IS NULL OR reset_reason IN
+             ('user', 'harness-changed', 'target-changed', 'resume-failed', 'resume-unsupported')),
+         history_mode TEXT NOT NULL DEFAULT 'bridge'
+           CHECK (history_mode IN ('bridge', 'clean')),
+         last_prompt_seq INTEGER,
+         created_at INTEGER NOT NULL,
+         updated_at INTEGER NOT NULL,
+         observed_at INTEGER,
+         CHECK ((target_kind = 'local' AND target_distro IS NULL)
+             OR (target_kind = 'wsl' AND target_distro IS NOT NULL)),
+         CHECK ((state = 'active' AND reset_reason IS NULL)
+             OR (state <> 'active' AND reset_reason IS NOT NULL))
+       ) STRICT`,
+      `CREATE UNIQUE INDEX assistant_conversations_active_idx
+         ON assistant_conversations (thread_id) WHERE state = 'active'`,
+      `CREATE INDEX assistant_conversations_thread_created_idx
+         ON assistant_conversations (thread_id, created_at)`
+    ]
+  },
+  {
+    version: 12,
+    name: 'assistant-conversation-segments',
+    /**
+     * Transcript segments for Mira's global thread.
+     *
+     * `start_seq` anchors a conversation to the user message that started it
+     * (1 for the first-ever segment, so the welcome is included). The visible
+     * range of a segment is [start_seq, next.start_seq - 1]; `end_seq` records
+     * retirement for audit and is not used as the display boundary.
+     *
+     * Pre-v12 rows have no message↔conversation link, so segmentation is not
+     * invented: the newest row per thread becomes one legacy segment covering
+     * the whole transcript. Older rows stay NULL and are hidden from the
+     * selector but retained as audit.
+     */
+    statements: [
+      `ALTER TABLE assistant_conversations ADD COLUMN start_seq INTEGER`,
+      `ALTER TABLE assistant_conversations ADD COLUMN end_seq INTEGER`,
+      `CREATE INDEX assistant_conversations_thread_seq_idx
+         ON assistant_conversations (thread_id, start_seq)`,
+      `UPDATE assistant_conversations
+       SET start_seq = 1
+       WHERE rowid IN (
+         SELECT MAX(rowid) FROM assistant_conversations GROUP BY thread_id
+       )`
+    ]
   }
 ]

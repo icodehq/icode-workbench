@@ -7,8 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Mira now keeps a native harness conversation instead of replaying a
+  truncated transcript. Claude, Codex and OpenCode are resumed by the
+  harness's own session id; a changed harness or target starts a bridged
+  conversation with a visible boundary, **New conversation** starts a clean
+  one, and a failed resume falls back to reconstructed replay once. SQLite
+  migration v11 adds `assistant_conversations`; retired rows keep the reason
+  Mira started over.
+- Mira's thread is now split into selectable conversation segments. The header
+  chooses the current or an earlier conversation, each segment pages 50
+  messages at a time with **Load earlier messages**, and **New conversation**
+  starts a new visible segment. Proactive notifications are hidden from the
+  transcript and stay in the notifications drawer, fed by a dedicated recent
+  notifications query. A resumed turn's `## Since your last turn` digest now
+  includes action results, failures and notifications, so write outcomes are
+  not lost. SQLite migration v12 adds segment ranges (`start_seq`/`end_seq`);
+  pre-v12 conversation rows are shown as one legacy segment.
+
 ### Changed
 
+- Codex runs for Mira no longer use `--ephemeral` when resume is available, so
+  the harness persists a resumable thread. Mira conversations now live in each
+  harness's default state directory (`~/.claude`, `~/.codex`, OpenCode's data
+  directory).
 - iCode Workbench is now licensed under the GNU Affero General Public License
   v3.0 only (AGPL-3.0-only). A modified version made available to users over a
   network must offer them the corresponding source under section 13.

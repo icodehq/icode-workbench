@@ -25,13 +25,17 @@ import type {
 } from './schemas/ipc'
 import type { clearActivityUnreadInputSchema } from './schemas/activity'
 import type {
+  AssistantConversationPayload,
   AssistantEventPayload,
   AssistantMessagePayload,
+  AssistantNewConversationResult,
   AssistantSendResult,
   AssistantSettingsPayload,
   AssistantStatePayload,
   assistantMarkReadInputSchema,
   assistantMessagesInputSchema,
+  assistantNotificationsInputSchema,
+  assistantFocusInputSchema,
   assistantSendInputSchema,
   assistantSetSettingsInputSchema
 } from './schemas/assistant'
@@ -383,9 +387,15 @@ export type IcodeProductApi = {
       messages: (
         input: z.infer<typeof assistantMessagesInputSchema>
       ) => Promise<IpcResult<AssistantMessagePayload[]>>
+      conversations: () => Promise<IpcResult<AssistantConversationPayload[]>>
+      notifications: (
+        input?: z.infer<typeof assistantNotificationsInputSchema>
+      ) => Promise<IpcResult<AssistantMessagePayload[]>>
+      focus: (input: z.infer<typeof assistantFocusInputSchema>) => Promise<IpcResult<null>>
       send: (input: z.infer<typeof assistantSendInputSchema>) => Promise<IpcResult<AssistantSendResult>>
       markRead: (input: z.infer<typeof assistantMarkReadInputSchema>) => Promise<IpcResult<number>>
       stop: () => Promise<IpcResult<null>>
+      newConversation: () => Promise<IpcResult<AssistantNewConversationResult>>
       settings: () => Promise<IpcResult<AssistantSettingsPayload>>
       setSettings: (
         input: z.infer<typeof assistantSetSettingsInputSchema>

@@ -1,6 +1,8 @@
 import { z } from 'zod'
 import { repoIdSchema } from './primitives'
 import {
+  ASSISTANT_CONVERSATION_RESET_REASONS,
+  ASSISTANT_CONVERSATION_STATES,
   ASSISTANT_LIMITS,
   ASSISTANT_MESSAGE_KINDS,
   ASSISTANT_NOTIFICATION_KINDS,
@@ -72,6 +74,21 @@ export const assistantThreadSchema = z.strictObject({
   lastReadSeq: z.number().int().min(0),
   activeRunId: z.string().max(120).nullable(),
   archivedAt: z.number().int().nullable()
+})
+
+export const assistantConversationSchema = z.strictObject({
+  id: z.string().min(1).max(120),
+  threadId: z.string().min(1).max(120),
+  harness: z.enum(['claude', 'codex', 'opencode']),
+  targetKind: z.enum(['local', 'wsl']),
+  targetDistro: z.string().max(200).nullable(),
+  state: z.enum(ASSISTANT_CONVERSATION_STATES),
+  resetReason: z.enum(ASSISTANT_CONVERSATION_RESET_REASONS).nullable(),
+  startSeq: z.number().int().min(1),
+  /** Null for the latest open segment. */
+  endSeq: z.number().int().min(1).nullable(),
+  createdAt: z.number().int(),
+  updatedAt: z.number().int()
 })
 
 export const assistantMessageSchema = z.strictObject({
@@ -166,7 +183,9 @@ export const assistantEventSchema = z.discriminatedUnion('type', [
   z.strictObject({
     type: z.literal('focus'),
     threadId: z.string().min(1).max(120),
-    messageId: z.string().min(1).max(120)
+    messageId: z.string().min(1).max(120),
+    conversationId: z.string().min(1).max(120).nullable(),
+    seq: z.number().int().min(1).nullable()
   }),
   z.strictObject({
     type: z.literal('run'),
@@ -198,7 +217,8 @@ export const assistantSendResultSchema = z.strictObject({
 export const assistantMessagesInputSchema = z.strictObject({
   threadId: z.string().min(1).max(120),
   beforeSeq: z.number().int().min(1).optional(),
-  limit: z.number().int().min(1).max(ASSISTANT_LIMITS.maxThreadMessages).optional()
+  limit: z.number().int().min(1).max(ASSISTANT_LIMITS.maxThreadMessages).optional(),
+  conversationId: z.string().min(1).max(120).optional()
 })
 
 export const assistantMarkReadInputSchema = z.strictObject({
@@ -216,7 +236,20 @@ export const assistantSetSettingsInputSchema = z.strictObject({
 
 export const assistantEmptyInputSchema = z.strictObject({})
 
+export const assistantNotificationsInputSchema = z.strictObject({
+  limit: z.number().int().min(1).max(ASSISTANT_LIMITS.maxNotificationFeed).optional()
+})
+
+export const assistantFocusInputSchema = z.strictObject({
+  messageId: z.string().min(1).max(120)
+})
+
+export const assistantNewConversationResultSchema = z.strictObject({
+  message: assistantMessageSchema.nullable()
+})
+
 export type AssistantThreadPayload = z.infer<typeof assistantThreadSchema>
+export type AssistantConversationPayload = z.infer<typeof assistantConversationSchema>
 export type AssistantMessagePayload = z.infer<typeof assistantMessageSchema>
 export type AssistantRunPayload = z.infer<typeof assistantRunSchema>
 export type AssistantStatePayload = z.infer<typeof assistantStateSchema>
@@ -224,6 +257,11 @@ export type AssistantEventPayload = z.infer<typeof assistantEventSchema>
 export type AssistantSettingsPayload = z.infer<typeof assistantSettingsSchema>
 export type AssistantSendInput = z.infer<typeof assistantSendInputSchema>
 export type AssistantSendResult = z.infer<typeof assistantSendResultSchema>
+export type AssistantNewConversationResult = z.infer<
+  typeof assistantNewConversationResultSchema
+>
 export type AssistantMessagesInput = z.infer<typeof assistantMessagesInputSchema>
+export type AssistantNotificationsInput = z.infer<typeof assistantNotificationsInputSchema>
+export type AssistantFocusInput = z.infer<typeof assistantFocusInputSchema>
 export type AssistantMarkReadInput = z.infer<typeof assistantMarkReadInputSchema>
 export type AssistantCardPayload = z.infer<typeof assistantCardSchema>

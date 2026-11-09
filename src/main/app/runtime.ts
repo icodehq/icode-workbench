@@ -762,6 +762,8 @@ export async function startAppRuntime(): Promise<AppRuntime> {
 
   const assistantStore = new AssistantStore(persistence.database)
   const assistantPolicy = new AssistantPolicy({ tasks: taskStore, now: () => Date.now() })
+  const newAssistantId = (prefix: string): string =>
+    `${prefix}_${globalThis.crypto.randomUUID()}`
   const assistantRunner = new AssistantRunner({
     store: assistantStore,
     actionsFor: (threadId, runId) =>
@@ -791,6 +793,8 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     wslRunner,
     workspaceTrust,
     userDataDir: app.getPath('userData'),
+    resumeEnabled: true,
+    newId: newAssistantId,
     now: () => Date.now(),
     onError: (error) => {
       process.stderr.write(`[icode] assistant runner: ${String(error)}\n`)
@@ -799,7 +803,7 @@ export async function startAppRuntime(): Promise<AppRuntime> {
   const assistantService = new AssistantService({
     store: assistantStore,
     now: () => Date.now(),
-    newId: (prefix) => `${prefix}_${globalThis.crypto.randomUUID()}`,
+    newId: newAssistantId,
     runner: assistantRunner,
     onError: (error) => {
       process.stderr.write(`[icode] assistant: ${String(error)}\n`)

@@ -67,9 +67,16 @@ not a terminal: one conversation spans every repository.
   written; the run line shows the current stage, elapsed time and thinking-token
   count, and Stop terminates the harness — on Windows, its whole shim process
   tree.
+- **She remembers the conversation.** The installed harness owns the native
+  conversation and Mira resumes it by session id. The header selects the current
+  or an earlier conversation, each segment pages through its transcript, and a
+  harness or target switch starts a bridged conversation with a visible
+  boundary. **New conversation** starts a clean one; a failed resume falls back
+  to reconstructed replay.
 - **She comes to you.** Approvals, failed or waiting tasks, review-ready work and
   completed Mira/supervisor tasks become proactive messages with a rail badge and
-  an OS notification when no window is focused. Deduplication, an hourly budget
+  an OS notification when no window is focused. They stay in the notifications
+  drawer rather than cluttering the conversation. Deduplication, an hourly budget
   and quiet hours keep it from becoming noise.
 
 <p align="center">
@@ -412,13 +419,17 @@ pnpm build
 
 ### Mira: a typed control plane
 
-Mira is a headless planner, not a repo-less PTY. A turn sends the persona, a
-compact cross-project snapshot, recent history and a typed action schema to the
-installed harness. The model answers with one JSON envelope. Main validates it
-with Zod and executes reads first; up to three harness calls are allowed per turn.
-Writes are authorized and audited in `assistant_actions`; the model never gets a
-project working directory, a shell, or a control socket. Approvals, review
-decisions, merges and deletes are absent from its action vocabulary.
+Mira is a headless planner, not a repo-less PTY. Each harness conversation is
+resumed by the harness's own session id, so the persona and a freshly rebuilt
+cross-project snapshot lead each turn while the harness keeps the prior context.
+A fresh or reset conversation also replays a compact recent history. Retired
+native conversations remain selectable transcript segments, and the per-turn
+digest carries action results, failures and notifications from turns the
+harness did not see. The model answers with one JSON envelope. Main validates
+it with Zod and executes reads first; up to three harness calls are allowed per
+turn. Writes are authorized and audited in `assistant_actions`; the model never
+gets a project working directory, a shell, or a control socket. Approvals,
+review decisions, merges and deletes are absent from its action vocabulary.
 
 Claude runs with `--output-format stream-json`: text deltas feed a Markdown draft,
 thinking-token events feed the run line, and the final `result` event is captured

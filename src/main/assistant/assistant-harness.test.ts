@@ -59,8 +59,36 @@ describe('assistant harness adapters', () => {
     ).toMatchObject({ ok: false })
   })
 
-  it('surfaces an error instead of treating it as a reply', () => {
+  it('extracts the final agent message from Codex exec --json', () => {
+    const output = [
+      '{"type":"thread.started","thread_id":"thread-1"}',
+      '{"type":"item.completed","item":{"type":"reasoning","text":"thinking"}}',
+      '{"type":"item.completed","item":{"type":"agent_message","text":"{\\"reply\\":\\"ok\\",\\"actions\\":[]}"}}',
+      '{"type":"turn.completed","usage":{}}'
+    ].join('\n')
+    expect(parseAssistantHarnessOutput('codex', output)).toEqual({
+      ok: true,
+      text: '{"reply":"ok","actions":[]}'
+    })
+  })
+
+  it('surfaces Codex turn failures and rejects JSONL without an agent message', () => {
     expect(
+      parseAssistantHarnessOutput(
+        'codex',
+        '{"type":"turn.failed","error":{"message":"boom"}}'
+      )
+    ).toEqual({ ok: false, error: 'boom' })
+    expect(
+      parseAssistantHarnessOutput('codex', '{"type":"thread.started","thread_id":"thread-1"}')
+    ).toEqual({ ok: false, error: 'Codex returned no agent message.' })
+    expect(parseAssistantHarnessOutput('codex', 'plain text')).toEqual({
+      ok: true,
+      text: 'plain text'
+    })
+  })
+
+  it('surfaces an error instead of treating it as a reply', () => {    expect(
       parseAssistantHarnessOutput('claude', JSON.stringify({ is_error: true }))
     ).toMatchObject({ ok: false })
     expect(

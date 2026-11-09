@@ -132,9 +132,13 @@ export function createIcodeApi(invoke: InvokeFn, subscribe: SubscribeFn): IcodeA
     assistant: {
       state: () => call(IPC_CHANNELS.assistantState),
       messages: (input) => call(IPC_CHANNELS.assistantMessagesList, input),
+      conversations: () => call(IPC_CHANNELS.assistantConversationsList, {}),
+      notifications: (input) => call(IPC_CHANNELS.assistantNotificationsList, input),
+      focus: (input) => call(IPC_CHANNELS.assistantFocus, input),
       send: (input) => call(IPC_CHANNELS.assistantSend, input),
       markRead: (input) => call(IPC_CHANNELS.assistantMarkRead, input),
       stop: () => call(IPC_CHANNELS.assistantStop),
+      newConversation: () => call(IPC_CHANNELS.assistantNewConversation, {}),
       settings: () => call(IPC_CHANNELS.assistantSettingsGet),
       setSettings: (input) => call(IPC_CHANNELS.assistantSetSettings, input),
       onEvent: (listener) =>

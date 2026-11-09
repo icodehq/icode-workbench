@@ -12,10 +12,12 @@ import type {
   AssistantThread
 } from '../../shared/domain/assistant'
 import { DEFAULT_ASSISTANT_SETTINGS } from '../../shared/domain/assistant'
+import type { AssistantConversationPayload } from '../../shared/schemas/assistant'
 import type {
   AssistantMessageRecord,
   AssistantStore
 } from '../persistence/assistant-store'
+import { resetConversationForUser } from './assistant-conversation'
 
 export type AssistantReply = {
   role?: 'assistant' | 'system'
@@ -49,6 +51,8 @@ export type AssistantRunEvent =
       thinkingTokens?: number | null
     }
   | { type: 'delta'; text: string }
+  /** A message was persisted mid-run (a conversation boundary). */
+  | { type: 'message' }
 
 export type AssistantRunnerResult = {
   messages: AssistantReply[]
@@ -145,6 +149,30 @@ export class AssistantService {
     this.deps.runner?.stop()
     this.status = this.deps.runner ? 'idle' : 'offline'
     this.emit({ type: 'status', status: this.status })
+  }
+
+  /**
+   * Start a fresh native conversation without deleting the visible thread.
+   *
+   * The next send resolves a clean conversation; the boundary message explains
+   * why the prior turns no longer count as model context.
+   */
+  newConversation(): { message: AssistantMessageRecord | null } {
+    const thread = this.ensureThread()
+    if (this.running !== null) {
+      throw new AssistantServiceError(
+        'ASSISTANT_BUSY',
+        'Mira is still working on the previous request.'
+      )
+    }
+    const result = resetConversationForUser({
+      store: this.deps.store,
+      threadId: thread.id,
+      now: this.deps.now(),
+      newId: this.deps.newId
+    })
+    if (result !== null) this.emit({ type: 'changed' })
+    return { message: result?.message ?? null }
   }
 
   subscribe(listener: (event: AssistantEvent) => void): () => void {
@@ -252,19 +280,79 @@ export class AssistantService {
   /** Ask the renderer to open one message (used by OS notification clicks). */
   focus(messageId: string): void {
     const thread = this.ensureThread()
-    this.emit({ type: 'focus', threadId: thread.id, messageId })
+    const message = this.deps.store.getMessage(messageId)
+    const conversation =
+      message === null
+        ? null
+        : this.deps.store.findConversationForSeq(thread.id, message.seq)
+    this.emit({
+      type: 'focus',
+      threadId: thread.id,
+      messageId,
+      conversationId: conversation?.id ?? null,
+      seq: message?.seq ?? null
+    })
   }
 
   listMessages(input: {
     threadId: string
     beforeSeq?: number
     limit?: number
+    conversationId?: string
   }): AssistantMessageRecord[] {
     const thread = this.ensureThread()
+    if (input.conversationId !== undefined) {
+      const conversation = this.deps.store.findConversation(input.conversationId)
+      if (
+        conversation === null ||
+        conversation.threadId !== thread.id ||
+        conversation.startSeq === null
+      ) {
+        throw new AssistantServiceError(
+          'INVALID_ARGUMENT',
+          'That conversation is not part of this thread.'
+        )
+      }
+      const next = this.deps.store.findNextConversation(thread.id, conversation.startSeq)
+      return this.deps.store.listMessagesInRange(thread.id, {
+        startSeq: conversation.startSeq,
+        endSeq:
+          next !== null && next.startSeq !== null ? next.startSeq - 1 : null,
+        ...(input.beforeSeq === undefined ? {} : { beforeSeq: input.beforeSeq }),
+        ...(input.limit === undefined ? {} : { limit: input.limit })
+      })
+    }
     return this.deps.store.listMessages(thread.id, {
       ...(input.beforeSeq === undefined ? {} : { beforeSeq: input.beforeSeq }),
       ...(input.limit === undefined ? {} : { limit: input.limit })
     })
+  }
+
+  listConversations(): AssistantConversationPayload[] {
+    const thread = this.ensureThread()
+    const conversations = this.deps.store.listConversations(thread.id)
+    return conversations.map((conversation, index) => {
+      const next = conversations[index + 1]
+      return {
+        id: conversation.id,
+        threadId: conversation.threadId,
+        harness: conversation.harness,
+        targetKind: conversation.targetKind,
+        targetDistro: conversation.targetDistro,
+        state: conversation.state,
+        resetReason: conversation.resetReason,
+        startSeq: conversation.startSeq ?? 1,
+        endSeq:
+          next !== undefined && next.startSeq !== null ? next.startSeq - 1 : null,
+        createdAt: conversation.createdAt,
+        updatedAt: conversation.updatedAt
+      }
+    })
+  }
+
+  listNotifications(input: { limit?: number } = {}): AssistantMessageRecord[] {
+    const thread = this.ensureThread()
+    return this.deps.store.listRecentNotifications(thread.id, input.limit ?? 10)
   }
 
   markRead(input: { threadId: string; messageId?: string }): number {
@@ -387,6 +475,10 @@ export class AssistantService {
 
   private async run(runner: AssistantRunnerLike, input: AssistantRunInput): Promise<void> {
     const onEvent = (event: AssistantRunEvent): void => {
+      if (event.type === 'message') {
+        this.emit({ type: 'changed' })
+        return
+      }
       if (event.type === 'delta') {
         this.emit({ type: 'delta', runId: input.runId, text: event.text })
         return

@@ -138,4 +138,149 @@ describe('AssistantService', () => {
     resolveRun({ messages: [{ body: 'First done.' }] })
     await waitForIdle(service)
   })
+
+  it('lists conversation segments and filters messages/notifications', () => {
+    const { service, store } = fixture()
+    const state = service.state()
+    const threadId = state.threadId
+    store.insertConversation({
+      id: 'conv_1',
+      threadId,
+      harness: 'claude',
+      targetKind: 'local',
+      targetDistro: null,
+      historyMode: 'bridge',
+      startSeq: 1,
+      createdAt: 1_001
+    })
+    store.appendMessage({
+      id: 'msg_user',
+      threadId,
+      role: 'user',
+      kind: 'text',
+      body: 'hello',
+      createdAt: 1_002
+    })
+    store.appendMessage({
+      id: 'msg_reply',
+      threadId,
+      role: 'assistant',
+      kind: 'text',
+      body: 'hi',
+      createdAt: 1_003
+    })
+    store.retireConversation('conv_1', {
+      state: 'reset',
+      reason: 'user',
+      now: 1_004,
+      endSeq: 3
+    })
+    store.insertConversation({
+      id: 'conv_2',
+      threadId,
+      harness: 'claude',
+      targetKind: 'local',
+      targetDistro: null,
+      historyMode: 'bridge',
+      startSeq: 4,
+      createdAt: 1_005
+    })
+    const note = store.appendMessage({
+      id: 'msg_note',
+      threadId,
+      role: 'assistant',
+      kind: 'notification',
+      body: 'A task failed.',
+      notificationKind: 'task-failed',
+      notificationPriority: 'high',
+      notificationState: 'pending',
+      createdAt: 1_006
+    })!
+
+    const conversations = service.listConversations()
+    expect(conversations).toEqual([
+      expect.objectContaining({ id: 'conv_1', startSeq: 1, endSeq: 3 }),
+      expect.objectContaining({ id: 'conv_2', startSeq: 4, endSeq: null })
+    ])
+    expect(conversations.some((entry) => 'nativeSessionId' in entry)).toBe(false)
+
+    const welcomeId = store.listMessages(threadId, { limit: 50 })[0]!.id
+    expect(
+      service
+        .listMessages({ threadId, conversationId: 'conv_1', limit: 50 })
+        .map((message) => message.id)
+    ).toEqual([welcomeId, 'msg_user', 'msg_reply'])
+    expect(
+      service
+        .listMessages({ threadId, conversationId: 'conv_2', limit: 50 })
+        .map((message) => message.id)
+    ).toEqual(['msg_note'])
+    expect(() =>
+      service.listMessages({ threadId, conversationId: 'conv_missing', limit: 50 })
+    ).toThrow(/not part of this thread/u)
+
+    expect(service.listNotifications({ limit: 10 }).map((message) => message.id)).toEqual([
+      'msg_note'
+    ])
+
+    const events: string[] = []
+    service.subscribe((event) => {
+      if (event.type === 'focus') {
+        expect(event.conversationId).toBe('conv_2')
+        expect(event.seq).toBe(note.seq)
+        events.push('focus')
+      }
+    })
+    service.focus(note.id)
+    expect(events).toEqual(['focus'])
+  })
+
+  it('retires the active native conversation and posts a boundary', () => {
+    const { service, store } = fixture()
+    const state = service.state()
+    store.insertConversation({
+      id: 'conv_1',
+      threadId: state.threadId,
+      harness: 'claude',
+      targetKind: 'local',
+      targetDistro: null,
+      historyMode: 'bridge',
+      startSeq: 1,
+      createdAt: 1_000
+    })
+
+    const result = service.newConversation()
+    expect(result.message).toMatchObject({ role: 'system', kind: 'status' })
+    expect(result.message?.body).toContain('New conversation')
+    expect(store.findActiveConversation(state.threadId)).toBeNull()
+    expect(store.findLatestConversation(state.threadId)).toMatchObject({
+      state: 'reset',
+      resetReason: 'user'
+    })
+    expect(service.state().unread).toBe(1)
+  })
+
+  it('does not post a boundary when there is no native conversation', () => {
+    const { service } = fixture()
+    expect(service.newConversation()).toEqual({ message: null })
+    expect(service.state().unread).toBe(0)
+  })
+
+  it('refuses a new conversation while a run is active', async () => {
+    let resolveRun!: (value: { messages: Array<{ body: string }> }) => void
+    const runner: AssistantRunnerLike = {
+      run: vi.fn(
+        () =>
+          new Promise((resolve) => {
+            resolveRun = resolve
+          }) as ReturnType<AssistantRunnerLike['run']>
+      ),
+      stop: vi.fn()
+    }
+    const { service } = fixture(runner)
+    await service.send({ text: 'First' })
+    expect(() => service.newConversation()).toThrow(/still working/u)
+    resolveRun({ messages: [{ body: 'First done.' }] })
+    await waitForIdle(service)
+  })
 })

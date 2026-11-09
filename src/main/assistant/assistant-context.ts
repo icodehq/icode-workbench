@@ -89,6 +89,10 @@ export type AssistantPromptInput = {
   history: Array<{ role: string; body: string }>
   userText: string
   repoId?: string
+  /** False when a native conversation already holds the prior turns. */
+  includeHistory?: boolean
+  /** Messages written outside the harness since the previous turn. */
+  sinceLastTurn?: Array<{ kind: string; body: string }>
 }
 
 const ACTION_HELP = `Actions you may return (JSON objects with an "op"):
@@ -156,19 +160,29 @@ For proactive messages, use notify only when the user needs to know now.`
     2
   )
 
-  const history = input.history
-    .slice(-12)
-    .map((message) => `${message.role.toUpperCase()}: ${truncate(message.body, 1_000)}`)
+  const includeHistory = input.includeHistory !== false
+  const history = includeHistory
+    ? input.history
+        .slice(-12)
+        .map((message) => `${message.role.toUpperCase()}: ${truncate(message.body, 1_000)}`)
+        .join('\n')
+    : ''
+  const sinceLastTurn = (input.sinceLastTurn ?? [])
+    .slice(-10)
+    .map((message) => `- [${message.kind}] ${truncate(message.body, 300)}`)
     .join('\n')
+  const priorTurns = [
+    includeHistory ? `## Recent conversation\n${history || '(none)'}` : null,
+    sinceLastTurn.length > 0 ? `## Since your last turn\n${sinceLastTurn}` : null
+  ]
+    .filter((block): block is string => block !== null)
+    .join('\n\n')
 
   const raw = `${header}
 
 ## Current state
 ${context}
-
-## Recent conversation
-${history || '(none)'}
-
+${priorTurns.length > 0 ? `\n${priorTurns}\n` : ''}
 ## User
 ${input.userText}
 
@@ -180,4 +194,26 @@ Do not wrap it in Markdown fences or add prose outside it.`
     ? `${raw.slice(0, ASSISTANT_LIMITS.maxPromptChars)}\n…[context truncated]`
     : raw
   return { text, contextChars: text.length, truncated: text.length < raw.length }
+}
+
+/**
+ * The message for a read round on an already-running native conversation.
+ *
+ * The harness already holds the prior prompt and envelope, so only the new
+ * tool results are sent. `corrective` replaces them when the previous response
+ * could not be parsed as an envelope.
+ */
+export function buildAssistantContinuationPrompt(input: {
+  readResults: string[]
+  corrective?: string | null
+}): string {
+  if (input.corrective) return input.corrective
+  const results = input.readResults
+    .map((result) => result.trim())
+    .filter((result) => result.length > 0)
+    .join('\n')
+  return `## Tool results (this round)
+${results || '(none)'}
+
+Continue. Return only the JSON object.`
 }

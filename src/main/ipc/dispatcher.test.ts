@@ -79,9 +79,13 @@ function services(overrides: Partial<DispatcherServices> = {}): DispatcherServic
     supervisorOpen: vi.fn(async () => ({ id: 'ses_supervisor' })),
     assistantState: vi.fn(async () => ({ threadId: 'thread_1', unread: 0 })),
     assistantMessagesList: vi.fn(async () => []),
+    assistantConversationsList: vi.fn(async () => []),
+    assistantNotificationsList: vi.fn(async () => []),
+    assistantFocus: vi.fn(async () => null),
     assistantSend: vi.fn(async () => ({ message: { id: 'msg_1' }, runId: 'run_1' })),
     assistantMarkRead: vi.fn(async () => 0),
     assistantStop: vi.fn(async () => null),
+    assistantNewConversation: vi.fn(async () => ({ message: null })),
     assistantSettingsGet: vi.fn(async () => ({ personaName: 'Mira' })),
     assistantSetSettings: vi.fn(async () => ({ personaName: 'Mira' })),
     schedulesList: vi.fn(async () => []),
@@ -467,5 +471,26 @@ describe('execution-target aware IPC', () => {
     const invalid = await dispatch(IPC_CHANNELS.assistantSend, { text: '   ' })
     expect(invalid).toMatchObject({ ok: false, error: { code: 'INVALID_ARGUMENT' } })
     expect(service.assistantSend).toHaveBeenCalledTimes(1)
+
+    expect(await dispatch(IPC_CHANNELS.assistantNewConversation, {})).toMatchObject({
+      ok: true
+    })
+    expect(service.assistantNewConversation).toHaveBeenCalledTimes(1)
+
+    expect(await dispatch(IPC_CHANNELS.assistantConversationsList, {})).toMatchObject({
+      ok: true
+    })
+    expect(await dispatch(IPC_CHANNELS.assistantNotificationsList, { limit: 5 })).toMatchObject({
+      ok: true
+    })
+    expect(service.assistantNotificationsList).toHaveBeenCalledWith({ limit: 5 })
+    expect(
+      await dispatch(IPC_CHANNELS.assistantNotificationsList, { limit: 99 })
+    ).toMatchObject({ ok: false, error: { code: 'INVALID_ARGUMENT' } })
+
+    expect(
+      await dispatch(IPC_CHANNELS.assistantFocus, { messageId: 'msg_1' })
+    ).toMatchObject({ ok: true })
+    expect(service.assistantFocus).toHaveBeenCalledWith({ messageId: 'msg_1' })
   })
 })

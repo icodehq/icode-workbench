@@ -41,7 +41,9 @@ describe('database initialization', () => {
       .all() as Array<{ name: string }>
     expect(tables.map((row) => row.name)).toEqual([
       // v9: the global assistant thread and its audit trail.
+      // v11: the rotating native conversation owned by that thread.
       'assistant_actions',
+      'assistant_conversations',
       'assistant_memory',
       'assistant_messages',
       'assistant_runs',
@@ -511,6 +513,9 @@ describe('migrations', () => {
       // dedupe, plus Mira task provenance.
       'assistant_actions_repo_created_idx',
       'assistant_actions_run_idx',
+      'assistant_conversations_active_idx',
+      'assistant_conversations_thread_created_idx',
+      'assistant_conversations_thread_seq_idx',
       'assistant_messages_dedupe_idx',
       'assistant_messages_thread_created_idx',
       'assistant_messages_thread_seq_idx',

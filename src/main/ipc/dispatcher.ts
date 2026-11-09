@@ -59,8 +59,10 @@ import {
   aiCommitMessageInputSchema
 } from '../../shared/schemas/ai'
 import {
+  assistantFocusInputSchema,
   assistantMarkReadInputSchema,
   assistantMessagesInputSchema,
+  assistantNotificationsInputSchema,
   assistantSendInputSchema,
   assistantSetSettingsInputSchema
 } from '../../shared/schemas/assistant'
@@ -187,10 +189,15 @@ export type DispatcherServices = {
     threadId: string
     beforeSeq?: number
     limit?: number
+    conversationId?: string
   }) => Promise<unknown>
+  assistantConversationsList: () => Promise<unknown>
+  assistantNotificationsList: (input: { limit?: number }) => Promise<unknown>
+  assistantFocus: (input: { messageId: string }) => Promise<unknown>
   assistantSend: (input: { text: string; repoId?: string }) => Promise<unknown>
   assistantMarkRead: (input: { threadId: string; messageId?: string }) => Promise<unknown>
   assistantStop: () => Promise<unknown>
+  assistantNewConversation: () => Promise<unknown>
   assistantSettingsGet: () => Promise<unknown>
   assistantSetSettings: (input: { settings: unknown }) => Promise<unknown>
   schedulesList: (input: { repoId?: string }) => Promise<unknown>
@@ -603,6 +610,21 @@ export function createDispatcher(services: DispatcherServices): Dispatcher {
         return run(() => services.assistantMessagesList(input))
       }
 
+      case IPC_CHANNELS.assistantConversationsList:
+        return run(() => services.assistantConversationsList())
+
+      case IPC_CHANNELS.assistantNotificationsList: {
+        const input = parse(assistantNotificationsInputSchema, rawInput ?? {})
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.assistantNotificationsList(input))
+      }
+
+      case IPC_CHANNELS.assistantFocus: {
+        const input = parse(assistantFocusInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.assistantFocus(input))
+      }
+
       case IPC_CHANNELS.assistantSend: {
         const input = parse(assistantSendInputSchema, rawInput)
         if ('code' in input) return { ok: false, error: input }
@@ -617,6 +639,9 @@ export function createDispatcher(services: DispatcherServices): Dispatcher {
 
       case IPC_CHANNELS.assistantStop:
         return run(() => services.assistantStop())
+
+      case IPC_CHANNELS.assistantNewConversation:
+        return run(() => services.assistantNewConversation())
 
       case IPC_CHANNELS.assistantSettingsGet:
         return run(() => services.assistantSettingsGet())

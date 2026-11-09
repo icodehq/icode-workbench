@@ -1,11 +1,15 @@
-import { useEffect, useRef, useState } from 'react'
-import { ArrowUp, Loader2, Settings2, Square } from 'lucide-react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { ArrowUp, Loader2, Plus, Settings2, Square } from 'lucide-react'
 import type { AssistantRunStage } from '../../../shared/domain/assistant'
 import type { AssistantTarget } from '../router/routes'
 import type { RepositorySummary } from '../../../shared/schemas/ipc'
 import type { TaskRecordPayload } from '../../../shared/icode-api'
 import type { AssistantCardPayload } from '../../../shared/schemas/assistant'
 import type { AssistantState } from '../state/use-assistant'
+import {
+  conversationLabel,
+  visibleMessages
+} from '../state/assistant-transcript'
 import AssistantAvatar from '../components/AssistantAvatar'
 import AssistantCardView, { type AssistantTaskAction } from '../components/AssistantCardView'
 import Markdown from '../components/Markdown'
@@ -78,39 +82,87 @@ export default function AssistantPage({
   const [focusedId, setFocusedId] = useState<string | null>(null)
   const threadRef = useRef<HTMLDivElement | null>(null)
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
+  const stickBottom = useRef(true)
+  const pendingAnchor = useRef<{ height: number; top: number } | null>(null)
+
+  const selectedConversation =
+    assistant.conversations.find(
+      (conversation) => conversation.id === assistant.selectedConversationId
+    ) ?? null
+  const latestConversation =
+    assistant.conversations.find(
+      (conversation) => conversation.id === assistant.latestConversationId
+    ) ?? null
+  const followingLatest =
+    assistant.selectedConversationId === assistant.latestConversationId
+  const visible = visibleMessages(assistant.messages, focusedId)
+  const earlierConversations = assistant.conversations
+    .filter((conversation) => conversation.id !== assistant.latestConversationId)
+    .reverse()
 
   const repoName = (repoId: string | undefined): string | undefined =>
     repoId === undefined ? undefined : repos.find((repo) => repo.id === repoId)?.displayName
 
   useEffect(() => {
+    stickBottom.current = true
+    setFocusedId(null)
+  }, [assistant.selectedConversationId])
+
+  useLayoutEffect(() => {
     const thread = threadRef.current
     if (!thread) return
-    if (request?.messageId) {
-      const message = assistant.messages.find((entry) => entry.id === request.messageId)
-      if (!message) return
-      const element = document.getElementById(`assistant-message-${message.id}`)
-      element?.scrollIntoView({ block: 'center' })
-      setFocusedId(message.id)
-      void assistant.markRead(message.id)
+    const anchor = pendingAnchor.current
+    if (anchor !== null) {
+      pendingAnchor.current = null
+      thread.scrollTop = thread.scrollHeight - anchor.height + anchor.top
       return
     }
-    thread.scrollTop = thread.scrollHeight
-    if (document.hasFocus()) void assistant.markRead()
-    // The request nonce is the deep-link trigger; messages are needed to find it.
+    if (stickBottom.current) thread.scrollTop = thread.scrollHeight
+  }, [assistant.messages, assistant.loadingOlder, assistant.selectedConversationId])
+
+  useEffect(() => {
+    if (!request?.messageId) return
+    const message = assistant.messages.find((entry) => entry.id === request.messageId)
+    if (!message) return
+    stickBottom.current = false
+    setFocusedId(message.id)
+    const element = document.getElementById(`assistant-message-${message.id}`)
+    element?.scrollIntoView({ block: 'center' })
+    void assistant.markRead(message.id)
   }, [assistant.markRead, assistant.messages, request])
 
   useEffect(() => {
-    if (assistant.messages.length === 0) return
+    if (!followingLatest || assistant.messages.length === 0) return
+    if (document.hasFocus()) void assistant.markRead()
+  }, [assistant.markRead, assistant.messages.length, followingLatest])
+
+  const onScroll = (): void => {
     const thread = threadRef.current
-    if (!thread || focusedId !== null) return
-    thread.scrollTop = thread.scrollHeight
-  }, [assistant.messages.length, focusedId])
+    if (!thread) return
+    stickBottom.current =
+      thread.scrollHeight - thread.scrollTop - thread.clientHeight < 48
+  }
+
+  const loadOlder = async (): Promise<void> => {
+    const thread = threadRef.current
+    pendingAnchor.current = thread
+      ? { height: thread.scrollHeight, top: thread.scrollTop }
+      : null
+    const applied = await assistant.loadOlder()
+    if (!applied) pendingAnchor.current = null
+  }
+
+  const selectConversation = (conversationId: string): void => {
+    setFocusedId(null)
+    void assistant.selectConversation(conversationId)
+  }
 
   const send = async (text: string): Promise<void> => {
     const value = text.trim()
     if (value.length === 0 || assistant.status === 'working') return
     setDraft('')
     setFocusedId(null)
+    stickBottom.current = true
     const ok = await assistant.send(value, request?.repoId)
     if (!ok) setDraft(value)
     inputRef.current?.focus()
@@ -119,7 +171,7 @@ export default function AssistantPage({
   const working = assistant.status === 'working'
   const live = assistant.live
   const elapsed = useElapsedSeconds(live?.startedAt ?? null)
-  const hasUserMessage = assistant.messages.some((message) => message.role === 'user')
+  const hasUserMessage = visible.some((message) => message.role === 'user')
   const contextRepo = request?.repoId
     ? repos.find((repo) => repo.id === request.repoId) ?? null
     : null
@@ -140,9 +192,50 @@ export default function AssistantPage({
             {assistant.target ?? 'all projects'}
           </p>
         </div>
-        <span className="ml-auto rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[10px] text-muted-foreground">
-          {contextRepo?.displayName ?? 'All projects'}
-        </span>
+        {assistant.conversations.length > 0 ? (
+          <select
+            className="ml-auto max-w-[240px] truncate rounded-md border border-border bg-background px-2 py-1 text-[10.5px] text-muted-foreground outline-none focus:border-line-strong"
+            value={assistant.selectedConversationId ?? ''}
+            onChange={(event) => selectConversation(event.target.value)}
+            aria-label="Mira conversation"
+            data-testid="assistant-conversation-select"
+          >
+            {latestConversation ? (
+              <option value={latestConversation.id}>
+                {conversationLabel(latestConversation, true)}
+              </option>
+            ) : null}
+            {earlierConversations.length > 0 ? (
+              <optgroup label="Earlier conversations">
+                {earlierConversations.map((conversation) => (
+                  <option key={conversation.id} value={conversation.id}>
+                    {conversationLabel(conversation, false)}
+                  </option>
+                ))}
+              </optgroup>
+            ) : null}
+          </select>
+        ) : (
+          <span className="ml-auto rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[10px] text-muted-foreground">
+            {contextRepo?.displayName ?? 'All projects'}
+          </span>
+        )}
+        {assistant.conversations.length > 0 ? (
+          <span className="rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[10px] text-muted-foreground">
+            {contextRepo?.displayName ?? 'All projects'}
+          </span>
+        ) : null}
+        <button
+          type="button"
+          className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+          onClick={() => void assistant.newConversation()}
+          disabled={working}
+          title="New conversation"
+          aria-label="New conversation"
+          data-testid="assistant-new-conversation"
+        >
+          <Plus size={12} />
+        </button>
         <button
           type="button"
           className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -155,15 +248,45 @@ export default function AssistantPage({
         </button>
       </header>
 
+      {!followingLatest && selectedConversation ? (
+        <div className="flex shrink-0 items-center justify-between border-b border-border bg-muted/30 px-5 py-1.5 text-[10.5px] text-muted-foreground">
+          <span>Viewing an earlier conversation</span>
+          <button
+            type="button"
+            className="rounded border border-border px-2 py-0.5 hover:bg-muted hover:text-foreground"
+            onClick={() => {
+              if (latestConversation) selectConversation(latestConversation.id)
+            }}
+            data-testid="assistant-back-to-current"
+          >
+            Back to current
+          </button>
+        </div>
+      ) : null}
+
       <div
         ref={threadRef}
         className="min-h-0 flex-1 overflow-y-auto px-5 py-4"
+        onScroll={onScroll}
         data-testid="assistant-thread"
       >
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-3">
-          {assistant.messages.map((message) => {
+          {assistant.hasMore ? (
+            <button
+              type="button"
+              className="mx-auto rounded-full border border-border bg-card px-3 py-1 text-[10.5px] text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+              onClick={() => void loadOlder()}
+              disabled={assistant.loadingOlder}
+              data-testid="assistant-load-older"
+            >
+              {assistant.loadingOlder ? 'Loading…' : 'Load earlier messages'}
+            </button>
+          ) : null}
+
+          {visible.map((message) => {
             const user = message.role === 'user'
             const system = message.role === 'system' || message.kind === 'error'
+            const boundary = message.role === 'system' && message.kind === 'status'
             return (
               <div
                 key={message.id}
@@ -171,10 +294,12 @@ export default function AssistantPage({
                 data-testid={`assistant-message-${message.id}`}
                 data-focused={focusedId === message.id ? 'true' : undefined}
                 className={`flex gap-2.5 ${user ? 'flex-row-reverse' : ''} ${
+                  boundary ? 'justify-center' : ''
+                } ${
                   focusedId === message.id ? 'rounded-md bg-signal-weak/60 p-2' : ''
                 }`}
               >
-                {!user ? (
+                {!user && !boundary ? (
                   <AssistantAvatar
                     name={assistant.personaName}
                     status={assistant.status}
@@ -183,7 +308,7 @@ export default function AssistantPage({
                 ) : null}
                 <div
                   className={`flex min-w-0 max-w-[86%] flex-col gap-1.5 ${
-                    user ? 'items-end' : 'w-full'
+                    boundary ? 'items-center' : user ? 'items-end' : 'w-full'
                   }`}
                 >
                   <div
@@ -192,9 +317,11 @@ export default function AssistantPage({
                     } ${
                       user
                         ? 'bg-accent/12 text-foreground'
-                        : system
-                          ? 'border border-destructive/25 bg-destructive/5 text-destructive'
-                          : 'border border-border bg-card text-foreground'
+                        : boundary
+                          ? 'border border-dashed border-border bg-muted/30 text-center text-[11px] text-muted-foreground'
+                          : system
+                            ? 'border border-destructive/25 bg-destructive/5 text-destructive'
+                            : 'border border-border bg-card text-foreground'
                     }`}
                   >
                     {user || system ? message.body : <Markdown text={message.body} />}
@@ -213,7 +340,7 @@ export default function AssistantPage({
             )
           })}
 
-          {live && live.draft.length > 0 ? (
+          {followingLatest && live && live.draft.length > 0 ? (
             <div className="flex gap-2.5" data-testid="assistant-live-draft">
               <AssistantAvatar
                 name={assistant.personaName}
@@ -227,7 +354,7 @@ export default function AssistantPage({
                 </div>
               </div>
             </div>
-          ) : live && working ? (
+          ) : followingLatest && working ? (
             <div className="flex gap-2.5" data-testid="assistant-live-thinking">
               <AssistantAvatar
                 name={assistant.personaName}
@@ -240,7 +367,7 @@ export default function AssistantPage({
             </div>
           ) : null}
 
-          {working ? (
+          {followingLatest && working ? (
             <div className="flex items-center gap-2 pl-8 text-[11px] text-muted-foreground">
               <Loader2 size={11} className="animate-spin" />
               <span data-testid="assistant-working">
@@ -263,7 +390,7 @@ export default function AssistantPage({
             </div>
           ) : null}
 
-          {!hasUserMessage && !working ? (
+          {followingLatest && !hasUserMessage && !working ? (
             <div className="mt-2 flex flex-wrap gap-1.5">
               {SUGGESTIONS.map((suggestion) => (
                 <button
@@ -285,7 +412,13 @@ export default function AssistantPage({
           <textarea
             ref={inputRef}
             className="min-h-[38px] max-h-32 flex-1 resize-none rounded-md border border-border bg-background px-3 py-2 text-[12px] text-foreground outline-none placeholder:text-muted-foreground focus:border-line-strong"
-            placeholder={working ? 'Mira is working…' : 'Ask Mira about any project…'}
+            placeholder={
+              working
+                ? 'Mira is working…'
+                : followingLatest
+                  ? 'Ask Mira about any project…'
+                  : 'Viewing an earlier conversation — sending returns to the current one'
+            }
             rows={1}
             value={draft}
             disabled={working}

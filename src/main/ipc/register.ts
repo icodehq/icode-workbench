@@ -86,9 +86,13 @@ export const HANDLED_CHANNELS: readonly string[] = [
   IPC_CHANNELS.supervisorOpen,
   IPC_CHANNELS.assistantState,
   IPC_CHANNELS.assistantMessagesList,
+  IPC_CHANNELS.assistantConversationsList,
+  IPC_CHANNELS.assistantNotificationsList,
+  IPC_CHANNELS.assistantFocus,
   IPC_CHANNELS.assistantSend,
   IPC_CHANNELS.assistantMarkRead,
   IPC_CHANNELS.assistantStop,
+  IPC_CHANNELS.assistantNewConversation,
   IPC_CHANNELS.assistantSettingsGet,
   IPC_CHANNELS.assistantSetSettings,
   IPC_CHANNELS.schedulesList,
@@ -333,9 +337,16 @@ export function createAppDispatcher(
     supervisorOpen: (input) => runtime.supervisor.open(input.repoId as never),
     assistantState: () => Promise.resolve(runtime.assistant.state()),
     assistantMessagesList: (input) => Promise.resolve(runtime.assistant.listMessages(input)),
+    assistantConversationsList: () =>
+      Promise.resolve(runtime.assistant.listConversations()),
+    assistantNotificationsList: (input) =>
+      Promise.resolve(runtime.assistant.listNotifications(input)),
+    assistantFocus: (input) => Promise.resolve(runtime.assistant.focus(input.messageId)),
     assistantSend: (input) => runtime.assistant.send(input),
     assistantMarkRead: (input) => Promise.resolve(runtime.assistant.markRead(input)),
     assistantStop: () => Promise.resolve(runtime.assistant.stop()),
+    assistantNewConversation: () =>
+      Promise.resolve(runtime.assistant.newConversation()),
     assistantSettingsGet: () => Promise.resolve(runtime.assistant.settings()),
     assistantSetSettings: (input) =>
       Promise.resolve(runtime.assistant.saveSettings(input.settings as never)),

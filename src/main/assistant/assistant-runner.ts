@@ -1,4 +1,5 @@
 import { mkdirSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
 import { join, posix } from 'node:path'
 import type { ExecutionTarget } from '../../shared/domain/repository'
 import { LOCAL_EXECUTION_TARGET } from '../../shared/domain/repository'
@@ -13,7 +14,7 @@ import type { RepositoryStore } from '../persistence/repository-store'
 import type { TaskService } from '../tasks/task-service'
 import type { TaskStore } from '../tasks/task-store'
 import type { SessionService } from '../sessions/session-service'
-import type { AssistantSettings } from '../../shared/domain/assistant'
+import type { AssistantConversation, AssistantSettings } from '../../shared/domain/assistant'
 import { ASSISTANT_LIMITS } from '../../shared/domain/assistant'
 import type { WslDistroListPayload } from '../../shared/schemas/ipc'
 import type {
@@ -26,11 +27,18 @@ import { ClaudeStreamParser } from './assistant-stream'
 import type { AssistantActionResult, AssistantActions } from './assistant-actions'
 import type { AssistantActionPayload } from './assistant-envelope'
 import { parseAssistantEnvelope } from './assistant-envelope'
-import { buildAssistantPrompt, buildAssistantSnapshot } from './assistant-context'
 import {
-  assistantHarnessArgs,
-  parseAssistantHarnessOutput
-} from './assistant-harness'
+  buildAssistantContinuationPrompt,
+  buildAssistantPrompt,
+  buildAssistantSnapshot
+} from './assistant-context'
+import { continuationDriver } from './assistant-continuation'
+import {
+  resolveConversation,
+  retireForResumeFailure,
+  type ConversationSelection
+} from './assistant-conversation'
+import { parseAssistantHarnessOutput } from './assistant-harness'
 
 const TURN_TIMEOUT_MS = 120_000
 
@@ -52,6 +60,9 @@ export type AssistantRunnerDeps = {
   workspaceTrust: WorkspaceTrustService
   userDataDir: string
   runOneShot?: (options: OneShotRunOptions) => Promise<OneShotResult>
+  /** Future setting seam; native resume is on by default. */
+  resumeEnabled?: boolean
+  newId?: (prefix: string) => string
   now: () => number
   onError?: (error: unknown) => void
 }
@@ -96,6 +107,8 @@ function isReadAction(action: AssistantActionPayload): boolean {
  */
 export class AssistantRunner implements AssistantRunnerLike {
   private active: AbortController | null = null
+  /** Harnesses whose resume args were rejected by the installed CLI. */
+  private readonly resumeDisabled = new Set<HarnessId>()
 
   constructor(private readonly deps: AssistantRunnerDeps) {}
 
@@ -163,7 +176,70 @@ export class AssistantRunner implements AssistantRunnerLike {
       targetKind: selected.target.kind,
       targetDistro: selected.target.kind === 'wsl' ? selected.target.distro : null
     })
+    const harness = selected.harness
+    if (harness !== 'claude' && harness !== 'codex' && harness !== 'opencode') {
+      throw new Error(`Unsupported assistant harness: ${harness}`)
+    }
+    const driver = continuationDriver(harness)
+    if (driver === null) throw new Error(`Unsupported assistant harness: ${harness}`)
+    const newId = this.deps.newId ?? ((prefix: string) => `${prefix}_${randomUUID()}`)
+    const selection: ConversationSelection = {
+      harness,
+      targetKind: selected.target.kind,
+      targetDistro: selected.target.kind === 'wsl' ? selected.target.distro : null
+    }
+    const resumeAllowed = this.deps.resumeEnabled !== false && driver.resumable
+    const userSeq = this.deps.store.getMessage(input.messageId)?.seq ?? null
+    if (userSeq === null) {
+      throw new Error('The user message is missing; the conversation cannot be resolved.')
+    }
     const sandbox = await this.prepareSandbox(selected)
+
+    const appendBoundary = (body: string): void => {
+      if (body.length === 0) return
+      const message = this.deps.store.appendMessage({
+        id: newId('msg'),
+        threadId: input.threadId,
+        role: 'system',
+        kind: 'status',
+        body,
+        createdAt: this.deps.now()
+      })
+      if (message !== null) emit({ type: 'message' })
+    }
+
+    let plan = resolveConversation({
+      store: this.deps.store,
+      threadId: input.threadId,
+      selection,
+      startSeq: userSeq,
+      now: this.deps.now(),
+      newId
+    })
+    if (plan.boundaryBody !== null) appendBoundary(plan.boundaryBody)
+    let conversation: AssistantConversation = plan.conversation
+    if (!resumeAllowed && plan.resumeSessionId !== null) {
+      const retired = retireForResumeFailure({
+        store: this.deps.store,
+        threadId: input.threadId,
+        activeConversationId: conversation.id,
+        reason: 'resume-unsupported',
+        selection,
+        startSeq: userSeq,
+        now: this.deps.now(),
+        newId
+      })
+      conversation = retired.conversation
+      appendBoundary(retired.boundaryBody)
+      plan = {
+        conversation,
+        resumeSessionId: null,
+        includeHistory: true,
+        firstPromptMode: 'full',
+        boundaryBody: null
+      }
+    }
+
     const snapshot = await buildAssistantSnapshot({
       taskStore: this.deps.taskStore,
       tasks: this.deps.tasks,
@@ -176,25 +252,52 @@ export class AssistantRunner implements AssistantRunnerLike {
       .listMessages(input.threadId, { limit: 13 })
       .filter((message) => message.id !== input.messageId)
       .map((message) => ({ role: message.role, body: message.body }))
+    const lastPromptSeq = conversation.lastPromptSeq
+    const sinceLastTurn =
+      plan.resumeSessionId !== null && lastPromptSeq !== null
+        ? this.deps.store
+            .listDigestMessages(input.threadId, lastPromptSeq, 10)
+            .map((message) => ({ kind: message.kind, body: message.body }))
+        : []
     const built = buildAssistantPrompt({
       personaName: settings.personaName,
       settings,
       snapshot,
       history,
       userText: input.text,
-      ...(input.repoId === undefined ? {} : { repoId: input.repoId })
+      ...(input.repoId === undefined ? {} : { repoId: input.repoId }),
+      includeHistory: plan.includeHistory,
+      sinceLastTurn
     })
+    const fallbackPrompt = buildAssistantPrompt({
+      personaName: settings.personaName,
+      settings,
+      snapshot,
+      history,
+      userText: input.text,
+      ...(input.repoId === undefined ? {} : { repoId: input.repoId }),
+      includeHistory: true
+    }).text
     this.deps.store.updateRun(input.runId, {
       stage: 'selecting',
       harness: selected.harness,
       targetKind: selected.target.kind,
       targetDistro: selected.target.kind === 'wsl' ? selected.target.distro : null,
-      contextChars: built.contextChars
+      contextChars: built.contextChars,
+      resumeToken: plan.resumeSessionId
+    })
+    this.deps.store.touchConversation(conversation.id, {
+      now: this.deps.now(),
+      lastPromptSeq: userSeq
     })
 
     const actions = this.deps.actionsFor(input.threadId, input.runId)
     const target = targetLabel(selected.target)
-    let prompt = built.text
+    let resumeSessionId = plan.resumeSessionId
+    let fullPrompt = built.text
+    let lastContinuation: string | null = null
+    let correction: string | null = null
+    let fallbackUsed = false
     let reply = ''
     let calls = 0
     let round = 0
@@ -203,13 +306,34 @@ export class AssistantRunner implements AssistantRunnerLike {
     while (calls < ASSISTANT_LIMITS.maxHarnessCalls) {
       if (signal.aborted) throw new Error('Stopped.')
       calls += 1
-      const args = assistantHarnessArgs(selected.harness, settings.opencodeAgent)
-      if (!args) throw new Error(`Unsupported assistant harness: ${selected.harness}`)
+      const canResumeNow = resumeAllowed && !this.resumeDisabled.has(harness)
+      let useResume = canResumeNow && resumeSessionId !== null
+      let args: string[] | null = null
+      if (useResume && resumeSessionId !== null) {
+        args = driver.resumeArgs(resumeSessionId, {
+          opencodeAgent: settings.opencodeAgent
+        })
+      }
+      if (args === null) {
+        if (useResume) {
+          this.resumeDisabled.add(harness)
+          useResume = false
+        }
+        args = driver.freshArgs({
+          opencodeAgent: settings.opencodeAgent,
+          resumeEnabled: canResumeNow
+        })
+      }
+      const prompt = useResume
+        ? (correction ?? lastContinuation ?? fullPrompt)
+        : [fullPrompt, lastContinuation, correction]
+            .filter((part): part is string => part !== null)
+            .join('\n\n')
       this.deps.store.updateRun(input.runId, { stage: 'calling', round })
       emit({
         type: 'progress',
         stage: 'calling',
-        harness: selected.harness,
+        harness,
         target,
         round
       })
@@ -217,10 +341,21 @@ export class AssistantRunner implements AssistantRunnerLike {
       // draft before the next response starts writing.
       emit({ type: 'delta', text: '' })
 
-      const parser = selected.harness === 'claude' ? new ClaudeStreamParser() : null
+      const parser = harness === 'claude' ? new ClaudeStreamParser() : null
+      const observer = driver.createObserver()
       let streamedDraft = ''
       let streamedThinking: number | null = null
       const onStdoutChunk = (chunk: string): void => {
+        const observed = observer.push(chunk)
+        if (observed !== null && observed !== resumeSessionId) {
+          resumeSessionId = observed
+          this.deps.store.setConversationSession(
+            conversation.id,
+            observed,
+            this.deps.now()
+          )
+          this.deps.store.updateRun(input.runId, { resumeToken: observed })
+        }
         if (parser === null) return
         const update = parser.push(chunk)
         if (update.thinkingTokens !== null && update.thinkingTokens !== streamedThinking) {
@@ -228,7 +363,7 @@ export class AssistantRunner implements AssistantRunnerLike {
           emit({
             type: 'progress',
             stage: 'thinking',
-            harness: selected.harness,
+            harness,
             target,
             round,
             thinkingTokens: streamedThinking
@@ -249,6 +384,16 @@ export class AssistantRunner implements AssistantRunnerLike {
         signal,
         onStdoutChunk
       })
+      const finalObserved = observer.finish()
+      if (finalObserved !== null && finalObserved !== resumeSessionId) {
+        resumeSessionId = finalObserved
+        this.deps.store.setConversationSession(
+          conversation.id,
+          finalObserved,
+          this.deps.now()
+        )
+        this.deps.store.updateRun(input.runId, { resumeToken: finalObserved })
+      }
       if (parser !== null) {
         const update = parser.finish()
         if (update.draft !== null && update.draft !== streamedDraft) {
@@ -262,20 +407,55 @@ export class AssistantRunner implements AssistantRunnerLike {
           'The agent took too long to answer. Check the harness login and network, then try again.'
         )
       }
+      let parsedText: { ok: true; text: string } | { ok: false; error: string }
       if (output.exitCode !== 0 && output.stdout.trim().length === 0) {
         const detail = output.stderr.trim().slice(0, 1_000)
-        throw new Error(detail.length > 0 ? detail : 'The agent exited without an answer.')
+        parsedText = {
+          ok: false,
+          error: detail.length > 0 ? detail : 'The agent exited without an answer.'
+        }
+      } else {
+        // The parser saw every chunk as it arrived, so it still has the result
+        // event when the accumulated stdout hit its safety cap.
+        const streamed = parser?.result() ?? null
+        parsedText =
+          streamed !== null && streamed.error !== null
+            ? { ok: false as const, error: streamed.error }
+            : streamed !== null && streamed.text !== null
+              ? { ok: true as const, text: streamed.text }
+              : parseAssistantHarnessOutput(harness, output.stdout)
       }
-      // The parser saw every chunk as it arrived, so it still has the result
-      // event when the accumulated stdout hit its safety cap.
-      const streamed = parser?.result() ?? null
-      const parsedText =
-        streamed !== null && streamed.error !== null
-          ? { ok: false as const, error: streamed.error }
-          : streamed !== null && streamed.text !== null
-            ? { ok: true as const, text: streamed.text }
-            : parseAssistantHarnessOutput(selected.harness, output.stdout)
       if (!parsedText.ok) {
+        const kind = useResume ? driver.classifyFailure(output) : 'other'
+        if (useResume && kind !== 'other' && !fallbackUsed) {
+          fallbackUsed = true
+          if (kind === 'unsupported') this.resumeDisabled.add(harness)
+          const retired = retireForResumeFailure({
+            store: this.deps.store,
+            threadId: input.threadId,
+            activeConversationId: conversation.id,
+            reason: kind === 'unsupported' ? 'resume-unsupported' : 'resume-failed',
+            selection,
+            startSeq: userSeq,
+            now: this.deps.now(),
+            newId
+          })
+          conversation = retired.conversation
+          resumeSessionId = null
+          // The old conversation was touched before the loop; the fallback
+          // conversation needs the same turn anchor for its next digest.
+          this.deps.store.touchConversation(conversation.id, {
+            now: this.deps.now(),
+            lastPromptSeq: userSeq
+          })
+          appendBoundary(retired.boundaryBody)
+          fullPrompt =
+            correction === null ? fallbackPrompt : `${fallbackPrompt}\n\n${correction}`
+          correction = null
+          // The failed resume was not a productive call; keep the turn budget.
+          calls -= 1
+          continue
+        }
         throw new Error(parsedText.error)
       }
       if (parsedText.text.trim().length === 0) {
@@ -283,11 +463,16 @@ export class AssistantRunner implements AssistantRunnerLike {
       }
       const envelope = parseAssistantEnvelope(parsedText.text)
       if (!envelope.ok) {
-        if (calls === 1) {
-          prompt = `${prompt}
-
-Your previous response was not a valid JSON envelope: ${envelope.error}
+        const correctionText = `Your previous response was not a valid JSON envelope: ${envelope.error}
 Return only the JSON object described above.`
+        if (calls === 1) {
+          if (resumeSessionId !== null) {
+            correction = correctionText
+            lastContinuation = null
+          } else {
+            fullPrompt = `${fullPrompt}\n\n${correctionText}`
+            lastContinuation = null
+          }
           continue
         }
         return {
@@ -297,6 +482,7 @@ Return only the JSON object described above.`
           status: 'idle'
         }
       }
+      correction = null
       if (envelope.value.reply) reply = envelope.value.reply
       // The envelope's `notify` shorthand is equivalent to the notify action.
       // Execute it before the read/write split so a read round cannot drop it.
@@ -318,12 +504,16 @@ Return only the JSON object described above.`
         for (const action of reads) {
           readResults.push(await actions.execute(action))
         }
-        prompt = `${prompt}
-
-## Tool results (this round)
-${readResults.map(compactToolResult).join('\n')}
-
-Continue. Return only the JSON object.`
+        const continuation = buildAssistantContinuationPrompt({
+          readResults: readResults.map(compactToolResult)
+        })
+        if (resumeSessionId !== null) {
+          lastContinuation = continuation
+        } else {
+          fullPrompt = `${fullPrompt}\n\n${continuation}`
+          lastContinuation = null
+        }
+        correction = null
         round += 1
         continue
       }

@@ -103,16 +103,24 @@ describe('preload API surface', () => {
     const { api, invoke } = setup()
     await api.assistant.state()
     await api.assistant.messages({ threadId: 'thread_1' })
+    await api.assistant.conversations()
+    await api.assistant.notifications({ limit: 5 })
+    await api.assistant.focus({ messageId: 'msg_1' })
     await api.assistant.send({ text: 'Hello' })
     await api.assistant.markRead({ threadId: 'thread_1' })
     await api.assistant.stop()
+    await api.assistant.newConversation()
     await api.assistant.settings()
     expect(invoke.mock.calls.map((call) => call[0])).toEqual([
       IPC_CHANNELS.assistantState,
       IPC_CHANNELS.assistantMessagesList,
+      IPC_CHANNELS.assistantConversationsList,
+      IPC_CHANNELS.assistantNotificationsList,
+      IPC_CHANNELS.assistantFocus,
       IPC_CHANNELS.assistantSend,
       IPC_CHANNELS.assistantMarkRead,
       IPC_CHANNELS.assistantStop,
+      IPC_CHANNELS.assistantNewConversation,
       IPC_CHANNELS.assistantSettingsGet
     ])
   })

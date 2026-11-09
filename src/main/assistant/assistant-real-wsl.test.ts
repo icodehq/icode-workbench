@@ -44,7 +44,7 @@ describe.skipIf(!real)('Mira with real WSL Claude', () => {
         detection,
         args: assistantHarnessArgs('claude')!,
         prompt:
-          'Return exactly this JSON and nothing else: {"reply":"WSL_PROBE_OK","actions":[]}',
+          'Remember the codeword WSL_ORCHID. Return exactly this JSON and nothing else: {"reply":"WSL_PROBE_OK","actions":[]}',
         worktreePath: '/tmp',
         target: { kind: 'wsl', distro: distro!, distroId: null },
         timeoutMs: 120_000,
@@ -67,6 +67,33 @@ describe.skipIf(!real)('Mira with real WSL Claude', () => {
     const envelope = parseAssistantEnvelope(parsed.text)
     expect(envelope.ok).toBe(true)
     if (envelope.ok) expect(envelope.value.reply).toContain('WSL_PROBE_OK')
+
+    const sessionId = /"session_id":"([^"]+)"/u.exec(result.stdout)?.[1]
+    expect(sessionId, 'Claude did not report a session id').toBeTruthy()
+    if (!sessionId) return
+
+    const resumedParser = new ClaudeStreamParser()
+    const resumed = await runHarnessOneShot(
+      {
+        detection,
+        args: [...assistantHarnessArgs('claude')!, '--resume', sessionId],
+        prompt:
+          'What codeword did I ask you to remember? Return exactly this JSON and nothing else: {"reply":"<the codeword>","actions":[]}',
+        worktreePath: '/tmp',
+        target: { kind: 'wsl', distro: distro!, distroId: null },
+        timeoutMs: 120_000,
+        signal: new AbortController().signal,
+        onStdoutChunk: (chunk) => resumedParser.push(chunk)
+      },
+      runner
+    )
+    expect(resumed.exitCode).toBe(0)
+    const resumedParsed = parseAssistantHarnessOutput('claude', resumed.stdout)
+    expect(resumedParsed.ok).toBe(true)
+    if (!resumedParsed.ok) return
+    const resumedEnvelope = parseAssistantEnvelope(resumedParsed.text)
+    expect(resumedEnvelope.ok).toBe(true)
+    if (resumedEnvelope.ok) expect(resumedEnvelope.value.reply).toContain('WSL_ORCHID')
   }, 180_000)
 
   it('kills a hanging guest harness when the turn times out', async () => {

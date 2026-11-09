@@ -576,18 +576,17 @@ export default function App(): React.JSX.Element {
             needsTasks,
             activity: activityEntries,
             assistantName: assistant.personaName,
-            assistantMessages: assistant.messages
-              .filter(
-                (message) =>
-                  message.role === 'assistant' &&
-                  (message.kind === 'notification' || message.notificationKind !== null)
-              )
-              .slice(-10),
+            assistantMessages: assistant.notifications,
             markingRead: markingActivity,
             onClose: () => setNotificationsOpen(false),
             onOpenTask: commands.openTask,
             onOpenSession: commands.openDirectSession,
-            onOpenAssistant: (target) => commands.showAssistant(target),
+            onOpenAssistant: (target) => {
+              commands.showAssistant(target)
+              if (target.messageId) {
+                void window.icode.assistant.focus({ messageId: target.messageId })
+              }
+            },
             onMarkRead: () => void markActivityRead()
           }}
           palette={{

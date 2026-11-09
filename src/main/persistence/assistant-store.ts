@@ -5,6 +5,10 @@ import {
 } from '../../shared/schemas/assistant'
 import type {
   AssistantCard,
+  AssistantConversation,
+  AssistantConversationHistoryMode,
+  AssistantConversationResetReason,
+  AssistantConversationState,
   AssistantMessageKind,
   AssistantNotificationKind,
   AssistantNotificationState,
@@ -16,7 +20,12 @@ import type {
   AssistantThread,
   AssistantTrigger
 } from '../../shared/domain/assistant'
-import { DEFAULT_ASSISTANT_SETTINGS } from '../../shared/domain/assistant'
+import {
+  ASSISTANT_CONVERSATION_HISTORY_MODES,
+  ASSISTANT_CONVERSATION_RESET_REASONS,
+  ASSISTANT_CONVERSATION_STATES,
+  DEFAULT_ASSISTANT_SETTINGS
+} from '../../shared/domain/assistant'
 
 const THREAD_COLUMNS = `id, kind, title, created_at, updated_at, last_message_at,
   last_read_seq, active_run_id, archived_at`
@@ -28,6 +37,10 @@ const MESSAGE_COLUMNS = `id, thread_id, seq, run_id, role, kind, body, card_json
 const RUN_COLUMNS = `id, thread_id, trigger, status, stage, harness, target_kind,
   target_distro, round, request_message_id, response_message_id, resume_token,
   usage_json, context_chars, started_at, finished_at, error`
+
+const CONVERSATION_COLUMNS = `id, thread_id, harness, target_kind, target_distro,
+  native_session_id, state, reset_reason, history_mode, last_prompt_seq,
+  start_seq, end_seq, created_at, updated_at, observed_at`
 
 type ThreadRow = {
   id: string
@@ -77,6 +90,24 @@ type RunRow = {
   started_at: number
   finished_at: number | null
   error: string | null
+}
+
+type ConversationRow = {
+  id: string
+  thread_id: string
+  harness: string
+  target_kind: string
+  target_distro: string | null
+  native_session_id: string | null
+  state: string
+  reset_reason: string | null
+  history_mode: string
+  last_prompt_seq: number | null
+  start_seq: number | null
+  end_seq: number | null
+  created_at: number
+  updated_at: number
+  observed_at: number | null
 }
 
 function requireString(value: unknown, column: string): string {
@@ -177,6 +208,63 @@ function runFromRow(row: RunRow): AssistantRun {
   }
 }
 
+function requireEnum<T extends string>(
+  value: unknown,
+  allowed: readonly T[],
+  column: string
+): T {
+  if (typeof value === 'string' && (allowed as readonly string[]).includes(value)) {
+    return value as T
+  }
+  throw new Error(`iCode assistant row has an invalid ${column}.`)
+}
+
+function conversationFromRow(row: ConversationRow): AssistantConversation {
+  const harness = row.harness
+  if (harness !== 'claude' && harness !== 'codex' && harness !== 'opencode') {
+    throw new Error('iCode assistant row has an invalid assistant_conversations.harness.')
+  }
+  const targetKind = row.target_kind
+  if (targetKind !== 'local' && targetKind !== 'wsl') {
+    throw new Error('iCode assistant row has an invalid assistant_conversations.target_kind.')
+  }
+  return {
+    id: requireString(row.id, 'assistant_conversations.id'),
+    threadId: requireString(row.thread_id, 'assistant_conversations.thread_id'),
+    harness,
+    targetKind,
+    targetDistro: row.target_distro,
+    nativeSessionId: row.native_session_id,
+    state: requireEnum(
+      row.state,
+      ASSISTANT_CONVERSATION_STATES,
+      'assistant_conversations.state'
+    ),
+    resetReason:
+      row.reset_reason === null
+        ? null
+        : requireEnum(
+            row.reset_reason,
+            ASSISTANT_CONVERSATION_RESET_REASONS,
+            'assistant_conversations.reset_reason'
+          ),
+    historyMode: requireEnum(
+      row.history_mode,
+      ASSISTANT_CONVERSATION_HISTORY_MODES,
+      'assistant_conversations.history_mode'
+    ),
+    lastPromptSeq: nullableInteger(
+      row.last_prompt_seq,
+      'assistant_conversations.last_prompt_seq'
+    ),
+    startSeq: nullableInteger(row.start_seq, 'assistant_conversations.start_seq'),
+    endSeq: nullableInteger(row.end_seq, 'assistant_conversations.end_seq'),
+    createdAt: requireInteger(row.created_at, 'assistant_conversations.created_at'),
+    updatedAt: requireInteger(row.updated_at, 'assistant_conversations.updated_at'),
+    observedAt: nullableInteger(row.observed_at, 'assistant_conversations.observed_at')
+  }
+}
+
 export type AppendAssistantMessageInput = {
   id: string
   threadId: string
@@ -234,6 +322,246 @@ export class AssistantStore {
         thread.archivedAt
       )
     return this.findThread(thread.id)!
+  }
+
+  findConversation(id: string): AssistantConversation | null {
+    const row = this.db.raw
+      .prepare(`SELECT ${CONVERSATION_COLUMNS} FROM assistant_conversations WHERE id = ?`)
+      .get(id) as ConversationRow | undefined
+    return row ? conversationFromRow(row) : null
+  }
+
+  findActiveConversation(threadId: string): AssistantConversation | null {
+    const row = this.db.raw
+      .prepare(
+        `SELECT ${CONVERSATION_COLUMNS} FROM assistant_conversations
+         WHERE thread_id = ? AND state = 'active'
+         ORDER BY rowid DESC LIMIT 1`
+      )
+      .get(threadId) as ConversationRow | undefined
+    return row ? conversationFromRow(row) : null
+  }
+
+  /** rowid, not created_at: a reset and the next send can share a millisecond. */
+  findLatestConversation(threadId: string): AssistantConversation | null {
+    const row = this.db.raw
+      .prepare(
+        `SELECT ${CONVERSATION_COLUMNS} FROM assistant_conversations
+         WHERE thread_id = ?
+         ORDER BY rowid DESC LIMIT 1`
+      )
+      .get(threadId) as ConversationRow | undefined
+    return row ? conversationFromRow(row) : null
+  }
+
+  insertConversation(input: {
+    id: string
+    threadId: string
+    harness: AssistantConversation['harness']
+    targetKind: AssistantConversation['targetKind']
+    targetDistro: string | null
+    historyMode: AssistantConversationHistoryMode
+    startSeq: number
+    createdAt: number
+  }): AssistantConversation {
+    this.db.transaction(() => {
+      // Keep the predecessor's range honest even if a caller forgot to retire it.
+      this.db.raw
+        .prepare(
+          `UPDATE assistant_conversations
+           SET end_seq = ?, updated_at = ?
+           WHERE id = (
+             SELECT id FROM assistant_conversations
+             WHERE thread_id = ? AND start_seq IS NOT NULL
+               AND start_seq < ? AND end_seq IS NULL
+             ORDER BY start_seq DESC LIMIT 1
+           )`
+        )
+        .run(input.startSeq - 1, input.createdAt, input.threadId, input.startSeq)
+      this.db.raw
+        .prepare(
+          `INSERT INTO assistant_conversations (
+             id, thread_id, harness, target_kind, target_distro, native_session_id,
+             state, reset_reason, history_mode, last_prompt_seq, start_seq, end_seq,
+             created_at, updated_at, observed_at
+           ) VALUES (?, ?, ?, ?, ?, NULL, 'active', NULL, ?, NULL, ?, NULL, ?, ?, NULL)`
+        )
+        .run(
+          input.id,
+          input.threadId,
+          input.harness,
+          input.targetKind,
+          input.targetDistro,
+          input.historyMode,
+          input.startSeq,
+          input.createdAt,
+          input.createdAt
+        )
+    })
+    return this.findConversation(input.id)!
+  }
+
+  /** Persist the harness's continuation handle as soon as it is observed. */
+  setConversationSession(id: string, nativeSessionId: string, now: number): void {
+    this.db.raw
+      .prepare(
+        `UPDATE assistant_conversations
+         SET native_session_id = ?, observed_at = ?, updated_at = ?
+         WHERE id = ? AND state = 'active'`
+      )
+      .run(nativeSessionId, now, now, id)
+  }
+
+  touchConversation(
+    id: string,
+    input: { now: number; lastPromptSeq: number | null }
+  ): void {
+    this.db.raw
+      .prepare(
+        `UPDATE assistant_conversations
+         SET last_prompt_seq = COALESCE(?, last_prompt_seq), updated_at = ?
+         WHERE id = ? AND state = 'active'`
+      )
+      .run(input.lastPromptSeq, input.now, id)
+  }
+
+  retireConversation(
+    id: string,
+    input: {
+      state: Extract<AssistantConversationState, 'reset' | 'invalid'>
+      reason: AssistantConversationResetReason
+      now: number
+      endSeq?: number
+    }
+  ): AssistantConversation | null {
+    const current = this.findConversation(id)
+    if (current === null) return null
+    const endSeq =
+      input.endSeq !== undefined ? input.endSeq : this.latestMessageSeq(current.threadId)
+    const result = this.db.raw
+      .prepare(
+        `UPDATE assistant_conversations
+         SET state = ?, reset_reason = ?, end_seq = COALESCE(?, end_seq), updated_at = ?
+         WHERE id = ? AND state = 'active'`
+      )
+      .run(input.state, input.reason, endSeq, input.now, id)
+    return Number(result.changes) === 1 ? this.findConversation(id) : null
+  }
+
+  resetActiveConversation(
+    threadId: string,
+    input: { reason: AssistantConversationResetReason; now: number; endSeq?: number }
+  ): AssistantConversation | null {
+    return this.db.transaction(() => {
+      const active = this.findActiveConversation(threadId)
+      if (!active) return null
+      const state: 'reset' | 'invalid' =
+        input.reason === 'resume-failed' || input.reason === 'resume-unsupported'
+          ? 'invalid'
+          : 'reset'
+      return this.retireConversation(active.id, {
+        state,
+        reason: input.reason,
+        now: input.now,
+        ...(input.endSeq === undefined ? {} : { endSeq: input.endSeq })
+      })
+    })
+  }
+
+  latestMessageSeq(threadId: string): number | null {
+    const row = this.db.raw
+      .prepare(
+        'SELECT MAX(seq) AS seq FROM assistant_messages WHERE thread_id = ?'
+      )
+      .get(threadId) as { seq: number | null } | undefined
+    return row?.seq ?? null
+  }
+
+  listConversations(threadId: string, limit = 50): AssistantConversation[] {
+    const clamped = Math.max(1, Math.min(200, limit))
+    const rows = this.db.raw
+      .prepare(
+        `SELECT ${CONVERSATION_COLUMNS} FROM assistant_conversations
+         WHERE thread_id = ? AND start_seq IS NOT NULL
+         ORDER BY start_seq DESC, rowid DESC LIMIT ?`
+      )
+      .all(threadId, clamped) as ConversationRow[]
+    return rows.reverse().map(conversationFromRow)
+  }
+
+  findConversationForSeq(threadId: string, seq: number): AssistantConversation | null {
+    const row = this.db.raw
+      .prepare(
+        `SELECT ${CONVERSATION_COLUMNS} FROM assistant_conversations
+         WHERE thread_id = ? AND start_seq IS NOT NULL AND start_seq <= ?
+         ORDER BY start_seq DESC LIMIT 1`
+      )
+      .get(threadId, seq) as ConversationRow | undefined
+    return row ? conversationFromRow(row) : null
+  }
+
+  findNextConversation(threadId: string, startSeq: number): AssistantConversation | null {
+    const row = this.db.raw
+      .prepare(
+        `SELECT ${CONVERSATION_COLUMNS} FROM assistant_conversations
+         WHERE thread_id = ? AND start_seq IS NOT NULL AND start_seq > ?
+         ORDER BY start_seq ASC, rowid ASC LIMIT 1`
+      )
+      .get(threadId, startSeq) as ConversationRow | undefined
+    return row ? conversationFromRow(row) : null
+  }
+
+  listMessagesInRange(
+    threadId: string,
+    options: {
+      startSeq: number
+      endSeq: number | null
+      beforeSeq?: number
+      limit?: number
+    }
+  ): AssistantMessageRecord[] {
+    const limit = Math.max(1, Math.min(200, options.limit ?? 100))
+    const before = options.beforeSeq ?? Number.MAX_SAFE_INTEGER
+    const end = options.endSeq ?? Number.MAX_SAFE_INTEGER
+    const rows = this.db.raw
+      .prepare(
+        `SELECT ${MESSAGE_COLUMNS} FROM assistant_messages
+         WHERE thread_id = ? AND seq >= ? AND seq <= ? AND seq < ?
+         ORDER BY seq DESC LIMIT ?`
+      )
+      .all(threadId, options.startSeq, end, before, limit) as MessageRow[]
+    return rows.map(messageFromRow).reverse()
+  }
+
+  listRecentNotifications(threadId: string, limit = 10): AssistantMessageRecord[] {
+    const clamped = Math.max(1, Math.min(50, limit))
+    const rows = this.db.raw
+      .prepare(
+        `SELECT ${MESSAGE_COLUMNS} FROM assistant_messages
+         WHERE thread_id = ? AND role = 'assistant'
+           AND (kind = 'notification' OR notification_kind IS NOT NULL)
+         ORDER BY seq DESC LIMIT ?`
+      )
+      .all(threadId, clamped) as MessageRow[]
+    return rows.map(messageFromRow).reverse()
+  }
+
+  /** Deterministic outcome digest for a resumed turn. */
+  listDigestMessages(
+    threadId: string,
+    afterSeq: number,
+    limit = 10
+  ): AssistantMessageRecord[] {
+    const clamped = Math.max(1, Math.min(50, limit))
+    const rows = this.db.raw
+      .prepare(
+        `SELECT ${MESSAGE_COLUMNS} FROM assistant_messages
+         WHERE thread_id = ? AND seq > ?
+           AND kind IN ('notification', 'card', 'action', 'error')
+         ORDER BY seq DESC LIMIT ?`
+      )
+      .all(threadId, afterSeq, clamped) as MessageRow[]
+    return rows.map(messageFromRow).reverse()
   }
 
   listMessages(
@@ -395,6 +723,7 @@ export class AssistantStore {
       targetDistro?: string | null
       round?: number
       responseMessageId?: string | null
+      resumeToken?: string | null
       usage?: unknown
       contextChars?: number | null
       finishedAt?: number | null
@@ -409,7 +738,7 @@ export class AssistantStore {
       .prepare(
         `UPDATE assistant_runs
          SET status = ?, stage = ?, harness = ?, target_kind = ?, target_distro = ?, round = ?,
-             response_message_id = ?, usage_json = ?, context_chars = ?,
+             response_message_id = ?, resume_token = ?, usage_json = ?, context_chars = ?,
              finished_at = ?, error = ?
          WHERE id = ?`
       )
@@ -423,6 +752,7 @@ export class AssistantStore {
         patch.responseMessageId !== undefined
           ? patch.responseMessageId
           : current.response_message_id,
+        patch.resumeToken !== undefined ? patch.resumeToken : current.resume_token,
         patch.usage !== undefined ? JSON.stringify(patch.usage) : current.usage_json,
         patch.contextChars !== undefined ? patch.contextChars : current.context_chars,
         patch.finishedAt !== undefined ? patch.finishedAt : current.finished_at,

@@ -82,9 +82,29 @@ process.stdin.on('end', () => {
       : 'FAKE_OK'
   const resultLine = JSON.stringify({
     type: 'result',
+    session_id: 'fake-session-1',
     result: JSON.stringify({ reply, actions: [] }),
     is_error: false
   }) + '\\n'
+  const resumed = process.argv.includes('--resume')
+  if (prompt.includes('Return MARKDOWN_OK') && !resumed) {
+    process.stdout.write(JSON.stringify({
+      type: 'result',
+      session_id: 'fake-session-1',
+      result: JSON.stringify({ reply: 'BAD_NO_RESUME', actions: [] }),
+      is_error: false
+    }) + '\\n')
+    return
+  }
+  if (resumed && prompt.includes('## Recent conversation')) {
+    process.stdout.write(JSON.stringify({
+      type: 'result',
+      session_id: 'fake-session-1',
+      result: JSON.stringify({ reply: 'BAD_HISTORY_REPLAY', actions: [] }),
+      is_error: false
+    }) + '\\n')
+    return
+  }
   if (!streaming) {
     process.stdout.write(resultLine)
     return
@@ -275,6 +295,13 @@ async function main() {
     const body = await cdp.evaluate('document.body.innerText')
     assert(body.includes('REAL_OK'), 'the assistant reply is missing REAL_OK')
     assert(!body.includes('could not finish'), 'the assistant turn failed')
+
+    await waitFor(
+      cdp,
+      `(document.querySelector('[data-testid="assistant-conversation-select"]')?.textContent ?? '').includes('Current conversation')`,
+      'the conversation selector',
+      30_000
+    )
 
     await cdp.screenshot(path.join(ARTIFACT_DIR, 'assistant.png'))
 
