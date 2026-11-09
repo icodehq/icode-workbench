@@ -595,6 +595,9 @@ export default function TaskOverview({
                   <li key={attempt.id} className="rounded-md border border-border bg-muted/30 px-2 py-1.5 text-[10.5px]">
                     <span className="text-foreground">
                       {t('taskOverview.attemptLabel', { count: attempt.attempt })}
+                      {attempt.attemptMode === 'resume'
+                        ? ` · ${t('tasks.row.continued')}`
+                        : ''}
                     </span>{' '}
                     <span className="text-muted-foreground">
                       {t('taskOverview.attemptMeta', {

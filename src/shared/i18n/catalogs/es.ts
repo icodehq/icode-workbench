@@ -1859,5 +1859,11 @@ export const es = {
   'notifications.agentFailed': 'El agente se detuvo con un error.',
   'notifications.agentWaiting': 'Esperando tu intervención · {tool}',
   'notifications.agentNeedsInput': 'El agente necesita tu respuesta.',
-  'notifications.sessionTitle': 'Sesión de iCode'
+  'notifications.sessionTitle': 'Sesión de iCode',
+  'tasks.row.continue': 'Continuar',
+  'tasks.row.continued': 'continuado',
+  'tasks.notice.continuing': 'Continuando como intento {count}',
+  'assistant.card.continue': 'Continuar',
+  'tasks.error.continueFailed': 'No se pudo continuar el intento anterior.',
+  'tasks.detail.continueFailed': '{detail} Inicia un intento nuevo en su lugar.'
 } satisfies MessageCatalog

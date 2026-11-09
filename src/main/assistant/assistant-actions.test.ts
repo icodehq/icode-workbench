@@ -92,4 +92,105 @@ describe('AssistantActions', () => {
       })
     )
   })
+
+  it('continues a Mira-owned task in place and audits the intent', async () => {
+    const repoId = newRepoId()
+    const failed = {
+      id: 'task_1',
+      repoId,
+      title: 'Docs',
+      status: 'failed',
+      approval: 'approved',
+      origin: 'supervisor',
+      createdByActor: 'mira',
+      createdBySessionId: null,
+      sessionId: 'ses_1',
+      attempt: 1,
+      attemptMode: 'fresh',
+      canResume: true,
+      error: 'Insufficient balance.',
+      reviewDecision: 'pending',
+      updatedAt: 1
+    } as unknown as TaskRecord
+    const continued = {
+      ...failed,
+      id: 'task_2',
+      status: 'queued',
+      attempt: 2,
+      attemptMode: 'resume',
+      canResume: false,
+      error: null
+    } as unknown as TaskRecord
+    const get = vi.fn((id: string) => (id === 'task_1' ? failed : continued))
+    const resume = vi.fn(() => ({ ok: true as const, value: continued }))
+    const recordAction = vi.fn()
+    const actions = new AssistantActions({
+      store: { getSettings: () => DEFAULT_ASSISTANT_SETTINGS, recordAction } as never,
+      tasks: { get, resume } as never,
+      taskStore: {} as never,
+      sessions: {} as never,
+      supervisors: {} as never,
+      repositories: {} as never,
+      gitWorkspace: {} as never,
+      policy: {} as never,
+      listHarnesses: async () => [] as never,
+      threadId: 'thread_1',
+      runId: 'run_1',
+      now: () => 1
+    })
+
+    const result = await actions.execute({ op: 'tasks.resume', taskId: 'task_1' })
+
+    expect(resume).toHaveBeenCalledWith('task_1', { assistantRunId: 'run_1' })
+    expect(result).toMatchObject({
+      op: 'tasks.resume',
+      ok: true,
+      card: { type: 'task', taskId: 'task_2', canResume: false }
+    })
+    expect(recordAction).toHaveBeenCalledWith(
+      expect.objectContaining({ op: 'tasks.resume', outcome: 'ok' })
+    )
+  })
+
+  it('refuses to continue a task a person created', async () => {
+    const repoId = newRepoId()
+    const humanTask = {
+      id: 'task_1',
+      repoId,
+      title: 'Docs',
+      status: 'failed',
+      approval: 'approved',
+      origin: 'human',
+      createdByActor: null,
+      createdBySessionId: null,
+      sessionId: 'ses_1',
+      attempt: 1,
+      attemptMode: 'fresh',
+      canResume: true,
+      error: null,
+      reviewDecision: 'pending',
+      updatedAt: 1
+    } as unknown as TaskRecord
+    const resume = vi.fn()
+    const recordAction = vi.fn()
+    const actions = new AssistantActions({
+      store: { getSettings: () => DEFAULT_ASSISTANT_SETTINGS, recordAction } as never,
+      tasks: { get: () => humanTask, resume } as never,
+      taskStore: {} as never,
+      sessions: {} as never,
+      supervisors: {} as never,
+      repositories: {} as never,
+      gitWorkspace: {} as never,
+      policy: {} as never,
+      listHarnesses: async () => [] as never,
+      threadId: 'thread_1',
+      runId: 'run_1',
+      now: () => 1
+    })
+
+    const result = await actions.execute({ op: 'tasks.resume', taskId: 'task_1' })
+
+    expect(resume).not.toHaveBeenCalled()
+    expect(result.ok).toBe(false)
+  })
 })

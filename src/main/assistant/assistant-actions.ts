@@ -54,6 +54,8 @@ function compactTask(task: {
   createdByActor: string | null
   sessionId: string | null
   attempt: number
+  attemptMode: string
+  canResume?: boolean
   error: string | null
   reviewDecision: string
   updatedAt: number
@@ -68,6 +70,8 @@ function compactTask(task: {
     createdByActor: task.createdByActor,
     sessionId: task.sessionId,
     attempt: task.attempt,
+    attemptMode: task.attemptMode,
+    canResume: task.canResume ?? false,
     error: task.error,
     reviewDecision: task.reviewDecision,
     updatedAt: task.updatedAt
@@ -126,6 +130,8 @@ export class AssistantActions {
           return this.tasksCancel(action.taskId)
         case 'tasks.retry':
           return this.tasksRetry(action.taskId)
+        case 'tasks.resume':
+          return this.tasksResume(action.taskId)
         case 'tasks.archive':
           return this.tasksArchive(action.taskId)
         case 'sessions.message':
@@ -406,7 +412,46 @@ export class AssistantActions {
             repoId: retried.repoId,
             title: retried.title,
             status: retried.status,
-            approval: retried.approval
+            approval: retried.approval,
+            canResume: retried.canResume
+          }
+        : undefined
+    }
+  }
+
+  /**
+   * Continues a stopped task in its existing session and worktree.
+   *
+   * The ownership rule is the same as retry: Mira may continue only work she
+   * or a supervisor created. A person's task needs the person's decision.
+   */
+  private tasksResume(taskId: string): AssistantActionResult {
+    const task = this.deps.tasks.get(taskId)
+    if (!task) return this.error('tasks.resume', 'That task does not exist.')
+    if (!this.canOperate(task)) {
+      return this.error(
+        'tasks.resume',
+        'That task was created by a person. Mira can suggest a fix task instead of continuing it.'
+      )
+    }
+    const result = this.deps.tasks.resume(taskId, { assistantRunId: this.deps.runId })
+    if (!result.ok) return this.error('tasks.resume', result.error.message)
+    const continued = this.deps.tasks.get(result.value.id)
+    this.audit('tasks.resume', true, 'ok', { repoId: task.repoId, taskId: result.value.id })
+    return {
+      op: 'tasks.resume',
+      ok: true,
+      message: `Continued as attempt ${String(result.value.attempt)}.`,
+      value: continued ? compactTask(continued) : null,
+      card: continued
+        ? {
+            type: 'task',
+            taskId: continued.id,
+            repoId: continued.repoId,
+            title: continued.title,
+            status: continued.status,
+            approval: continued.approval,
+            canResume: continued.canResume
           }
         : undefined
     }

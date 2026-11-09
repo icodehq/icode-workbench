@@ -21,6 +21,16 @@ describe('Mira response envelope', () => {
     if (parsed.ok) expect(parsed.value.reply).toBe('Done')
   })
 
+  it('accepts the task continuation action', () => {
+    const parsed = parseAssistantEnvelope(
+      '{"reply":"Continuing.","actions":[{"op":"tasks.resume","taskId":"task_1"}]}'
+    )
+    expect(parsed.ok).toBe(true)
+    if (parsed.ok) {
+      expect(parsed.value.actions).toEqual([{ op: 'tasks.resume', taskId: 'task_1' }])
+    }
+  })
+
   it('rejects an incomplete or invalid envelope', () => {
     expect(parseAssistantEnvelope('{"reply":"unterminated"').ok).toBe(false)
     expect(parseAssistantEnvelope('{"reply":"x","actions":[{"op":"delete.everything"}]}').ok).toBe(false)

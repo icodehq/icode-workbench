@@ -133,6 +133,7 @@ export function createIcodeApi(
       reject: (input) => call(IPC_CHANNELS.tasksReject, input),
       cancel: (input) => call(IPC_CHANNELS.tasksCancel, input),
       retry: (input) => call(IPC_CHANNELS.tasksRetry, input),
+      resume: (input) => call(IPC_CHANNELS.tasksResume, input),
       history: (input) => call(IPC_CHANNELS.tasksHistory, input),
       changes: (input) => call(IPC_CHANNELS.tasksChanges, input),
       decideReview: (input) => call(IPC_CHANNELS.tasksDecideReview, input),

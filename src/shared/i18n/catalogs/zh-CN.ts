@@ -1854,5 +1854,11 @@ export const zhCN = {
   'notifications.agentFailed': '智能体因错误停止。',
   'notifications.agentWaiting': '等待你处理 · {tool}',
   'notifications.agentNeedsInput': '智能体需要你的输入。',
-  'notifications.sessionTitle': 'iCode 会话'
+  'notifications.sessionTitle': 'iCode 会话',
+  'tasks.row.continue': '继续',
+  'tasks.row.continued': '已继续',
+  'tasks.notice.continuing': '正在作为第 {count} 次尝试继续',
+  'assistant.card.continue': '继续',
+  'tasks.error.continueFailed': '无法继续上一次尝试。',
+  'tasks.detail.continueFailed': '{detail} 请改为开始新的尝试。'
 } satisfies MessageCatalog

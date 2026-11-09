@@ -5,6 +5,7 @@ import type {
   ReviewDecision,
   ReviewRecommendation,
   TaskApproval,
+  TaskAttemptMode,
   TaskFailureReason,
   TaskListFilter,
   TaskOrigin,
@@ -30,7 +31,7 @@ import type {
  */
 
 const TASK_COLUMNS = `id, workspace_id, repo_id, title, prompt, harness, status, session_id,
-  worktree_path, attempt, previous_task_id, schedule_id, occurrence_at, dedupe_key,
+  worktree_path, attempt, attempt_mode, previous_task_id, schedule_id, occurrence_at, dedupe_key,
   origin, created_by_session_id, created_by_actor, assistant_run_id, approval_policy,
   approval, approved_at, approved_by, archived_at,
   review_recommendation, review_recommendation_note, review_recommended_at,
@@ -49,6 +50,7 @@ type TaskRow = {
   session_id: string | null
   worktree_path: string | null
   attempt: number
+  attempt_mode: string
   previous_task_id: string | null
   schedule_id: string | null
   occurrence_at: number | null
@@ -93,6 +95,7 @@ function taskFromRow(row: TaskRow): TaskRecord {
     sessionId: row.session_id as SessionId | null,
     worktreePath: row.worktree_path,
     attempt: row.attempt,
+    attemptMode: row.attempt_mode as TaskAttemptMode,
     previousTaskId: row.previous_task_id,
     scheduleId: row.schedule_id,
     occurrenceAt: row.occurrence_at,
@@ -134,6 +137,12 @@ export type NewTaskRow = {
   prompt: string
   harness: HarnessId
   attempt: number
+  /** Internal only: how this episode started; defaults to `fresh`. */
+  attemptMode?: TaskAttemptMode
+  /** Internal only: the session a resumed episode continues. */
+  sessionId?: SessionId | null
+  /** Internal only: the worktree a resumed episode continues. */
+  worktreePath?: string | null
   previousTaskId: string | null
   scheduleId: string | null
   occurrenceAt: number | null
@@ -177,7 +186,7 @@ export class TaskStore {
       .prepare(
         `INSERT INTO tasks (
            id, workspace_id, repo_id, title, prompt, harness, status, session_id,
-           worktree_path, attempt, previous_task_id, schedule_id, occurrence_at, dedupe_key,
+           worktree_path, attempt, attempt_mode, previous_task_id, schedule_id, occurrence_at, dedupe_key,
            origin, created_by_session_id, created_by_actor, assistant_run_id, approval_policy,
            approval, approved_at, approved_by,
            review_recommendation, review_recommendation_note, review_recommended_at,
@@ -186,8 +195,8 @@ export class TaskStore {
            failure_reason, last_observed_state, exit_code, review_decision, reviewed_at, review_note
          )
          VALUES (
-           ?, ?, ?, ?, ?, ?, 'queued', NULL,
-           NULL, ?, ?, ?, ?, ?,
+           ?, ?, ?, ?, ?, ?, 'queued', ?,
+           ?, ?, ?, ?, ?, ?, ?,
            ?, ?, ?, ?, ?,
            ?, ?, ?,
            NULL, NULL, NULL, NULL,
@@ -203,7 +212,10 @@ export class TaskStore {
         draft.title,
         draft.prompt,
         draft.harness,
+        draft.sessionId ?? null,
+        draft.worktreePath ?? null,
         draft.attempt,
+        draft.attemptMode ?? 'fresh',
         draft.previousTaskId,
         draft.scheduleId,
         draft.occurrenceAt,
@@ -250,6 +262,23 @@ export class TaskStore {
          WHERE session_id = ? ORDER BY created_at DESC, id DESC LIMIT 1`
       )
       .get(sessionId) as TaskRow | undefined
+    return row ? taskFromRow(row) : null
+  }
+
+  /**
+   * The row that retries or continues this one, when it exists.
+   *
+   * A linear chain expects at most one successor. Ordering matches `chainOf`
+   * in case a race ever produced more than one.
+   */
+  findSuccessor(taskId: string): TaskRecord | null {
+    const row = this.db.raw
+      .prepare(
+        `SELECT ${TASK_COLUMNS} FROM tasks
+         WHERE previous_task_id = ?
+         ORDER BY attempt ASC, created_at ASC, id ASC LIMIT 1`
+      )
+      .get(taskId) as TaskRow | undefined
     return row ? taskFromRow(row) : null
   }
 

@@ -33,7 +33,9 @@ export const assistantTaskCardSchema = z.strictObject({
   status: z.string().min(1).max(40),
   approval: z.enum(['approved', 'pending', 'rejected']),
   autoApproved: z.boolean().optional(),
-  reasons: z.array(z.string().max(200)).max(10).optional()
+  reasons: z.array(z.string().max(200)).max(10).optional(),
+  /** Optional so cards persisted before task continuation still parse. */
+  canResume: z.boolean().optional()
 })
 
 export const assistantActionCardSchema = z.strictObject({

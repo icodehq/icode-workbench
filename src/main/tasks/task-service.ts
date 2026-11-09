@@ -7,9 +7,11 @@ import type { RepoId, SessionId } from '../../shared/domain/ids'
 import { repositoryPreparationBlocksSessions } from '../../shared/domain/repository'
 import {
   isTerminalTaskStatus,
+  taskCanResume,
   TASK_LIMITS,
   type ReviewRecommendation,
   type TaskApproval,
+  type TaskAttemptMode,
   type TaskListFilter,
   type TaskOrigin,
   type TaskRecord,
@@ -59,6 +61,15 @@ export type CreateTaskInput = {
   title?: string
   prompt: string
   harness: HarnessId
+  /**
+   * Internal only: how this episode starts. `resume` is set by
+   * `TaskService.resume` and carries the predecessor's session/worktree.
+   */
+  attemptMode?: TaskAttemptMode
+  /** Internal only: the session a resumed episode continues. */
+  sessionId?: SessionId | null
+  /** Internal only: the worktree a resumed episode continues. */
+  worktreePath?: string | null
   /** Provenance, set by the scheduler. Not accepted from the UI. */
   scheduleId?: string | null
   occurrenceAt?: number | null
@@ -202,6 +213,9 @@ export class TaskService {
         prompt,
         harness: input.harness,
         attempt: input.attempt ?? 1,
+        attemptMode: input.attemptMode ?? 'fresh',
+        sessionId: input.sessionId ?? null,
+        worktreePath: input.worktreePath ?? null,
         previousTaskId: input.previousTaskId ?? null,
         scheduleId: input.scheduleId ?? null,
         occurrenceAt: input.occurrenceAt ?? null,
@@ -389,7 +403,7 @@ export class TaskService {
   }
 
   /**
-   * Retries a finished task as a new attempt.
+   * Retries a finished task as a fresh attempt.
    *
    * The previous attempt keeps its row, its error and its worktree link, so the
    * chain shows what was tried. Only a terminal task can be retried, and only
@@ -414,11 +428,85 @@ export class TaskService {
         error: fail('INVALID_ARGUMENT', 'That task already succeeded; create a new task instead.').error
       }
     }
-    const existingRetry = this.deps.tasks
-      .list({ limit: 500, includeArchived: true, includeAttempts: true })
-      .find((candidate) => candidate.previousTaskId === taskId)
+    const existingRetry = this.deps.tasks.findSuccessor(taskId)
     if (existingRetry) return ok(existingRetry)
 
+    return this.createSuccessor(task, 'fresh', options)
+  }
+
+  /**
+   * Continues a stopped task in its existing session and worktree.
+   *
+   * This is the recovery path for environmental failures — quota, auth,
+   * network, harness crash, host restart — where the conversation and the
+   * uncommitted worktree changes are worth keeping. The new row carries the
+   * predecessor's `sessionId` and `worktreePath`; the dispatcher restarts the
+   * session with the harness's resume command instead of creating a new one.
+   */
+  resume(
+    taskId: string,
+    options: { assistantRunId?: string | null } = {}
+  ): TaskOutcome<TaskRecord> {
+    const task = this.deps.tasks.findById(taskId)
+    if (!task) return { ok: false, error: fail('INVALID_ARGUMENT', 'That task no longer exists.').error }
+    if (!isTerminalTaskStatus(task.status)) {
+      return {
+        ok: false,
+        error: fail('INVALID_ARGUMENT', 'Only a finished task can be continued.').error
+      }
+    }
+    if (task.status === 'completed') {
+      return {
+        ok: false,
+        error: fail('INVALID_ARGUMENT', 'That task already succeeded; create a new task instead.').error
+      }
+    }
+    const existing = this.deps.tasks.findSuccessor(taskId)
+    if (existing) return ok(existing)
+    if (task.sessionId === null) {
+      return {
+        ok: false,
+        error: fail(
+          'INVALID_ARGUMENT',
+          'This task has no session to continue.',
+          'Start a new attempt instead.'
+        ).error
+      }
+    }
+    if (task.harness === 'shell') {
+      return {
+        ok: false,
+        error: fail(
+          'INVALID_ARGUMENT',
+          'A shell task has no conversation to continue.',
+          'Start a new attempt instead.'
+        ).error
+      }
+    }
+    if (task.reviewDecision !== 'pending') {
+      return {
+        ok: false,
+        error: fail(
+          'INVALID_ARGUMENT',
+          'This attempt was already reviewed; start a new attempt instead.'
+        ).error
+      }
+    }
+    if (task.archivedAt != null) {
+      return {
+        ok: false,
+        error: fail('INVALID_ARGUMENT', 'Restore this task from history before continuing it.').error
+      }
+    }
+    return this.createSuccessor(task, 'resume', options)
+  }
+
+  /** The one place a retry or continuation is copied from its predecessor. */
+  private createSuccessor(
+    task: TaskRecord,
+    attemptMode: TaskAttemptMode,
+    options: { assistantRunId?: string | null }
+  ): TaskOutcome<TaskRecord> {
     return this.create({
       repoId: task.repoId,
       title: task.title,
@@ -435,7 +523,11 @@ export class TaskService {
         ? { approvedBy: task.approvedBy }
         : {}),
       attempt: task.attempt + 1,
-      previousTaskId: task.id
+      previousTaskId: task.id,
+      attemptMode,
+      ...(attemptMode === 'resume'
+        ? { sessionId: task.sessionId, worktreePath: task.worktreePath }
+        : {})
     })
   }
 
@@ -615,16 +707,13 @@ export class TaskService {
   private toView(task: TaskRecord): TaskView {
     // Only a host-confirmed state counts; a persisted `live` proves nothing.
     const sessionLive = task.sessionId ? this.deps.isSessionLive(task.sessionId) : false
-    const alreadyRetried =
-      isTerminalTaskStatus(task.status) &&
-      task.status !== 'completed' &&
-      this.deps.tasks
-        .list({ limit: 500, includeArchived: true, includeAttempts: true })
-        .some((candidate) => candidate.previousTaskId === task.id)
+    const successor = this.deps.tasks.findSuccessor(task.id)
     return {
       ...task,
       sessionLive,
-      canRetry: isTerminalTaskStatus(task.status) && task.status === 'failed' && !alreadyRetried,
+      canRetry:
+        isTerminalTaskStatus(task.status) && task.status === 'failed' && successor === null,
+      canResume: taskCanResume(task, successor !== null),
       canReview: Boolean(task.sessionId || task.worktreePath),
       canApprove: task.approval === 'pending' && task.status === 'queued',
       canReject: task.approval === 'pending' && task.status === 'queued',

@@ -1859,5 +1859,11 @@ export const fr = {
   'notifications.agentFailed': 'L’agent s’est arrêté sur une erreur.',
   'notifications.agentWaiting': 'En attente de votre intervention · {tool}',
   'notifications.agentNeedsInput': 'L’agent attend votre saisie.',
-  'notifications.sessionTitle': 'Session iCode'
+  'notifications.sessionTitle': 'Session iCode',
+  'tasks.row.continue': 'Continuer',
+  'tasks.row.continued': 'continué',
+  'tasks.notice.continuing': 'Reprise comme tentative {count}',
+  'assistant.card.continue': 'Continuer',
+  'tasks.error.continueFailed': "La tentative précédente n'a pas pu être reprise.",
+  'tasks.detail.continueFailed': '{detail} Lancez plutôt une nouvelle tentative.'
 } satisfies MessageCatalog

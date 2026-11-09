@@ -12,6 +12,7 @@ import {
   AGENT_SUBMIT_DELAY_MS,
   buildAgentPromptPaste
 } from '../../shared/agent-prompt'
+import { buildContinuationPrompt } from './task-continuation'
 
 export type TaskDispatcherDeps = {
   tasks: TaskStore
@@ -55,6 +56,8 @@ export class TaskDispatcher {
   private pumpRunning = false
   private pumpAgain = false
   private unsubscribe: (() => void) | null = null
+  /** Sessions whose PTY is being deliberately stopped and respawned. */
+  private readonly restarting = new Set<string>()
 
   constructor(private readonly deps: TaskDispatcherDeps) {}
 
@@ -122,6 +125,10 @@ export class TaskDispatcher {
    * queued task is still startable.
    */
   private async dispatchOne(task: TaskRecord): Promise<void> {
+    if (task.attemptMode === 'resume') {
+      await this.resumeOne(task)
+      return
+    }
     const now = this.deps.now()
     let sessionId: SessionId
     try {
@@ -189,6 +196,124 @@ export class TaskDispatcher {
   }
 
   /**
+   * Continues a stopped task in its existing session and worktree.
+   *
+   * A live TUI is reused: restarting it would kill a healthy process. A dead
+   * one is reopened with the harness's own resume command, which keeps the
+   * native conversation and the uncommitted worktree changes.
+   */
+  private async resumeOne(task: TaskRecord): Promise<void> {
+    const sessionId = task.sessionId
+    if (sessionId === null) {
+      this.fail(task, {
+        reason: 'resume-failed',
+        message: mainT('tasks.error.continueFailed'),
+        detail: mainT('tasks.detail.continueFailed', {
+          detail: 'No session was recorded for this attempt.'
+        })
+      })
+      return
+    }
+
+    let incarnation: string
+    let needsStartupDelay: boolean
+    // A continuation must keep the task's own checkout. If the session row no
+    // longer resolves to it, restart would silently fall back to the primary
+    // checkout, which is a different working tree.
+    const resolvedWorktree = this.sessionWorktreePath(sessionId)
+    if (task.worktreePath != null && resolvedWorktree !== task.worktreePath) {
+      this.fail(task, {
+        reason: 'resume-failed',
+        message: mainT('tasks.error.continueFailed'),
+        detail: mainT('tasks.detail.continueFailed', {
+          detail: "The session no longer resolves to this task's worktree."
+        }),
+        sessionId
+      })
+      return
+    }
+    try {
+      const summary = await this.deps.sessions.get(sessionId)
+      if (
+        (summary.state === 'live' || summary.state === 'starting') &&
+        summary.incarnationId !== null
+      ) {
+        incarnation = summary.incarnationId
+        needsStartupDelay = summary.state === 'starting'
+      } else {
+        // Restart kills any live PTY itself; suppress the exit that the old
+        // incarnation emits while we are deliberately replacing it.
+        this.restarting.add(sessionId)
+        try {
+          const restarted = await this.deps.sessions.restart(sessionId, { resume: true })
+          incarnation = restarted.incarnationId ?? (await this.currentIncarnation(sessionId))
+        } finally {
+          this.restarting.delete(sessionId)
+        }
+        needsStartupDelay = true
+      }
+    } catch (error) {
+      this.fail(task, {
+        reason: 'resume-failed',
+        message: mainT('tasks.error.continueFailed'),
+        detail: mainT('tasks.detail.continueFailed', { detail: messageOf(error) }),
+        sessionId
+      })
+      return
+    }
+
+    const previous =
+      task.previousTaskId !== null ? this.deps.tasks.findById(task.previousTaskId) : null
+    const prompt = buildContinuationPrompt({
+      originalPrompt: task.prompt,
+      previousError: previous?.error ?? null,
+      previousErrorDetail: previous?.errorDetail ?? null
+    })
+
+    const now = this.deps.now()
+    const advanced = this.deps.tasks.updateIfStatus(
+      task.id,
+      ['dispatching'],
+      {
+        status: 'running',
+        startedAt: now,
+        worktreePath: task.worktreePath ?? resolvedWorktree,
+        lastObservedState: 'live'
+      },
+      now
+    )
+    this.deps.onChange()
+    if (!advanced) return
+
+    try {
+      if (needsStartupDelay) await this.delay(this.deps.promptStartupDelayMs ?? 2_500)
+      // A turn or a cancellation may have ended the row while the session was
+      // being resolved; never type into a row that is no longer ours.
+      const current = this.deps.tasks.findById(task.id)
+      if (current === null || current.status !== 'running') return
+      await this.deps.sessions.write(
+        sessionId,
+        incarnation,
+        buildAgentPromptPaste(prompt)
+      )
+      await this.delay(this.deps.submitDelayMs ?? AGENT_SUBMIT_DELAY_MS)
+      await this.deps.sessions.write(sessionId, incarnation, '\r')
+      await this.confirmClaudeSubmission(task, sessionId, incarnation)
+    } catch (error) {
+      this.fail(task, {
+        reason: 'prompt-write-failed',
+        message: mainT('tasks.error.instructionDeliveryFailed'),
+        detail: mainT('tasks.detail.sendByHand', { detail: messageOf(error) }),
+        sessionId
+      })
+      return
+    }
+
+    this.deps.onChange()
+    this.kick()
+  }
+
+  /**
    * Applies a session event to whatever task owns that session.
    *
    * The mapping is deliberately narrow: only states iCode can actually observe
@@ -198,10 +323,16 @@ export class TaskDispatcher {
   private async onSessionEvent(event: { type?: string; sessionId?: string }): Promise<void> {
     const sessionId = event.sessionId
     if (!sessionId) return
+    // The deliberate kill inside a resume restart must not be read as a task
+    // ending; the row is still resolving its new incarnation.
+    if (this.restarting.has(sessionId)) return
     const task = this.deps.tasks
       .list({ limit: 500, includeAttempts: true })
-      .find((candidate) => candidate.sessionId === sessionId)
-    if (!task || isTerminalTaskStatus(task.status)) return
+      .find(
+        (candidate) =>
+          candidate.sessionId === sessionId && !isTerminalTaskStatus(candidate.status)
+      )
+    if (!task) return
     this.reconcileTask(task, this.deps.sessionState(sessionId))
     // A slot may have been freed.
     this.kick()
@@ -308,10 +439,14 @@ export class TaskDispatcher {
    * "the agent is waiting for permission": both leave a live process behind.
    */
   onActivity(sessionId: string, activity: { state: string; outcome: string | null }): void {
+    if (this.restarting.has(sessionId)) return
     const task = this.deps.tasks
       .list({ limit: 500, includeAttempts: true })
-      .find((candidate) => candidate.sessionId === sessionId)
-    if (!task || isTerminalTaskStatus(task.status)) return
+      .find(
+        (candidate) =>
+          candidate.sessionId === sessionId && !isTerminalTaskStatus(candidate.status)
+      )
+    if (!task) return
     const now = this.deps.now()
     if (activity.state === 'waiting' && isActiveTaskStatus(task.status)) {
       // The agent is blocked on a human. Not a failure, not progress — the user
@@ -472,7 +607,7 @@ export class TaskDispatcher {
   private fail(
     task: TaskRecord,
     input: {
-      reason: 'session-create-failed' | 'prompt-write-failed'
+      reason: 'session-create-failed' | 'prompt-write-failed' | 'resume-failed'
       message: string
       detail: string
       sessionId?: SessionId

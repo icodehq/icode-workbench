@@ -25,6 +25,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   includes action results, failures and notifications, so write outcomes are
   not lost. SQLite migration v12 adds segment ranges (`start_seq`/`end_seq`);
   pre-v12 conversation rows are shown as one legacy segment.
+- Failed or cancelled tasks can now be **continued** in their existing
+  session and worktree: the same harness conversation where the harness
+  supports resume, and the same uncommitted changes. **Retry** still starts a
+  fresh attempt in a new worktree. SQLite migration v13 records each attempt's
+  mode (`fresh` or `resume`).
 - Full app-chrome localization for English, Simplified Chinese, Japanese,
   Korean, Spanish, Brazilian Portuguese, German and French: renderer UI,
   native menus, dialogs, folder pickers, OS notifications and user-facing

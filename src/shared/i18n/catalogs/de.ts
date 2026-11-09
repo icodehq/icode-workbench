@@ -1858,5 +1858,11 @@ export const de = {
   'notifications.agentFailed': 'Der Agent wurde mit einem Fehler beendet.',
   'notifications.agentWaiting': 'Wartet auf dich · {tool}',
   'notifications.agentNeedsInput': 'Der Agent benötigt deine Eingabe.',
-  'notifications.sessionTitle': 'iCode-Sitzung'
+  'notifications.sessionTitle': 'iCode-Sitzung',
+  'tasks.row.continue': 'Fortsetzen',
+  'tasks.row.continued': 'fortgesetzt',
+  'tasks.notice.continuing': 'Wird als Versuch {count} fortgesetzt',
+  'assistant.card.continue': 'Fortsetzen',
+  'tasks.error.continueFailed': 'Der vorherige Versuch konnte nicht fortgesetzt werden.',
+  'tasks.detail.continueFailed': '{detail} Starte stattdessen einen neuen Versuch.'
 } satisfies MessageCatalog

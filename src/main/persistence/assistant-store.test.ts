@@ -436,7 +436,7 @@ describe('assistant store', () => {
 
     const current = openDatabase({ path, migrations: MIGRATIONS })
     cleanups.push(() => current.close())
-    expect(current.userVersion()).toBe(12)
+    expect(current.userVersion()).toBe(13)
     const rows = current.raw
       .prepare(
         `SELECT id, start_seq, end_seq FROM assistant_conversations ORDER BY rowid`
@@ -449,6 +449,31 @@ describe('assistant store', () => {
     ])
   })
 
+  it('adds a fresh attempt_mode to a v12 task', () => {
+    const root = makeTempRoot()
+    cleanups.push(() => root.cleanup())
+    const path = join(root.dir, 'v12.sqlite')
+    const v12 = openDatabase({ path, migrations: MIGRATIONS.slice(0, 12) })
+    expect(v12.userVersion()).toBe(12)
+    v12.raw
+      .prepare(
+        `INSERT INTO tasks (
+           id, workspace_id, repo_id, title, prompt, harness, status, attempt,
+           created_at, updated_at
+         ) VALUES ('task_old', 'ws', 'repo', 'Old', 'Prompt', 'claude', 'failed', 1, 1, 1)`
+      )
+      .run()
+    v12.close()
+
+    const current = openDatabase({ path, migrations: MIGRATIONS })
+    cleanups.push(() => current.close())
+    expect(current.userVersion()).toBe(13)
+    const row = current.raw
+      .prepare("SELECT attempt_mode FROM tasks WHERE id = 'task_old'")
+      .get() as { attempt_mode: string }
+    expect(row.attempt_mode).toBe('fresh')
+  })
+
   it('upgrades a v8 database with additive task provenance columns', () => {
     const root = makeTempRoot()
     cleanups.push(() => root.cleanup())
@@ -459,7 +484,7 @@ describe('assistant store', () => {
 
     const current = openDatabase({ path, migrations: MIGRATIONS })
     cleanups.push(() => current.close())
-    expect(current.userVersion()).toBe(12)
+    expect(current.userVersion()).toBe(13)
     const columns = current.raw
       .prepare("PRAGMA table_info('tasks')")
       .all() as Array<{ name: string }>

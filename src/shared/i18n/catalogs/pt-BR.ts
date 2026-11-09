@@ -1859,5 +1859,11 @@ export const ptBR = {
   'notifications.agentFailed': 'O agente parou com um erro.',
   'notifications.agentWaiting': 'Aguardando você · {tool}',
   'notifications.agentNeedsInput': 'O agente precisa da sua resposta.',
-  'notifications.sessionTitle': 'Sessão do iCode'
+  'notifications.sessionTitle': 'Sessão do iCode',
+  'tasks.row.continue': 'Continuar',
+  'tasks.row.continued': 'continuado',
+  'tasks.notice.continuing': 'Continuando como tentativa {count}',
+  'assistant.card.continue': 'Continuar',
+  'tasks.error.continueFailed': 'Não foi possível continuar a tentativa anterior.',
+  'tasks.detail.continueFailed': '{detail} Inicie uma nova tentativa em vez disso.'
 } satisfies MessageCatalog

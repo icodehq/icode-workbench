@@ -110,6 +110,7 @@ function ProjectTaskRow({
   onReject,
   onCancel,
   onRetry,
+  onResume,
   onArchive,
   onUnarchive,
   archived
@@ -121,6 +122,7 @@ function ProjectTaskRow({
   onReject: () => Promise<void>
   onCancel: () => Promise<void>
   onRetry: () => Promise<void>
+  onResume: () => Promise<void>
   onArchive?: () => Promise<void>
   onUnarchive?: () => Promise<void>
   archived?: boolean
@@ -167,6 +169,9 @@ function ProjectTaskRow({
         <span>{task.harness}</span>
         {task.attempt > 1 ? (
           <span>{t('tasks.row.try', { count: task.attempt })}</span>
+        ) : null}
+        {task.attemptMode === 'resume' ? (
+          <span>{`· ${t('tasks.row.continued')}`}</span>
         ) : null}
         {task.createdByActor === 'mira' ? (
           <span>{t('tasks.row.proposedByMira')}</span>
@@ -228,6 +233,17 @@ function ProjectTaskRow({
               data-testid={`task-cancel-${task.id}`}
             >
               {t('tasks.row.cancel')}
+            </button>
+          ) : null}
+          {!archived && task.canResume ? (
+            <button
+              type="button"
+              className="rounded border border-border px-1.5 py-0.5 text-[9px] hover:bg-muted"
+              onClick={() => void onResume()}
+              disabled={busy}
+              data-testid={`task-continue-${task.id}`}
+            >
+              {t('tasks.row.continue')}
             </button>
           ) : null}
           {!archived && task.canRetry ? (
@@ -557,6 +573,28 @@ export default function ProjectTasksView({
       }
     },
     [notify, onReload, reportSelection]
+  )
+
+  const resume = useCallback(
+    async (task: TaskRecordPayload): Promise<void> => {
+      setBusyId(task.id)
+      try {
+        const result = await callApi<TaskRecordPayload>(window.icode.tasks.resume({ taskId: task.id }))
+        if (!result.ok) notify(errorNotice(result.error))
+        else {
+          setSelectedTaskId(result.value.id)
+          reportSelection(result.value.id)
+          notify({
+            tone: 'success',
+            message: t('tasks.notice.continuing', { count: result.value.attempt })
+          })
+        }
+        await onReload()
+      } finally {
+        setBusyId(null)
+      }
+    },
+    [notify, onReload, reportSelection, t]
   )
 
   const approve = useCallback(
@@ -928,6 +966,7 @@ export default function ProjectTasksView({
                         onReject={() => reject(task)}
                         onCancel={() => cancel(task)}
                         onRetry={() => retry(task)}
+                        onResume={() => resume(task)}
                         onArchive={() => archive(task)}
                         onUnarchive={() => unarchive(task)}
                         archived={task.archivedAt !== null && task.archivedAt !== undefined}

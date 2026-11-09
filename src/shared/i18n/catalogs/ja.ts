@@ -1856,5 +1856,11 @@ export const ja = {
   'notifications.agentFailed': 'エージェントがエラーで停止しました。',
   'notifications.agentWaiting': 'あなたの対応待ち · {tool}',
   'notifications.agentNeedsInput': 'エージェントが入力を待っています。',
-  'notifications.sessionTitle': 'iCode セッション'
+  'notifications.sessionTitle': 'iCode セッション',
+  'tasks.row.continue': '続行',
+  'tasks.row.continued': '継続済み',
+  'tasks.notice.continuing': '試行 {count} として続行中',
+  'assistant.card.continue': '続行',
+  'tasks.error.continueFailed': '前回の試行を続行できませんでした。',
+  'tasks.detail.continueFailed': '{detail} 代わりに新しい試行を開始してください。'
 } satisfies MessageCatalog

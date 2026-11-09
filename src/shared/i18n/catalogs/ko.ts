@@ -1856,5 +1856,11 @@ export const ko = {
   'notifications.agentFailed': '에이전트가 오류로 중지되었습니다.',
   'notifications.agentWaiting': '당신의 입력을 기다리는 중 · {tool}',
   'notifications.agentNeedsInput': '에이전트가 입력을 기다리고 있습니다.',
-  'notifications.sessionTitle': 'iCode 세션'
+  'notifications.sessionTitle': 'iCode 세션',
+  'tasks.row.continue': '계속',
+  'tasks.row.continued': '계속됨',
+  'tasks.notice.continuing': '시도 {count}(으)로 계속 중',
+  'assistant.card.continue': '계속',
+  'tasks.error.continueFailed': '이전 시도를 계속할 수 없습니다.',
+  'tasks.detail.continueFailed': '{detail} 대신 새 시도를 시작하세요.'
 } satisfies MessageCatalog
