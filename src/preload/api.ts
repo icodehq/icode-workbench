@@ -4,6 +4,8 @@ import { GIT_COMMAND_NAMES } from '../shared/ipc/git-commands'
 import type { FilesChangedEvent } from '../shared/domain/workspace-files'
 import { IPC_CHANNELS } from '../shared/schemas/ipc'
 import type { IpcResult, RendererSessionEvent } from '../shared/schemas/ipc'
+import type { LocaleState } from '../shared/schemas/locale'
+import type { Locale } from '../shared/i18n/locales'
 
 export type InvokeFn = (channel: string, input?: unknown) => Promise<unknown>
 export type SubscribeFn = (channel: string, listener: (payload: unknown) => void) => () => void
@@ -33,7 +35,11 @@ function createGitApi(
   return Object.freeze(methods) as unknown as GitApi
 }
 
-export function createIcodeApi(invoke: InvokeFn, subscribe: SubscribeFn): IcodeApi {
+export function createIcodeApi(
+  invoke: InvokeFn,
+  subscribe: SubscribeFn,
+  initialLocale: Locale = 'en'
+): IcodeApi {
   const listeners = new Set<(event: RendererSessionEvent) => void>()
   let disposeChannel: (() => void) | null = null
 
@@ -56,6 +62,16 @@ export function createIcodeApi(invoke: InvokeFn, subscribe: SubscribeFn): IcodeA
   const api: IcodeApi = {
     getRuntimeInfo: (): Promise<RuntimeInfo> =>
       invoke(IPC_CHANNELS.runtimeInfo) as Promise<RuntimeInfo>,
+    locale: {
+      // Synchronous: the renderer reads this before React mounts.
+      initial: initialLocale,
+      get: () => call(IPC_CHANNELS.localeGet),
+      set: (input) => call(IPC_CHANNELS.localeSet, input),
+      onChanged: (listener) =>
+        subscribe(IPC_CHANNELS.localeChangedEvent, (payload) =>
+          listener(payload as LocaleState)
+        )
+    },
     repos: {
       list: () => call(IPC_CHANNELS.reposList),
       add: (input) => call(IPC_CHANNELS.reposAdd, input),
@@ -201,6 +217,7 @@ export function createIcodeApi(invoke: InvokeFn, subscribe: SubscribeFn): IcodeA
       }
     }
   }
+  Object.freeze(api.locale)
   Object.freeze(api.repos)
   Object.freeze(api.sessions)
   Object.freeze(api.assistant)

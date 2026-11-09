@@ -1,5 +1,8 @@
 import { app, BrowserWindow, dialog } from 'electron'
 import { IPC_CHANNELS } from '../shared/schemas/ipc'
+import { t } from '../shared/i18n'
+import type { Locale } from '../shared/i18n'
+import { getMainLocale } from './i18n/main-i18n'
 
 /**
  * Asks the renderer before closing so unsaved file tabs can be saved.
@@ -19,6 +22,7 @@ type CloseGuard = {
   pending: boolean
   quitRequested: boolean
   timer: NodeJS.Timeout | null
+  getLocale: () => Locale
   onBeforeQuit: () => void
 }
 
@@ -36,7 +40,7 @@ function closeWindow(window: BrowserWindow, guard: CloseGuard): void {
 
 export function installWindowCloseGuard(
   window: BrowserWindow,
-  options: { enabled?: boolean; timeoutMs?: number } = {}
+  options: { enabled?: boolean; timeoutMs?: number; locale?: Locale } = {}
 ): void {
   if (options.enabled === false) return
   const guard: CloseGuard = {
@@ -44,6 +48,9 @@ export function installWindowCloseGuard(
     pending: false,
     quitRequested: false,
     timer: null,
+    // An explicit locale pins the dialog (tests); the app follows the live
+    // setting so a language change also reaches the native fallback prompt.
+    getLocale: () => options.locale ?? getMainLocale(),
     onBeforeQuit: () => {
       guard.quitRequested = true
     }
@@ -103,14 +110,14 @@ export function respondToWindowClose(
 
 async function fallbackPrompt(window: BrowserWindow, guard: CloseGuard): Promise<void> {
   if (window.isDestroyed() || !guard.pending) return
+  const locale = guard.getLocale()
   const result = await dialog.showMessageBox(window, {
     type: 'warning',
-    buttons: ['Close anyway', 'Cancel'],
+    buttons: [t(locale, 'dialog.close.closeAnyway'), t(locale, 'dialog.close.cancel')],
     defaultId: 1,
     cancelId: 1,
-    message: 'Close iCode?',
-    detail:
-      'Files did not answer the unsaved-changes check. Closing now may discard unsaved editor text.'
+    message: t(locale, 'dialog.close.title'),
+    detail: t(locale, 'dialog.close.detail')
   })
   if (guard.allowClose || window.isDestroyed()) return
   if (result.response === 0) {

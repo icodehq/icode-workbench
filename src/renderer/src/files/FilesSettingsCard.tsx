@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import SettingsCard from '../components/SettingsCard'
 import { updateFilesSettings, useFilesSettings } from './files-settings'
 import { parseNestingPatterns } from './tree-layout'
+import { useT } from '../i18n/use-i18n'
 
 const parseExclude = (value: string): string[] =>
   value
@@ -46,6 +47,7 @@ function Toggle({
 
 /** Persisted Files preferences; changes apply live to an open Files panel. */
 export default function FilesSettingsCard(): React.JSX.Element {
+  const t = useT()
   const settings = useFilesSettings()
   // Keep the textarea's own text so pressing Enter on a new line is not undone
   // by the trimmed setting that is saved.
@@ -74,14 +76,13 @@ export default function FilesSettingsCard(): React.JSX.Element {
     updateFilesSettings(settings, patch)
   }
   return (
-    <SettingsCard title="Files">
+    <SettingsCard title={t('filesSettings.title')}>
       <p className="text-[10.5px] leading-relaxed text-muted-foreground">
-        Visibility, sorting and the editor's view of this worktree. These choices
-        are saved for this profile.
+        {t('filesSettings.description')}
       </p>
       <div className="mt-2 grid gap-3 sm:grid-cols-2">
         <label className="flex items-center justify-between gap-2 rounded border border-border px-2.5 py-2">
-          <span className="text-[11.5px] font-medium text-foreground">Sort order</span>
+          <span className="text-[11.5px] font-medium text-foreground">{t('filesSettings.sortOrder')}</span>
           <select
             className="h-7 rounded border border-border bg-muted/40 px-1.5 text-[11px] text-foreground"
             value={settings.sortOrder}
@@ -92,13 +93,13 @@ export default function FilesSettingsCard(): React.JSX.Element {
             }
             data-testid="files-setting-sort-order"
           >
-            <option value="name">Name</option>
-            <option value="type">Type</option>
-            <option value="modified">Modified</option>
+            <option value="name">{t('filesSettings.sort.name')}</option>
+            <option value="type">{t('filesSettings.sort.type')}</option>
+            <option value="modified">{t('filesSettings.sort.modified')}</option>
           </select>
         </label>
         <label className="flex items-center justify-between gap-2 rounded border border-border px-2.5 py-2">
-          <span className="text-[11.5px] font-medium text-foreground">Direction</span>
+          <span className="text-[11.5px] font-medium text-foreground">{t('filesSettings.direction')}</span>
           <select
             className="h-7 rounded border border-border bg-muted/40 px-1.5 text-[11px] text-foreground"
             value={settings.sortDirection}
@@ -107,8 +108,8 @@ export default function FilesSettingsCard(): React.JSX.Element {
             }
             data-testid="files-setting-sort-direction"
           >
-            <option value="asc">Ascending</option>
-            <option value="desc">Descending</option>
+            <option value="asc">{t('filesSettings.ascending')}</option>
+            <option value="desc">{t('filesSettings.descending')}</option>
           </select>
         </label>
       </div>
@@ -116,48 +117,48 @@ export default function FilesSettingsCard(): React.JSX.Element {
       <div className="mt-3 grid gap-2">
         <Toggle
           id="files-setting-compact"
-          label="Compact folders"
-          description="Show a single-child folder chain such as src/features/auth as one row."
+          label={t('filesSettings.compact')}
+          description={t('filesSettings.compactHelp')}
           checked={settings.compactFolders}
           onChange={(next) => update({ compactFolders: next })}
           testId="files-setting-compact"
         />
         <Toggle
           id="files-setting-nesting"
-          label="File nesting"
-          description="Group foo.test.ts, foo.d.ts and related files under foo.ts."
+          label={t('filesSettings.nesting')}
+          description={t('filesSettings.nestingHelp')}
           checked={settings.fileNesting}
           onChange={(next) => update({ fileNesting: next })}
           testId="files-setting-nesting"
         />
         <Toggle
           id="files-setting-decorations"
-          label="Git decorations"
-          description="Show M/A/U/D letters and folder dots from the session worktree."
+          label={t('filesSettings.decorations')}
+          description={t('filesSettings.decorationsHelp')}
           checked={settings.gitDecorations}
           onChange={(next) => update({ gitDecorations: next })}
           testId="files-setting-decorations"
         />
         <Toggle
           id="files-setting-auto-reveal"
-          label="Auto-reveal active file"
-          description="Scroll the tree to the active editor tab when Files opens or the tab changes."
+          label={t('filesSettings.autoReveal')}
+          description={t('filesSettings.autoRevealHelp')}
           checked={settings.autoReveal}
           onChange={(next) => update({ autoReveal: next })}
           testId="files-setting-auto-reveal"
         />
         <Toggle
           id="files-setting-trash"
-          label="Move deleted items to Trash"
-          description="Keep deleted files/folders restorable for seven days. Off means permanent delete after confirmation."
+          label={t('filesSettings.trash')}
+          description={t('filesSettings.trashHelp')}
           checked={settings.useTrash}
           onChange={(next) => update({ useTrash: next })}
           testId="files-setting-trash"
         />
         <Toggle
           id="files-setting-gitignore"
-          label="Respect .gitignore"
-          description="Hide files ignored by Git. Failures leave entries visible."
+          label={t('filesSettings.gitignore')}
+          description={t('filesSettings.gitignoreHelp')}
           checked={settings.excludeGitIgnore}
           onChange={(next) => update({ excludeGitIgnore: next })}
           testId="files-setting-gitignore"
@@ -166,11 +167,10 @@ export default function FilesSettingsCard(): React.JSX.Element {
 
       <label className="mt-3 block">
         <span className="text-[11.5px] font-medium text-foreground">
-          Exclude patterns
+          {t('filesSettings.exclude')}
         </span>
         <span className="mt-0.5 block text-[10px] leading-relaxed text-muted-foreground">
-          One glob per line. `*`, `**`, `?`, a trailing `/` for folders, and `!` to
-          re-include. `.git` is always hidden.
+          {t('filesSettings.excludeHelp')}
         </span>
         <textarea
           className="mt-1.5 h-24 w-full resize-y rounded border border-border bg-background px-2 py-1.5 font-mono text-[10.5px] text-foreground outline-none"
@@ -186,11 +186,10 @@ export default function FilesSettingsCard(): React.JSX.Element {
 
       <label className="mt-3 block">
         <span className="text-[11.5px] font-medium text-foreground">
-          Custom nesting pairs
+          {t('filesSettings.nestingPairs')}
         </span>
         <span className="mt-0.5 block text-[10px] leading-relaxed text-muted-foreground">
-          One pair per line: `*.ts → $1.test.ts, $1.spec.ts`. `*` captures the
-          parent name; `$1` inserts it. Built-in JS/TS/package rules stay active.
+          {t('filesSettings.nestingPairsHelp')}
         </span>
         <textarea
           className="mt-1.5 h-20 w-full resize-y rounded border border-border bg-background px-2 py-1.5 font-mono text-[10.5px] text-foreground outline-none"
@@ -210,7 +209,9 @@ export default function FilesSettingsCard(): React.JSX.Element {
           >
             {nestingCheck.errors[0]}
             {nestingCheck.errors.length > 1
-              ? ` (+${String(nestingCheck.errors.length - 1)} more)`
+              ? t('filesSettings.nestingErrorsMore', {
+                  count: nestingCheck.errors.length - 1
+                })
               : ''}
           </span>
         ) : null}

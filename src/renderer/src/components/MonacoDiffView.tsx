@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type * as MonacoTypes from 'monaco-editor'
 import type { MonacoApi } from '../editor/monaco'
+import { useT } from '../i18n/use-i18n'
 
 type Props = {
   path: string
@@ -37,6 +38,7 @@ export default function MonacoDiffView({
   modified,
   fallback
 }: Props): React.JSX.Element {
+  const t = useT()
   const container = useRef<HTMLDivElement | null>(null)
   const handle = useRef<Handle | null>(null)
   const instanceId = useRef(Math.random().toString(36).slice(2))
@@ -116,7 +118,7 @@ export default function MonacoDiffView({
       <div ref={container} className="absolute inset-0" data-testid="monaco-diff" />
       {state === 'loading' ? (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-[11px] text-muted-foreground">
-          Loading diff…
+          {t('monaco.loadingDiff')}
         </div>
       ) : null}
     </div>

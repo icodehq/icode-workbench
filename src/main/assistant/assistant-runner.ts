@@ -8,6 +8,7 @@ import type { WorkspaceTrustService } from '../harness/trust/workspace-trust'
 import type { WslCommandRunner } from '../wsl/exec'
 import type { OneShotRunOptions, OneShotResult } from '../ai/harness-one-shot'
 import { runHarnessOneShot } from '../ai/harness-one-shot'
+import { mainT } from '../i18n/main-i18n'
 import type { AssistantStore } from '../persistence/assistant-store'
 import type { RepositoryStore } from '../persistence/repository-store'
 import type { TaskService } from '../tasks/task-service'
@@ -119,7 +120,7 @@ export class AssistantRunner implements AssistantRunnerLike {
           {
             role: 'system',
             kind: 'error',
-            body: `Mira could not finish that request: ${message}`
+            body: mainT('assistant.failed', { detail: message })
           }
         ],
         status: 'error',
@@ -146,9 +147,7 @@ export class AssistantRunner implements AssistantRunnerLike {
     const settings = this.deps.settings()
     const selected = await this.selectHarness(settings)
     if (!selected) {
-      throw new Error(
-        'No agent harness is available. Install Claude Code, Codex, or OpenCode, or choose a target in Mira settings.'
-      )
+      throw new Error(mainT('assistant.noHarnessAvailable'))
     }
     emit({
       type: 'progress',
@@ -204,7 +203,8 @@ export class AssistantRunner implements AssistantRunnerLike {
       if (signal.aborted) throw new Error('Stopped.')
       calls += 1
       const args = assistantHarnessArgs(selected.harness, settings.opencodeAgent)
-      if (!args) throw new Error(`Unsupported assistant harness: ${selected.harness}`)
+      if (!args)
+        throw new Error(mainT('assistant.unsupportedHarness', { harness: selected.harness }))
       this.deps.store.updateRun(input.runId, { stage: 'calling', round })
       emit({
         type: 'progress',
@@ -258,13 +258,11 @@ export class AssistantRunner implements AssistantRunnerLike {
       }
       if (output.cancelled) throw new Error('Stopped.')
       if (output.timedOut) {
-        throw new Error(
-          'The agent took too long to answer. Check the harness login and network, then try again.'
-        )
+        throw new Error(mainT('assistant.timeout'))
       }
       if (output.exitCode !== 0 && output.stdout.trim().length === 0) {
         const detail = output.stderr.trim().slice(0, 1_000)
-        throw new Error(detail.length > 0 ? detail : 'The agent exited without an answer.')
+        throw new Error(detail.length > 0 ? detail : mainT('assistant.emptyExit'))
       }
       // The parser saw every chunk as it arrived, so it still has the result
       // event when the accumulated stdout hit its safety cap.
@@ -279,7 +277,7 @@ export class AssistantRunner implements AssistantRunnerLike {
         throw new Error(parsedText.error)
       }
       if (parsedText.text.trim().length === 0) {
-        throw new Error('The agent returned an empty response.')
+        throw new Error(mainT('assistant.emptyResponse'))
       }
       const envelope = parseAssistantEnvelope(parsedText.text)
       if (!envelope.ok) {
@@ -348,10 +346,14 @@ Continue. Return only the JSON object.`
             results.push({
               op: 'tasks.create',
               ok: false,
-              message: `I can create at most ${String(settings.autoDispatch.maxTasksPerRun)} tasks per turn.`,
+              message: mainT('assistant.tooManyTasks', {
+                count: settings.autoDispatch.maxTasksPerRun
+              }),
               card: {
                 type: 'error',
-                message: `At most ${String(settings.autoDispatch.maxTasksPerRun)} tasks per turn.`
+                message: mainT('assistant.tooManyTasks', {
+                  count: settings.autoDispatch.maxTasksPerRun
+                })
               }
             })
             continue
@@ -363,8 +365,8 @@ Continue. Return only the JSON object.`
             results.push({
               op: action.op,
               ok: false,
-              message: 'At most two session messages per turn.',
-              card: { type: 'error', message: 'At most two session messages per turn.' }
+              message: mainT('assistant.tooManySessionMessages'),
+              card: { type: 'error', message: mainT('assistant.tooManySessionMessages') }
             })
             continue
           }
@@ -400,7 +402,7 @@ Continue. Return only the JSON object.`
     }
     if (messagesOut.length === 0) {
       const fallback = results.map((result) => result.message).filter(Boolean).join('\n')
-      messagesOut.push({ body: fallback || 'Done.' })
+      messagesOut.push({ body: fallback || mainT('assistant.done') })
     }
     return {
       messages: messagesOut,
@@ -454,11 +456,11 @@ Continue. Return only the JSON object.`
       mkdirSync(cwd, { recursive: true })
       await this.deps.workspaceTrust
         .prepare({ harness: selected.harness, target: selected.target, worktreePath: cwd })
-        .catch(() => ({ status: 'failed' as const, detail: 'Trust preparation failed.' }))
+        .catch(() => ({ status: 'failed' as const, detail: mainT('assistant.trustFailed') }))
       return { cwd, target: selected.target }
     }
     const home = await this.deps.readGuestHome(selected.target.distro)
-    if (!home) throw new Error('The WSL distro home could not be read.')
+    if (!home) throw new Error(mainT('assistant.wslHomeUnreadable'))
     const cwd = posix.join(home, '.icode', 'assistant', 'sandbox', 'default')
     const created = await this.deps.wslRunner.run({
       scope: 'guest',
@@ -466,10 +468,10 @@ Continue. Return only the JSON object.`
       argv: ['mkdir', '-p', cwd],
       timeoutMs: 20_000
     })
-    if (created.status !== 'ok') throw new Error('The WSL assistant sandbox could not be created.')
+    if (created.status !== 'ok') throw new Error(mainT('assistant.wslSandboxFailed'))
     await this.deps.workspaceTrust
       .prepare({ harness: selected.harness, target: selected.target, worktreePath: cwd })
-      .catch(() => ({ status: 'failed' as const, detail: 'Trust preparation failed.' }))
+      .catch(() => ({ status: 'failed' as const, detail: mainT('assistant.trustFailed') }))
     return { cwd, target: selected.target }
   }
 

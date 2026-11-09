@@ -39,6 +39,9 @@ import {
 import { activityDotClass, activityLabel } from './status'
 import { taskIsActive } from './task-status'
 import TargetBadge from './TargetBadge'
+import { formatDateTime } from '../../../shared/i18n'
+import { useLocale, useT, useTp } from '../i18n/use-i18n'
+import type { Translator } from '../i18n/i18n-store'
 
 type Props = {
   repos: RepositorySummary[]
@@ -70,13 +73,7 @@ function rectOf(element: Element): MenuAnchor {
   return { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right }
 }
 
-const DIRECTORY_FILTERS: Array<{ id: ProjectDirectoryFilter; label: string }> = [
-  { id: 'all', label: 'All' },
-  { id: 'pinned', label: 'Pinned' },
-  { id: 'needs', label: 'Needs you' },
-  { id: 'live', label: 'Live' },
-  { id: 'idle', label: 'Idle' }
-]
+const DIRECTORY_FILTERS: ProjectDirectoryFilter[] = ['all', 'pinned', 'needs', 'live', 'idle']
 
 function reasonPillClass(kind: NeedEntry['kind']): string {
   switch (kind) {
@@ -115,17 +112,30 @@ function AttentionRow({
   now: number
   onOpen: () => void
 }): React.JSX.Element {
+  const t = useT()
   const title = needEntryTitle(entry)
   const detail =
     entry.source === 'setup'
       ? entry.detail
       : entry.source === 'session'
         ? entry.session.activity?.toolName
-          ? `Waiting for input · ${entry.session.activity.toolName}`
-          : 'Waiting for input'
+          ? t('projects.row.waitingTool', { tool: entry.session.activity.toolName })
+          : t('projects.row.waitingInput')
         : entry.kind === 'Approval'
-          ? `${entry.task.createdByActor === 'mira' ? 'Proposed by Mira' : 'Proposed by Supervisor'} · needs approval`
+          ? `${
+              entry.task.createdByActor === 'mira'
+                ? t('projects.row.proposedByMira')
+                : t('projects.row.proposedBySupervisor')
+            } · ${t('projects.row.needsApproval')}`
           : entry.task.error ?? entry.task.resultSummary
+  const kindLabel: Record<NeedEntry['kind'], string> = {
+    Approval: t('projects.needKind.approval'),
+    Answer: t('projects.needKind.answer'),
+    Retry: t('projects.needKind.retry'),
+    Review: t('projects.needKind.review'),
+    Setup: t('projects.needKind.setup'),
+    Waiting: t('projects.needKind.waiting')
+  }
   const testId =
     entry.source === 'task'
       ? `needs-${entry.task.id}`
@@ -143,7 +153,7 @@ function AttentionRow({
       <span
         className={`icode-need-reason inline-flex h-[18px] items-center rounded-full border px-1.5 text-[8.5px] font-semibold uppercase tracking-[0.06em] ${reasonPillClass(entry.kind)}`}
       >
-        {entry.kind}
+        {kindLabel[entry.kind]}
       </span>
       <span className="icode-need-project truncate font-mono text-[9px] text-muted-foreground">
         {entry.repo.displayName}
@@ -180,6 +190,8 @@ function ProjectRow({
   onRequestMenu: (request: ProjectMenuRequest) => void
   onCloseMenu: () => void
 }): React.JSX.Element {
+  const t = useT()
+  const locale = useLocale()
   const repo = stats.repo
   const activity = stats.activity
   const preparation = repositoryPreparationView(repo)
@@ -232,7 +244,7 @@ function ProjectRow({
             <span
               className={`h-[7px] w-[7px] rounded-full ${activityDotClass(activity)}`}
               role="img"
-              aria-label={`Agent activity: ${activityLabel(activity)}`}
+              aria-label={t('projects.row.activityAria', { label: activityLabel(activity) })}
               title={activityLabel(activity)}
               data-testid={`project-activity-${repo.id}`}
               data-activity={activity.state}
@@ -255,7 +267,7 @@ function ProjectRow({
             {repo.path}
           </span>
           {repo.availability === 'missing' ? (
-            <span className="block text-[8.5px] text-signal">Path is missing on disk</span>
+            <span className="block text-[8.5px] text-signal">{t('projects.row.pathMissing')}</span>
           ) : null}
         </button>
         <TargetBadge repo={repo} compact />
@@ -284,7 +296,7 @@ function ProjectRow({
         title={
           stats.lastActivityAt === null
             ? undefined
-            : new Date(stats.lastActivityAt).toLocaleString()
+            : formatDateTime(locale, stats.lastActivityAt)
         }
       >
         {updated}
@@ -298,8 +310,8 @@ function ProjectRow({
               event.stopPropagation()
               onRetryPreparation(repo.id)
             }}
-            title={preparation.detail ?? 'Retry first-commit preparation'}
-            aria-label={`Retry preparation for ${repo.displayName}`}
+            title={preparation.detail ?? t('projects.row.retryTitle')}
+            aria-label={t('projects.row.retryAria', { name: repo.displayName })}
             data-testid={`retry-preparation-${repo.id}`}
           >
             <RotateCcw size={12} />
@@ -314,8 +326,12 @@ function ProjectRow({
             event.stopPropagation()
             onTogglePin(repo.id)
           }}
-          title={pinned ? 'Unpin from top' : 'Pin to top'}
-          aria-label={`${pinned ? 'Unpin' : 'Pin'} ${repo.displayName}`}
+          title={pinned ? t('projects.row.unpin') : t('projects.row.pin')}
+          aria-label={
+            pinned
+              ? t('projects.row.unpinAria', { name: repo.displayName })
+              : t('projects.row.pinAria', { name: repo.displayName })
+          }
           aria-pressed={pinned}
           data-testid={`pin-project-${repo.id}`}
         >
@@ -326,8 +342,8 @@ function ProjectRow({
           className="grid h-[23px] w-[23px] place-items-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
           aria-haspopup="menu"
           aria-expanded={menuOpen}
-          aria-label={`Project actions for ${repo.displayName}`}
-          title="Project actions"
+          aria-label={t('projects.row.actionsAria', { name: repo.displayName })}
+          title={t('projects.row.actions')}
           onClick={(event) => {
             event.stopPropagation()
             if (menuOpen) {
@@ -348,7 +364,7 @@ function ProjectRow({
       </div>
       <span className="icode-project-mobile">
         {branch} · {work.text}
-        {needsText === '—' ? '' : ` · ${needsText}`} · {updated}
+        {needsText === t('projects.inFlight.none') ? '' : ` · ${needsText}`} · {updated}
       </span>
     </div>
   )
@@ -363,25 +379,26 @@ function projectMenuItems(
     onCopyPath: () => void
     onRetry: () => void
     onRemove: () => void
-  }
+  },
+  t: Translator
 ): ContextMenuItem[] {
   const preparation = repositoryPreparationView(stats.repo)
   const items: ContextMenuItem[] = [
     {
       id: 'open',
-      label: 'Open project',
+      label: t('projects.menu.open'),
       icon: <FolderGit2 size={12} />,
       onSelect: handlers.onOpen
     },
     {
       id: 'pin',
-      label: pinned ? 'Unpin from top' : 'Pin to top',
+      label: pinned ? t('projects.row.unpin') : t('projects.row.pin'),
       icon: <Pin size={12} fill={pinned ? 'currentColor' : 'none'} />,
       onSelect: handlers.onTogglePin
     },
     {
       id: 'copy-path',
-      label: 'Copy path',
+      label: t('projects.menu.copyPath'),
       icon: <Copy size={12} />,
       onSelect: handlers.onCopyPath
     }
@@ -389,14 +406,14 @@ function projectMenuItems(
   if (preparation?.kind === 'failed') {
     items.push({
       id: 'retry-preparation',
-      label: 'Retry preparation',
+      label: t('projects.menu.retry'),
       icon: <RotateCcw size={12} />,
       onSelect: handlers.onRetry
     })
   }
   items.push({
     id: 'remove',
-    label: 'Remove repository…',
+    label: t('projects.menu.remove'),
     icon: <Trash2 size={12} />,
     danger: true,
     separatorBefore: true,
@@ -419,6 +436,8 @@ export default function ProjectsWall({
   onRetryPreparation,
   notify
 }: Props): React.JSX.Element {
+  const t = useT()
+  const tp = useTp()
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<ProjectDirectoryFilter>('all')
   const [pinnedIds, setPinnedIds] = useState<string[]>(() => readPinnedProjectIds())
@@ -453,12 +472,12 @@ export default function ProjectsWall({
     async (path: string): Promise<void> => {
       try {
         await navigator.clipboard.writeText(path)
-        notify({ tone: 'success', message: 'Project path copied.' })
+        notify({ tone: 'success', message: t('projects.notice.pathCopied') })
       } catch {
-        notify({ tone: 'error', message: 'Clipboard is unavailable.' })
+        notify({ tone: 'error', message: t('projects.notice.clipboardUnavailable') })
       }
     },
-    [notify]
+    [notify, t]
   )
   const attention = useMemo(
     () => attentionEntries(tasks, repos, sessions),
@@ -476,13 +495,32 @@ export default function ProjectsWall({
   const shownAttention = attention.slice(0, 6)
 
   const summaryParts: string[] = []
-  if (counts.setup > 0) summaryParts.push(`${String(counts.setup)} setup`)
-  if (counts.answer > 0) summaryParts.push(`${String(counts.answer)} answer`)
-  if (counts.retry > 0) summaryParts.push(`${String(counts.retry)} retry`)
-  if (counts.review > 0) summaryParts.push(`${String(counts.review)} review`)
-  if (counts.waiting > 0) summaryParts.push(`${String(counts.waiting)} waiting`)
-  if (summaryParts.length === 0) summaryParts.push('Nothing waiting')
-  summaryParts.push(`across ${String(repos.length)} project${repos.length === 1 ? '' : 's'}`)
+  if (counts.setup > 0) {
+    summaryParts.push(t('projects.summary.setup', { count: counts.setup }))
+  }
+  if (counts.answer > 0) {
+    summaryParts.push(t('projects.summary.answer', { count: counts.answer }))
+  }
+  if (counts.retry > 0) {
+    summaryParts.push(t('projects.summary.retry', { count: counts.retry }))
+  }
+  if (counts.review > 0) {
+    summaryParts.push(t('projects.summary.review', { count: counts.review }))
+  }
+  if (counts.waiting > 0) {
+    summaryParts.push(t('projects.summary.waiting', { count: counts.waiting }))
+  }
+  if (summaryParts.length === 0) summaryParts.push(t('projects.nothingWaiting'))
+  summaryParts.push(t('projects.acrossProjects', { count: repos.length }))
+  let subtitle = t('projects.subtitle', {
+    projects: tp('projects.count.projects', repos.length),
+    sessions: tp('projects.count.live', liveCount),
+    active: activeSlots,
+    max: maxConcurrent
+  })
+  if (attention.length > 0) {
+    subtitle = t('projects.subtitleNeeds', { base: subtitle, count: attention.length })
+  }
 
   const showAllNeeds = (): void => {
     setQuery('')
@@ -496,12 +534,8 @@ export default function ProjectsWall({
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden" data-testid="projects-wall">
       <div className="flex shrink-0 flex-wrap items-start gap-3 px-4 pb-3 pt-4">
         <div>
-          <h1 className="text-[20px] font-semibold tracking-[-0.02em]">All projects</h1>
-          <p className="mt-1 text-[11px] text-muted-foreground">
-            {repos.length} project{repos.length === 1 ? '' : 's'} · {liveCount} live session
-            {liveCount === 1 ? '' : 's'} · Task slots {activeSlots}/{maxConcurrent}
-            {attention.length > 0 ? ` · ${String(attention.length)} need you` : ''}
-          </p>
+          <h1 className="text-[20px] font-semibold tracking-[-0.02em]">{t('projects.allProjects')}</h1>
+          <p className="mt-1 text-[11px] text-muted-foreground">{subtitle}</p>
         </div>
         <div className="ml-auto flex w-full flex-wrap items-center gap-2.5 min-[760px]:w-auto">
           <label className="flex h-8 w-full min-w-[200px] items-center gap-1.5 rounded-md border border-border bg-muted/40 px-2.5 text-muted-foreground focus-within:border-accent/50 min-[760px]:w-[290px]">
@@ -510,8 +544,8 @@ export default function ProjectsWall({
               type="search"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder={`Search ${String(repos.length)} projects`}
-              aria-label="Search projects"
+              placeholder={t('projects.searchCount', { count: repos.length })}
+              aria-label={t('projects.searchProjects')}
               autoComplete="off"
               spellCheck={false}
               className="min-w-0 flex-1 bg-transparent text-[11px] text-foreground outline-none placeholder:text-muted-foreground"
@@ -525,19 +559,19 @@ export default function ProjectsWall({
             data-testid="add-project"
           >
             <Plus size={11} />
-            Add project
+            {t('projects.addProject')}
           </button>
         </div>
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 pb-4">
-        <section className="flex flex-col gap-2" aria-label="Needs you">
+        <section className="flex flex-col gap-2" aria-label={t('projects.needsTitle')}>
           <div className="flex flex-wrap items-center gap-2">
             <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.09em] text-muted-foreground">
               <span className="inline-flex h-[22px] w-[22px] items-center justify-center rounded-md border border-signal-line bg-signal-weak text-signal">
                 <AlertTriangle size={11} />
               </span>
-              Needs you
+              {t('projects.needsTitle')}
               <span className="inline-flex h-[17px] items-center rounded-full border border-border bg-muted px-1.5 font-mono text-[9px] font-medium tracking-normal text-muted-foreground">
                 {attention.length}
               </span>
@@ -553,15 +587,17 @@ export default function ProjectsWall({
                 onClick={showAllNeeds}
                 data-testid="needs-view-all"
               >
-                View all {attention.length}
+                {t('projects.viewAll', { count: attention.length })}
               </button>
             ) : null}
           </div>
           {attention.length === 0 ? (
             <div className="flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2.5 text-[10.5px] text-muted-foreground">
               <CheckCircle2 size={14} className="text-add" />
-              Nothing needs you. {liveCount} live session{liveCount === 1 ? '' : 's'} across{' '}
-              {repos.length} project{repos.length === 1 ? '' : 's'}.
+              {t('projects.nothingNeedsYou', {
+                sessions: tp('projects.count.live', liveCount),
+                projects: tp('projects.count.projects', repos.length)
+              })}
             </div>
           ) : (
             <div className="overflow-hidden rounded-md border border-border bg-card" data-testid="needs-you">
@@ -587,34 +623,34 @@ export default function ProjectsWall({
           )}
         </section>
 
-        <section className="flex min-h-0 flex-col gap-2" aria-label="All projects">
+        <section className="flex min-h-0 flex-col gap-2" aria-label={t('projects.allProjects')}>
           <div className="flex flex-wrap items-center gap-2">
             <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.09em] text-muted-foreground">
               <LayoutGrid size={13} className="text-muted-foreground" />
-              All projects
+              {t('projects.allProjects')}
               <span className="inline-flex h-[17px] items-center rounded-full border border-border bg-muted px-1.5 font-mono text-[9px] font-medium tracking-normal text-muted-foreground">
                 {filtered.length}
               </span>
               <span className="text-[9.5px] font-normal normal-case tracking-normal text-muted-foreground">
-                of {repos.length}
+                {t('projects.count.of', { count: repos.length })}
               </span>
             </div>
             <span className="flex-1" />
             <div className="flex flex-wrap items-center gap-1 max-[760px]:w-full">
-              {DIRECTORY_FILTERS.map((entry) => (
+              {DIRECTORY_FILTERS.map((id) => (
                 <button
-                  key={entry.id}
+                  key={id}
                   type="button"
                   className={`inline-flex h-[22px] items-center rounded-full border px-2 text-[9.5px] ${
-                    filter === entry.id
+                    filter === id
                       ? 'border-accent bg-accent-weak text-accent'
                       : 'border-border text-muted-foreground hover:text-foreground'
                   }`}
-                  onClick={() => setFilter(entry.id)}
-                  aria-pressed={filter === entry.id}
-                  data-testid={`project-filter-${entry.id}`}
+                  onClick={() => setFilter(id)}
+                  aria-pressed={filter === id}
+                  data-testid={`project-filter-${id}`}
                 >
-                  {entry.label}
+                  {t(`projects.filter.${id}`)}
                 </button>
               ))}
             </div>
@@ -622,11 +658,11 @@ export default function ProjectsWall({
 
           <div ref={directoryRef} className="icode-project-table">
             <div className="icode-project-head" aria-hidden="true">
-              <span>Project</span>
-              <span>Branch</span>
-              <span>In flight</span>
-              <span>Needs</span>
-              <span>Last active</span>
+              <span>{t('projects.table.project')}</span>
+              <span>{t('projects.table.branch')}</span>
+              <span>{t('projects.table.inFlight')}</span>
+              <span>{t('projects.table.needs')}</span>
+              <span>{t('projects.table.lastActive')}</span>
               <span />
             </div>
             <div className="icode-project-body" data-testid="project-directory">
@@ -636,8 +672,8 @@ export default function ProjectsWall({
                   data-testid="project-directory-empty"
                 >
                   {filter === 'pinned'
-                    ? 'No pinned projects yet. Pin a project from any row.'
-                    : 'No projects match this view.'}
+                    ? t('projects.empty.pinned')
+                    : t('projects.empty.filtered')}
                   <button
                     type="button"
                     className="rounded px-1.5 py-1 text-[10px] text-accent hover:bg-muted"
@@ -646,7 +682,7 @@ export default function ProjectsWall({
                       setFilter('all')
                     }}
                   >
-                    Clear search and filters
+                    {t('projects.clearFilters')}
                   </button>
                 </div>
               ) : (
@@ -681,8 +717,8 @@ export default function ProjectsWall({
             onCopyPath: () => void copyProjectPath(menuStats.repo.path),
             onRetry: () => onRetryPreparation(menuStats.repo.id),
             onRemove: () => onRemoveRepository(menuStats.repo.id)
-          })}
-          ariaLabel={`Project actions for ${menuStats.repo.displayName}`}
+          }, t)}
+          ariaLabel={t('projects.row.actionsAria', { name: menuStats.repo.displayName })}
           testId={`project-menu-popover-${menu.repoId}`}
           width={PROJECT_MENU_WIDTH}
           x={menu.x}

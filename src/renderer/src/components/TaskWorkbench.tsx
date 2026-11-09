@@ -11,6 +11,7 @@ import ChangesPanel from './ChangesPanel'
 import FilesPanel from './FilesPanel'
 import { StatePanel } from './SessionWorkspace'
 import TaskOverview from './TaskOverview'
+import { useT } from '../i18n/use-i18n'
 import { sessionStateLabel, stateDotClass } from './status'
 import {
   taskPillClass,
@@ -85,6 +86,7 @@ export default function TaskWorkbench({
   onChanged
 }: Props): React.JSX.Element {
   const [tab, setTab] = useState<Tab>('overview')
+  const t = useT()
   const [visited, setVisited] = useState<Set<Tab>>(() => new Set<Tab>(['overview']))
   const [filesRequest, setFilesRequest] = useState<{
     path: string
@@ -141,7 +143,7 @@ export default function TaskWorkbench({
       role="tab"
       aria-selected={tab === value}
       disabled={disabled}
-      title={disabled ? 'Available once this task has a session' : undefined}
+      title={disabled ? t('task.tabUnavailable') : undefined}
       className={`inline-flex h-9 shrink-0 items-center gap-1.5 border-b-2 px-2.5 text-[11.5px] disabled:cursor-not-allowed disabled:opacity-40 ${
         tab === value
           ? 'border-accent text-foreground'
@@ -161,7 +163,7 @@ export default function TaskWorkbench({
         <div className="flex flex-wrap items-start gap-3 px-4 pb-2.5 pt-3">
           <div className="min-w-0 flex-1">
             <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
-              Task · {repo.displayName}
+              {t('task.header', { project: repo.displayName })}
             </p>
             <div className="mt-1 flex flex-wrap items-center gap-2">
               <h1 className="min-w-0 truncate text-[18px] font-semibold leading-tight tracking-[-0.015em]">
@@ -175,14 +177,16 @@ export default function TaskWorkbench({
               </span>
               {task.reviewDecision !== 'pending' ? (
                 <span className={`text-[10.5px] ${task.reviewDecision === 'accepted' ? 'text-add' : 'text-destructive'}`}>
-                  {task.reviewDecision}
+                  {task.reviewDecision === 'accepted'
+                    ? t('tasks.row.accepted')
+                    : t('tasks.row.rejected')}
                 </span>
               ) : null}
             </div>
             <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 text-[10.5px] text-muted-foreground">
               <span>{task.harness}</span>
               <span className="h-2.5 w-px shrink-0 bg-border" />
-              <span>attempt {task.attempt}</span>
+              <span>{t('task.attempt', { count: task.attempt })}</span>
               {session?.worktree ? (
                 <>
                   <span className="h-2.5 w-px shrink-0 bg-border" />
@@ -193,7 +197,9 @@ export default function TaskWorkbench({
                     <GitBranch size={11} className="shrink-0" />
                     <span className="truncate">{session.worktree.branch}</span>
                   </span>
-                  <span className="font-mono text-[10px]">base {session.worktree.baseOid.slice(0, 7)}</span>
+                  <span className="font-mono text-[10px]">
+                    {t('task.base', { hash: session.worktree.baseOid.slice(0, 7) })}
+                  </span>
                 </>
               ) : null}
               {duration ? (
@@ -220,22 +226,24 @@ export default function TaskWorkbench({
               className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-3 text-[11px] hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
               onClick={() => selectTab('terminal')}
               disabled={session === null}
-              title={session ? 'Open the task terminal' : 'This task has no session yet'}
+              title={
+                session ? t('task.openTerminalTitle') : t('task.noSessionTitle')
+              }
               data-testid="task-workbench-open-terminal"
             >
               <TerminalSquare size={12} />
-              Open terminal
+              {t('task.openTerminal')}
             </button>
             <button
               type="button"
               className="inline-flex h-8 items-center gap-1.5 rounded-md border border-destructive/40 px-3 text-[11px] text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-40"
               onClick={() => session && onStopSession(session.id)}
               disabled={!live}
-              title="Stop this task's session"
+              title={t('task.stopTitle')}
               data-testid="task-workbench-stop"
             >
               <Square size={10} />
-              Stop
+              {t('task.stop')}
             </button>
           </div>
         </div>
@@ -243,12 +251,12 @@ export default function TaskWorkbench({
         <div
           className="flex items-end gap-0 overflow-x-auto border-b border-border px-3"
           role="tablist"
-          aria-label="Task view"
+          aria-label={t('task.view')}
         >
-          {tabButton('overview', 'Overview', <ListTodo size={14} />)}
-          {tabButton('terminal', 'Terminal', <TerminalSquare size={14} />, session === null)}
-          {tabButton('changes', 'Source Control', <FileDiff size={14} />, session === null)}
-          {tabButton('files', 'Files', <Files size={14} />, session === null)}
+          {tabButton('overview', t('task.tab.overview'), <ListTodo size={14} />)}
+          {tabButton('terminal', t('task.tab.terminal'), <TerminalSquare size={14} />, session === null)}
+          {tabButton('changes', t('task.tab.sourceControl'), <FileDiff size={14} />, session === null)}
+          {tabButton('files', t('task.tab.files'), <Files size={14} />, session === null)}
         </div>
       </header>
 
@@ -344,15 +352,13 @@ export default function TaskWorkbench({
       ) : null}
 
       {tab === 'terminal' && session === null ? (
-        <EmptyView>This task has no session yet. Dispatch it before opening a terminal.</EmptyView>
+        <EmptyView>{t('task.empty.terminal')}</EmptyView>
       ) : null}
       {tab === 'changes' && session === null ? (
-        <EmptyView>
-          Source Control appears after this task has a session and the agent starts editing its worktree.
-        </EmptyView>
+        <EmptyView>{t('task.empty.changes')}</EmptyView>
       ) : null}
       {tab === 'files' && session === null ? (
-        <EmptyView>This task gets its own worktree when it is dispatched.</EmptyView>
+        <EmptyView>{t('task.empty.files')}</EmptyView>
       ) : null}
     </section>
   )

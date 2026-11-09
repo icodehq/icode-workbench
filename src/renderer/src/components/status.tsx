@@ -3,6 +3,7 @@ import type { ActivityState, ActivitySummary } from '../../../shared/domain/acti
 import type { SessionLifecycleState } from '../../../shared/domain/session'
 import type { SessionSummary } from '../../../shared/schemas/ipc'
 import type { PendingAction } from '../state/workspace'
+import { translate } from '../i18n/i18n-store'
 
 export function harnessName(id: HarnessId): string {
   return harnessLabel(id)
@@ -12,22 +13,22 @@ export function sessionStateLabel(
   state: SessionLifecycleState,
   pending: PendingAction | null
 ): string {
-  if (pending === 'stopping') return 'Stopping…'
-  if (pending === 'restarting') return 'Restarting…'
-  if (pending === 'sleeping') return 'Sleeping…'
-  if (pending === 'waking') return 'Waking…'
-  if (pending === 'removing') return 'Removing…'
+  if (pending === 'stopping') return translate('session.pending.stopping')
+  if (pending === 'restarting') return translate('session.pending.restarting')
+  if (pending === 'sleeping') return translate('session.pending.sleeping')
+  if (pending === 'waking') return translate('session.pending.waking')
+  if (pending === 'removing') return translate('session.pending.removing')
   switch (state) {
     case 'starting':
-      return 'Starting'
+      return translate('session.state.starting')
     case 'live':
-      return 'Live'
+      return translate('session.state.live')
     case 'exited':
-      return 'Exited'
+      return translate('session.state.exited')
     case 'failed':
-      return 'Failed'
+      return translate('session.state.failed')
     case 'unavailable':
-      return 'Unavailable'
+      return translate('session.state.unavailable')
   }
 }
 
@@ -37,7 +38,7 @@ export function sessionStateLabelFor(
   pending: PendingAction | null
 ): string {
   if (pending !== null) return sessionStateLabel(session.state, pending)
-  return session.sleeping === true ? 'Sleeping' : sessionStateLabel(session.state, null)
+  return session.sleeping === true ? translate('session.state.sleeping') : sessionStateLabel(session.state, null)
 }
 
 export function sessionStatePillClass(
@@ -112,21 +113,21 @@ export function statePillClass(
 export function authorityNote(session: SessionSummary): string {
   switch (session.reason) {
     case 'host_live':
-      return 'Live process confirmed by the terminal host.'
+      return translate('session.authority.hostLive')
     case 'host_starting':
-      return 'The terminal host is starting this process.'
+      return translate('session.authority.hostStarting')
     case 'host_exited':
-      return 'Exit confirmed by the terminal host.'
+      return translate('session.authority.hostExited')
     case 'host_failed':
-      return 'Failure confirmed by the terminal host.'
+      return translate('session.authority.hostFailed')
     case 'session_not_known':
-      return 'The host is reachable but no longer owns this session.'
+      return translate('session.authority.notKnown')
     case 'history_only':
-      return 'Historical record only; the host is not running this session.'
+      return translate('session.authority.historyOnly')
     case 'host_unreachable':
-      return 'The terminal host is unreachable; the process state is unknown.'
+      return translate('session.authority.unreachable')
     case 'host_unreachable_history':
-      return 'Historical record; the terminal host is unreachable.'
+      return translate('session.authority.unreachableHistory')
   }
 }
 
@@ -142,13 +143,19 @@ export function shortId(value: string | null): string {
 export function activityLabel(activity: ActivitySummary): string {
   switch (activity.state) {
     case 'working':
-      return activity.toolName ? `Working · ${activity.toolName}` : 'Working'
+      return activity.toolName
+        ? translate('activity.workingTool', { tool: activity.toolName })
+        : translate('activity.working')
     case 'waiting':
-      return activity.toolName && activity.toolName !== 'Bash' ? `Needs you · ${activity.toolName}` : 'Needs you'
+      return activity.toolName && activity.toolName !== 'Bash'
+        ? translate('activity.needsYouTool', { tool: activity.toolName })
+        : translate('activity.needsYou')
     case 'idle':
-      return activity.outcome === 'failed' ? 'Done · failed' : 'Done'
+      return activity.outcome === 'failed'
+        ? translate('activity.doneFailed')
+        : translate('activity.done')
     case 'unknown':
-      return 'Activity unknown'
+      return translate('activity.unknown')
   }
 }
 
@@ -157,11 +164,15 @@ export function activitySuffix(activity: ActivitySummary | null): string | null 
   if (!activity || activity.state === 'unknown') return null
   switch (activity.state) {
     case 'working':
-      return activity.toolName ? `Working · ${activity.toolName}` : 'Working'
+      return activity.toolName
+        ? translate('activity.workingTool', { tool: activity.toolName })
+        : translate('activity.working')
     case 'waiting':
-      return 'Needs you'
+      return translate('activity.needsYou')
     case 'idle':
-      return activity.outcome === 'failed' ? 'Done · failed' : 'Done'
+      return activity.outcome === 'failed'
+        ? translate('activity.doneFailed')
+        : translate('activity.done')
     default:
       return null
   }
@@ -197,12 +208,12 @@ export function activityDotClass(activity: ActivitySummary | null): string {
 
 export function activityTooltip(activity: ActivitySummary | null): string {
   if (!activity || activity.state === 'unknown') {
-    return 'This harness does not report agent activity to iCode.'
+    return translate('activity.tooltipUnknown')
   }
-  if (activity.state === 'idle' && activity.unread) return 'Finished — not viewed yet'
-  if (activity.state === 'waiting') return 'The agent is waiting for you'
-  if (activity.state === 'working') return 'The agent is working'
-  return 'The agent is idle'
+  if (activity.state === 'idle' && activity.unread) return translate('activity.tooltipUnread')
+  if (activity.state === 'waiting') return translate('activity.tooltipWaiting')
+  if (activity.state === 'working') return translate('activity.tooltipWorking')
+  return translate('activity.tooltipIdle')
 }
 
 export function isKnownActivity(activity: ActivitySummary | null): activity is ActivitySummary {
@@ -220,7 +231,9 @@ export function activityDetailsLabel(
   harness: HarnessId
 ): string {
   if (!isKnownActivity(activity)) {
-    return harness === 'claude' ? 'No activity yet' : 'Not reported by this harness'
+    return harness === 'claude'
+      ? translate('activity.detailsNone')
+      : translate('activity.detailsNotReported')
   }
   return activityLabel(activity)
 }
@@ -231,8 +244,8 @@ export function activityDetailsHint(
 ): string {
   if (isKnownActivity(activity)) return activityTooltip(activity)
   return harness === 'claude'
-    ? 'Claude Code reports activity when it starts a turn.'
-    : `${harnessName(harness)} does not report agent activity to iCode.`
+    ? translate('activity.detailsClaudeHint')
+    : translate('activity.detailsOtherHint', { harness: harnessName(harness) })
 }
 
 export type { ActivityState }

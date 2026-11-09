@@ -8,6 +8,7 @@ import { isActiveSessionState } from '../../../shared/domain/session'
 import { isTerminalTaskStatus } from '../../../shared/domain/task'
 import type { RepositorySummary, SessionSummary } from '../../../shared/schemas/ipc'
 import { repositoryPreparationView } from '../lib/repository-preparation'
+import { translate, translatePlural } from '../i18n/i18n-store'
 import {
   taskAttention,
   taskAttentionCounts,
@@ -242,41 +243,65 @@ export function inFlightView(stats: ProjectStats): {
   if (load.live === 0 && openTasks === 0) {
     const preparation = repositoryPreparationView(repo)
     if (preparation?.kind === 'preparing') {
-      return { text: 'Preparing…', title: preparation.label, preparing: true }
+      return {
+        text: translate('projects.inFlight.preparing'),
+        title: preparation.label,
+        preparing: true
+      }
     }
-    return { text: '—', title: 'No live sessions or open tasks', preparing: false }
+    return {
+      text: translate('projects.inFlight.none'),
+      title: translate('projects.inFlight.noWork'),
+      preparing: false
+    }
   }
   const parts: string[] = []
-  if (load.live > 0) parts.push(`${String(load.live)} live`)
-  if (openTasks > 0) parts.push(`${String(openTasks)} task${openTasks === 1 ? '' : 's'}`)
+  if (load.live > 0) {
+    parts.push(translate('projects.inFlight.live', { count: load.live }))
+  }
+  if (openTasks > 0) {
+    parts.push(translatePlural('projects.inFlight.task', openTasks))
+  }
   const waitingTasks = tasks.filter((task) => task.status === 'waiting').length
   const finishedTasks = tasks.filter((task) => isTerminalTaskStatus(task.status)).length
   return {
     text: parts.join(' · '),
-    title: `${String(load.live)} live · ${String(load.running)} running · ${String(load.queued)} queued · ${String(waitingTasks)} waiting · ${String(finishedTasks)} finished`,
+    title: translate('projects.inFlight.title', {
+      live: load.live,
+      running: load.running,
+      queued: load.queued,
+      waiting: waitingTasks,
+      finished: finishedTasks
+    }),
     preparing: false
   }
 }
 
 export function needsLabel(needs: ProjectNeeds): string {
   const parts: string[] = []
-  if ((needs.approval ?? 0) > 0) parts.push(`Approve ${String(needs.approval)}`)
-  if (needs.answer > 0) parts.push(`Answer ${String(needs.answer)}`)
-  if (needs.retry > 0) parts.push(`Retry ${String(needs.retry)}`)
-  if (needs.review > 0) parts.push(`Review ${String(needs.review)}`)
-  if (needs.waiting > 0) parts.push(`Waiting ${String(needs.waiting)}`)
-  if (needs.setup > 0) parts.push('Setup failed')
+  if ((needs.approval ?? 0) > 0) {
+    parts.push(translate('projects.needs.approve', { count: needs.approval ?? 0 }))
+  }
+  if (needs.answer > 0) parts.push(translate('projects.needs.answer', { count: needs.answer }))
+  if (needs.retry > 0) parts.push(translate('projects.needs.retry', { count: needs.retry }))
+  if (needs.review > 0) parts.push(translate('projects.needs.review', { count: needs.review }))
+  if (needs.waiting > 0) {
+    parts.push(translate('projects.needs.waiting', { count: needs.waiting }))
+  }
+  if (needs.setup > 0) parts.push(translate('projects.needs.setupFailed'))
   return parts.join(' · ')
 }
 
 export function needYouLabel(total: number): string {
-  return total > 0 ? `${String(total)} need you` : '—'
+  return total > 0
+    ? translate('projects.needs.needYou', { count: total })
+    : translate('projects.inFlight.none')
 }
 
 export function needEntryTitle(entry: NeedEntry): string {
   if (entry.source === 'task') return entry.task.title
   if (entry.source === 'session') return entry.session.title
-  return 'First commit needs attention'
+  return translate('projects.need.firstCommit')
 }
 
 function attentionSince(task: TaskRecordPayload): number {
@@ -442,10 +467,14 @@ export function writePinnedProjectIds(ids: readonly string[], storage?: StorageL
 
 /** Compact age labels: no wall clock, no locale-dependent formatting. */
 export function relativeTimeLabel(timestamp: number | null, now: number = Date.now()): string {
-  if (timestamp === null || timestamp <= 0) return '—'
+  if (timestamp === null || timestamp <= 0) return translate('projects.inFlight.none')
   const elapsed = Math.max(0, now - timestamp)
-  if (elapsed < 60_000) return 'now'
-  if (elapsed < 3_600_000) return `${String(Math.floor(elapsed / 60_000))}m`
-  if (elapsed < 86_400_000) return `${String(Math.floor(elapsed / 3_600_000))}h`
-  return `${String(Math.floor(elapsed / 86_400_000))}d`
+  if (elapsed < 60_000) return translate('projects.time.now')
+  if (elapsed < 3_600_000) {
+    return translate('projects.time.minutes', { count: Math.floor(elapsed / 60_000) })
+  }
+  if (elapsed < 86_400_000) {
+    return translate('projects.time.hours', { count: Math.floor(elapsed / 3_600_000) })
+  }
+  return translate('projects.time.days', { count: Math.floor(elapsed / 86_400_000) })
 }

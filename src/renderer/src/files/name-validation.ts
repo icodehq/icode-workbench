@@ -1,3 +1,4 @@
+import { translate } from '../i18n/i18n-store'
 /**
  * Client-side name checks for inline create/rename.
  *
@@ -16,26 +17,26 @@ export function checkEntryName(
   value: string,
   options: { siblings: readonly string[]; previousName?: string } = { siblings: [] }
 ): NameCheck {
-  if (value.length === 0) return { error: 'A name is required.', warning: null }
+  if (value.length === 0) return { error: translate('fileName.required'), warning: null }
   if (value.trim().length === 0) {
     return { error: 'A name cannot be only whitespace.', warning: null }
   }
   if (value.includes('/') || value.includes('\\')) {
-    return { error: 'Use a plain name without path separators.', warning: null }
+    return { error: translate('fileName.separators'), warning: null }
   }
   if (value === '.' || value === '..') {
-    return { error: 'That name is not valid.', warning: null }
+    return { error: translate('fileName.invalid'), warning: null }
   }
-  if (value.includes('\u0000')) return { error: 'That name is not valid.', warning: null }
+  if (value.includes('\u0000')) return { error: translate('fileName.invalid'), warning: null }
 
   if (options.siblings.some((sibling) => sibling === value && sibling !== options.previousName)) {
-    return { error: `“${value}” already exists here.`, warning: null }
+    return { error: translate('fileName.exists', { name: value }), warning: null }
   }
 
   if (/^\s|\s$/u.test(value)) {
     return {
       error: null,
-      warning: 'Leading or trailing whitespace may be rejected by the host.'
+      warning: translate('fileName.whitespace')
     }
   }
   return { error: null, warning: null }

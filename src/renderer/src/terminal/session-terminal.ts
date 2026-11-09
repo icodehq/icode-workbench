@@ -1,3 +1,4 @@
+import { translate } from '../i18n/i18n-store'
 import type { IcodeProductApi } from '../../../shared/icode-api'
 import type { AppError } from '../../../shared/domain/errors'
 import { makeAppError } from '../../../shared/domain/errors'
@@ -70,15 +71,16 @@ function messageForError(error: AppError): string {
 }
 
 function rejected(error: unknown): AppError {
-  return makeAppError('INTERNAL', 'The terminal request did not complete.', {
-    detail: error instanceof Error ? error.message : String(error)
+  return makeAppError('INTERNAL', translate('terminal.requestFailed'), {
+    detail: error instanceof Error ? error.message : String(error),
+    messageKey: 'terminal.requestFailed'
   })
 }
 
 function exitMessage(code: number): string {
   return code === 0
-    ? 'The process exited.'
-    : `The process exited with code ${String(code)}.`
+    ? translate('terminal.processExited')
+    : translate('terminal.exitCodeMessage', { code })
 }
 
 export class SessionTerminal {
@@ -409,7 +411,7 @@ export class SessionTerminal {
       this.synced = false
       this.setStatus({
         phase: 'error',
-        message: 'Terminal output fell behind and could not be resynchronized.',
+        message: translate('terminal.fellBehind'),
         error: null
       })
       return

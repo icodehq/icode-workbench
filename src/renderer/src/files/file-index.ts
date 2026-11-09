@@ -1,3 +1,4 @@
+import { translate } from '../i18n/i18n-store'
 import type { FilesListingPayload } from '../../../shared/icode-api'
 import { callApi, errorNotice } from '../lib/api'
 import type { Notice } from '../state/workspace'
@@ -47,20 +48,20 @@ export async function getWorktreeFileIndex(
     const result = await callApi<FilesListingPayload>(window.icode.files.list({ sessionId, path }))
     if (!result.ok) {
       notify(errorNotice(result.error))
-      note = 'The worktree index could not be read.'
+      note = translate('fileIndex.unreadable')
       return false
     }
     const value = result.value
     if (value.status === 'unavailable') {
       note =
         value.reason === 'worktree-unavailable'
-          ? 'This distro could not be reached, so file navigation is unavailable.'
+          ? translate('fileIndex.distro')
           : value.detail
       return false
     }
     for (const entry of value.entries) {
       if (files.length >= MAX_INDEXED_FILES) {
-        note = `Showing the first ${String(MAX_INDEXED_FILES)} files.`
+        note = translate('fileIndex.firstFiles', { count: MAX_INDEXED_FILES })
         return false
       }
       // A worktree's `.git` is a *file* pointing at the gitdir, so the

@@ -1,3 +1,4 @@
+import { translate } from '../i18n/i18n-store'
 /**
  * Splits one file's unified patch into its preamble and individual hunks.
  *
@@ -84,17 +85,17 @@ export function buildLinePatch(
   selected: ReadonlySet<string>,
   direction: LinePatchDirection
 ): LinePatchResult {
-  if (selected.size === 0) return { status: 'error', error: 'Select at least one changed line.' }
+  if (selected.size === 0) return { status: 'error', error: translate('review.selectLine') }
   const split = splitPatchHunks(patch)
   const rawHunk = split.hunks[hunkIndex]
   if (rawHunk === undefined) {
-    return { status: 'error', error: 'That hunk is no longer in the diff.' }
+    return { status: 'error', error: translate('review.hunkGone') }
   }
   const lines = rawHunk.split('\n')
   if (lines[lines.length - 1] === '') lines.pop()
   const header = lines[0] ?? ''
   const counts = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/u.exec(header)
-  if (counts === null) return { status: 'error', error: 'That hunk header could not be read.' }
+  if (counts === null) return { status: 'error', error: translate('review.hunkHeaderUnreadable') }
   let oldLine = Number.parseInt(counts[1]!, 10)
   let newLine = Number.parseInt(counts[2]!, 10)
   let matched = 0
@@ -160,7 +161,7 @@ export function buildLinePatch(
     if (prefix === '\\') {
       return {
         status: 'error',
-        error: 'Line-level staging is unavailable for a file without a trailing newline.'
+        error: translate('review.noTrailingNewline')
       }
     }
     if (prefix === ' ') {
@@ -182,11 +183,11 @@ export function buildLinePatch(
       newLine += 1
       continue
     }
-    return { status: 'error', error: 'That hunk contains an unreadable line.' }
+    return { status: 'error', error: translate('review.hunkUnreadable') }
   }
   flush()
   if (matched === 0) {
-    return { status: 'error', error: 'Select at least one changed line in this hunk.' }
+    return { status: 'error', error: translate('review.selectLineInHunk') }
   }
   const hunk = output.join('\n')
   const combined = split.header.length === 0 ? hunk : `${split.header}\n${hunk}`

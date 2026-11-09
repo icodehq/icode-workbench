@@ -1,3 +1,4 @@
+import { translate } from '../i18n/i18n-store'
 import { buildLinePatch, lineSelectionKey, splitPatchHunks } from '../review/hunk-patch'
 import { parseUnifiedDiff } from '../review/parse-unified-diff'
 import type { LineChange } from './line-diff'
@@ -48,7 +49,7 @@ export function quickDiffPatch(
 ): QuickDiffPatchResult {
   const parsed = parseUnifiedDiff(gitPatch)
   if (parsed.hunks.length === 0) {
-    return { status: 'error', error: 'Git reports no unstaged changes for this file.' }
+    return { status: 'error', error: translate('editor.quickDiffNoUnstaged') }
   }
   const oldRange: [number, number] | null =
     change.oldCount > 0 ? [change.oldStart, change.oldStart + change.oldCount - 1] : null
@@ -77,12 +78,12 @@ export function quickDiffPatch(
       ? 0
       : built.patch.indexOf('\n@@ ') + 1
     if (start < 0) {
-      return { status: 'error', error: 'The selected change could not be turned into a hunk.' }
+      return { status: 'error', error: translate('review.selectedChangeFailed') }
     }
     bodies.push(built.patch.slice(start).replace(/\n$/u, ''))
   }
   if (bodies.length === 0) {
-    return { status: 'error', error: 'No Git changed lines match the selected quick-diff change.' }
+    return { status: 'error', error: translate('editor.quickDiffNoMatchingLines') }
   }
   const combined = header.length > 0 ? `${header}\n${bodies.join('\n')}` : bodies.join('\n')
   return { status: 'ok', patch: combined.endsWith('\n') ? combined : `${combined}\n` }

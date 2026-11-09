@@ -1,3 +1,4 @@
+import { translate } from '../i18n/i18n-store'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { callApi, errorNotice } from '../lib/api'
 import type {
@@ -95,10 +96,6 @@ export type ScmController = {
   runRemoteAction: (kind: 'push' | 'pull' | 'publish' | 'sync') => Promise<void>
   amend: () => Promise<void>
   runPrimary: () => void
-}
-
-function plural(count: number, singular: string, pluralForm = `${singular}s`): string {
-  return `${String(count)} ${count === 1 ? singular : pluralForm}`
 }
 
 /**
@@ -245,7 +242,10 @@ export function useScmController({
           notify({ tone: 'error', message: result.value.detail })
           return
         }
-        notify({ tone: 'success', message: `${staged ? 'Staged' : 'Unstaged'} ${path}` })
+        notify({
+          tone: 'success',
+          message: translate(staged ? 'scm.notice.staged' : 'scm.notice.unstaged', { path })
+        })
       } finally {
         if (stageGeneration.current === generation) {
           try {
@@ -275,12 +275,15 @@ export function useScmController({
     mode: 'stage' | 'unstage' | 'discard'
   ): Promise<{ ok: boolean; message?: string }> => {
     if (busy || commitBusy || amendBusy) {
-      return Promise.resolve({ ok: false, message: 'Another Git operation is still running.' })
+      return Promise.resolve({
+        ok: false,
+        message: translate('scm.notice.anotherOperation')
+      })
     }
     const run = async (): Promise<{ ok: boolean; message?: string }> => {
       let outcome: { ok: boolean; message?: string } = {
         ok: false,
-        message: 'Git did not apply that hunk.'
+        message: translate('scm.notice.hunkFailed')
       }
       try {
         const result = await callApi<GitApplyPatchPayload>(
@@ -298,16 +301,23 @@ export function useScmController({
         }
         notify({
           tone: 'success',
-          message: `${
-            mode === 'stage' ? 'Staged' : mode === 'unstage' ? 'Unstaged' : 'Discarded'
-          } a hunk in ${path}`
+          message: translate('scm.notice.hunkApplied', {
+            action: translate(
+              mode === 'stage'
+                ? 'scm.action.stagedDone'
+                : mode === 'unstage'
+                  ? 'scm.action.unstagedDone'
+                  : 'scm.action.discardedDone'
+            ),
+            path
+          })
         })
         outcome = { ok: true }
         return outcome
       } catch (error) {
         outcome = {
           ok: false,
-          message: error instanceof Error ? error.message : 'Git did not apply that hunk.'
+          message: error instanceof Error ? error.message : translate('scm.notice.hunkFailed')
         }
         return outcome
       } finally {
@@ -341,12 +351,15 @@ export function useScmController({
     text: string
   ): Promise<{ ok: boolean; message?: string }> => {
     if (busy || commitBusy || amendBusy) {
-      return Promise.resolve({ ok: false, message: 'Another Git operation is still running.' })
+      return Promise.resolve({
+        ok: false,
+        message: translate('scm.notice.anotherOperation')
+      })
     }
     const run = async (): Promise<{ ok: boolean; message?: string }> => {
       let outcome: { ok: boolean; message?: string } = {
         ok: false,
-        message: 'The conflict could not be saved.'
+        message: translate('scm.notice.conflictSaveFailed')
       }
       try {
         const write = await callApi<FilesWritePayload>(
@@ -375,13 +388,16 @@ export function useScmController({
           outcome = { ok: false, message: resolved.value.detail }
           return outcome
         }
-        notify({ tone: 'success', message: `Resolved ${path}` })
+        notify({
+          tone: 'success',
+          message: translate('scm.notice.resolved', { path })
+        })
         outcome = { ok: true }
         return outcome
       } catch (error) {
         outcome = {
           ok: false,
-          message: error instanceof Error ? error.message : 'The conflict could not be saved.'
+          message: error instanceof Error ? error.message : translate('scm.notice.conflictSaveFailed')
         }
         return outcome
       } finally {
@@ -437,13 +453,20 @@ export function useScmController({
         const failed = outcome.outcomes.find((entry) => entry.status === 'failed')
         notify({
           tone: 'error',
-          message: `${plural(outcome.failed.length, 'path')} could not be ${staged ? 'staged' : 'unstaged'}${failed?.reason ? `: ${failed.reason}` : '.'}`
+          message: translate('scm.notice.couldNotApply', {
+            count: outcome.failed.length,
+            action: translate(staged ? 'scm.action.staged' : 'scm.action.unstaged'),
+            reason: failed?.reason ? `: ${failed.reason}` : '.'
+          })
         })
         return false
       }
       notify({
         tone: 'success',
-        message: `${staged ? 'Staged' : 'Unstaged'} ${plural(outcome.applied.length, 'path')}.`
+        message: translate('scm.notice.applied', {
+          action: translate(staged ? 'scm.action.stagedDone' : 'scm.action.unstagedDone'),
+          count: outcome.applied.length
+        })
       })
       return true
     } finally {
@@ -496,12 +519,16 @@ export function useScmController({
         const failed = outcome.outcomes.find((entry) => entry.status === 'failed')
         notify({
           tone: 'error',
-          message: `${plural(outcome.failed.length, 'path')} could not be discarded${failed?.reason ? `: ${failed.reason}` : '.'}`
+          message: translate('scm.notice.couldNotApply', {
+            count: outcome.failed.length,
+            action: translate('scm.action.discarded'),
+            reason: failed?.reason ? `: ${failed.reason}` : '.'
+          })
         })
       } else {
         notify({
           tone: 'success',
-          message: `Discarded ${plural(outcome.applied.length, 'path')}.`
+          message: translate('scm.notice.discarded', { count: outcome.applied.length })
         })
       }
     } finally {
@@ -520,7 +547,9 @@ export function useScmController({
     if (protectedBranch) {
       notify({
         tone: 'error',
-        message: `${snapshot?.branch ?? 'This branch'} is protected by Settings. Commits are disabled.`
+        message: translate('scm.notice.protectedCommits', {
+          branch: snapshot?.branch ?? translate('scm.notice.thisBranch')
+        })
       })
       return false
     }
@@ -545,7 +574,11 @@ export function useScmController({
       }
       notify({
         tone: 'success',
-        message: `Committed ${result.value.oid} · ${result.value.files} file(s): ${result.value.subject}`
+        message: translate('scm.notice.committed', {
+          oid: result.value.oid,
+          files: result.value.files,
+          subject: result.value.subject
+        })
       })
       drafts.update(sessionId, (current) => ({
         ...current,
@@ -558,10 +591,13 @@ export function useScmController({
         } else if (pushed.value.status === 'unavailable') {
           notify({
             tone: 'error',
-            message: `Commit succeeded, but push failed: ${pushed.value.detail}`
+            message: translate('scm.notice.commitPushFailed', { detail: pushed.value.detail })
           })
         } else {
-          notify({ tone: 'success', message: `Pushed ${pushed.value.branch}` })
+          notify({
+            tone: 'success',
+            message: translate('scm.notice.pushed', { branch: pushed.value.branch })
+          })
         }
       }
       return true
@@ -601,7 +637,10 @@ export function useScmController({
       }
       notify({
         tone: 'success',
-        message: `${action === 'continue' ? 'Continued' : 'Aborted'} ${result.value.operation}`
+        message: translate(
+          action === 'continue' ? 'scm.notice.continued' : 'scm.notice.aborted',
+          { operation: result.value.operation }
+        )
       })
     } finally {
       setBusy(false)
@@ -642,14 +681,16 @@ export function useScmController({
       }
       notify({
         tone: 'success',
-        message:
+        message: translate(
           kind === 'publish'
-            ? `Published ${result.value.branch}`
+            ? 'scm.notice.published'
             : kind === 'pull'
-              ? `Pulled ${result.value.branch}`
+              ? 'scm.notice.pulled'
               : kind === 'sync'
-                ? `Synced ${result.value.branch}`
-                : `Pushed ${result.value.branch}`
+                ? 'scm.notice.synced'
+                : 'scm.notice.pushed',
+          { branch: result.value.branch }
+        )
       })
     } finally {
       setBusy(false)
@@ -664,7 +705,9 @@ export function useScmController({
     if (protectedBranch) {
       notify({
         tone: 'error',
-        message: `${snapshot?.branch ?? 'This branch'} is protected by Settings. Amending is disabled.`
+        message: translate('scm.notice.protectedAmend', {
+          branch: snapshot?.branch ?? translate('scm.notice.thisBranch')
+        })
       })
       return
     }
@@ -693,7 +736,10 @@ export function useScmController({
       setAmendOpen(false)
       notify({
         tone: 'success',
-        message: `Amended ${result.value.oid}${result.value.subject ? ` · ${result.value.subject}` : ''}`
+        message: translate('scm.notice.amended', {
+          oid: result.value.oid,
+          subject: result.value.subject ? ` · ${result.value.subject}` : ''
+        })
       })
     } finally {
       setAmendBusy(false)
@@ -723,7 +769,7 @@ export function useScmController({
   const uncommittedCount = uncommittedFileCount(groups)
   const workingSummary =
     uncommittedCount === 0
-      ? 'No uncommitted changes'
+      ? translate('scm.noUncommitted')
       : `${String(uncommittedCount)} uncommitted · ${String(stagedCount)} staged · ${String(groups.unstaged.length)} changed · ${String(groups.untracked.length)} untracked`
 
   const runPrimary = useCallback((): void => {

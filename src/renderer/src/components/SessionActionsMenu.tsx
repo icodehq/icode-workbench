@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { ChevronDown, Info, Moon, RotateCcw, Sunrise, Trash2 } from 'lucide-react'
+import { useT } from '../i18n/use-i18n'
 
 type Props = {
   live: boolean
@@ -88,6 +89,7 @@ export default function SessionActionsMenu({
   onRestart,
   onRemove
 }: Props): React.JSX.Element {
+  const t = useT()
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLSpanElement | null>(null)
 
@@ -119,11 +121,11 @@ export default function SessionActionsMenu({
         className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-[11px] text-foreground hover:bg-muted"
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label="Session actions"
+        aria-label={t('session.actions')}
         onClick={() => setOpen((current) => !current)}
         data-testid="session-menu"
       >
-        Session
+        {t('session.menuButton')}
         <ChevronDown size={12} />
       </button>
 
@@ -131,20 +133,20 @@ export default function SessionActionsMenu({
         <div
           className="absolute right-0 top-9 z-50 w-64 rounded-md border border-border bg-card p-1.5 text-foreground shadow-xl"
           role="menu"
-          aria-label="Session actions"
+          aria-label={t('session.actions')}
           data-testid="session-menu-popover"
         >
           <MenuItem
             icon={<Info size={13} />}
-            label="Session details"
-            description="Worktree, process and activity"
+            label={t('session.details')}
+            description={t('session.detailsDescription')}
             testId="session-details-open"
             onClick={() => run(onDetails)}
           />
           {live && !sleeping ? (
             <MenuItem
               icon={<Moon size={13} />}
-              label="Sleep session"
+              label={t('session.sleep')}
               description={wakeDescription}
               testId="sleep-session"
               disabled={!canSleep}
@@ -155,7 +157,7 @@ export default function SessionActionsMenu({
           {sleeping ? (
             <MenuItem
               icon={<Sunrise size={13} />}
-              label="Wake session"
+              label={t('session.wake')}
               description={wakeDescription}
               testId="wake-session"
               disabled={!canWake}
@@ -165,8 +167,8 @@ export default function SessionActionsMenu({
           {!sleeping ? (
             <MenuItem
               icon={<RotateCcw size={13} />}
-              label="Restart session"
-              description="Keep this worktree; start a new process"
+              label={t('session.restart')}
+              description={t('session.restartKeep')}
               testId="restart-session"
               disabled={restartDisabled}
               title={restartReason}
@@ -176,8 +178,8 @@ export default function SessionActionsMenu({
           <div className="my-1 h-px bg-border" />
           <MenuItem
             icon={<Trash2 size={13} />}
-            label="Remove session…"
-            description="Delete this session; its branch is kept"
+            label={t('session.remove')}
+            description={t('session.removeDescription')}
             testId="remove-session"
             destructive
             disabled={removeDisabled}

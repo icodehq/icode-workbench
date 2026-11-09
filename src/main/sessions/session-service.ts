@@ -1,3 +1,4 @@
+import { mainT } from '../i18n/main-i18n'
 import type { Database } from '../persistence/database'
 import type { RepositoryStore } from '../persistence/repository-store'
 import type { SessionStore } from '../persistence/session-store'
@@ -521,7 +522,7 @@ export class SessionService {
     const createdAt = this.now()
     const title = normalizeSessionTitle(
       input.title ?? `${harnessLabel(input.harness)} · ${repository.displayName}`,
-      'Untitled session'
+      mainT('session.untitled')
     )
     const branch = branchNameForSession(sessionId)
     // The managed root belongs to the repository's host: a WSL repository's

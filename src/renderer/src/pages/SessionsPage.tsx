@@ -12,6 +12,7 @@ import type { OpenFileRequest, ViewRequest } from '../router/use-app-navigation'
 import type { Notice, PendingAction } from '../state/workspace'
 import ProjectSessionsList from '../components/ProjectSessionsList'
 import SessionHost from '../components/SessionHost'
+import { useT } from '../i18n/use-i18n'
 
 export type SessionsPageProps = {
   repo: RepositorySummary | null
@@ -82,6 +83,7 @@ export default function SessionsPage({
   onRequestOpenInFiles,
   onClearViewRequest
 }: SessionsPageProps): React.JSX.Element {
+  const t = useT()
   if (repo === null) return <></>
 
   const showSessionsList =
@@ -134,10 +136,11 @@ export default function SessionsPage({
         ) : (
           <div className="flex flex-1 items-center justify-center p-8">
             <div className="w-full max-w-md rounded-lg border border-border bg-card p-6">
-              <h1 className="text-[14px] font-semibold">No direct sessions in {repo.displayName}</h1>
+              <h1 className="text-[14px] font-semibold">
+                {t('sessions.empty.title', { project: repo.displayName })}
+              </h1>
               <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-                Direct sessions open a live terminal immediately. Tasks have their own list and do not
-                appear here.
+                {t('sessions.empty.body')}
               </p>
               <button
                 type="button"
@@ -146,7 +149,7 @@ export default function SessionsPage({
                 data-testid="empty-new-session"
               >
                 <Plus size={12} />
-                New session
+                {t('sessions.newSession')}
               </button>
             </div>
           </div>

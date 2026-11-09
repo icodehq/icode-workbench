@@ -8,6 +8,7 @@ import type {
   AssistantPriority,
   AssistantCard
 } from '../../shared/domain/assistant'
+import { mainT } from '../i18n/main-i18n'
 
 export type AssistantNotifierService = {
   postNotification(input: {
@@ -136,7 +137,7 @@ export class AssistantNotifier {
           fingerprint: `task:${task.id}:approval:${String(task.createdAt)}`,
           priority: 'high',
           kind: 'approval-needed',
-          body: `A task is waiting for your approval: ${task.title}.`,
+          body: mainT('notifications.taskApproval', { title: task.title }),
           card
         })
       }
@@ -145,7 +146,7 @@ export class AssistantNotifier {
           fingerprint: `task:${task.id}:waiting:${String(task.updatedAt)}`,
           priority: 'high',
           kind: 'task-waiting',
-          body: `${task.title} is waiting for input.`,
+          body: mainT('notifications.taskWaiting', { title: task.title }),
           card
         })
       }
@@ -154,7 +155,13 @@ export class AssistantNotifier {
           fingerprint: `task:${task.id}:failed:${String(task.finishedAt ?? task.updatedAt)}:${String(task.attempt)}`,
           priority: 'high',
           kind: 'task-failed',
-          body: `${task.title} failed${task.attempt > 1 ? ` (attempt ${String(task.attempt)})` : ''}. I can retry it or take a look.`,
+          body:
+            task.attempt > 1
+              ? mainT('notifications.taskFailedAttempt', {
+                  title: task.title,
+                  attempt: task.attempt
+                })
+              : mainT('notifications.taskFailed', { title: task.title }),
           card
         })
       }
@@ -163,7 +170,7 @@ export class AssistantNotifier {
           fingerprint: `task:${task.id}:review:${String(task.finishedAt ?? task.updatedAt)}`,
           priority: 'normal',
           kind: 'review-ready',
-          body: `${task.title} is ready for review.`,
+          body: mainT('notifications.reviewReady', { title: task.title }),
           card
         })
       }
@@ -176,7 +183,7 @@ export class AssistantNotifier {
           fingerprint: `task:${task.id}:completed:${String(task.finishedAt ?? task.updatedAt)}`,
           priority: 'low',
           kind: 'task-completed',
-          body: `${task.title} is done.`,
+          body: mainT('notifications.taskCompleted', { title: task.title }),
           card
         })
       }
@@ -187,11 +194,11 @@ export class AssistantNotifier {
           fingerprint: `repo:${repo.id}:setup:${String(repo.preparation.finishedAt ?? repo.preparation.startedAt)}`,
           priority: 'high',
           kind: 'custom',
-          body: `${repo.displayName} could not finish its first commit.`,
+          body: mainT('notifications.firstCommitFailed', { title: repo.displayName }),
           card: {
             type: 'notification',
             kind: 'custom',
-            text: `${repo.displayName} could not finish its first commit.`
+            text: mainT('notifications.firstCommitFailed', { title: repo.displayName })
           }
         })
       }

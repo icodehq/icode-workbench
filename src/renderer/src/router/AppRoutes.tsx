@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { AlertTriangle, Loader2, RefreshCw } from 'lucide-react'
 import type { BootPhase } from '../state/workspace'
 import type { Surface } from './routes'
+import { useT } from '../i18n/use-i18n'
 
 export type AppRoutesProps = {
   boot: BootPhase
@@ -25,12 +26,13 @@ export default function AppRoutes({
   surface,
   pages
 }: AppRoutesProps): React.JSX.Element {
+  const t = useT()
   if (boot === 'loading') {
     return (
       <div className="flex flex-1 items-center justify-center">
         <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
           <Loader2 size={13} className="animate-spin" />
-          Loading repositories and sessions…
+          {t('appRoutes.loading')}
         </div>
       </div>
     )
@@ -41,7 +43,7 @@ export default function AppRoutes({
         <div className="w-full max-w-md rounded-lg border border-destructive/40 bg-card p-5">
           <div className="flex items-center gap-2 text-[12px] font-medium text-destructive">
             <AlertTriangle size={14} />
-            iCode could not load the workspace
+            {t('appRoutes.loadFailed')}
           </div>
           <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">{bootError}</p>
           <button
@@ -51,7 +53,7 @@ export default function AppRoutes({
             data-testid="boot-retry"
           >
             <RefreshCw size={12} />
-            Retry
+            {t('common.retry')}
           </button>
         </div>
       </div>

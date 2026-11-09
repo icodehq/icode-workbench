@@ -119,6 +119,8 @@ import type {
   WslDistroListPayload
 } from './schemas/ipc'
 import type { HarnessDetection } from './domain/harness'
+import type { LocaleSetInput, LocaleState } from './schemas/locale'
+import type { Locale } from './i18n/locales'
 
 export type RuntimeInfo = {
   appVersion: string
@@ -126,6 +128,8 @@ export type RuntimeInfo = {
   node: string
   platform: string
   packaged: boolean
+  locale: Locale
+  systemLocale: Locale
 }
 
 /**
@@ -181,6 +185,16 @@ export type GitApi = {
  * supply commands, cwd, or host protocol messages.
  */
 export type IcodeProductApi = {
+  /**
+   * Application language. `initial` is resolved by the main process and passed
+   * to the renderer at window creation, so the first paint is already correct.
+   */
+  locale: {
+    initial: Locale
+    get: () => Promise<IpcResult<LocaleState>>
+    set: (input: LocaleSetInput) => Promise<IpcResult<LocaleState>>
+    onChanged: (listener: (state: LocaleState) => void) => () => void
+  }
   repos: {
     list: () => Promise<IpcResult<RepositorySummary[]>>
     add: (

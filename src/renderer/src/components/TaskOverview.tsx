@@ -5,6 +5,9 @@ import type { TaskChangesPayload, TaskRecordPayload } from '../../../shared/icod
 import type { SessionSummary } from '../../../shared/schemas/ipc'
 import type { Notice } from '../state/workspace'
 import { sessionStateLabel, stateDotClass } from './status'
+import { formatDateTime } from '../../../shared/i18n'
+import { getLocale, translate } from '../i18n/i18n-store'
+import { useT } from '../i18n/use-i18n'
 import {
   taskPillClass,
   taskStatusLabel
@@ -24,16 +27,21 @@ export type TaskOverviewProps = {
 const ACTIVE = new Set(['queued', 'dispatching', 'running', 'waiting'])
 
 function formatTime(value: number): string {
-  return new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  return formatDateTime(getLocale(), value, { hour: '2-digit', minute: '2-digit' })
 }
 
 function formatDuration(milliseconds: number): string {
   const seconds = Math.max(0, Math.round(milliseconds / 1000))
-  if (seconds < 60) return `${String(seconds)}s`
+  if (seconds < 60) return translate('duration.seconds', { seconds })
   const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${String(minutes)}m ${String(seconds % 60)}s`
+  if (minutes < 60) {
+    return translate('duration.minutesSeconds', {
+      minutes,
+      seconds: seconds % 60
+    })
+  }
   const hours = Math.floor(minutes / 60)
-  return `${String(hours)}h ${String(minutes % 60)}m`
+  return translate('duration.hoursMinutes', { hours, minutes: minutes % 60 })
 }
 
 function Card({
@@ -90,6 +98,7 @@ export default function TaskOverview({
   onOpenChanges,
   onChanged
 }: TaskOverviewProps): React.JSX.Element {
+  const t = useT()
   const [changes, setChanges] = useState<TaskChangesPayload | null>(null)
   const [loadingChanges, setLoadingChanges] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -143,8 +152,8 @@ export default function TaskOverview({
         tone: 'success',
         message:
           decision === 'accepted'
-            ? "Recorded as accepted. The code is still only in this task's worktree."
-            : 'Recorded as rejected. Nothing was deleted or reverted.'
+            ? t('taskOverview.acceptedNotice')
+            : t('taskOverview.rejectedNotice')
       })
       onChanged()
     } finally {
@@ -167,7 +176,9 @@ export default function TaskOverview({
       }
       notify({
         tone: 'info',
-        message: archived ? 'Moved to history.' : 'Restored to the working list.'
+        message: archived
+          ? t('taskOverview.archivedNotice')
+          : t('taskOverview.restoredNotice')
       })
       onChanged()
     } finally {
@@ -192,8 +203,8 @@ export default function TaskOverview({
         tone: decision === 'approve' ? 'success' : 'info',
         message:
           decision === 'approve'
-            ? 'Approved. The task will start when a slot is free.'
-            : 'Rejected. It will not run.'
+            ? t('taskOverview.approvedNotice')
+            : t('taskOverview.rejectedNotice')
       })
       onChanged()
     } finally {
@@ -214,16 +225,16 @@ export default function TaskOverview({
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
         <div className="flex min-w-0 flex-col gap-4">
           <Card
-            title="Instruction"
+            title={t('taskOverview.instruction')}
             action={
               <button
                 type="button"
                 className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-                title="Copy instruction"
-                aria-label="Copy instruction"
+                title={t('taskOverview.copyInstruction')}
+                aria-label={t('taskOverview.copyInstruction')}
                 onClick={() => {
                   void navigator.clipboard.writeText(task.prompt)
-                  notify({ tone: 'success', message: 'Instruction copied.' })
+                  notify({ tone: 'success', message: t('taskOverview.copied') })
                 }}
               >
                 <Copy size={12} />
@@ -236,7 +247,7 @@ export default function TaskOverview({
           </Card>
 
           <Card
-            title="Activity"
+            title={t('taskOverview.activity')}
             action={
               task.canArchive || task.canUnarchive ? (
                 <button
@@ -246,7 +257,7 @@ export default function TaskOverview({
                   disabled={busy}
                   data-testid="task-detail-archive"
                 >
-                  {task.canUnarchive ? 'Restore' : 'Archive'}
+                  {task.canUnarchive ? t('taskOverview.restore') : t('taskOverview.archive')}
                 </button>
               ) : undefined
             }
@@ -259,9 +270,11 @@ export default function TaskOverview({
                 {taskStatusLabel(task)}
               </span>
               <span className="text-[11px] text-muted-foreground">
-                attempt {task.attempt}
+                {t('taskOverview.attempt', { count: task.attempt })}
                 {duration ? ` · ${duration}` : ''}
-                {task.updatedAt ? ` · updated ${formatTime(task.updatedAt)}` : ''}
+                {task.updatedAt
+                  ? t('taskOverview.updated', { time: formatTime(task.updatedAt) })
+                  : ''}
               </span>
             </div>
             {task.resultSummary ? (
@@ -277,23 +290,22 @@ export default function TaskOverview({
             ) : null}
             {task.failureReason ? (
               <p className="mt-2 text-[11px] text-signal" data-testid="task-detail-reason">
-                Reason: {task.failureReason}
+                {t('taskOverview.reason', { reason: task.failureReason })}
               </p>
             ) : null}
             {active && task.sessionLive ? (
               <p className="mt-2 rounded-md border border-signal-line bg-signal-weak px-2.5 py-2 text-[10.5px] leading-relaxed text-signal" data-testid="task-detail-attention">
-                The session is live and has not finished. If the harness is waiting for a permission
-                prompt, open the terminal and answer it there. iCode trusts the project&apos;s harness
-                configuration, but it never answers agent permission prompts for you.
+                {t('taskOverview.liveNote')}
               </p>
             ) : null}
           </Card>
 
           {task.canApprove ? (
-            <Card title="Proposal">
+            <Card title={t('taskOverview.proposal')}>
               <p className="text-[11.5px] leading-relaxed text-muted-foreground" data-testid="task-proposal-state">
-                {task.createdByActor === 'mira' ? 'Mira' : 'The Supervisor'} proposed this task. It
-                will not run until you approve it.
+                {task.createdByActor === 'mira'
+                  ? t('taskOverview.proposedByMira')
+                  : t('taskOverview.proposedBySupervisor')}
               </p>
               <div className="mt-2 flex items-center gap-2">
                 <button
@@ -304,7 +316,7 @@ export default function TaskOverview({
                   data-testid="task-proposal-approve"
                 >
                   <Check size={11} />
-                  Approve
+                  {t('taskOverview.approve')}
                 </button>
                 <button
                   type="button"
@@ -314,14 +326,14 @@ export default function TaskOverview({
                   data-testid="task-proposal-reject"
                 >
                   <X size={11} />
-                  Reject
+                  {t('taskOverview.reject')}
                 </button>
               </div>
             </Card>
           ) : null}
 
           <Card
-            title="Changes"
+            title={t('taskOverview.changes')}
             action={
               <button
                 type="button"
@@ -329,27 +341,27 @@ export default function TaskOverview({
                 onClick={() => void loadChanges()}
                 data-testid="task-changes-refresh"
               >
-                Refresh
+                {t('taskOverview.changesRefresh')}
               </button>
             }
           >
             {loadingChanges ? (
               <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground" data-testid="task-changes-loading">
                 <Loader2 size={11} className="animate-spin" />
-                Reading this task's worktree…
+                {t('taskOverview.readingWorktree')}
               </p>
             ) : changes === null ? null : changes.status === 'unavailable' ? (
               <p className="text-[11px] text-muted-foreground" data-testid="task-changes-unavailable">
-                {changes.detail ?? 'This task has no worktree to review.'}
+                {changes.detail ?? t('taskOverview.noWorktree')}
               </p>
             ) : (changes.files ?? []).length === 0 ? (
               <p className="text-[11px] text-muted-foreground" data-testid="task-changes-empty">
-                This task's worktree has no changes against its baseline.
+                {t('taskOverview.noChanges')}
               </p>
             ) : (
               <>
                 <div className="mb-2 flex items-center gap-2 text-[11px] text-muted-foreground">
-                  <span>{changedFiles.length} files</span>
+                  <span>{t('taskOverview.filesCount', { count: changedFiles.length })}</span>
                   <span className="text-add">+{additions}</span>
                   <span className="text-destructive">−{deletions}</span>
                   <button
@@ -359,7 +371,7 @@ export default function TaskOverview({
                     data-testid="task-changes-open-review"
                   >
                     <GitBranch size={11} />
-                    Open diff
+                    {t('taskOverview.openDiff')}
                   </button>
                 </div>
                 <ul className="space-y-1" data-testid="task-changes-list">
@@ -373,26 +385,37 @@ export default function TaskOverview({
                   ))}
                 </ul>
                 {changedFiles.length > 4 ? (
-                  <p className="mt-1 text-[10px] text-muted-foreground">and {changedFiles.length - 4} more…</p>
+                  <p className="mt-1 text-[10px] text-muted-foreground">
+                  {t('taskOverview.moreFiles', { count: changedFiles.length - 4 })}
+                </p>
                 ) : null}
                 {changes.listTruncated ? (
-                  <p className="mt-1 text-[10px] text-signal">Showing the first 1,000 changed files.</p>
+                  <p className="mt-1 text-[10px] text-signal">{t('taskOverview.truncated')}</p>
                 ) : null}
                 <p className="mt-2 text-[10px] text-muted-foreground">
-                  Compared against the commit this task's worktree was created from
-                  {changes.baselineOid ? ` (${changes.baselineOid.slice(0, 7)})` : ''}.
+                  {t('taskOverview.compared', {
+                    baseline: changes.baselineOid
+                      ? ` (${changes.baselineOid.slice(0, 7)})`
+                      : ''
+                  })}
                 </p>
               </>
             )}
           </Card>
 
-          <Card title="Review decision">
+          <Card title={t('taskOverview.reviewDecision')}>
             <p className="text-[11.5px] text-muted-foreground" data-testid="task-detail-review-state">
               {task.reviewDecision === 'pending'
                 ? active
-                  ? 'Pending — the task is still running, so there is nothing to judge yet.'
-                  : 'Pending review. Execution status and this decision are separate.'
-                : `${task.reviewDecision === 'accepted' ? 'Accepted' : 'Rejected'}${task.reviewedAt ? ` on ${formatTime(task.reviewedAt)}` : ''}`}
+                  ? t('taskOverview.reviewPendingActive')
+                  : t('taskOverview.reviewPending')
+                : task.reviewDecision === 'accepted'
+                  ? task.reviewedAt
+                    ? t('taskOverview.reviewAcceptedOn', { time: formatTime(task.reviewedAt) })
+                    : t('taskOverview.accepted')
+                  : task.reviewedAt
+                    ? t('taskOverview.reviewRejectedOn', { time: formatTime(task.reviewedAt) })
+                    : t('taskOverview.rejected')}
             </p>
             {task.reviewRecommendation ? (
               <div
@@ -400,8 +423,14 @@ export default function TaskOverview({
                 data-testid="task-review-recommendation"
               >
                 <p className="font-medium">
-                  Supervisor recommends {task.reviewRecommendation === 'accept' ? 'accept' : 'reject'}
-                  {task.reviewRecommendedAt ? ` · ${formatTime(task.reviewRecommendedAt)}` : ''}
+                  {task.reviewRecommendation === 'accept'
+                    ? t('taskOverview.recommendsAccept')
+                    : t('taskOverview.recommendsReject')}
+                  {task.reviewRecommendedAt
+                    ? t('taskOverview.recommendationAt', {
+                        time: formatTime(task.reviewRecommendedAt)
+                      })
+                    : ''}
                 </p>
                 {task.reviewRecommendationNote ? (
                   <p className="mt-1 whitespace-pre-wrap text-foreground/80">
@@ -409,7 +438,7 @@ export default function TaskOverview({
                   </p>
                 ) : null}
                 <p className="mt-1 text-[9.5px] opacity-80">
-                  This is a recommendation, not a decision. Accept or Reject below remains yours.
+                  {t('taskOverview.recommendationNote')}
                 </p>
               </div>
             ) : null}
@@ -422,15 +451,23 @@ export default function TaskOverview({
               <>
                 <textarea
                   className="mt-2 h-14 w-full resize-none rounded-md border border-border bg-muted/40 px-2 py-1.5 text-[11px] text-foreground outline-none placeholder:text-muted-foreground"
-                  placeholder="Optional note about the decision"
+                  placeholder={t('taskOverview.reviewNotePlaceholder')}
                   value={note}
                   onChange={(event) => setNote(event.target.value)}
                   data-testid="task-review-note"
                 />
                 {confirming ? (
                   <p className="mt-1 text-[10.5px] text-signal" data-testid="task-review-confirm">
-                    This task was already {task.reviewDecision}. Click {confirming} again to replace that
-                    decision.
+                    {t('taskOverview.confirmReplace', {
+                      decision:
+                        task.reviewDecision === 'accepted'
+                          ? t('taskOverview.accepted')
+                          : t('taskOverview.rejected'),
+                      action:
+                        confirming === 'accepted'
+                          ? t('taskOverview.accept')
+                          : t('taskOverview.reject')
+                    })}
                   </p>
                 ) : null}
                 <div className="mt-2 flex items-center gap-2">
@@ -446,7 +483,9 @@ export default function TaskOverview({
                     data-testid="task-review-accept"
                   >
                     <Check size={11} />
-                    {confirming === 'accepted' ? 'Confirm accept' : 'Accept'}
+                    {confirming === 'accepted'
+                      ? t('taskOverview.confirmAccept')
+                      : t('taskOverview.accept')}
                   </button>
                   <button
                     type="button"
@@ -460,63 +499,68 @@ export default function TaskOverview({
                     data-testid="task-review-reject"
                   >
                     <X size={11} />
-                    {confirming === 'rejected' ? 'Confirm reject' : 'Reject'}
+                    {confirming === 'rejected'
+                      ? t('taskOverview.confirmReject')
+                      : t('taskOverview.reject')}
                   </button>
                 </div>
                 <p className="mt-2 text-[10px] leading-relaxed text-muted-foreground" data-testid="task-review-safety">
-                  Accept records that you want this result. It does not merge, commit, push, or delete
-                  anything; the changes stay in this task's worktree.
+                  {t('taskOverview.reviewSafety')}
                 </p>
               </>
             ) : (
               <p className="mt-1 text-[10px] text-muted-foreground">
-                A decision becomes available when the task stops.
+                {t('taskOverview.decisionAvailable')}
               </p>
             )}
           </Card>
         </div>
 
         <div className="flex min-w-0 flex-col gap-4">
-          <Card title="Details">
-            <Row label="Harness">{task.harness}</Row>
-            <Row label="Attempt">{task.attempt}</Row>
-            <Row label="Started">{task.startedAt === null ? '—' : formatTime(task.startedAt)}</Row>
-            <Row label="Finished">{task.finishedAt === null ? '—' : formatTime(task.finishedAt)}</Row>
-            <Row label="Duration">{duration ?? '—'}</Row>
+          <Card title={t('taskOverview.details')}>
+            <Row label={t('taskOverview.row.harness')}>{task.harness}</Row>
+            <Row label={t('taskOverview.row.attempt')}>{task.attempt}</Row>
+            <Row label={t('taskOverview.row.started')}>
+              {task.startedAt === null ? '—' : formatTime(task.startedAt)}
+            </Row>
+            <Row label={t('taskOverview.row.finished')}>
+              {task.finishedAt === null ? '—' : formatTime(task.finishedAt)}
+            </Row>
+            <Row label={t('taskOverview.row.duration')}>{duration ?? '—'}</Row>
             {task.exitCode !== null ? (
-              <Row label="Exit code">
+              <Row label={t('taskOverview.row.exitCode')}>
                 <span data-testid="task-detail-exit">{task.exitCode}</span>
               </Row>
             ) : null}
             {session?.worktree ? (
               <>
-                <Row label="Branch">
+                <Row label={t('taskOverview.row.branch')}>
                   <span className="font-mono">{session.worktree.branch}</span>
                 </Row>
-                <Row label="Base">
+                <Row label={t('taskOverview.row.base')}>
                   <span className="font-mono">{session.worktree.baseOid.slice(0, 7)}</span>
                 </Row>
               </>
             ) : null}
-            <Row label="Worktree">
+            <Row label={t('taskOverview.row.worktree')}>
               <span className="break-all font-mono text-[10px]" data-testid="task-detail-worktree">
                 {task.worktreePath ?? session?.worktree?.path ?? '—'}
               </span>
             </Row>
-            {task.scheduleId ? <Row label="Schedule">from a schedule</Row> : null}
+            {task.scheduleId ? <Row label={t('taskOverview.row.schedule')}>{t('taskOverview.fromSchedule')}</Row> : null}
           </Card>
 
-          <Card title="Session">
+          <Card title={t('taskOverview.session')}>
             {session === null ? (
               <p className="text-[11px] text-muted-foreground" data-testid="task-detail-no-session">
-                Not started — no session
+                {t('taskOverview.notStarted')}
               </p>
             ) : (
               <>
                 <div className="flex items-center gap-1.5 text-[11.5px] text-foreground">
                   <span className={`h-1.5 w-1.5 rounded-full ${stateDotClass(session.state, null)}`} />
                   {sessionStateLabel(session.state, null)}
-                  {session.state === 'live' ? ' · attachable' : ''}
+                  {session.state === 'live' ? t('taskOverview.attachable') : ''}
                 </div>
                 <p className="mt-1 font-mono text-[10px] text-muted-foreground">
                   {session.id}
@@ -529,7 +573,7 @@ export default function TaskOverview({
                     data-testid="task-detail-open-session"
                   >
                     <Terminal size={11} />
-                    Open terminal
+                    {t('taskOverview.openTerminal')}
                   </button>
                   <button
                     type="button"
@@ -537,7 +581,7 @@ export default function TaskOverview({
                     onClick={onOpenFullSession}
                     data-testid="task-full-session"
                   >
-                    Full session
+                    {t('taskOverview.fullSession')}
                   </button>
                 </div>
               </>
@@ -545,15 +589,26 @@ export default function TaskOverview({
           </Card>
 
           {previousAttempts.length > 0 ? (
-            <Card title="Previous attempts">
+            <Card title={t('taskOverview.previousAttempts')}>
               <ul className="space-y-1.5" data-testid="task-detail-attempts">
                 {previousAttempts.map((attempt) => (
                   <li key={attempt.id} className="rounded-md border border-border bg-muted/30 px-2 py-1.5 text-[10.5px]">
-                    <span className="text-foreground">attempt {attempt.attempt}</span>{' '}
+                    <span className="text-foreground">
+                      {t('taskOverview.attemptLabel', { count: attempt.attempt })}
+                    </span>{' '}
                     <span className="text-muted-foreground">
-                      · {attempt.status}
-                      {attempt.failureReason ? ` (${attempt.failureReason})` : ''} · review{' '}
-                      {attempt.reviewDecision}
+                      {t('taskOverview.attemptMeta', {
+                        status: taskStatusLabel(attempt),
+                        reason: attempt.failureReason
+                          ? t('taskOverview.attemptReason', { reason: attempt.failureReason })
+                          : '',
+                        decision:
+                          attempt.reviewDecision === 'accepted'
+                            ? t('taskOverview.accepted')
+                            : attempt.reviewDecision === 'rejected'
+                              ? t('taskOverview.rejected')
+                              : t('tasks.row.unreviewed')
+                      })}
                     </span>
                     {attempt.error ? (
                       <p className="mt-0.5 text-[10px] text-muted-foreground">{attempt.error}</p>

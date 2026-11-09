@@ -1,3 +1,4 @@
+import { translate } from '../i18n/i18n-store'
 import { useCallback, useSyncExternalStore } from 'react'
 import { z } from 'zod'
 
@@ -92,7 +93,7 @@ export function parsePersistedOpenFiles(raw: unknown): Map<string, FilesSessionS
         ? {
             ...tab,
             load: 'failed' as const,
-            failure: 'The editor closed before this file finished loading. Reopen it to retry.'
+            failure: translate('fileIndex.editorClosed')
           }
         : tab
     )
@@ -187,9 +188,9 @@ export class OpenFilesStore {
       }
       if (changed) this.emit()
     } catch (error) {
-      this.warning = `Open tabs could not be restored: ${
-        error instanceof Error ? error.message : String(error)
-      }`
+      this.warning = translate('fileIndex.restoreFailed', {
+        detail: error instanceof Error ? error.message : String(error)
+      })
       this.notifyListeners()
     }
   }
@@ -220,9 +221,9 @@ export class OpenFilesStore {
         try {
           await this.persistence!.save(payload)
         } catch (error) {
-          this.warning = `Open tabs could not be backed up: ${
-            error instanceof Error ? error.message : String(error)
-          }`
+          this.warning = translate('fileIndex.backupFailed', {
+            detail: error instanceof Error ? error.message : String(error)
+          })
           this.notifyListeners()
         }
       })

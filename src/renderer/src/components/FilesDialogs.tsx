@@ -1,4 +1,5 @@
 import { AlertTriangle, FolderOpen, Save, Trash2, X } from 'lucide-react'
+import { useT, useTp } from '../i18n/use-i18n'
 
 type ShellProps = {
   label: string
@@ -9,6 +10,7 @@ type ShellProps = {
 }
 
 function DialogShell({ label, title, children, onClose, testId }: ShellProps): React.JSX.Element {
+  const t = useT()
   return (
     <div
       className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-6"
@@ -28,7 +30,7 @@ function DialogShell({ label, title, children, onClose, testId }: ShellProps): R
               type="button"
               className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
               onClick={onClose}
-              aria-label="Close"
+              aria-label={t('common.close')}
             >
               <X size={14} />
             </button>
@@ -58,18 +60,21 @@ export function UnsavedFilesDialog({
   onDiscard,
   onCancel
 }: UnsavedFilesDialogProps): React.JSX.Element {
+  const t = useT()
   return (
     <DialogShell
-      label="Unsaved file changes"
-      title={multiple ? 'Save all changes?' : 'Save changes?'}
+      label={t('files.unsaved.label')}
+      title={
+        multiple ? t('files.unsaved.title.other') : t('files.unsaved.title.one')
+      }
       onClose={busy ? undefined : onCancel}
       testId="files-unsaved-dialog"
     >
       <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground">
         {multiple
-          ? 'Some open files have unsaved changes.'
-          : `“${path}” has unsaved changes.`}{' '}
-        Your changes will be lost if you don’t save them.
+          ? t('files.unsaved.bodyMany')
+          : t('files.unsaved.bodyOne', { path })}{' '}
+        {t('files.unsaved.bodySuffix')}
       </p>
       <div className="mt-4 flex justify-end gap-2">
         <button
@@ -79,7 +84,7 @@ export function UnsavedFilesDialog({
           disabled={busy}
           data-testid="files-unsaved-cancel"
         >
-          Cancel
+          {t('common.cancel')}
         </button>
         <button
           type="button"
@@ -89,7 +94,7 @@ export function UnsavedFilesDialog({
           data-testid="files-unsaved-discard"
         >
           <Trash2 size={12} />
-          {multiple ? 'Discard all' : 'Discard'}
+          {multiple ? t('files.unsaved.discardAll') : t('files.unsaved.discard')}
         </button>
         <button
           type="button"
@@ -99,7 +104,11 @@ export function UnsavedFilesDialog({
           data-testid="files-unsaved-save"
         >
           <Save size={12} />
-          {busy ? 'Saving…' : multiple ? 'Save all' : 'Save'}
+          {busy
+            ? t('files.saving')
+            : multiple
+              ? t('files.unsaved.saveAll')
+              : t('files.unsaved.save')}
         </button>
       </div>
     </DialogShell>
@@ -125,16 +134,16 @@ export function SaveConflictDialog({
   onReload,
   onCancel
 }: SaveConflictDialogProps): React.JSX.Element {
+  const t = useT()
   return (
     <DialogShell
-      label="File changed on disk"
-      title="The file changed on disk"
+      label={t('files.conflict.label')}
+      title={t('files.conflict.title')}
       onClose={busy ? undefined : onCancel}
       testId="files-conflict-dialog"
     >
       <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground">
-        “{path}” changed on disk while you were editing it. Overwrite the disk
-        version with your text, or reload it and discard your changes.
+        {t('files.conflict.body', { path })}
         {detail ? <span className="mt-1 block text-[11px] text-signal">{detail}</span> : null}
       </p>
       <div className="mt-4 flex justify-end gap-2">
@@ -145,7 +154,7 @@ export function SaveConflictDialog({
           disabled={busy}
           data-testid="files-conflict-cancel"
         >
-          Cancel
+          {t('common.cancel')}
         </button>
         <button
           type="button"
@@ -154,7 +163,7 @@ export function SaveConflictDialog({
           disabled={busy}
           data-testid="files-conflict-reload"
         >
-          Reload from disk
+          {t('files.conflict.reload')}
         </button>
         <button
           type="button"
@@ -163,7 +172,7 @@ export function SaveConflictDialog({
           disabled={busy}
           data-testid="files-conflict-overwrite"
         >
-          {busy ? 'Saving…' : 'Overwrite'}
+          {busy ? t('files.saving') : t('files.conflict.overwrite')}
         </button>
       </div>
     </DialogShell>
@@ -190,19 +199,23 @@ export function DeleteFilesDialog({
   onConfirmPermanent,
   onCancel
 }: DeleteFilesDialogProps): React.JSX.Element {
+  const t = useT()
+  const tp = useTp()
   const names = paths.slice(0, 10)
   return (
     <DialogShell
-      label="Delete files"
-      title={paths.length === 1 ? 'Delete this item?' : `Delete ${String(paths.length)} items?`}
+      label={t('files.delete.label')}
+      title={
+        paths.length === 1
+          ? t('files.delete.title.one')
+          : t('files.delete.title.other', { count: paths.length })
+      }
       onClose={busy ? undefined : onCancel}
       testId="files-delete-dialog"
     >
       <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground">
-        {useTrash
-          ? 'Deleted items move to the session Trash and can be restored for seven days.'
-          : 'This deletes from the session worktree and cannot be undone.'}{' '}
-        Git history is unchanged.
+        {useTrash ? t('files.delete.bodyTrash') : t('files.delete.bodyPermanent')}{' '}
+        {t('files.delete.bodySuffix')}
       </p>
       <ul className="mt-2 max-h-40 overflow-auto rounded border border-border bg-background p-2 font-mono text-[10px] text-foreground">
         {names.map((path) => (
@@ -211,12 +224,14 @@ export function DeleteFilesDialog({
           </li>
         ))}
         {paths.length > names.length ? (
-          <li className="text-muted-foreground">+{paths.length - names.length} more</li>
+          <li className="text-muted-foreground">
+            {t('files.more', { count: paths.length - names.length })}
+          </li>
         ) : null}
       </ul>
       {dirtyCount > 0 ? (
         <p className="mt-2 rounded border border-signal/40 bg-signal-weak px-2 py-1.5 text-[11px] text-signal">
-          {dirtyCount} unsaved Files tab{dirtyCount === 1 ? '' : 's'} will be lost.
+          {tp('files.delete.unsaved', dirtyCount)}
         </p>
       ) : null}
       <div className="mt-4 flex justify-end gap-2">
@@ -227,7 +242,7 @@ export function DeleteFilesDialog({
           disabled={busy}
           data-testid="files-delete-cancel"
         >
-          Cancel
+          {t('common.cancel')}
         </button>
         {useTrash ? (
           <button
@@ -237,7 +252,7 @@ export function DeleteFilesDialog({
             disabled={busy}
             data-testid="files-delete-permanent"
           >
-            Delete permanently
+            {t('files.delete.permanent')}
           </button>
         ) : null}
         <button
@@ -248,12 +263,12 @@ export function DeleteFilesDialog({
           data-testid="files-delete-confirm"
         >
           {busy
-            ? 'Deleting…'
+            ? t('files.deleting')
             : useTrash
-              ? 'Move to Trash'
+              ? t('files.delete.moveToTrash')
               : paths.length === 1
-                ? 'Delete'
-                : `Delete ${String(paths.length)} items`}
+                ? t('files.delete.delete')
+                : t('files.delete.count', { count: paths.length })}
         </button>
       </div>
     </DialogShell>
@@ -278,18 +293,18 @@ export function ReplaceFilesDialog({
   onConfirm,
   onCancel
 }: ReplaceFilesDialogProps): React.JSX.Element {
+  const t = useT()
+  const tp = useTp()
   const names = paths.slice(0, 10)
   return (
     <DialogShell
-      label="Replace in files"
-      title={`Replace ${String(matches)} match${matches === 1 ? '' : 'es'}?`}
+      label={t('files.replace.label')}
+      title={tp('files.replace.title', matches)}
       onClose={busy ? undefined : onCancel}
       testId="files-replace-dialog"
     >
       <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground">
-        This writes to {files} file{files === 1 ? '' : 's'} in the session worktree.
-        Open files with unsaved edits are not overwritten in the editor; they will
-        show “Changed on disk” instead.
+        {t('files.replace.body', { files })}
       </p>
       <ul className="mt-2 max-h-40 overflow-auto rounded border border-border bg-background p-2 font-mono text-[10px] text-foreground">
         {names.map((path) => (
@@ -298,12 +313,13 @@ export function ReplaceFilesDialog({
           </li>
         ))}
         {paths.length > names.length ? (
-          <li className="text-muted-foreground">+{paths.length - names.length} more</li>
+          <li className="text-muted-foreground">
+            {t('files.more', { count: paths.length - names.length })}
+          </li>
         ) : null}
       </ul>
       <p className="mt-2 text-[10px] leading-relaxed text-muted-foreground">
-        Files that changed since the search was run are skipped. This action cannot
-        be undone here.
+        {t('files.replace.skipped')}
       </p>
       <div className="mt-4 flex justify-end gap-2">
         <button
@@ -313,7 +329,7 @@ export function ReplaceFilesDialog({
           disabled={busy}
           data-testid="files-replace-cancel"
         >
-          Cancel
+          {t('common.cancel')}
         </button>
         <button
           type="button"
@@ -322,7 +338,7 @@ export function ReplaceFilesDialog({
           disabled={busy}
           data-testid="files-replace-confirm"
         >
-          {busy ? 'Replacing…' : 'Replace all'}
+          {busy ? t('files.replacing') : t('files.replace.all')}
         </button>
       </div>
     </DialogShell>
@@ -345,16 +361,18 @@ export function MoveFilesDialog({
   onConfirm,
   onCancel
 }: MoveFilesDialogProps): React.JSX.Element {
+  const t = useT()
+  const tp = useTp()
   return (
     <DialogShell
-      label="Move files"
-      title={`Move ${String(paths.length)} item${paths.length === 1 ? '' : 's'}?`}
+      label={t('files.move.label')}
+      title={tp('files.move.title', paths.length)}
       onClose={busy ? undefined : onCancel}
       testId="files-move-dialog"
     >
       <p className="mt-2 flex items-center gap-1.5 text-[12px] leading-relaxed text-muted-foreground">
         <FolderOpen size={13} />
-        <span className="font-mono text-foreground">{destination === '' ? 'worktree root' : destination}</span>
+        <span className="font-mono text-foreground">{destination === '' ? t('files.move.root') : destination}</span>
       </p>
       <ul className="mt-2 max-h-32 overflow-auto rounded border border-border bg-background p-2 font-mono text-[10px] text-foreground">
         {paths.slice(0, 10).map((path) => (
@@ -363,7 +381,9 @@ export function MoveFilesDialog({
           </li>
         ))}
         {paths.length > 10 ? (
-          <li className="text-muted-foreground">+{paths.length - 10} more</li>
+          <li className="text-muted-foreground">
+            {t('files.more', { count: paths.length - 10 })}
+          </li>
         ) : null}
       </ul>
       <div className="mt-4 flex justify-end gap-2">
@@ -374,7 +394,7 @@ export function MoveFilesDialog({
           disabled={busy}
           data-testid="files-move-cancel"
         >
-          Cancel
+          {t('common.cancel')}
         </button>
         <button
           type="button"
@@ -383,7 +403,7 @@ export function MoveFilesDialog({
           disabled={busy}
           data-testid="files-move-confirm"
         >
-          {busy ? 'Moving…' : 'Move'}
+          {busy ? t('files.moving') : t('files.move.action')}
         </button>
       </div>
     </DialogShell>
@@ -408,15 +428,16 @@ export function AppCloseDialog({
   onDiscard,
   onCancel
 }: AppCloseDialogProps): React.JSX.Element {
+  const t = useT()
+  const tp = useTp()
   return (
     <DialogShell
-      label="Unsaved files before closing"
-      title="Save files before closing?"
+      label={t('files.appClose.label')}
+      title={t('files.appClose.title')}
       testId="files-app-close-dialog"
     >
       <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground">
-        {files} unsaved file{files === 1 ? '' : 's'} in {sessions} session
-        {sessions === 1 ? '' : 's'}. Save them before closing iCode?
+        {tp('files.appClose.body', sessions, { files })}
       </p>
       <div className="mt-4 flex justify-end gap-2">
         <button
@@ -426,7 +447,7 @@ export function AppCloseDialog({
           disabled={busy}
           data-testid="files-app-close-cancel"
         >
-          Cancel
+          {t('common.cancel')}
         </button>
         <button
           type="button"
@@ -435,7 +456,7 @@ export function AppCloseDialog({
           disabled={busy}
           data-testid="files-app-close-discard"
         >
-          Close without saving
+          {t('files.appClose.closeWithout')}
         </button>
         <button
           type="button"
@@ -445,7 +466,7 @@ export function AppCloseDialog({
           data-testid="files-app-close-save"
         >
           <Save size={12} />
-          {busy ? 'Saving…' : 'Save all and close'}
+          {busy ? t('files.saving') : t('files.appClose.saveAll')}
         </button>
       </div>
     </DialogShell>

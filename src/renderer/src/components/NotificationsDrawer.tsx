@@ -11,6 +11,8 @@ import {
   activityTone
 } from './status'
 import { taskAttention } from './task-status'
+import { translate } from '../i18n/i18n-store'
+import { useT, useTp } from '../i18n/use-i18n'
 
 export type ActivityEntry = {
   session: SessionSummary
@@ -42,12 +44,37 @@ function attentionDot(task: TaskRecordPayload): string {
 
 function attentionText(task: TaskRecordPayload): string {
   if (task.approval === 'pending' && task.status === 'queued') {
-    return task.createdByActor === 'mira' ? 'proposed by Mira' : 'proposed by Supervisor'
+    return task.createdByActor === 'mira'
+      ? translate('notifications.proposedByMira')
+      : translate('notifications.proposedBySupervisor')
   }
-  if (task.status === 'waiting') return 'waiting for input'
-  if (task.status === 'failed') return 'failed'
-  if (task.status === 'completed' && task.reviewDecision === 'pending') return 'ready for review'
-  return task.status
+  if (task.status === 'waiting') return translate('notifications.waitingInput')
+  if (task.status === 'failed') return translate('notifications.failed')
+  if (task.status === 'completed' && task.reviewDecision === 'pending') {
+    return translate('notifications.attentionReviewReady')
+  }
+  return translate(`task.status.${task.status}`)
+}
+
+function notificationKindLabel(kind: AssistantMessagePayload['notificationKind']): string {
+  switch (kind) {
+    case 'approval-needed':
+      return translate('notifications.kind.approvalNeeded')
+    case 'task-waiting':
+      return translate('notifications.kind.taskWaiting')
+    case 'task-failed':
+      return translate('notifications.kind.taskFailed')
+    case 'review-ready':
+      return translate('notifications.kind.reviewReady')
+    case 'task-completed':
+      return translate('notifications.kind.taskCompleted')
+    case 'custom':
+      return translate('notifications.kind.custom')
+    case undefined:
+      return translate('notifications.kind.message')
+    default:
+      return translate('notifications.kind.message')
+  }
 }
 
 /**
@@ -68,6 +95,8 @@ export default function NotificationsDrawer({
   onOpenAssistant,
   onMarkRead
 }: Props): React.JSX.Element | null {
+  const t = useT()
+  const tp = useTp()
   useEffect(() => {
     if (!open) return
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -86,7 +115,7 @@ export default function NotificationsDrawer({
       className="fixed inset-0 z-[65] bg-black/50"
       role="dialog"
       aria-modal="true"
-      aria-label="Notifications"
+      aria-label={t('notifications.title')}
       data-testid="notifications-drawer"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose()
@@ -98,16 +127,16 @@ export default function NotificationsDrawer({
             <Bell size={14} />
           </span>
           <div className="min-w-0 flex-1">
-            <h2 className="text-[15px] font-semibold">Notifications</h2>
+            <h2 className="text-[15px] font-semibold">{t('notifications.title')}</h2>
             <p className="mt-1 text-[10.5px] leading-relaxed text-muted-foreground">
-              What needs you, and what changed while you were away.
+              {t('notifications.subtitle')}
             </p>
           </div>
           <button
             type="button"
             className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
             onClick={onClose}
-            aria-label="Close notifications"
+            aria-label={t('notifications.close')}
           >
             <X size={14} />
           </button>
@@ -120,7 +149,7 @@ export default function NotificationsDrawer({
             </h3>
             {assistantMessages.length === 0 ? (
               <p className="px-2 py-2 text-[11px] text-muted-foreground">
-                Nothing from {assistantName} yet.
+                {t('notifications.nothingFrom', { name: assistantName })}
               </p>
             ) : (
               <ul className="space-y-0.5">
@@ -149,7 +178,7 @@ export default function NotificationsDrawer({
                           {message.body}
                         </span>
                         <span className="block truncate text-[10px] text-muted-foreground">
-                          {message.notificationKind ?? 'message'}
+                          {notificationKindLabel(message.notificationKind)}
                         </span>
                       </span>
                     </button>
@@ -161,10 +190,12 @@ export default function NotificationsDrawer({
 
           <section className="mb-2" data-testid="notifications-needs">
             <h3 className="px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.09em] text-muted-foreground">
-              Needs you · {needsTasks.length}
+              {t('notifications.needsYou', { count: needsTasks.length })}
             </h3>
             {needsTasks.length === 0 ? (
-              <p className="px-2 py-2 text-[11px] text-muted-foreground">Nothing needs your attention.</p>
+              <p className="px-2 py-2 text-[11px] text-muted-foreground">
+                {t('notifications.nothingNeedsAttention')}
+              </p>
             ) : (
               <ul className="space-y-0.5">
                 {needsTasks.map(({ task, repoName }) => (
@@ -196,11 +227,11 @@ export default function NotificationsDrawer({
 
           <section data-testid="notifications-activity">
             <h3 className="px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.09em] text-muted-foreground">
-              Activity
+              {t('notifications.activity')}
             </h3>
             {activity.length === 0 ? (
               <p className="px-2 py-2 text-[11px] text-muted-foreground">
-                No agent activity recorded in this window yet.
+                {t('notifications.noActivity')}
               </p>
             ) : (
               <ul className="space-y-0.5">
@@ -226,7 +257,7 @@ export default function NotificationsDrawer({
                             </span>
                             {entry.unread ? (
                               <span className="shrink-0 rounded-full bg-accent/15 px-1.5 text-[8px] text-accent">
-                                unread
+                                {t('notifications.unread')}
                               </span>
                             ) : null}
                           </span>
@@ -256,10 +287,10 @@ export default function NotificationsDrawer({
             ) : (
               <Check size={11} />
             )}
-            Mark activity read
+            {t('notifications.markRead')}
           </button>
           <span className="ml-auto text-[10px] text-muted-foreground">
-            {unread === 0 ? 'All caught up.' : `${unread} unread session${unread === 1 ? '' : 's'}`}
+            {unread === 0 ? t('notifications.allCaughtUp') : tp('notifications.unreadSessions', unread)}
           </span>
         </div>
       </aside>

@@ -1,4 +1,5 @@
 import type { WorkspaceState } from './workspace'
+import { translate } from '../i18n/i18n-store'
 
 export type HostStatus = 'reachable' | 'unreachable' | 'unknown'
 
@@ -25,7 +26,7 @@ export function hostStatus(state: WorkspaceState): HostStatus {
 }
 
 export function hostLabel(status: HostStatus): string {
-  if (status === 'reachable') return 'Host reachable'
-  if (status === 'unreachable') return 'Host unreachable'
-  return 'Host status unknown'
+  if (status === 'reachable') return translate('host.labelReachable')
+  if (status === 'unreachable') return translate('host.labelUnreachable')
+  return translate('host.labelUnknown')
 }

@@ -1,5 +1,6 @@
 import { Trash2, X } from 'lucide-react'
 import type { SessionSummary } from '../../../shared/schemas/ipc'
+import { useT, useTp } from '../i18n/use-i18n'
 
 type Props = {
   session: SessionSummary
@@ -23,40 +24,40 @@ export default function RemoveSessionDialog({
   onClose,
   onConfirm
 }: Props): React.JSX.Element {
+  const t = useT()
+  const tp = useTp()
   return (
     <div
       className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-6"
       role="dialog"
       aria-modal="true"
-      aria-label="Remove session"
+      aria-label={t('session.remove.confirm')}
       data-testid="remove-session-dialog"
     >
       <div className="icode-modal w-full max-w-md rounded-lg border border-border bg-card p-6 shadow-2xl">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-2">
             <Trash2 size={15} className="text-destructive" />
-            <h2 className="text-[16px] font-semibold">Remove session?</h2>
+            <h2 className="text-[16px] font-semibold">{t('session.remove.title')}</h2>
           </div>
           <button
             type="button"
             className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
             onClick={onClose}
-            aria-label="Close"
+            aria-label={t('common.close')}
           >
             <X size={14} />
           </button>
         </div>
         <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground">
-          Remove <span className="font-medium text-foreground">{session.title}</span>? The
-          session and its files are removed. Its branch is kept, and uncommitted work is
-          protected.
+          {t('session.remove.body', { title: session.title })}
         </p>
         {unsavedCount > 0 ? (
           <p
             className="mt-2 rounded border border-signal/40 bg-signal-weak px-2 py-1.5 text-[11px] leading-relaxed text-signal"
             data-testid="remove-session-unsaved"
           >
-            {unsavedCount} unsaved file{unsavedCount === 1 ? '' : 's'} in Files will be lost.
+            {tp('session.remove.unsaved', unsavedCount)}
           </p>
         ) : null}
         <div className="mt-4 flex justify-end gap-2">
@@ -66,7 +67,7 @@ export default function RemoveSessionDialog({
             onClick={onClose}
             data-testid="remove-session-cancel"
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           <button
             type="button"
@@ -74,7 +75,7 @@ export default function RemoveSessionDialog({
             onClick={onConfirm}
             data-testid="remove-session-confirm"
           >
-            Remove session
+            {t('session.remove.confirm')}
           </button>
         </div>
       </div>

@@ -23,6 +23,9 @@ import {
 /** Renderer-facing channels. Preload exposes methods, never these strings. */
 export const IPC_CHANNELS = {
   runtimeInfo: 'icode:runtime-info',
+  localeGet: 'icode:locale:get',
+  localeSet: 'icode:locale:set',
+  localeChangedEvent: 'icode:locale:changed',
   reposList: 'icode:repos:list',
   reposAdd: 'icode:repos:add',
   reposInspect: 'icode:repos:inspect',

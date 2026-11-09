@@ -20,6 +20,8 @@ import type {
 import { callApi, isAbsolutePathLike } from '../lib/api'
 import { detectedPlatform } from '../lib/platform'
 import { makeAppError } from '../../../shared/domain/errors'
+import { useT } from '../i18n/use-i18n'
+import type { Translator } from '../i18n/i18n-store'
 
 type Dirs = { kind: 'local' } | { kind: 'wsl'; distro: WslDistroSummary | null }
 
@@ -45,12 +47,13 @@ type DistroState =
   | { phase: 'unavailable'; payload: Extract<WslDistroListPayload, { status: 'unavailable' }> }
   | { phase: 'ipc_failed'; error: AppError }
 
-function reasonText(reason: 'not_windows' | 'registry_unreadable' | 'undecodable_names'): string {
-  if (reason === 'not_windows') return 'WSL is only available on Windows.'
-  if (reason === 'undecodable_names') {
-    return 'The distro list could not be decoded, so no distro can be offered safely.'
-  }
-  return 'The WSL registration list could not be read.'
+function reasonText(
+  reason: 'not_windows' | 'registry_unreadable' | 'undecodable_names',
+  t: Translator
+): string {
+  if (reason === 'not_windows') return t('addRepo.wslOnlyWindows')
+  if (reason === 'undecodable_names') return t('addRepo.distroUndecodable')
+  return t('addRepo.registryUnreadable')
 }
 
 export default function AddRepositoryDialog({
@@ -59,6 +62,7 @@ export default function AddRepositoryDialog({
   onInitialize,
   platform
 }: Props): React.JSX.Element {
+  const t = useT()
   const isWindows = (platform ?? detectedPlatform()) === 'win32'
   const [choice, setChoice] = useState<Dirs>({ kind: 'local' })
   const [path, setPath] = useState('')
@@ -205,14 +209,14 @@ export default function AddRepositoryDialog({
     !busy && target !== null && pathLooksRight && inspectionReady && identityLooksValid
   const submitLabel =
     inspection === null
-      ? 'Add project'
+      ? t('addRepo.submit.add')
       : inspection.kind === 'repository'
-        ? 'Register'
+        ? t('addRepo.submit.register')
         : inspection.kind === 'unborn'
-          ? 'Create first commit & add'
+          ? t('addRepo.submit.unborn')
           : inspection.kind === 'gitless'
-            ? 'Initialize Git & add'
-            : 'Choose a repository'
+            ? t('addRepo.submit.gitless')
+            : t('addRepo.submit.choose')
 
   /**
    * Opens one platform folder dialog for the chosen target.
@@ -239,8 +243,9 @@ export default function AddRepositoryDialog({
       if (result.value.status === 'cancelled') return
       if (result.value.status === 'unavailable') {
         setError(
-          makeAppError('INVALID_ARGUMENT', 'This folder could not be chosen.', {
-            detail: result.value.detail
+          makeAppError('INVALID_ARGUMENT', t('addRepo.pickFailed'), {
+            detail: result.value.detail,
+            messageKey: 'addRepo.pickFailed'
           })
         )
         /*
@@ -376,7 +381,7 @@ export default function AddRepositoryDialog({
       className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-6"
       role="dialog"
       aria-modal="true"
-      aria-label="Add a project"
+      aria-label={t('addRepo.title')}
     >
       <form
         className="icode-modal max-h-[calc(100vh-3rem)] w-full max-w-lg overflow-y-auto rounded-lg border border-border bg-card p-6 shadow-2xl"
@@ -385,20 +390,19 @@ export default function AddRepositoryDialog({
       >
         <div className="flex items-start justify-between">
           <div>
-            <h2 className="text-[16px] font-semibold">Add a project</h2>
+            <h2 className="text-[16px] font-semibold">{t('addRepo.title')}</h2>
             <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
-              Register an existing Git checkout, or initialize a folder once so iCode can create
-              isolated session worktrees.
+              {t('addRepo.subtitle')}
             </p>
             <p className="mt-1 text-[10.5px] leading-relaxed text-muted-foreground">
-              Sessions may load this project&apos;s harness hooks and MCP configuration.
+              {t('addRepo.securityNote')}
             </p>
           </div>
           <button
             type="button"
             className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
             onClick={onClose}
-            aria-label="Close"
+            aria-label={t('common.close')}
           >
             <X size={14} />
           </button>
@@ -406,9 +410,9 @@ export default function AddRepositoryDialog({
 
         <fieldset className="mt-4" disabled={busy}>
           <legend className="text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
-            Environment
+            {t('addRepo.environment')}
           </legend>
-          <div className="mt-1.5 grid grid-cols-2 gap-2" role="radiogroup" aria-label="Execution target">
+          <div className="mt-1.5 grid grid-cols-2 gap-2" role="radiogroup" aria-label={t('addRepo.executionTarget')}>
             <button
               type="button"
               role="radio"
@@ -421,9 +425,11 @@ export default function AddRepositoryDialog({
             >
               <HardDrive size={13} className="mt-0.5 shrink-0 text-muted-foreground" />
               <span>
-                <span className="block text-[12.5px] font-medium">This machine</span>
+                <span className="block text-[12.5px] font-medium">
+                  {t('addRepo.thisMachine')}
+                </span>
                 <span className="mt-0.5 block text-[10.5px] text-muted-foreground">
-                  {isWindows ? 'Run sessions in Windows' : 'Run sessions on this machine'}
+                  {isWindows ? t('addRepo.runWindows') : t('addRepo.runLocal')}
                 </span>
               </span>
             </button>
@@ -440,9 +446,9 @@ export default function AddRepositoryDialog({
               >
                 <Server size={13} className="mt-0.5 shrink-0 text-muted-foreground" />
                 <span>
-                  <span className="block text-[12.5px] font-medium">WSL distro</span>
+                  <span className="block text-[12.5px] font-medium">{t('addRepo.wslDistro')}</span>
                   <span className="mt-0.5 block text-[10.5px] text-muted-foreground">
-                    Run sessions in Linux; use a folder in the distro or on a Windows drive
+                    {t('addRepo.wslHint')}
                   </span>
                 </span>
               </button>
@@ -457,7 +463,7 @@ export default function AddRepositoryDialog({
                 className="text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground"
                 htmlFor="wsl-distro"
               >
-                Distro
+                {t('addRepo.distro')}
               </label>
               <button
                 type="button"
@@ -467,13 +473,13 @@ export default function AddRepositoryDialog({
                 data-testid="wsl-distro-retry"
               >
                 <RefreshCw size={11} className={distros.phase === 'loading' ? 'animate-spin' : ''} />
-                Refresh
+                {t('common.refresh')}
               </button>
             </div>
             {distros.phase === 'idle' || distros.phase === 'loading' ? (
               <div className="mt-1.5 flex items-center gap-2 rounded-md border border-border bg-background px-2.5 py-2 text-[11px] text-muted-foreground">
                 <Loader2 size={12} className="animate-spin" />
-                Looking for installed distros…
+                {t('addRepo.looking')}
               </div>
             ) : distros.phase === 'unavailable' ? (
               <UnavailableNotice payload={distros.payload} />
@@ -481,13 +487,12 @@ export default function AddRepositoryDialog({
               <div className="mt-1.5 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-[11px] text-destructive">
                 <AlertTriangle size={13} className="mt-0.5 shrink-0" />
                 <span>
-                  The distro list could not be loaded: {distros.error.message}
+                  {t('addRepo.distroListFailed', { message: distros.error.message })}
                 </span>
               </div>
             ) : distros.payload.distros.length === 0 ? (
               <div className="mt-1.5 rounded-md border border-signal-line bg-signal-weak px-3 py-2 text-[11px] text-signal">
-                No WSL distro is installed. Install one with <code>wsl --install</code>, then
-                refresh.
+                {t('addRepo.noDistro')}
               </div>
             ) : (
               <>
@@ -505,19 +510,21 @@ export default function AddRepositoryDialog({
                   }}
                   data-testid="wsl-distro-select"
                 >
-                  <option value="">Choose a distro</option>
+                  <option value="">{t('addRepo.chooseDistro')}</option>
                   {distros.payload.distros.map((distro) => (
                     <option key={distro.registrationId} value={distro.registrationId}>
                       {distro.name}
-                      {distro.version === null ? '' : ` · WSL ${String(distro.version)}`}
-                      {distro.running === false ? ' — not running' : ''}
+                      {distro.version === null
+                        ? ''
+                        : t('addRepo.distroVersion', { version: distro.version })}
+                      {distro.running === false ? t('addRepo.notRunning') : ''}
                     </option>
                   ))}
                 </select>
                 {choice.distro !== null && choice.distro.running === null ? (
                   // Unknown is not "stopped": saying either would be a guess.
                   <p className="mt-1 text-[10.5px] text-muted-foreground">
-                    Running state unknown. Opening a terminal starts it if needed.
+                    {t('addRepo.runningUnknown')}
                   </p>
                 ) : null}
               </>
@@ -527,7 +534,7 @@ export default function AddRepositoryDialog({
 
         <div className="mt-4">
           <span className="block text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
-            Project folder
+            {t('addRepo.projectFolder')}
           </span>
 
           {/* One primary action; typing is the fallback below. */}
@@ -540,7 +547,7 @@ export default function AddRepositoryDialog({
               data-testid="add-repo-browse"
             >
               {picking ? <Loader2 size={12} className="animate-spin" /> : <FolderOpen size={12} />}
-              {picking ? 'Choosing…' : 'Browse…'}
+              {picking ? t('addRepo.choosing') : t('addRepo.browse')}
             </button>
             {source === 'browse' && path.length > 0 ? (
               <button
@@ -549,7 +556,7 @@ export default function AddRepositoryDialog({
                 onClick={() => setManualEntry((open) => !open)}
                 data-testid="add-repo-edit-path"
               >
-                {manualEntry ? 'Hide path' : 'Edit path'}
+                {manualEntry ? t('addRepo.hidePath') : t('addRepo.editPath')}
               </button>
             ) : path.length === 0 ? (
               <button
@@ -558,7 +565,7 @@ export default function AddRepositoryDialog({
                 onClick={() => setManualEntry((open) => !open)}
                 data-testid="add-repo-manual-toggle"
               >
-                {manualEntry ? 'Hide path entry' : 'Enter path manually'}
+                {manualEntry ? t('addRepo.hidePathEntry') : t('addRepo.enterPath')}
               </button>
             ) : null}
           </div>
@@ -578,7 +585,7 @@ export default function AddRepositoryDialog({
                     className="mt-1 block break-all font-mono text-[9.5px] text-muted-foreground"
                     data-testid="add-repo-translated-from"
                   >
-                    from {pickedFrom}
+                    {t('addRepo.from', { path: pickedFrom })}
                   </span>
                 ) : null}
               </span>
@@ -588,7 +595,9 @@ export default function AddRepositoryDialog({
           {manualEntry || source !== 'browse' || path.length === 0 ? (
             <>
               <label className="sr-only" htmlFor="repo-path">
-                {choice.kind === 'local' ? 'Local project path' : 'Project path in the distro'}
+                {choice.kind === 'local'
+                  ? t('addRepo.localPathAria')
+                  : t('addRepo.wslPathAria')}
               </label>
               <input
                 id="repo-path"
@@ -597,9 +606,9 @@ export default function AddRepositoryDialog({
                 placeholder={
                   choice.kind === 'local'
                     ? isWindows
-                      ? 'D:\\projects\\my-repo'
-                      : '/home/you/projects/my-repo'
-                    : '/home/you/projects/my-repo or D:\\projects\\my-repo'
+                      ? t('addRepo.placeholderWindowsWin')
+                      : t('addRepo.placeholderWindowsUnix')
+                    : t('addRepo.placeholderWsl')
                 }
                 value={path}
                 onChange={(event) => {
@@ -619,14 +628,10 @@ export default function AddRepositoryDialog({
           ) : null}
 
           <p className="mt-1.5 text-[10.5px] leading-relaxed text-muted-foreground">
-            {choice.kind === 'local'
-              ? 'Choose a folder. Existing Git checkouts are registered immediately; a folder without Git is initialized when you add it.'
-              : 'Choose a folder on a Windows drive or in the distro. A Windows path such as D:\\project is used inside the distro as /mnt/d/project; you can also type a Linux path.'}
+            {choice.kind === 'local' ? t('addRepo.localHelp') : t('addRepo.wslHelp')}
           </p>
           <p className="mt-1 text-[10.5px] leading-relaxed text-muted-foreground">
-            If this folder needs a first commit, iCode prepares it in the background. Dependency
-            and cache folders such as node_modules are left out; review any secrets in the folder
-            before adding it.
+            {t('addRepo.firstCommitHelp')}
           </p>
           {pickedFrom !== null &&
           (source !== 'browse' || manualEntry) &&
@@ -636,8 +641,11 @@ export default function AddRepositoryDialog({
               className="mt-1 rounded border border-border bg-background px-2 py-1.5 text-[10px] text-muted-foreground"
               data-testid="add-repo-mapping"
             >
-              Using {pickedFrom} as {inspection?.path ?? path} in{' '}
-              {choice.distro?.name ?? 'the distro'}.
+              {t('addRepo.mapping', {
+                from: pickedFrom,
+                to: inspection?.path ?? path,
+                distro: choice.distro?.name ?? t('newSession.repositoryFallback')
+              })}
             </p>
           ) : null}
         </div>
@@ -649,9 +657,9 @@ export default function AddRepositoryDialog({
           >
             {inspection.kind === 'parent' ? (
               <>
-                <p className="text-[12px] font-medium">Choose a repository</p>
+                <p className="text-[12px] font-medium">{t('addRepo.chooseRepository')}</p>
                 <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-                  This folder is not itself a Git repository. These child folders are:
+                  {t('addRepo.childrenIntro')}
                 </p>
                 <div className="mt-2 grid gap-1.5">
                   {inspection.repositories.map((candidate, index) => (
@@ -683,16 +691,14 @@ export default function AddRepositoryDialog({
                   <div className="min-w-0">
                     <p className="text-[12px] font-medium">
                       {inspection.kind === 'unborn'
-                        ? 'Create the first commit'
-                        : 'Initialize Git for this folder'}
+                        ? t('addRepo.createFirstCommit')
+                        : t('addRepo.initGit')}
                     </p>
                     <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
                       {inspection.kind === 'unborn'
-                        ? 'This repository has no commits yet. iCode needs a baseline before it can create an isolated worktree for each session.'
-                        : 'iCode needs a Git baseline before it can create an isolated worktree for each session.'}{' '}
-                      The first commit runs in the background, so you can close this dialog and keep
-                      working. Dependency and cache folders such as node_modules are left out; an
-                      existing .gitignore is respected.
+                        ? t('addRepo.unbornBody')
+                        : t('addRepo.gitlessBody')}{' '}
+                      {t('addRepo.firstCommitRuns')}
                     </p>
                   </div>
                 </div>
@@ -706,12 +712,10 @@ export default function AddRepositoryDialog({
                 {needsIdentity ? (
                   <div className="mt-3 grid gap-2" data-testid="add-repo-identity">
                     <p className="text-[10.5px] text-muted-foreground">
-                      Git has no author configured for this environment. iCode uses this name and
-                      email for the initial commit and saves them in this repository's local Git
-                      config.
+                      {t('addRepo.identityHelp')}
                     </p>
                     <label className="grid gap-1 text-[10.5px] text-muted-foreground">
-                      Author name
+                      {t('addRepo.authorName')}
                       <input
                         className="rounded-md border border-border bg-background px-2.5 py-2 text-[11.5px] text-foreground outline-none focus:border-accent"
                         value={identityName}
@@ -722,7 +726,7 @@ export default function AddRepositoryDialog({
                       />
                     </label>
                     <label className="grid gap-1 text-[10.5px] text-muted-foreground">
-                      Email
+                      {t('addRepo.email')}
                       <input
                         className="rounded-md border border-border bg-background px-2.5 py-2 text-[11.5px] text-foreground outline-none focus:border-accent"
                         value={identityEmail}
@@ -763,7 +767,7 @@ export default function AddRepositoryDialog({
             disabled={busy}
             data-testid="add-repo-cancel"
           >
-            Cancel
+            {t('addRepo.cancel')}
           </button>
           <button
             type="submit"
@@ -792,6 +796,7 @@ function UnavailableNotice({
 }: {
   payload: Extract<WslDistroListPayload, { status: 'unavailable' }>
 }): React.JSX.Element {
+  const t = useT()
   return (
     <div
       className="mt-1.5 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-[11px] text-destructive"
@@ -801,11 +806,11 @@ function UnavailableNotice({
     >
       <AlertTriangle size={13} className="mt-0.5 shrink-0" />
       <span>
-        {reasonText(payload.reason)}
+        {reasonText(payload.reason, t)}
         <span className="mt-0.5 block break-all font-mono text-[9px] opacity-80">
           {payload.detail}
         </span>
-        A local repository can still be registered.
+        {t('addRepo.stillCanRegister')}
       </span>
     </div>
   )

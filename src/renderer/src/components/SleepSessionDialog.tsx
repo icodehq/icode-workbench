@@ -1,6 +1,7 @@
 import { Moon, X } from 'lucide-react'
 import type { SessionSummary } from '../../../shared/schemas/ipc'
 import { wakeDescription } from '../../../shared/domain/session-sleep'
+import { useLocale, useT } from '../i18n/use-i18n'
 
 type Props = {
   session: SessionSummary
@@ -18,40 +19,41 @@ export default function SleepSessionDialog({
   onClose,
   onConfirm
 }: Props): React.JSX.Element {
+  const t = useT()
+  const locale = useLocale()
   const working = session.activity?.state === 'working'
   return (
     <div
       className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-6"
       role="dialog"
       aria-modal="true"
-      aria-label="Sleep session"
+      aria-label={t('session.sleep.confirm')}
       data-testid="sleep-session-dialog"
     >
       <div className="icode-modal w-full max-w-md rounded-lg border border-border bg-card p-6 shadow-2xl">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-2">
             <Moon size={15} className="text-info" />
-            <h2 className="text-[16px] font-semibold">Sleep session?</h2>
+            <h2 className="text-[16px] font-semibold">{t('session.sleep.title')}</h2>
           </div>
           <button
             type="button"
             className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
             onClick={onClose}
-            aria-label="Close"
+            aria-label={t('common.close')}
           >
             <X size={14} />
           </button>
         </div>
         <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground">
-          <span className="font-medium text-foreground">{session.title}</span> stops its terminal
-          process and frees CPU and memory. The session, worktree and branch stay.
+          {t('session.sleep.body', { title: session.title })}
         </p>
         <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-          {wakeDescription(session.harness)} Terminal scrollback is not preserved.
+          {wakeDescription(session.harness, locale)} {t('session.sleep.scrollback')}
         </p>
         {working ? (
           <p className="mt-2 rounded border border-signal-line bg-signal-weak px-2 py-1.5 text-[11px] leading-relaxed text-signal">
-            The agent is still working. Sleeping interrupts the current turn.
+            {t('session.sleep.working')}
           </p>
         ) : null}
         <div className="mt-4 flex justify-end gap-2">
@@ -61,7 +63,7 @@ export default function SleepSessionDialog({
             onClick={onClose}
             data-testid="sleep-session-cancel"
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           <button
             type="button"
@@ -69,7 +71,7 @@ export default function SleepSessionDialog({
             onClick={onConfirm}
             data-testid="sleep-session-confirm"
           >
-            Sleep session
+            {t('session.sleep.confirm')}
           </button>
         </div>
       </div>

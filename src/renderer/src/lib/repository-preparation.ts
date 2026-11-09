@@ -1,4 +1,5 @@
 import type { RepositorySummary } from '../../../shared/schemas/ipc'
+import { translate } from '../i18n/i18n-store'
 
 export type RepositoryPreparationView =
   | { kind: 'preparing'; label: string }
@@ -18,13 +19,14 @@ export function repositoryPreparationView(
   const preparation = repo.preparation ?? null
   if (preparation === null) return null
   if (preparation.state === 'preparing') {
-    return { kind: 'preparing', label: 'Preparing first commit…' }
+    return { kind: 'preparing', label: translate('projects.preparation.preparing') }
   }
   if (preparation.state === 'failed') {
     return {
       kind: 'failed',
-      label: 'First commit needs attention',
-      detail: preparation.error?.message ?? 'The first commit could not be created.'
+      label: translate('projects.preparation.failed'),
+      detail:
+        preparation.error?.message ?? translate('projects.preparation.failedDetail')
     }
   }
   return null

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type * as MonacoTypes from 'monaco-editor'
 import type { MonacoApi } from '../editor/monaco'
+import { useT } from '../i18n/use-i18n'
 
 type Props = {
   path: string
@@ -42,6 +43,7 @@ export default function MonacoTextPane({
   onChange,
   revealLine
 }: Props): React.JSX.Element {
+  const t = useT()
   const container = useRef<HTMLDivElement | null>(null)
   const handle = useRef<Handle | null>(null)
   const suppress = useRef(false)
@@ -134,7 +136,7 @@ export default function MonacoTextPane({
       <div ref={container} className="absolute inset-0" data-testid={testId} />
       {state === 'loading' ? (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-[10.5px] text-muted-foreground">
-          Loading…
+          {t('monaco.loading')}
         </div>
       ) : state === 'failed' ? (
         readOnly ? (

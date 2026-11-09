@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { AlertTriangle, Loader2, RotateCcw, Undo2 } from 'lucide-react'
+import { useT } from '../i18n/use-i18n'
 
 export type CommitDialogKind = 'cherry-pick' | 'revert' | 'reset'
 export type ResetMode = 'soft' | 'mixed' | 'hard'
@@ -14,10 +15,13 @@ type Props = {
   onSubmit: (value: { mode?: ResetMode }) => void
 }
 
-const TITLES: Record<CommitDialogKind, string> = {
-  'cherry-pick': 'Cherry-pick this commit?',
-  revert: 'Revert this commit?',
-  reset: 'Reset the current branch here'
+const TITLE_KEYS: Record<
+  CommitDialogKind,
+  'scm.commitDialog.cherryPick' | 'scm.commitDialog.revert' | 'scm.commitDialog.reset'
+> = {
+  'cherry-pick': 'scm.commitDialog.cherryPick',
+  revert: 'scm.commitDialog.revert',
+  reset: 'scm.commitDialog.reset'
 }
 
 /**
@@ -36,6 +40,7 @@ export default function ScmCommitDialog({
   onCancel,
   onSubmit
 }: Props): React.JSX.Element {
+  const t = useT()
   const [mode, setMode] = useState<ResetMode>('mixed')
 
   useEffect(() => {
@@ -54,7 +59,7 @@ export default function ScmCommitDialog({
       className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4"
       role="dialog"
       aria-modal="true"
-      aria-label={TITLES[kind]}
+      aria-label={t(TITLE_KEYS[kind])}
       data-testid="scm-commit-dialog"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget && !busy) onCancel()
@@ -62,7 +67,7 @@ export default function ScmCommitDialog({
     >
       <div className="icode-modal w-[min(520px,100%)] overflow-hidden rounded-xl border border-line-strong bg-overlay shadow-[var(--icode-shadow-overlay)]">
         <div className="border-b border-border px-4 py-3">
-          <h2 className="text-[14px] font-semibold">{TITLES[kind]}</h2>
+          <h2 className="text-[14px] font-semibold">{t(TITLE_KEYS[kind])}</h2>
           <p className="mt-1 min-w-0 truncate font-mono text-[10.5px] text-muted-foreground">
             {shortOid} · {subject}
           </p>
@@ -70,8 +75,7 @@ export default function ScmCommitDialog({
         <div className="space-y-3 px-4 py-3">
           {kind === 'cherry-pick' ? (
             <p className="text-[11px] leading-relaxed text-muted-foreground">
-              Applies this commit's change on the current branch as a new commit. A conflict leaves
-              the cherry-pick in progress; continue or abort it in the terminal.
+              {t('scm.commitDialog.cherryBody')}
             </p>
           ) : null}
 
@@ -79,7 +83,7 @@ export default function ScmCommitDialog({
             <div className="flex items-start gap-2 rounded-md border border-signal-line bg-signal-weak px-3 py-2 text-[11px] leading-relaxed text-signal">
               <AlertTriangle size={13} className="mt-0.5 shrink-0" />
               <span>
-                Creates a new commit that undoes this change. It does not rewrite history or push.
+                {t('scm.commitDialog.revertBody')}
               </span>
             </div>
           ) : null}
@@ -87,24 +91,28 @@ export default function ScmCommitDialog({
           {kind === 'reset' ? (
             <div className="space-y-2">
               <label className="flex items-center gap-2 text-[11px] text-foreground">
-                Reset mode
+                {t('scm.commitDialog.resetMode')}
                 <select
                   value={mode}
                   onChange={(event) => setMode(event.target.value as ResetMode)}
                   className="h-7 rounded border border-border bg-background px-1.5 font-mono text-[10.5px]"
                   data-testid="scm-reset-mode"
                 >
-                  <option value="soft">Soft — keep index and files</option>
-                  <option value="mixed">Mixed — reset index, keep files</option>
-                  <option value="hard">Hard — discard tracked changes</option>
+                  <option value="soft">{t('scm.commitDialog.soft')}</option>
+                  <option value="mixed">{t('scm.commitDialog.mixed')}</option>
+                  <option value="hard">{t('scm.commitDialog.hard')}</option>
                 </select>
               </label>
               <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-[11px] leading-relaxed text-destructive">
                 <AlertTriangle size={13} className="mt-0.5 shrink-0" />
                 <span>
-                  Moves the current branch to {shortOid}. {mode === 'hard'
-                    ? 'Hard reset discards tracked working-tree and index changes.'
-                    : 'No commit is deleted from the object store, but later commits leave the branch.'}
+                  {t('scm.commitDialog.resetMoves', {
+                    oid: shortOid,
+                    detail:
+                      mode === 'hard'
+                        ? t('scm.commitDialog.resetHard')
+                        : t('scm.commitDialog.resetSoft')
+                  })}
                 </span>
               </div>
             </div>
@@ -127,7 +135,7 @@ export default function ScmCommitDialog({
             disabled={busy}
             data-testid="scm-commit-cancel"
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           <button
             type="button"
@@ -142,10 +150,10 @@ export default function ScmCommitDialog({
           >
             {busy ? <Loader2 size={12} className="animate-spin" /> : <Icon size={12} />}
             {kind === 'cherry-pick'
-              ? 'Cherry-pick'
+              ? t('scm.commitDialog.cherryPickAction')
               : kind === 'revert'
-                ? 'Revert commit'
-                : 'Reset branch'}
+                ? t('scm.commitDialog.revertAction')
+                : t('scm.commitDialog.resetAction')}
           </button>
         </div>
       </div>

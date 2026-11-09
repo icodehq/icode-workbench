@@ -21,6 +21,7 @@ import { repositoryPreparationView } from '../lib/repository-preparation'
 import type { AgentSendResult } from '../lib/agent-send'
 import type { WorkbenchDraftStore } from '../review/drafts'
 import type { Notice } from '../state/workspace'
+import { useT, useTp } from '../i18n/use-i18n'
 import TaskWorkbench from './TaskWorkbench'
 import {
   sortFinishedTasks,
@@ -76,14 +77,27 @@ function statusGlyph(task: TaskRecordPayload): React.JSX.Element {
 }
 
 function ReviewBadge({ task }: { task: TaskRecordPayload }): React.JSX.Element | null {
+  const t = useT()
   if (task.reviewDecision === 'accepted') {
-    return <span className="shrink-0 rounded bg-add-weak px-1 text-[8px] text-add">accepted</span>
+    return (
+      <span className="shrink-0 rounded bg-add-weak px-1 text-[8px] text-add">
+        {t('tasks.row.accepted')}
+      </span>
+    )
   }
   if (task.reviewDecision === 'rejected') {
-    return <span className="shrink-0 rounded bg-destructive/15 px-1 text-[8px] text-destructive">rejected</span>
+    return (
+      <span className="shrink-0 rounded bg-destructive/15 px-1 text-[8px] text-destructive">
+        {t('tasks.row.rejected')}
+      </span>
+    )
   }
   if (task.canDecideReview) {
-    return <span className="shrink-0 rounded bg-muted px-1 text-[9px] text-muted-foreground">unreviewed</span>
+    return (
+      <span className="shrink-0 rounded bg-muted px-1 text-[9px] text-muted-foreground">
+        {t('tasks.row.unreviewed')}
+      </span>
+    )
   }
   return null
 }
@@ -111,6 +125,7 @@ function ProjectTaskRow({
   onUnarchive?: () => Promise<void>
   archived?: boolean
 }): React.JSX.Element {
+  const t = useT()
   const attention = taskAttention(task)
   return (
     <li
@@ -126,7 +141,7 @@ function ProjectTaskRow({
         type="button"
         className="flex w-full items-center gap-2 text-left"
         onClick={onSelect}
-        title="Open task details"
+        title={t('tasks.row.openDetails')}
         data-testid={`task-open-detail-${task.id}`}
       >
         <span className={`shrink-0 ${taskStatusTone(task)}`}>{statusGlyph(task)}</span>
@@ -135,13 +150,13 @@ function ProjectTaskRow({
         </span>
         {attention !== null ? (
           <span className="shrink-0 rounded bg-signal-weak px-1.5 text-[9px] text-signal">
-            {attention}
+            {attention === null ? null : t(`taskAttention.${attention}`)}
           </span>
         ) : null}
         <ReviewBadge task={task} />
         {archived ? (
           <span className="shrink-0 rounded bg-muted px-1 text-[9px] text-muted-foreground">
-            archived
+            {t('tasks.row.archived')}
           </span>
         ) : null}
         <span className={`shrink-0 text-[9px] uppercase ${taskStatusTone(task)}`}>
@@ -150,14 +165,16 @@ function ProjectTaskRow({
       </button>
       <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
         <span>{task.harness}</span>
-        {task.attempt > 1 ? <span>· try {task.attempt}</span> : null}
-        {task.createdByActor === 'mira' ? (
-          <span>· proposed by Mira</span>
-        ) : task.origin === 'supervisor' ? (
-          <span>· proposed by Supervisor</span>
+        {task.attempt > 1 ? (
+          <span>{t('tasks.row.try', { count: task.attempt })}</span>
         ) : null}
-        {task.sessionLive ? <span className="text-add">· session live</span> : null}
-        {task.scheduleId ? <span>· from a schedule</span> : null}
+        {task.createdByActor === 'mira' ? (
+          <span>{t('tasks.row.proposedByMira')}</span>
+        ) : task.origin === 'supervisor' ? (
+          <span>{t('tasks.row.proposedBySupervisor')}</span>
+        ) : null}
+        {task.sessionLive ? <span className="text-add">{t('tasks.row.sessionLive')}</span> : null}
+        {task.scheduleId ? <span>{t('tasks.row.fromSchedule')}</span> : null}
         <span className="ml-auto flex items-center gap-1">
           {archived && onUnarchive ? (
             <button
@@ -167,7 +184,7 @@ function ProjectTaskRow({
               disabled={busy}
               data-testid={`task-unarchive-${task.id}`}
             >
-              Restore
+              {t('tasks.row.restore')}
             </button>
           ) : !archived && task.canArchive && onArchive ? (
             <button
@@ -177,7 +194,7 @@ function ProjectTaskRow({
               disabled={busy}
               data-testid={`task-archive-${task.id}`}
             >
-              Archive
+              {t('tasks.row.archive')}
             </button>
           ) : null}
           {!archived && task.canApprove ? (
@@ -189,7 +206,7 @@ function ProjectTaskRow({
                 disabled={busy}
                 data-testid={`task-approve-${task.id}`}
               >
-                Approve
+                {t('tasks.row.approve')}
               </button>
               <button
                 type="button"
@@ -198,7 +215,7 @@ function ProjectTaskRow({
                 disabled={busy}
                 data-testid={`task-reject-${task.id}`}
               >
-                Reject
+                {t('tasks.row.reject')}
               </button>
             </>
           ) : null}
@@ -210,7 +227,7 @@ function ProjectTaskRow({
               disabled={busy}
               data-testid={`task-cancel-${task.id}`}
             >
-              Cancel
+              {t('tasks.row.cancel')}
             </button>
           ) : null}
           {!archived && task.canRetry ? (
@@ -221,7 +238,7 @@ function ProjectTaskRow({
               disabled={busy}
               data-testid={`task-retry-${task.id}`}
             >
-              Retry
+              {t('tasks.row.retry')}
             </button>
           ) : null}
         </span>
@@ -265,6 +282,8 @@ export default function ProjectTasksView({
   onError,
   onSendToAgent
 }: Props): React.JSX.Element {
+  const t = useT()
+  const tp = useTp()
   const projectTasks = useMemo(
     () => tasks.filter((task) => task.repoId === repo.id),
     [repo.id, tasks]
@@ -493,7 +512,10 @@ export default function ProjectTasksView({
       setComposerOpen(false)
       setSelectedTaskId(result.value.id)
       reportSelection(result.value.id)
-      notify({ tone: 'success', message: `Queued: ${result.value.title}` })
+      notify({
+        tone: 'success',
+        message: t('tasks.notice.queued', { title: result.value.title })
+      })
       await onReload()
     } finally {
       setBusyId(null)
@@ -506,7 +528,7 @@ export default function ProjectTasksView({
       try {
         const result = await callApi<TaskRecordPayload>(window.icode.tasks.cancel({ taskId: task.id }))
         if (!result.ok) notify(errorNotice(result.error))
-        else notify({ tone: 'info', message: `Cancelled ${task.title}` })
+        else notify({ tone: 'info', message: t('tasks.notice.cancelled', { title: task.title }) })
         await onReload()
       } finally {
         setBusyId(null)
@@ -524,7 +546,10 @@ export default function ProjectTasksView({
         else {
           setSelectedTaskId(result.value.id)
           reportSelection(result.value.id)
-          notify({ tone: 'success', message: `Retrying as attempt ${String(result.value.attempt)}` })
+          notify({
+            tone: 'success',
+            message: t('tasks.notice.retrying', { count: result.value.attempt })
+          })
         }
         await onReload()
       } finally {
@@ -540,7 +565,7 @@ export default function ProjectTasksView({
       try {
         const result = await callApi<TaskRecordPayload>(window.icode.tasks.approve({ taskId: task.id }))
         if (!result.ok) notify(errorNotice(result.error))
-        else notify({ tone: 'success', message: `Approved ${task.title}` })
+        else notify({ tone: 'success', message: t('tasks.notice.approved', { title: task.title }) })
         await onReload()
       } finally {
         setBusyId(null)
@@ -555,7 +580,7 @@ export default function ProjectTasksView({
       try {
         const result = await callApi<TaskRecordPayload>(window.icode.tasks.reject({ taskId: task.id }))
         if (!result.ok) notify(errorNotice(result.error))
-        else notify({ tone: 'info', message: `Rejected ${task.title}` })
+        else notify({ tone: 'info', message: t('tasks.notice.rejected', { title: task.title }) })
         await onReload()
       } finally {
         setBusyId(null)
@@ -572,7 +597,10 @@ export default function ProjectTasksView({
           window.icode.tasks.archive({ taskId: task.id })
         )
         if (!result.ok) notify(errorNotice(result.error))
-        else notify({ tone: 'info', message: `Moved ${task.title} to history.` })
+        else notify({
+          tone: 'info',
+          message: t('tasks.notice.archived', { title: task.title })
+        })
         await onReload()
       } finally {
         setBusyId(null)
@@ -589,7 +617,7 @@ export default function ProjectTasksView({
           window.icode.tasks.unarchive({ taskId: task.id })
         )
         if (!result.ok) notify(errorNotice(result.error))
-        else notify({ tone: 'info', message: `Restored ${task.title}.` })
+        else notify({ tone: 'info', message: t('tasks.notice.restored', { title: task.title }) })
         await onReload()
       } finally {
         setBusyId(null)
@@ -610,8 +638,8 @@ export default function ProjectTasksView({
           tone: 'info',
           message:
             result.value === 0
-              ? 'Nothing finished is waiting to be archived.'
-              : `Archived ${String(result.value)} finished task${result.value === 1 ? '' : 's'}.`
+              ? t('tasks.nothingToArchive')
+              : tp('tasks.archived', result.value)
         })
       }
       await onReload()
@@ -623,22 +651,29 @@ export default function ProjectTasksView({
   const groupMeta = [
     {
       key: 'proposal' as const,
-      label: 'Proposals',
-      note: `${String(groups.proposal.length)} need approval`
+      label: t('tasks.group.proposals'),
+      note: t('tasks.group.needApproval', { count: groups.proposal.length })
     },
-    { key: 'running' as const, label: 'Running', note: `${String(groups.running.length)} active here` },
-    { key: 'queued' as const, label: 'Queued', note: null },
-    { key: 'finished' as const, label: 'Finished', note: null },
-    { key: 'history' as const, label: 'History', note: null }
+    {
+      key: 'running' as const,
+      label: t('tasks.group.running'),
+      note: t('tasks.group.activeHere', { count: groups.running.length })
+    },
+    { key: 'queued' as const, label: t('tasks.group.queued'), note: null },
+    { key: 'finished' as const, label: t('tasks.group.finished'), note: null },
+    { key: 'history' as const, label: t('tasks.group.history'), note: null }
   ]
 
   return (
     <div className="flex min-h-0 flex-1 flex-col min-[900px]:flex-row" data-testid="project-tasks-view">
       <aside className="flex w-[326px] shrink-0 flex-col overflow-y-auto border-r border-border bg-card max-[900px]:max-h-[40vh] max-[900px]:w-full max-[900px]:border-b max-[900px]:border-r-0" data-testid="project-tasks-list">
         <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2">
-          <h1 className="text-[14px] font-semibold">Tasks</h1>
+          <h1 className="text-[14px] font-semibold">{t('tasks.title')}</h1>
           <span className="text-[10.5px] text-muted-foreground" data-testid="tasks-summary">
-            {activeVisible.length} active · {groups.history.length} history
+            {t('tasks.summary', {
+              active: activeVisible.length,
+              history: groups.history.length
+            })}
           </span>
           <button
             type="button"
@@ -651,7 +686,7 @@ export default function ProjectTasksView({
             aria-pressed={filter === 'history'}
             data-testid="tasks-history"
           >
-            History
+            {t('tasks.history')}
             <span className="text-[9px] opacity-70">{groups.history.length}</span>
           </button>
           <button
@@ -666,13 +701,13 @@ export default function ProjectTasksView({
               preparation === null
                 ? undefined
                 : preparation.kind === 'failed'
-                  ? 'Retry the first commit from Projects before creating a task.'
-                  : 'Tasks unlock when the first commit finishes.'
+                  ? t('tasks.composer.retryFirstCommit')
+                  : t('tasks.composer.unlock')
             }
             data-testid="task-composer-toggle"
           >
             <Plus size={10} />
-            Queue task
+            {t('tasks.queue')}
           </button>
         </div>
 
@@ -684,25 +719,29 @@ export default function ProjectTasksView({
                 value={harness}
                 onChange={(event) => setHarness(event.target.value)}
                 disabled={harnessLoading}
-                aria-label="Harness"
+                aria-label={t('tasks.composer.harness')}
                 data-testid="task-harness"
               >
-                {harnesses.length === 0 ? <option value="">No Harness detected</option> : null}
+                {harnesses.length === 0 ? (
+                  <option value="">{t('tasks.composer.noHarness')}</option>
+                ) : null}
                 {harnesses.map((entry) => (
                   <option key={entry.harness} value={entry.harness} disabled={entry.state !== 'available'}>
                     {entry.harness}
-                    {entry.state === 'available' ? '' : ' (unavailable)'}
+                    {entry.state === 'available' ? '' : t('tasks.composer.unavailable')}
                   </option>
                 ))}
               </select>
               <span className="text-[9px] text-muted-foreground">
-                {harnessLoading ? 'Detecting Harnesses…' : 'Runs in its own worktree and session.'}
+                {harnessLoading
+                  ? t('tasks.composer.detecting')
+                  : t('tasks.composer.runsOwn')}
               </span>
             </div>
             <textarea
               ref={promptRef}
               className="mt-1.5 h-16 w-full resize-none rounded-md border border-border bg-background px-2 py-1.5 text-[11.5px] text-foreground outline-none placeholder:text-muted-foreground"
-              placeholder="What should the agent do? The task runs unattended in its own worktree."
+              placeholder={t('tasks.composer.placeholder')}
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
               onKeyDown={(event) => {
@@ -719,7 +758,7 @@ export default function ProjectTasksView({
                 data-testid="task-create"
               >
                 <Plus size={10} />
-                Add to queue
+                {t('tasks.composer.add')}
               </button>
               <span className="text-[9px] text-muted-foreground">{shortcutLabel('Enter')}</span>
               <button
@@ -727,7 +766,7 @@ export default function ProjectTasksView({
                 className="ml-auto text-[9px] text-muted-foreground hover:text-foreground"
                 onClick={() => setComposerOpen(false)}
               >
-                Close
+                {t('tasks.composer.close')}
               </button>
             </div>
           </div>
@@ -748,14 +787,22 @@ export default function ProjectTasksView({
             <AlertTriangle size={12} className="shrink-0 text-signal" />
             <span className="min-w-0 flex-1">
               <span className="block text-[10px] text-signal">
-                {attention.total} need you
+                {t('tasks.needsYou', { count: attention.total })}
               </span>
               <span className="mt-0.5 flex flex-wrap items-center gap-1 text-[9px] text-signal opacity-80">
                 {[
-                  attention.approval > 0 ? `Approve ${String(attention.approval)}` : null,
-                  attention.answer > 0 ? `Answer ${String(attention.answer)}` : null,
-                  attention.retry > 0 ? `Retry ${String(attention.retry)}` : null,
-                  attention.review > 0 ? `Review ${String(attention.review)}` : null
+                  attention.approval > 0
+                    ? t('tasks.attention.approval', { count: attention.approval })
+                    : null,
+                  attention.answer > 0
+                    ? t('tasks.attention.answer', { count: attention.answer })
+                    : null,
+                  attention.retry > 0
+                    ? t('tasks.attention.retry', { count: attention.retry })
+                    : null,
+                  attention.review > 0
+                    ? t('tasks.attention.review', { count: attention.review })
+                    : null
                 ]
                   .filter((part): part is string => part !== null)
                   .map((part, index) => (
@@ -766,17 +813,17 @@ export default function ProjectTasksView({
                   ))}
               </span>
             </span>
-            <span className="shrink-0 text-[9px] text-signal">{filter === 'needs' ? 'Showing' : 'View'}</span>
+            <span className="shrink-0 text-[9px] text-signal">{filter === 'needs' ? t('tasks.showing') : t('tasks.view')}</span>
           </button>
         ) : null}
 
         <div className="flex items-center gap-2 px-3 py-1.5 text-[9px] text-muted-foreground">
           <span>
             {filter === 'history'
-              ? `${String(groups.history.length)} history task${groups.history.length === 1 ? '' : 's'}`
+              ? tp('tasks.count.history', groups.history.length)
               : filter === 'all'
-                ? `${String(activeVisible.length)} active task${activeVisible.length === 1 ? '' : 's'}`
-                : `${String(visible.length)} in this view`}
+                ? tp('tasks.count.active', activeVisible.length)
+                : t('tasks.count.inView', { count: visible.length })}
           </span>
           {filter !== 'all' ? (
             <button
@@ -785,7 +832,7 @@ export default function ProjectTasksView({
               onClick={() => setFilter('all')}
               data-testid="tasks-show-all"
             >
-              Show all
+              {t('tasks.showAll')}
             </button>
           ) : null}
         </div>
@@ -799,25 +846,25 @@ export default function ProjectTasksView({
               disabled={busyId !== null || archivableCount === 0}
               data-testid="tasks-archive-finished"
             >
-              Archive all finished
+              {t('tasks.archiveAll')}
             </button>
           </div>
         ) : null}
 
         <div className="px-2 pb-3">
           {loading ? (
-            <p className="p-3 text-[11px] text-muted-foreground">Reading the queue…</p>
+<p className="p-3 text-[11px] text-muted-foreground">{t('tasks.loading')}</p>
           ) : allProjectTasks.length === 0 ? (
             <div className="p-3 text-[11px] text-muted-foreground" data-testid="tasks-empty">
-              No tasks yet. Queue one for unattended work.
+              {t('tasks.empty')}
             </div>
           ) : visible.length === 0 ? (
             <div className="p-3 text-[11px] text-muted-foreground">
               {filter === 'needs'
-                ? 'Nothing needs you right now.'
+                ? t('tasks.emptyNeeds')
                 : filter === 'history'
-                  ? 'History is empty.'
-                  : 'No active tasks. Open History for finished work.'}
+                  ? t('tasks.emptyHistory')
+                  : t('tasks.emptyActive')}
             </div>
           ) : (
             groupMeta.map((meta) => {
@@ -838,7 +885,11 @@ export default function ProjectTasksView({
                     }`}
                     onClick={() => setFilter(active ? 'all' : meta.key)}
                     aria-pressed={active}
-                    title={active ? 'Show all tasks' : `Show only ${meta.label.toLowerCase()}`}
+                    title={
+                      active
+                        ? t('tasks.group.showAll')
+                        : t('tasks.group.showOnly', { group: meta.label })
+                    }
                     data-testid={`tasks-group-${meta.key}`}
                   >
                     <span className={`h-1.5 w-1.5 rounded-full ${
@@ -852,7 +903,12 @@ export default function ProjectTasksView({
                     }`} />
                     <span>{meta.label}</span>
                     <span className="normal-case tracking-normal">
-                      {filter === 'needs' ? `${String(list.length)} of ${String(totalInGroup.length)}` : String(list.length)}
+                      {filter === 'needs'
+                        ? t('tasks.group.countOf', {
+                            shown: list.length,
+                            total: totalInGroup.length
+                          })
+                        : list.length}
                     </span>
                     {meta.note && meta.key === 'running' ? (
                       <span className="normal-case tracking-normal text-muted-foreground">{meta.note}</span>
@@ -913,7 +969,7 @@ export default function ProjectTasksView({
         ) : (
           <div className="flex flex-1 items-center justify-center p-8 text-center">
             <p className="max-w-sm text-[12px] leading-relaxed text-muted-foreground">
-              Select a task to open its Overview, Terminal, Changes and Files.
+              {t('tasks.selectTask')}
             </p>
           </div>
         )}

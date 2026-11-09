@@ -29,6 +29,8 @@ import RemoveSessionDialog from './RemoveSessionDialog'
 import SessionActionsMenu from './SessionActionsMenu'
 import SleepSessionDialog from './SleepSessionDialog'
 import SessionDetailsDrawer from './SessionDetailsDrawer'
+import { translate } from '../i18n/i18n-store'
+import { useLocale, useT } from '../i18n/use-i18n'
 import { useFilesDirtyCount } from '../files/open-files'
 import {
   activityDotClass,
@@ -85,14 +87,23 @@ type Props = {
   onShowSessionsList?: () => void
 }
 
-const WORKTREE_STATUS_LABEL: Record<WorktreeSummary['status'], string> = {
-  creating: 'Creating worktree',
-  incomplete: 'Worktree incomplete',
-  'ready-to-start': 'Worktree ready',
-  active: 'Worktree active',
-  missing: 'Worktree missing',
-  inconsistent: 'Worktree inconsistent',
-  failed: 'Worktree failed'
+function worktreeStatusLabel(status: WorktreeSummary['status']): string {
+  switch (status) {
+    case 'creating':
+      return translate('worktree.label.creating')
+    case 'incomplete':
+      return translate('worktree.label.incomplete')
+    case 'ready-to-start':
+      return translate('worktree.label.ready')
+    case 'active':
+      return translate('worktree.label.active')
+    case 'missing':
+      return translate('worktree.label.missing')
+    case 'inconsistent':
+      return translate('worktree.label.inconsistent')
+    case 'failed':
+      return translate('worktree.label.failed')
+  }
 }
 
 const WORKTREE_STATUS_TONE: Record<WorktreeSummary['status'], string> = {
@@ -130,6 +141,7 @@ function WorktreePanel({
   onRecover: () => void
   onRemove: () => void
 }): React.JSX.Element {
+  const t = useT()
   const missing = worktree.status === 'missing'
   return (
     <div className="absolute inset-0 z-10 flex items-center justify-center bg-background p-6">
@@ -137,23 +149,21 @@ function WorktreePanel({
         <div className="flex items-center gap-2">
           <AlertTriangle size={14} className="text-destructive" />
           <h2 className="text-[13px] font-semibold">
-            {missing ? 'This worktree is missing' : 'This worktree is inconsistent'}
+            {missing ? t('worktree.missingTitle') : t('worktree.inconsistentTitle')}
           </h2>
         </div>
         <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-          {missing
-            ? 'iCode will not fall back to the primary checkout. The branch still holds committed work; you can re-create the checkout from it.'
-            : 'Git does not recognise this directory as the recorded worktree. iCode will not start a terminal or delete anything until this is resolved.'}
+          {missing ? t('worktree.missingBody') : t('worktree.inconsistentBody')}
         </p>
         <dl className="mt-3 space-y-1 rounded-md border border-border bg-background px-3 py-2 font-mono text-[10px] text-muted-foreground">
           <div>
-            branch <span className="text-foreground">{worktree.branch}</span>
+            {t('worktree.branch')} <span className="text-foreground">{worktree.branch}</span>
           </div>
           <div className="break-all">
-            path <span className="text-foreground">{worktree.path}</span>
+            {t('worktree.path')} <span className="text-foreground">{worktree.path}</span>
           </div>
           <div>
-            baseline <span className="text-foreground">{worktree.baseOid.slice(0, 12)}</span>
+            {t('worktree.baseline')} <span className="text-foreground">{worktree.baseOid.slice(0, 12)}</span>
           </div>
         </dl>
         <div className="mt-4 flex flex-wrap gap-2">
@@ -165,7 +175,7 @@ function WorktreePanel({
               data-testid="worktree-recover"
             >
               <GitBranch size={12} />
-              Re-create from branch
+              {t('worktree.recreate')}
             </button>
           ) : null}
           <button
@@ -175,7 +185,7 @@ function WorktreePanel({
             data-testid="worktree-recheck"
           >
             <RefreshCw size={12} />
-            Check host
+            {t('worktree.checkHost')}
           </button>
           <button
             type="button"
@@ -184,11 +194,14 @@ function WorktreePanel({
             data-testid="worktree-remove"
           >
             <Trash2 size={12} />
-            Remove session…
+            {t('worktree.removeSession')}
           </button>
         </div>
         <p className="mt-3 text-[10px] text-muted-foreground">
-          Session state: {session.state}. {authorityNote(session)}
+          {t('worktree.sessionState', {
+            state: session.state,
+            note: authorityNote(session)
+          })}
         </p>
       </div>
     </div>
@@ -210,6 +223,7 @@ export function StatePanel({
   onRestart: () => void
   onRecheck: () => void
 }): React.JSX.Element {
+  const t = useT()
   const live = session.state === 'live' || session.state === 'starting'
   return (
     <div className="absolute inset-0 z-10 flex items-center justify-center bg-background p-6">
@@ -224,18 +238,16 @@ export function StatePanel({
           )}
           <h2 className="text-[13px] font-semibold">
             {live
-              ? 'Attaching to the terminal…'
+              ? t('session.statePanel.attaching')
               : session.state === 'exited'
-                ? 'This session has exited'
+                ? t('session.statePanel.exited')
                 : session.state === 'failed'
-                  ? 'This session failed'
-                  : 'Terminal state unavailable'}
+                  ? t('session.statePanel.failed')
+                  : t('session.statePanel.unavailable')}
           </h2>
         </div>
         <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-          {live
-            ? 'iCode is connecting to the existing process. It never starts a replacement for a live session.'
-            : authorityNote(session)}
+          {live ? t('session.statePanel.attachingBody') : authorityNote(session)}
         </p>
         {session.error ? (
           <p className="mt-2 break-words rounded-md border border-destructive/30 bg-destructive/10 px-2.5 py-1.5 font-mono text-[10px] leading-relaxed text-destructive">
@@ -245,7 +257,7 @@ export function StatePanel({
         ) : null}
         {session.exitCode !== null && !live ? (
           <p className="mt-2 text-[10px] text-muted-foreground">
-            Exit code <span className="font-mono">{session.exitCode}</span>
+            {t('session.exitCode', { code: session.exitCode })}
           </p>
         ) : null}
         {!live ? (
@@ -257,13 +269,13 @@ export function StatePanel({
               disabled={hostUnavailable(session)}
               title={
                 hostUnavailable(session)
-                  ? 'Host unreachable. Recheck the host before restarting.'
-                  : 'Stop the process and start a new incarnation'
+                  ? t('session.hostUnreachable')
+                  : t('session.restartDescription')
               }
               data-testid="state-restart"
             >
               <RotateCcw size={12} />
-              Restart session
+              {t('session.restartButton')}
             </button>
             <button
               type="button"
@@ -272,7 +284,7 @@ export function StatePanel({
               data-testid="state-recheck"
             >
               <RefreshCw size={12} />
-              Check host
+              {t('worktree.checkHost')}
             </button>
           </div>
         ) : null}
@@ -306,6 +318,8 @@ export default function SessionWorkspace({
   sessionsListHidden = false,
   onShowSessionsList
 }: Props): React.JSX.Element {
+  const t = useT()
+  const locale = useLocale()
   const worktree = session.worktree
   const unsavedFiles = useFilesDirtyCount(session.id)
   const blocked = worktreeBlocksTerminal(worktree)
@@ -342,17 +356,17 @@ export default function SessionWorkspace({
   const canWake = allowSleep && sleeping && pending === null
   const sleepDisabledReason =
     pending !== null
-      ? 'Another session action is in progress.'
-      : 'Only a live session can sleep.'
+      ? t('session.actionPending')
+      : t('session.onlyLiveCanSleep')
   const canRestart = pending === null && !blocked && !hostUnavailable(session)
   const restartReason =
     pending === 'restarting'
-      ? 'Restart is already in progress.'
+      ? t('session.restartInProgress')
       : hostUnavailable(session)
-        ? 'Host unreachable. Recheck the host before restarting.'
+        ? t('session.hostUnreachable')
         : blocked
-          ? 'The worktree is missing or inconsistent.'
-          : 'Restart this session.'
+          ? t('session.worktreeBlocked')
+          : t('session.restartDescription')
 
   return (
     <section className="flex min-w-0 flex-1 flex-col">
@@ -406,7 +420,7 @@ export default function SessionWorkspace({
             {worktree ? (
               <span
                 className={`inline-flex min-w-0 max-w-[176px] shrink items-center ${WORKTREE_STATUS_TONE[worktree.status]}`}
-                title={`${WORKTREE_STATUS_LABEL[worktree.status]} · ${worktree.path}`}
+                title={`${worktreeStatusLabel(worktree.status)} · ${worktree.path}`}
                 data-testid="session-worktree"
                 data-worktree-status={worktree.status}
                 data-worktree-branch={worktree.branch}
@@ -414,7 +428,7 @@ export default function SessionWorkspace({
                 <GitBranch size={11} className="shrink-0" />
                 <span
                   className="min-w-0 truncate font-mono text-[10.5px]"
-                  title={`${WORKTREE_STATUS_LABEL[worktree.status]} · ${worktree.branch} · ${worktree.path}`}
+                  title={`${worktreeStatusLabel(worktree.status)} · ${worktree.branch} · ${worktree.path}`}
                 >
                   {worktree.branch}
                 </span>
@@ -422,9 +436,9 @@ export default function SessionWorkspace({
             ) : (
               <span
                 className="shrink-0 text-[10.5px] text-muted-foreground"
-                title="Registered before worktree isolation existed"
+                title={t('worktree.registeredTitle')}
               >
-                primary checkout
+                {t('worktree.primaryCheckout')}
               </span>
             )}
             {/*
@@ -434,9 +448,9 @@ export default function SessionWorkspace({
              */}
             <span
               className="sr-only"
-              title="PTY incarnation owned by the terminal host"
+              title={t('worktree.incarnationTitle')}
             >
-              incarnation{' '}
+              {t('worktree.incarnation')}{' '}
               <span className="font-mono" data-testid="session-incarnation">
                 {shortId(session.incarnationId)}
               </span>
@@ -445,25 +459,31 @@ export default function SessionWorkspace({
               {authorityNote(session)}
             </span>
             <span className="sr-only">
-              Session · {repo?.displayName ?? 'workspace'};{' '}
-              {repo?.target.kind === 'wsl'
-                ? `${harnessName(session.harness)} in ${repo.target.distro}`
-                : harnessName(session.harness)}
-              ; base {worktree?.baseOid.slice(0, 7) ?? '—'}
+              {t('worktree.summary', {
+                project: repo?.displayName ?? t('worktree.workspace'),
+                harness:
+                  repo?.target.kind === 'wsl'
+                    ? t('worktree.harnessInDistro', {
+                        harness: harnessName(session.harness),
+                        distro: repo.target.distro
+                      })
+                    : harnessName(session.harness),
+                base: worktree?.baseOid.slice(0, 7) ?? '—'
+              })}
             </span>
           </div>
 
           <div
             className="flex shrink-0 items-center gap-0.5 rounded-md border border-border bg-muted/30 p-0.5"
             role="tablist"
-            aria-label="Session view"
+            aria-label={t('session.view')}
           >
             <button
               type="button"
               role="tab"
               aria-selected={view === 'terminal'}
-              aria-label="Terminal"
-              title="Terminal"
+              aria-label={t('session.viewTerminal')}
+              title={t('session.viewTerminal')}
               className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded px-2 text-[11px] ${
                 view === 'terminal'
                   ? 'bg-card text-foreground shadow-sm'
@@ -473,14 +493,14 @@ export default function SessionWorkspace({
               data-testid="view-terminal"
             >
               <TerminalSquare size={13} />
-              <span className="hidden xl:inline">Terminal</span>
+              <span className="hidden xl:inline">{t('session.viewTerminal')}</span>
             </button>
             <button
               type="button"
               role="tab"
               aria-selected={view === 'changes'}
-              aria-label="Source Control"
-              title="Source Control"
+              aria-label={t('session.viewSourceControl')}
+              title={t('session.viewSourceControl')}
               className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded px-2 text-[11px] ${
                 view === 'changes'
                   ? 'bg-card text-foreground shadow-sm'
@@ -490,14 +510,14 @@ export default function SessionWorkspace({
               data-testid="view-changes"
             >
               <FileDiff size={13} />
-              <span className="hidden xl:inline">Source Control</span>
+              <span className="hidden xl:inline">{t('session.viewSourceControl')}</span>
             </button>
             <button
               type="button"
               role="tab"
               aria-selected={view === 'files'}
-              aria-label="Files"
-              title="Files"
+              aria-label={t('session.viewFiles')}
+              title={t('session.viewFiles')}
               className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded px-2 text-[11px] ${
                 view === 'files'
                   ? 'bg-card text-foreground shadow-sm'
@@ -507,7 +527,7 @@ export default function SessionWorkspace({
               data-testid="view-files"
             >
               <Files size={13} />
-              <span className="hidden xl:inline">Files</span>
+              <span className="hidden xl:inline">{t('session.viewFiles')}</span>
             </button>
           </div>
 
@@ -516,11 +536,11 @@ export default function SessionWorkspace({
               type="button"
               className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
               onClick={onShowSessionsList}
-              title="Show sessions list"
+              title={t('session.showSessions')}
               data-testid="show-sessions-list"
             >
               <PanelLeftOpen size={12} />
-              Sessions
+              {t('session.sessions')}
             </button>
           ) : null}
 
@@ -529,13 +549,13 @@ export default function SessionWorkspace({
             sleeping={allowSleep && sleeping}
             canSleep={canSleep}
             canWake={canWake}
-            wakeDescription={wakeDescription(session.harness)}
+            wakeDescription={wakeDescription(session.harness, locale)}
             sleepDisabledReason={sleepDisabledReason}
             restartDisabled={!canRestart}
             restartReason={restartReason}
             removeDisabled={pending !== null}
             removeReason={
-              pending !== null ? 'Another session action is in progress.' : 'Remove this session.'
+              pending !== null ? t('session.actionPending') : t('session.removeReason')
             }
             onDetails={() => setDetailsOpen(true)}
             onSleep={() => setSleepOpen(true)}

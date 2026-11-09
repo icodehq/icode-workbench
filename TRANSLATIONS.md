@@ -6,6 +6,12 @@ overviews; when they disagree with English, English wins.
 These translations are currently AI-assisted and have not been reviewed by native
 speakers. Corrections and native review are welcome.
 
+The application UI uses the same eight languages but has its own catalogs under
+[`src/shared/i18n/catalogs`](src/shared/i18n/catalogs); see
+[`src/shared/i18n/README.md`](src/shared/i18n/README.md) for its scope, status
+and contribution rules. Application translations are also AI-assisted and marked
+for native review.
+
 | Language | File | Status | Notes |
 | --- | --- | --- | --- |
 | English | [README.md](README.md) | Authoritative | — |

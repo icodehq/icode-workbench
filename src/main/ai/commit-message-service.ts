@@ -17,6 +17,7 @@ import {
   type OneShotRunOptions
 } from './harness-one-shot'
 import type { WslCommandRunner } from '../wsl/exec'
+import { mainT } from '../i18n/main-i18n'
 import { parseHarnessOutput } from './harness-output'
 import {
   buildCommitPrompt,
@@ -92,20 +93,22 @@ export class CommitMessageService {
     } catch (error) {
       return unavailable(
         'generation-failed',
-        error instanceof Error ? error.message : 'The session could not be read.'
+        error instanceof Error ? error.message : mainT('scm.generation.sessionUnreadable')
       )
     }
     if (!isAgentHarness(session.harness)) {
       return unavailable(
         'not-agent',
-        'Commit-message generation needs a coding-agent session, not a Shell.'
+        mainT('scm.generation.notAgent')
       )
     }
     const args = commitMessageArgs(session.harness)
     if (args === null) {
       return unavailable(
         'unsupported-harness',
-        `${harnessLabel(session.harness)} does not support commit-message generation.`
+        mainT('scm.generation.unsupportedHarness', {
+          harness: harnessLabel(session.harness)
+        })
       )
     }
 
@@ -118,7 +121,7 @@ export class CommitMessageService {
       return unavailable('generation-failed', staged.detail)
     }
     if (staged.patch.trim().length === 0) {
-      return unavailable('no-staged-changes', 'Stage files before generating a commit message.')
+      return unavailable('no-staged-changes', mainT('scm.generation.stageFirst'))
     }
 
     let detection: HarnessDetectionResult
@@ -127,7 +130,7 @@ export class CommitMessageService {
     } catch (error) {
       return unavailable(
         'harness-unavailable',
-        error instanceof Error ? error.message : 'The agent could not be detected.'
+        error instanceof Error ? error.message : mainT('scm.generation.detectFailed')
       )
     }
     if (detection.state !== 'available' || detection.command === null) {
@@ -136,7 +139,7 @@ export class CommitMessageService {
           ? detection.message
           : detection.state === 'detection_failed'
             ? detection.message
-            : 'The agent is not available in this worktree.'
+            : mainT('scm.generation.notAvailable')
       return unavailable('harness-unavailable', detail)
     }
 
@@ -198,14 +201,17 @@ export class CommitMessageService {
       if (!parsed.ok) return unavailable('generation-failed', parsed.error)
       const message = cleanGeneratedCommitMessage(parsed.text)
       if (message.length === 0) {
-        return unavailable('generation-failed', `${label} returned an empty message.`)
+        return unavailable(
+          'generation-failed',
+          mainT('scm.generation.emptyMessage', { harness: label })
+        )
       }
       return { status: 'ok', message, agent: session.harness }
     } catch (error) {
       if (controller.signal.aborted) return { status: 'cancelled' }
       return unavailable(
         'generation-failed',
-        error instanceof Error ? error.message : 'The agent could not be started.'
+        error instanceof Error ? error.message : mainT('scm.generation.agentFailed')
       )
     } finally {
       const current = this.active.get(requestId)

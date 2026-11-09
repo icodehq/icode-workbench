@@ -6,6 +6,7 @@ import {
   isTerminalTaskStatus,
   type TaskRecord
 } from '../../shared/domain/task'
+import { mainT } from '../i18n/main-i18n'
 import type { TaskStore } from './task-store'
 import {
   AGENT_SUBMIT_DELAY_MS,
@@ -136,7 +137,7 @@ export class TaskDispatcher {
     } catch (error) {
       this.fail(task, {
         reason: 'session-create-failed',
-        message: 'The harness could not be started.',
+        message: mainT('tasks.error.harnessStartFailed'),
         detail: messageOf(error)
       })
       return
@@ -174,8 +175,8 @@ export class TaskDispatcher {
     } catch (error) {
       this.fail(task, {
         reason: 'prompt-write-failed',
-        message: 'The session started but the instruction could not be delivered.',
-        detail: `${messageOf(error)} Open the session to send it by hand.`,
+        message: mainT('tasks.error.instructionDeliveryFailed'),
+        detail: mainT('tasks.detail.sendByHand', { detail: messageOf(error) }),
         sessionId
       })
       return
@@ -242,8 +243,8 @@ export class TaskDispatcher {
             failureReason: 'harness-failed',
             lastObservedState: 'exited',
             finishedAt: now,
-            error: 'The harness exited, but its exit code could not be read.',
-            errorDetail: 'Open the session to read its last output.'
+            error: mainT('tasks.error.exitCodeUnreadable'),
+            errorDetail: mainT('tasks.detail.openSessionOutput')
           },
           now
         )
@@ -259,7 +260,7 @@ export class TaskDispatcher {
             lastObservedState: 'exited',
             exitCode: 0,
             finishedAt: now,
-            resultSummary: 'The harness exited cleanly.'
+            resultSummary: mainT('tasks.result.exitedCleanly')
           },
           now
         )
@@ -273,8 +274,8 @@ export class TaskDispatcher {
             lastObservedState: 'exited',
             exitCode: observed.exitCode,
             finishedAt: now,
-            error: `The harness exited with code ${String(observed.exitCode ?? 'unknown')}.`,
-            errorDetail: 'Open the session to read its last output.'
+            error: mainT('tasks.error.exitCode', { code: observed.exitCode ?? 'unknown' }),
+            errorDetail: mainT('tasks.detail.openSessionOutput')
           },
           now
         )
@@ -291,8 +292,8 @@ export class TaskDispatcher {
           failureReason: 'harness-failed',
           lastObservedState: 'failed',
           finishedAt: now,
-          error: 'The harness reported a failure.',
-          errorDetail: 'Open the session to read its last output.'
+          error: mainT('tasks.error.harnessFailed'),
+          errorDetail: mainT('tasks.detail.openSessionOutput')
         },
         now
       )
@@ -321,7 +322,7 @@ export class TaskDispatcher {
         {
           status: 'waiting',
           lastObservedState: 'waiting',
-          resultSummary: 'Waiting for your input in the session.'
+          resultSummary: mainT('tasks.result.waitingInput')
         },
         now
       )
@@ -348,7 +349,7 @@ export class TaskDispatcher {
           status: 'completed',
           finishedAt: now,
           lastObservedState: 'live',
-          resultSummary: 'The agent finished its turn. Review the worktree for the result.'
+          resultSummary: mainT('tasks.result.turnFinished')
         },
         now
       )
@@ -364,8 +365,8 @@ export class TaskDispatcher {
           status: 'failed',
           failureReason: 'harness-failed',
           finishedAt: now,
-          error: 'The agent reported a failed turn.',
-          errorDetail: 'Open the session to read the error.'
+          error: mainT('tasks.error.agentTurnFailed'),
+          errorDetail: mainT('tasks.detail.openSessionError')
         },
         now
       )
@@ -407,8 +408,8 @@ export class TaskDispatcher {
             status: 'failed',
             failureReason: 'interrupted',
             finishedAt: now,
-            error: 'Interrupted — iCode exited before the task started.',
-            errorDetail: 'No session was recorded, so nothing was left running.'
+            error: mainT('tasks.error.interruptedBeforeStart'),
+            errorDetail: mainT('tasks.detail.noSessionRecorded')
           },
           now
         )
@@ -452,9 +453,11 @@ export class TaskDispatcher {
           finishedAt: now,
           error:
             observed?.state === 'exited'
-              ? `Interrupted — the harness exited with code ${String(observed.exitCode ?? 'unknown')} while iCode was not running.`
-              : 'Interrupted — iCode stopped while this task was running.',
-          errorDetail: 'Open the session or review the worktree to see what was left behind.'
+              ? mainT('tasks.error.interruptedExitCode', {
+                  code: observed.exitCode ?? 'unknown'
+                })
+              : mainT('tasks.error.interruptedRunning'),
+          errorDetail: mainT('tasks.detail.reviewLeftovers')
         },
         now
       )

@@ -6,6 +6,7 @@ import { repositoryPreparationView } from '../lib/repository-preparation'
 import TargetBadge from './TargetBadge'
 import AssistantAvatar from './AssistantAvatar'
 import type { AssistantStatus } from '../../../shared/domain/assistant'
+import { useT, useTp } from '../i18n/use-i18n'
 
 export type ProjectStat = {
   sessions: number
@@ -41,6 +42,8 @@ function ProjectSwitcher({
   stats: Record<string, ProjectStat>
   onSwitch: (repoId: string) => void
 }): React.JSX.Element {
+  const t = useT()
+  const tp = useTp()
   const [open, setOpen] = useState(false)
   const wrap = useRef<HTMLDivElement | null>(null)
 
@@ -68,7 +71,7 @@ function ProjectSwitcher({
         className="inline-flex h-8 max-w-[220px] items-center gap-1.5 rounded-md border border-border bg-muted/50 px-2.5 text-[12px] font-medium text-foreground hover:bg-muted"
         onClick={() => setOpen((current) => !current)}
         aria-expanded={open}
-        aria-label="Switch project"
+        aria-label={t('projectHeader.switch')}
         data-testid="project-switcher"
       >
         <span className="min-w-0 truncate">{repo.displayName}</span>
@@ -78,11 +81,11 @@ function ProjectSwitcher({
         <div
           className="absolute left-0 top-[calc(100%+5px)] z-30 w-72 rounded-md border border-border bg-card p-1 shadow-2xl"
           role="dialog"
-          aria-label="Switch project"
+          aria-label={t('projectHeader.switch')}
           data-testid="project-switcher-menu"
         >
           <p className="px-2 py-1 text-[9px] uppercase tracking-wide text-muted-foreground">
-            Switch project
+            {t('projectHeader.switch')}
           </p>
           {repos.map((entry) => {
             const stat = stats[entry.id]
@@ -103,16 +106,21 @@ function ProjectSwitcher({
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[11px]">{entry.displayName}</span>
                   <span className="block truncate text-[9px] text-muted-foreground">
-                    {entry.target.kind === 'wsl' ? `WSL ${entry.target.distro}` : 'Local'} ·{' '}
-                    {entry.currentBranch ?? 'no branch'}
-                    {stat
-                      ? ` · ${String(stat.live)} live · ${String(stat.tasks)} task${stat.tasks === 1 ? '' : 's'}`
-                      : ''}
+                    {t('projectHeader.switcher.summary', {
+                      target:
+                        entry.target.kind === 'wsl'
+                          ? `WSL ${entry.target.distro}`
+                          : t('projects.target.local'),
+                      branch: entry.currentBranch ?? t('projectHeader.noBranch'),
+                      stats: stat
+                        ? ` · ${t('projectHeader.switcher.live', { count: stat.live })} · ${tp('projectHeader.switcher.tasks', stat.tasks)}`
+                        : ''
+                    })}
                   </span>
                 </span>
                 {stat && stat.needs > 0 ? (
                   <span className="mt-0.5 shrink-0 rounded-full bg-signal-weak px-1.5 py-0.5 text-[8px] text-signal">
-                    {stat.needs} need you
+                    {t('projectHeader.switcher.needs', { count: stat.needs })}
                   </span>
                 ) : null}
               </button>
@@ -145,6 +153,8 @@ export default function ProjectHeader({
   pendingProposals,
   onOpenAssistant
 }: Props): React.JSX.Element {
+  const t = useT()
+  const tp = useTp()
   const current = stats[repo.id] ?? { sessions: 0, live: 0, tasks: 0, needs: 0 }
   const preparation = repositoryPreparationView(repo)
   return (
@@ -161,7 +171,7 @@ export default function ProjectHeader({
         data-testid="project-back"
       >
         <ArrowLeft size={11} />
-        Projects
+        {t('projectHeader.back')}
       </button>
 
       <ProjectSwitcher repos={repos} repo={repo} stats={stats} onSwitch={onSwitch} />
@@ -170,8 +180,8 @@ export default function ProjectHeader({
         <TargetBadge repo={repo} compact />
         <span className="font-mono">
           {preparation?.kind === 'preparing'
-            ? 'Preparing first commit…'
-            : repo.currentBranch ?? 'no branch'}
+            ? t('projects.preparation.preparing')
+            : repo.currentBranch ?? t('projectHeader.noBranch')}
         </span>
       </span>
 
@@ -196,7 +206,7 @@ export default function ProjectHeader({
               data-testid="project-preparation-retry"
             >
               <RotateCcw size={9} />
-              Retry
+              {t('common.retry')}
             </button>
           ) : null}
         </span>
@@ -205,7 +215,7 @@ export default function ProjectHeader({
       <div
         className="inline-flex items-center rounded-md border border-border p-0.5"
         role="tablist"
-        aria-label="Project mode"
+        aria-label={t('projectHeader.mode')}
       >
         <button
           type="button"
@@ -220,7 +230,7 @@ export default function ProjectHeader({
           data-testid="project-mode-sessions"
         >
           <TerminalSquare size={10} />
-          Sessions
+          {t('projectHeader.sessions')}
           <span className="text-[9px] text-muted-foreground">{current.sessions}</span>
         </button>
         <button
@@ -236,12 +246,12 @@ export default function ProjectHeader({
           data-testid="project-mode-tasks"
         >
           <ListTodo size={10} />
-          Tasks
+          {t('projectHeader.tasks')}
           <span className="text-[9px] text-muted-foreground">{current.tasks}</span>
           {current.needs > 0 ? (
             <span
               className="rounded-full bg-signal-weak px-1 text-[8px] font-medium text-signal"
-              title={`${String(current.needs)} need you`}
+              title={t('projectHeader.needsCount', { count: current.needs })}
               data-testid="project-tasks-needs"
             >
               {current.needs}
@@ -256,8 +266,8 @@ export default function ProjectHeader({
         disabled={preparation !== null}
         title={
           preparation === null
-            ? `Talk to ${assistantName} about this project`
-            : `${assistantName} unlocks when the first commit finishes.`
+            ? t('projectHeader.assistantOpen', { name: assistantName })
+            : t('projectHeader.assistantLocked', { name: assistantName })
         }
         data-testid="project-mira"
       >
@@ -266,7 +276,7 @@ export default function ProjectHeader({
         {assistantUnread > 0 ? (
           <span
             className="rounded-full bg-signal-weak px-1 text-[8px] font-medium text-signal"
-            title={`${String(assistantUnread)} unread message${assistantUnread === 1 ? '' : 's'}`}
+            title={tp('projectHeader.unread', assistantUnread)}
             data-testid="project-mira-unread"
           >
             {assistantUnread > 9 ? '9+' : assistantUnread}
@@ -275,7 +285,7 @@ export default function ProjectHeader({
         {pendingProposals > 0 ? (
           <span
             className="rounded-full bg-signal-weak px-1 text-[8px] font-medium text-signal"
-            title={`${String(pendingProposals)} proposed task${pendingProposals === 1 ? '' : 's'} need approval`}
+            title={tp('projectHeader.proposals', pendingProposals)}
             data-testid="project-supervisor-proposals"
           >
             {pendingProposals}
@@ -283,7 +293,10 @@ export default function ProjectHeader({
         ) : null}
       </button>
       <span className="hidden text-[10.5px] text-muted-foreground lg:inline">
-        {current.sessions} session{current.sessions === 1 ? '' : 's'} · {current.tasks} task{current.tasks === 1 ? '' : 's'} in this project
+        {t('projectHeader.stats', {
+          sessions: tp('projectHeader.stats.sessions', current.sessions),
+          tasks: tp('projectHeader.stats.tasks', current.tasks)
+        })}
       </span>
     </header>
   )

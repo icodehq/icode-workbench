@@ -1,6 +1,8 @@
 import { makeAppError, type AppError } from '../../../shared/domain/errors'
+import { localizeAppError } from '../../../shared/i18n'
 import type { IpcResult } from '../../../shared/schemas/ipc'
 import type { Notice } from '../state/workspace'
+import { getLocale } from '../i18n/i18n-store'
 
 /**
  * IPC rejections are not part of the typed contract, but a missing handler or a
@@ -14,17 +16,19 @@ export async function callApi<T>(call: Promise<IpcResult<T>>): Promise<IpcResult
     return {
       ok: false,
       error: makeAppError('INTERNAL', 'The iCode service did not respond.', {
-        detail: error instanceof Error ? error.message : String(error)
+        detail: error instanceof Error ? error.message : String(error),
+        messageKey: 'errors.serviceNoResponse'
       })
     }
   }
 }
 
 export function errorNotice(error: AppError): Notice {
+  const localized = localizeAppError(error, getLocale())
   return {
     tone: 'error',
-    message: error.message,
-    ...(error.detail ? { detail: error.detail } : {})
+    message: localized.message,
+    ...(localized.detail ? { detail: localized.detail } : {})
   }
 }
 

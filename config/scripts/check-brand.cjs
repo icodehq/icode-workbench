@@ -11,7 +11,9 @@ const { join, relative, sep } = require('node:path')
 const root = join(__dirname, '..', '..')
 const roots = ['src', 'config', 'tests']
 const files = ['package.json', 'README.md', 'NOTICE', 'LICENSE', '.github/CONTRIBUTING.md']
-const allowedPrefixes = []
+// Locale catalogs are natural-language text; words such as Spanish "añade"
+// contain the ASCII letters "ade" without naming the brand.
+const allowedPrefixes = ['src/shared/i18n/catalogs/']
 const allowedFiles = new Set(['config/scripts/check-brand.cjs'])
 // The README lockup uses ADE as the category acronym. Allow that exact phrase
 // while continuing to reject legacy ADE identifiers elsewhere.

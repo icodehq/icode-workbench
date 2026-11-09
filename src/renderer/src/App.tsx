@@ -28,6 +28,8 @@ import { useWorkspace } from './state/use-workspace'
 import { useTaskQueue } from './state/use-task-queue'
 import { useAssistant } from './state/use-assistant'
 import { useThemePreference } from './theme/use-theme'
+import { useLocale } from './i18n/use-i18n'
+import { translate, translatePlural } from './i18n/i18n-store'
 import { activeRepo, activeSession } from './state/workspace'
 import { hostStatus } from './state/host-status'
 import type { Surface } from './router/routes'
@@ -63,6 +65,10 @@ export default function App(): React.JSX.Element {
   const { state } = workspace
   const tasks = useTaskQueue(workspace.notify)
   const theme = useThemePreference()
+  // The root subscribes to language changes so label helpers that read the
+  // module store (status, activity, task wording) repaint without threading a
+  // translator through every call site.
+  useLocale()
 
   const {
     displaySurface,
@@ -180,7 +186,7 @@ export default function App(): React.JSX.Element {
         .filter((task) => taskAttention(task) !== null)
         .map((task) => ({
           task,
-          repoName: state.repos.find((entry) => entry.id === task.repoId)?.displayName ?? 'unknown project'
+          repoName: state.repos.find((entry) => entry.id === task.repoId)?.displayName ?? translate('common.unknownProject')
         }))
         .sort((left, right) => {
           const leftKind = taskAttention(left.task)
@@ -201,7 +207,7 @@ export default function App(): React.JSX.Element {
         .filter((session) => session.activity !== null && session.activity.state !== 'unknown')
         .map((session) => ({
           session,
-          repoName: state.repos.find((repo) => repo.id === session.repoId)?.displayName ?? 'unknown project'
+          repoName: state.repos.find((repo) => repo.id === session.repoId)?.displayName ?? translate('common.unknownProject')
         }))
         .sort(
           (left, right) =>
@@ -266,16 +272,20 @@ export default function App(): React.JSX.Element {
       targetSession: SessionSummary | null = active
     ): Promise<AgentSendResult> => {
       if (!targetSession) {
-        return { ok: false, message: 'There is no active Agent session.' }
+        return { ok: false, message: translate('app.noActiveAgent') }
       }
       const target = targetSession
       if (!isAgentHarness(target.harness)) {
-        const message = `${harnessLabel(target.harness)} cannot receive notes.`
+        const message = translate('app.harnessCannotReceive', {
+          harness: harnessLabel(target.harness)
+        })
         workspace.notify({ tone: 'error', message })
         return { ok: false, message }
       }
       if (target.activity?.state === 'waiting') {
-        const message = `${harnessLabel(target.harness)} is waiting for your answer. Answer it in the terminal first.`
+        const message = translate('app.harnessWaiting', {
+          harness: harnessLabel(target.harness)
+        })
         workspace.notify({ tone: 'error', message })
         return { ok: false, message }
       }
@@ -286,7 +296,7 @@ export default function App(): React.JSX.Element {
       }
       const incarnationId = attach.value?.incarnationId
       if (!incarnationId) {
-        const message = 'The Agent terminal is not running.'
+        const message = translate('app.terminalNotRunning')
         workspace.notify({ tone: 'error', message })
         return { ok: false, message }
       }
@@ -302,7 +312,10 @@ export default function App(): React.JSX.Element {
       }
       const sent = await sendAgentText(text, write)
       if (!sent.ok) return sent
-      workspace.notify({ tone: 'success', message: `Sent to ${harnessLabel(target.harness)}.` })
+      workspace.notify({
+        tone: 'success',
+        message: translate('app.sentTo', { harness: harnessLabel(target.harness) })
+      })
       return sent
     },
     [active, workspace]
@@ -329,7 +342,7 @@ export default function App(): React.JSX.Element {
     if (hostUnreachable) {
       workspace.notify({
         tone: 'error',
-        message: 'The terminal Host is unreachable. Retry from the status bar before starting a session.'
+        message: translate('app.hostUnreachable')
       })
       return
     }
@@ -511,14 +524,16 @@ export default function App(): React.JSX.Element {
 
   const projectLabel =
     (displaySurface === 'sessions' || displaySurface === 'tasks') && repo !== null
-      ? `${repo.displayName} · ${repo.currentBranch ?? 'no branch'}`
+      ? `${repo.displayName} · ${repo.currentBranch ?? translate('app.noBranch')}`
       : displaySurface === 'projects'
-        ? `All projects · ${state.repos.length} repo${state.repos.length === 1 ? '' : 's'}`
+        ? translate('app.allProjectsLabel', {
+            repos: translatePlural('app.repoCount', state.repos.length)
+          })
         : displaySurface === 'schedules'
-          ? 'Schedules · all projects'
+          ? translate('app.schedulesTitle')
           : displaySurface === 'assistant'
-            ? `${assistant.personaName} · all projects`
-            : 'Settings'
+            ? translate('app.assistantAllProjects', { name: assistant.personaName })
+            : translate('settings.title')
 
   return (
     <AppLayout
