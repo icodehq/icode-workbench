@@ -568,6 +568,22 @@ export const MIGRATIONS: readonly Migration[] = [
   },
   {
     version: 13,
+    name: 'task-attempt-mode',
+    /**
+     * How an execution episode started.
+     *
+     * `fresh` is a new session and worktree; `resume` continues the
+     * predecessor's session and worktree so uncommitted work survives a quota,
+     * auth, network or interruption failure. Existing rows are all fresh by
+     * construction, which is what the column default records.
+     */
+    statements: [
+      `ALTER TABLE tasks ADD COLUMN attempt_mode TEXT NOT NULL DEFAULT 'fresh'
+         CHECK (attempt_mode IN ('fresh', 'resume'))`
+    ]
+  },
+  {
+    version: 14,
     name: 'providers',
     /**
      * Provider configurations for coding-agent harnesses.

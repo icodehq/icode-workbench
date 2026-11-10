@@ -399,6 +399,7 @@ export type IcodeProductApi = {
       reject: (input: z.infer<typeof taskRejectInputSchema>) => Promise<IpcResult<TaskRecordPayload>>
       cancel: (input: z.infer<typeof taskIdInputSchema>) => Promise<IpcResult<TaskRecordPayload>>
       retry: (input: z.infer<typeof taskIdInputSchema>) => Promise<IpcResult<TaskRecordPayload>>
+      resume: (input: z.infer<typeof taskIdInputSchema>) => Promise<IpcResult<TaskRecordPayload>>
       history: (input: z.infer<typeof taskIdInputSchema>) => Promise<IpcResult<TaskRecordPayload[]>>
       /** The changes belonging to this task's own session, from the Git engine. */
       changes: (input: z.infer<typeof taskIdInputSchema>) => Promise<IpcResult<TaskChangesPayload>>

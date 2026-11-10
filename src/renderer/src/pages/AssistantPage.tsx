@@ -71,7 +71,13 @@ function liveTaskCard(
   if (card.type !== 'task') return card
   const live = tasks.find((task) => task.id === card.taskId)
   return live
-    ? { ...card, title: live.title, status: live.status, approval: live.approval ?? card.approval }
+    ? {
+        ...card,
+        title: live.title,
+        status: live.status,
+        approval: live.approval ?? card.approval,
+        canResume: live.canResume
+      }
     : card
 }
 

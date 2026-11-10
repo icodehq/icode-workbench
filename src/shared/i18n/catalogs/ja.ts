@@ -1889,4 +1889,10 @@ export const ja = {
   'settings.providers.form.saving': "Saving…",
   'settings.providers.form.cancel': "Cancel",
   'settings.providers.form.required': "Name, model, base URL, and API key are required.",
+  'tasks.row.continue': '続行',
+  'tasks.row.continued': '継続済み',
+  'tasks.notice.continuing': '試行 {count} として続行中',
+  'assistant.card.continue': '続行',
+  'tasks.error.continueFailed': '前回の試行を続行できませんでした。',
+  'tasks.detail.continueFailed': '{detail} 代わりに新しい試行を開始してください。'
 } satisfies MessageCatalog

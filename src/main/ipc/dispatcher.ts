@@ -185,6 +185,7 @@ export type DispatcherServices = {
   tasksReject: (input: { taskId: string; note?: string | null }) => Promise<unknown>
   tasksCancel: (input: { taskId: string }) => Promise<unknown>
   tasksRetry: (input: { taskId: string }) => Promise<unknown>
+  tasksResume: (input: { taskId: string }) => Promise<unknown>
   tasksHistory: (input: { taskId: string }) => Promise<unknown>
   tasksChanges: (input: { taskId: string }) => Promise<unknown>
   tasksDecideReview: (input: {
@@ -570,6 +571,12 @@ export function createDispatcher(services: DispatcherServices): Dispatcher {
         const input = parse(taskIdInputSchema, rawInput)
         if ('code' in input) return { ok: false, error: input }
         return run(() => services.tasksRetry(input))
+      }
+
+      case IPC_CHANNELS.tasksResume: {
+        const input = parse(taskIdInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.tasksResume(input))
       }
 
       case IPC_CHANNELS.tasksHistory: {

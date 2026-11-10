@@ -1887,4 +1887,10 @@ export const zhCN = {
   'settings.providers.form.saving': "Saving…",
   'settings.providers.form.cancel': "Cancel",
   'settings.providers.form.required': "Name, model, base URL, and API key are required.",
+  'tasks.row.continue': '继续',
+  'tasks.row.continued': '已继续',
+  'tasks.notice.continuing': '正在作为第 {count} 次尝试继续',
+  'assistant.card.continue': '继续',
+  'tasks.error.continueFailed': '无法继续上一次尝试。',
+  'tasks.detail.continueFailed': '{detail} 请改为开始新的尝试。'
 } satisfies MessageCatalog

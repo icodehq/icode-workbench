@@ -28,7 +28,7 @@ function fixture(initial: ReturnType<typeof task>[]) {
   let focused = true
   const deps: AssistantNotifierDeps = {
     service: { postNotification, markNotificationDelivered } as never,
-    taskStore: { list: () => tasks } as never,
+    taskStore: { list: () => tasks, findSuccessor: () => null } as never,
     repositories: { list: () => [] } as never,
     settings: () => DEFAULT_ASSISTANT_SETTINGS,
     now: () => new Date('2026-11-08T12:00:00').getTime(),

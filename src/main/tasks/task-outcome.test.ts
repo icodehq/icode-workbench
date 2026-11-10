@@ -402,3 +402,147 @@ describe('supervisor review recommendations', () => {
     expect(result.ok).toBe(false)
   })
 })
+
+describe('task continuation', () => {
+  it('creates a resume row that carries the session, worktree and instruction', async () => {
+    const h = await harness()
+    const first = finished(h, { status: 'failed' })
+    const before = h.service.get(first)!
+
+    const result = h.service.resume(first)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    expect(result.value.attempt).toBe(2)
+    expect(result.value.attemptMode).toBe('resume')
+    expect(result.value.previousTaskId).toBe(first)
+    expect(result.value.sessionId).toBe(before.sessionId)
+    expect(result.value.worktreePath).toBe(before.worktreePath)
+    expect(result.value.prompt).toBe(before.prompt)
+    expect(result.value.status).toBe('queued')
+    expect(result.value.error).toBeNull()
+    expect(result.value.failureReason).toBeNull()
+    expect(result.value.reviewDecision).toBe('pending')
+  })
+
+  it('returns the existing successor when continue is clicked twice', async () => {
+    const h = await harness()
+    const first = finished(h, { status: 'failed' })
+    const once = h.service.resume(first)
+    const twice = h.service.resume(first)
+    expect(once.ok).toBe(true)
+    expect(twice.ok).toBe(true)
+    if (!once.ok || !twice.ok) return
+    expect(twice.value.id).toBe(once.value.id)
+  })
+
+  it('refuses a completed task, a running task and a task without a session', async () => {
+    const h = await harness()
+    const completed = finished(h, { status: 'completed' })
+    expect(h.service.resume(completed).ok).toBe(false)
+    expect(h.service.get(completed)!.canResume).toBe(false)
+
+    const queued = h.service.create({ repoId: h.repoId as never, prompt: 'x', harness: 'claude' })
+    if (!queued.ok) throw new Error('create failed')
+    expect(h.service.resume(queued.value.id).ok).toBe(false)
+    expect(h.service.get(queued.value.id)!.canResume).toBe(false)
+
+    const noSession = finished(h, { status: 'failed', withSession: false })
+    expect(h.service.resume(noSession).ok).toBe(false)
+    expect(h.service.get(noSession)!.canResume).toBe(false)
+  })
+
+  it('refuses a shell task because it has no conversation', async () => {
+    const h = await harness()
+    const created = h.service.create({ repoId: h.repoId as never, prompt: 'x', harness: 'shell' })
+    if (!created.ok) throw new Error('create failed')
+    h.store.updateIfStatus(
+      created.value.id,
+      ['queued'],
+      {
+        status: 'failed',
+        sessionId: 'ses_00000000-0000-4000-8000-000000000099' as never,
+        worktreePath: '/wt/shell',
+        startedAt: h.clock.now,
+        finishedAt: h.clock.now
+      },
+      h.clock.now
+    )
+    expect(h.service.resume(created.value.id).ok).toBe(false)
+    expect(h.service.get(created.value.id)!.canResume).toBe(false)
+  })
+
+  it('refuses a reviewed task and an archived task', async () => {
+    const h = await harness()
+    const reviewed = finished(h, { status: 'failed' })
+    h.service.decideReview(reviewed, 'rejected')
+    expect(h.service.resume(reviewed).ok).toBe(false)
+    expect(h.service.get(reviewed)!.canResume).toBe(false)
+
+    const archived = finished(h, { status: 'failed' })
+    expect(h.service.archive(archived).ok).toBe(true)
+    expect(h.service.resume(archived).ok).toBe(false)
+    expect(h.service.get(archived)!.canResume).toBe(false)
+  })
+
+  it('exposes canResume only while an attempt is eligible', async () => {
+    const h = await harness()
+    const id = finished(h, { status: 'failed' })
+    expect(h.service.get(id)!.canResume).toBe(true)
+    expect(h.service.get(id)!.canRetry).toBe(true)
+
+    const resumed = h.service.resume(id)
+    if (!resumed.ok) throw new Error('resume failed')
+    expect(h.service.get(id)!.canResume).toBe(false)
+    expect(h.service.get(id)!.canRetry).toBe(false)
+    expect(h.service.get(resumed.value.id)!.canResume).toBe(false)
+  })
+
+  it('copies provenance and approval into the continuation', async () => {
+    const h = await harness()
+    const created = h.service.create({
+      repoId: h.repoId as never,
+      prompt: 'x',
+      harness: 'claude',
+      origin: 'supervisor',
+      createdByActor: 'mira',
+      approval: 'approved',
+      approvedBy: 'mira-policy',
+      approvalPolicy: 'mira-low-risk',
+      assistantRunId: 'run_1'
+    })
+    if (!created.ok) throw new Error('create failed')
+    h.store.updateIfStatus(
+      created.value.id,
+      ['queued'],
+      {
+        status: 'failed',
+        sessionId: 'ses_00000000-0000-4000-8000-000000000098' as never,
+        worktreePath: '/wt/mira',
+        startedAt: h.clock.now,
+        finishedAt: h.clock.now
+      },
+      h.clock.now
+    )
+
+    const result = h.service.resume(created.value.id)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.origin).toBe('supervisor')
+    expect(result.value.createdByActor).toBe('mira')
+    expect(result.value.assistantRunId).toBe('run_1')
+    expect(result.value.approvalPolicy).toBe('mira-low-risk')
+    expect(result.value.approval).toBe('approved')
+    expect(result.value.approvedBy).toBe('mira-policy')
+  })
+
+  it('keeps retry fresh while continue is a resume', async () => {
+    const h = await harness()
+    const id = finished(h, { status: 'failed' })
+    const retried = h.service.retry(id)
+    expect(retried.ok).toBe(true)
+    if (!retried.ok) return
+    expect(retried.value.attemptMode).toBe('fresh')
+    expect(retried.value.sessionId).toBeNull()
+  })
+})

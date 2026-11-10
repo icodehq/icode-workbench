@@ -94,14 +94,24 @@ export default function App(): React.JSX.Element {
 
   const runAssistantTaskAction = useCallback(
     async (action: AssistantTaskAction, taskId: string): Promise<void> => {
-      const result =
-        action === 'approve'
-          ? await window.icode.tasks.approve({ taskId })
-          : action === 'reject'
-            ? await window.icode.tasks.reject({ taskId })
-            : action === 'retry'
-              ? await window.icode.tasks.retry({ taskId })
-              : await window.icode.tasks.cancel({ taskId })
+      const result = await (() => {
+        switch (action) {
+          case 'approve':
+            return window.icode.tasks.approve({ taskId })
+          case 'reject':
+            return window.icode.tasks.reject({ taskId })
+          case 'retry':
+            return window.icode.tasks.retry({ taskId })
+          case 'continue':
+            return window.icode.tasks.resume({ taskId })
+          case 'cancel':
+            return window.icode.tasks.cancel({ taskId })
+          default: {
+            const never: never = action
+            throw new Error(`Unknown task action: ${String(never)}`)
+          }
+        }
+      })()
       if (!result.ok) {
         workspace.notify({ tone: 'error', message: result.error.message })
         return

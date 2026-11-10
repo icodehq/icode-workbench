@@ -35,6 +35,7 @@ const tasksCreate = z.strictObject({
 })
 const tasksCancel = z.strictObject({ op: z.literal('tasks.cancel'), taskId })
 const tasksRetry = z.strictObject({ op: z.literal('tasks.retry'), taskId })
+const tasksResume = z.strictObject({ op: z.literal('tasks.resume'), taskId })
 const tasksArchive = z.strictObject({ op: z.literal('tasks.archive'), taskId })
 const sessionsMessage = z.strictObject({
   op: z.literal('sessions.message'),
@@ -79,6 +80,7 @@ export const assistantActionSchema = z.discriminatedUnion('op', [
   tasksCreate,
   tasksCancel,
   tasksRetry,
+  tasksResume,
   tasksArchive,
   sessionsMessage,
   supervisorMessage,

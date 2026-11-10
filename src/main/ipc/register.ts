@@ -86,6 +86,7 @@ export const HANDLED_CHANNELS: readonly string[] = [
   IPC_CHANNELS.tasksReject,
   IPC_CHANNELS.tasksCancel,
   IPC_CHANNELS.tasksRetry,
+  IPC_CHANNELS.tasksResume,
   IPC_CHANNELS.tasksHistory,
   IPC_CHANNELS.tasksChanges,
   IPC_CHANNELS.tasksDecideReview,
@@ -338,6 +339,7 @@ export function createAppDispatcher(
       Promise.resolve(outcomeOrThrow(runtime.tasks.reject(input.taskId, input.note ?? null))),
     tasksCancel: (input) => outcomeOrThrowAsync(runtime.tasks.cancel(input.taskId)),
     tasksRetry: (input) => Promise.resolve(outcomeOrThrow(runtime.tasks.retry(input.taskId))),
+    tasksResume: (input) => Promise.resolve(outcomeOrThrow(runtime.tasks.resume(input.taskId))),
     tasksHistory: (input) => Promise.resolve(runtime.tasks.history(input.taskId)),
     tasksChanges: async (input) => outcomeOrThrowAsync(runtime.tasks.changes(input.taskId)),
     tasksDecideReview: (input) =>

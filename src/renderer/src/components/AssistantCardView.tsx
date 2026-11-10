@@ -13,7 +13,7 @@ const STATUS_TONE: Record<string, string> = {
   cancelled: 'text-muted-foreground'
 }
 
-export type AssistantTaskAction = 'approve' | 'reject' | 'retry' | 'cancel'
+export type AssistantTaskAction = 'approve' | 'reject' | 'retry' | 'continue' | 'cancel'
 
 export default function AssistantCardView({
   card,
@@ -86,7 +86,16 @@ export default function AssistantCardView({
               </button>
             </>
           ) : null}
-          {onTaskAction && card.status === 'failed' ? (
+          {onTaskAction && card.canResume === true ? (
+            <button
+              type="button"
+              className="inline-flex h-6 items-center rounded border border-border px-2 text-[10px] text-foreground hover:bg-muted"
+              onClick={() => onTaskAction('continue', card.taskId)}
+              data-testid={`assistant-continue-task-${card.taskId}`}
+            >
+              {t('assistant.card.continue')}
+            </button>
+          ) : onTaskAction && card.status === 'failed' ? (
             <button
               type="button"
               className="inline-flex h-6 items-center rounded border border-border px-2 text-[10px] text-foreground hover:bg-muted"

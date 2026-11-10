@@ -205,6 +205,8 @@ export type AssistantCard =
       approval: 'approved' | 'pending' | 'rejected'
       autoApproved?: boolean
       reasons?: string[]
+      /** True when the card's task can be continued in its existing workspace. */
+      canResume?: boolean
     }
   | {
       type: 'action'
@@ -322,6 +324,7 @@ export type AssistantActionOp =
   | 'tasks.create'
   | 'tasks.cancel'
   | 'tasks.retry'
+  | 'tasks.resume'
   | 'tasks.archive'
   | 'sessions.message'
   | 'review.recommend'

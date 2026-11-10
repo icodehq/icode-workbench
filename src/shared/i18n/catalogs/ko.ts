@@ -1889,4 +1889,10 @@ export const ko = {
   'settings.providers.form.saving': "Saving…",
   'settings.providers.form.cancel': "Cancel",
   'settings.providers.form.required': "Name, model, base URL, and API key are required.",
+  'tasks.row.continue': '계속',
+  'tasks.row.continued': '계속됨',
+  'tasks.notice.continuing': '시도 {count}(으)로 계속 중',
+  'assistant.card.continue': '계속',
+  'tasks.error.continueFailed': '이전 시도를 계속할 수 없습니다.',
+  'tasks.detail.continueFailed': '{detail} 대신 새 시도를 시작하세요.'
 } satisfies MessageCatalog

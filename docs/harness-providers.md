@@ -54,10 +54,10 @@ machine or user cannot be read; re-enter it in Settings.
 
 ### Development note
 
-The pre-release prototype stored a plaintext `api_key` column under the same
-schema version. The final store refuses that database shape with an actionable
-error; delete the iCode database (it contains only prototype provider rows) and
-restart to create the encrypted schema.
+The pre-release prototype stored a plaintext `api_key` column under its own
+schema. The final store refuses that database shape with an actionable error;
+delete the iCode database (it contains only prototype provider rows) and restart
+to create the encrypted schema.
 
 ## Test connection
 

@@ -35,13 +35,18 @@ type FakeSessions = {
   created: Array<{ repoId: string; harness: string; title: string; id: string }>
   writes: Array<{ sessionId: string; data: string }>
   stopped: string[]
+  restarted: Array<{ sessionId: string; resume: boolean }>
   behaviour: Map<string, SessionBehaviour>
   /** Force the next create to fail. */
   failCreate: Error | null
   /** Force the next write to fail. */
   failWrite: Error | null
+  /** Force the next restart to fail. */
+  failRestart: Error | null
   /** Runs at the start of `create`, before the fake session exists. */
   onCreate: (() => void) | null
+  /** Runs at the start of `restart`, before the fake session is live again. */
+  onRestart: (() => void) | null
   emit: (event: { type: string; sessionId: string }) => void
 }
 
@@ -49,6 +54,7 @@ function fakeSessions(): FakeSessions {
   const created: FakeSessions['created'] = []
   const writes: FakeSessions['writes'] = []
   const stopped: string[] = []
+  const restarted: FakeSessions['restarted'] = []
   const behaviour = new Map<string, SessionBehaviour>()
   const listeners = new Set<(event: never) => void>()
   let sequence = 0
@@ -56,10 +62,13 @@ function fakeSessions(): FakeSessions {
     created,
     writes,
     stopped,
+    restarted,
     behaviour,
     failCreate: null,
     failWrite: null,
+    failRestart: null,
     onCreate: null,
+    onRestart: null,
     emit: (event) => {
       for (const listener of listeners) listener(event as never)
     },
@@ -84,6 +93,18 @@ function fakeSessions(): FakeSessions {
     write: async (sessionId: string, _incarnationId: string, data: string) => {
       if (fake.failWrite) throw fake.failWrite
       writes.push({ sessionId, data })
+    },
+    restart: async (sessionId: string, options: { resume?: boolean } = {}) => {
+      fake.onRestart?.()
+      if (fake.failRestart) throw fake.failRestart
+      restarted.push({ sessionId, resume: options.resume === true })
+      behaviour.set(sessionId, { state: 'live', exitCode: null })
+      return {
+        id: sessionId,
+        incarnationId: 'inc_w84_0002',
+        state: 'live',
+        worktree: { path: '/tmp/wt' }
+      }
     },
     stop: async (sessionId: string) => {
       stopped.push(sessionId)
@@ -840,5 +861,127 @@ describe('Mira task provenance', () => {
     expect(stored.approval).toBe('pending')
     expect(stored.approvedBy).toBeNull()
     expect(stored.status).toBe('queued')
+  })
+})
+
+describe('continue dispatch', () => {
+  async function failedDispatched(
+    h: Harness,
+    options: { exited?: boolean; error?: string } = {}
+  ) {
+    const created = createQueued(h, 'Refactor the parser')
+    await settle(h)
+    const task = h.store.findById(created.id)!
+    expect(task.status).toBe('running')
+    if (options.exited === true) {
+      h.sessions.behaviour.set(task.sessionId!, { state: 'exited', exitCode: 1 })
+    }
+    h.store.updateIfStatus(
+      task.id,
+      ['running'],
+      {
+        status: 'failed',
+        failureReason: 'harness-failed',
+        finishedAt: h.clock.now,
+        error: options.error ?? 'The harness exited with code 1.'
+      },
+      h.clock.now
+    )
+    return h.store.findById(task.id)!
+  }
+
+  it('reuses a live session and sends the continuation prompt', async () => {
+    const h = await harness({ maxConcurrent: 1 })
+    const failed = await failedDispatched(h, { error: 'Insufficient balance.' })
+    const createsBefore = h.sessions.created.length
+
+    const result = h.service.resume(failed.id)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    await settle(h)
+
+    expect(h.sessions.created.length).toBe(createsBefore)
+    expect(h.sessions.restarted).toHaveLength(0)
+    const stored = h.store.findById(result.value.id)!
+    expect(stored.status).toBe('running')
+    expect(stored.sessionId).toBe(failed.sessionId)
+    expect(stored.worktreePath).toBe('/tmp/wt')
+
+    const prompt = h.sessions.writes.map((entry) => entry.data).join('')
+    expect(prompt).toContain('Insufficient balance.')
+    expect(prompt).toContain('Refactor the parser')
+    expect(prompt).toContain('do not redo completed work')
+  })
+
+  it('restarts an exited session with its resume command', async () => {
+    const h = await harness({ maxConcurrent: 1 })
+    const failed = await failedDispatched(h, { exited: true })
+    const createsBefore = h.sessions.created.length
+
+    const result = h.service.resume(failed.id)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    await settle(h)
+
+    expect(h.sessions.created.length).toBe(createsBefore)
+    expect(h.sessions.restarted).toEqual([
+      { sessionId: failed.sessionId!, resume: true }
+    ])
+    const stored = h.store.findById(result.value.id)!
+    expect(stored.status).toBe('running')
+    expect(
+      h.sessions.writes.some((entry) => entry.data.includes('Refactor the parser'))
+    ).toBe(true)
+  })
+
+  it('records a restart failure as resume-failed without starting over', async () => {
+    const h = await harness({ maxConcurrent: 1 })
+    const failed = await failedDispatched(h, { exited: true })
+    h.sessions.failRestart = new Error('The host is unreachable.')
+
+    const result = h.service.resume(failed.id)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    await settle(h)
+
+    const stored = h.store.findById(result.value.id)!
+    expect(stored.status).toBe('failed')
+    expect(stored.failureReason).toBe('resume-failed')
+    expect(stored.sessionId).toBe(failed.sessionId)
+    expect(h.sessions.created).toHaveLength(1)
+    // The failed continuation is itself eligible: the user may try again.
+    expect(h.service.get(stored.id)!.canResume).toBe(true)
+  })
+
+  it('ignores the exit of the PTY it is deliberately replacing', async () => {
+    const h = await harness({ maxConcurrent: 1 })
+    const failed = await failedDispatched(h, { exited: true })
+    h.sessions.onRestart = () => {
+      h.sessions.behaviour.set(failed.sessionId!, { state: 'exited', exitCode: 1 })
+      h.sessions.emit({ type: 'exit', sessionId: failed.sessionId! })
+    }
+
+    const result = h.service.resume(failed.id)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    await settle(h)
+
+    expect(h.store.findById(result.value.id)!.status).toBe('running')
+  })
+
+  it('records a prompt delivery failure without creating a new session', async () => {
+    const h = await harness({ maxConcurrent: 1 })
+    const failed = await failedDispatched(h)
+    h.sessions.failWrite = new Error('The terminal did not accept input.')
+
+    const result = h.service.resume(failed.id)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    await settle(h)
+
+    const stored = h.store.findById(result.value.id)!
+    expect(stored.status).toBe('failed')
+    expect(stored.failureReason).toBe('prompt-write-failed')
+    expect(h.sessions.created).toHaveLength(1)
   })
 })

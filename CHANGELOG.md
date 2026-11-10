@@ -25,6 +25,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   includes action results, failures and notifications, so write outcomes are
   not lost. SQLite migration v12 adds segment ranges (`start_seq`/`end_seq`);
   pre-v12 conversation rows are shown as one legacy segment.
+- Failed or cancelled tasks can now be **continued** in their existing
+  session and worktree: the same harness conversation where the harness
+  supports resume, and the same uncommitted changes. **Retry** still starts a
+  fresh attempt in a new worktree. SQLite migration v13 records each attempt's
+  mode (`fresh` or `resume`).
 - Full app-chrome localization for English, Simplified Chinese, Japanese,
   Korean, Spanish, Brazilian Portuguese, German and French: renderer UI,
   native menus, dialogs, folder pickers, OS notifications and user-facing
@@ -41,13 +46,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tool's global config, so plugins, hooks, and user settings stay untouched.
   Includes curated presets, encrypted key storage via Electron `safeStorage`,
   a real **Test connection** request, and a Settings preview of the exact
-  launch inputs. SQLite migration v13 adds `providers` and
+  launch inputs. SQLite migration v14 adds `providers` and
   `harness_provider_selection`; terminal-host protocol v2 adds per-session
   environment so Codex and OpenCode receive credentials without exposing them
   in argv or on disk.
 
 ### Changed
 
+- The installer, executable and desktop icons now use the transparent green
+  brand mark from the README instead of the retired black tile.
 - Codex runs for Mira no longer use `--ephemeral` when resume is available, so
   the harness persists a resumable thread. Mira conversations now live in each
   harness's default state directory (`~/.claude`, `~/.codex`, OpenCode's data

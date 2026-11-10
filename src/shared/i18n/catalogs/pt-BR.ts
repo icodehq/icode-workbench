@@ -1892,4 +1892,10 @@ export const ptBR = {
   'settings.providers.form.saving': "Saving…",
   'settings.providers.form.cancel': "Cancel",
   'settings.providers.form.required': "Name, model, base URL, and API key are required.",
+  'tasks.row.continue': 'Continuar',
+  'tasks.row.continued': 'continuado',
+  'tasks.notice.continuing': 'Continuando como tentativa {count}',
+  'assistant.card.continue': 'Continuar',
+  'tasks.error.continueFailed': 'Não foi possível continuar a tentativa anterior.',
+  'tasks.detail.continueFailed': '{detail} Inicie uma nova tentativa em vez disso.'
 } satisfies MessageCatalog

@@ -68,6 +68,7 @@ function services(overrides: Partial<DispatcherServices> = {}): DispatcherServic
     tasksReject: vi.fn(async () => ({ id: 'task_1', status: 'cancelled' })),
     tasksCancel: vi.fn(async () => ({ id: 'task_1', status: 'cancelled' })),
     tasksRetry: vi.fn(async () => ({ id: 'task_2', status: 'queued' })),
+    tasksResume: vi.fn(async () => ({ id: 'task_3', status: 'queued' })),
     tasksHistory: vi.fn(async () => []),
     tasksChanges: vi.fn(async () => ({ status: 'available', files: [] })),
     tasksDecideReview: vi.fn(async () => ({ id: 'task_1', reviewDecision: 'accepted' })),

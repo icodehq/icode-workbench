@@ -267,6 +267,7 @@ export const taskStatusSchema = z.enum([
 
 export const taskOriginSchema = z.enum(['human', 'schedule', 'supervisor'])
 export const taskApprovalSchema = z.enum(['approved', 'pending', 'rejected'])
+export const taskAttemptModeSchema = z.enum(['fresh', 'resume'])
 export const taskReviewRecommendationSchema = z.enum(['accept', 'reject'])
 
 export const taskFailureReasonSchema = z.enum([
@@ -276,7 +277,8 @@ export const taskFailureReasonSchema = z.enum([
   'harness-failed',
   'interrupted',
   'cancelled',
-  'approval-rejected'
+  'approval-rejected',
+  'resume-failed'
 ])
 
 export const taskReviewDecisionSchema = z.enum(['pending', 'accepted', 'rejected'])
@@ -291,6 +293,7 @@ export const taskRecordSchema = z.strictObject({
   sessionId: sessionIdSchema.nullable(),
   worktreePath: z.string().max(4096).nullable(),
   attempt: z.number().int().min(1),
+  attemptMode: taskAttemptModeSchema,
   previousTaskId: z.string().max(80).nullable(),
   scheduleId: z.string().max(80).nullable(),
   occurrenceAt: z.number().int().nullable(),
@@ -322,6 +325,7 @@ export const taskRecordSchema = z.strictObject({
   reviewRecommendedBySessionId: sessionIdSchema.nullable().optional(),
   sessionLive: z.boolean(),
   canRetry: z.boolean(),
+  canResume: z.boolean(),
   canReview: z.boolean(),
   canApprove: z.boolean().optional(),
   canReject: z.boolean().optional(),

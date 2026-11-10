@@ -106,6 +106,7 @@ const ACTION_HELP = `Actions you may return (JSON objects with an "op"):
 - {"op":"tasks.create","repoId":"...","title":"...","prompt":"...","harness":"claude"|"codex"|"opencode"}
 - {"op":"tasks.cancel","taskId":"..."}
 - {"op":"tasks.retry","taskId":"..."}
+- {"op":"tasks.resume","taskId":"..."} — continue a failed or cancelled attempt in its existing session and worktree; prefer this after quota, auth, network or harness interruptions, because it keeps the uncommitted work
 - {"op":"tasks.archive","taskId":"..."}
 - {"op":"sessions.message","taskId":"...","text":"..."}
 - {"op":"supervisor.message","repoId":"...","text":"..."}

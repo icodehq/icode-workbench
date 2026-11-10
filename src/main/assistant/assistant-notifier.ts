@@ -2,6 +2,7 @@ import type { AssistantMessageRecord } from '../persistence/assistant-store'
 import type { RepositoryStore } from '../persistence/repository-store'
 import type { TaskStore } from '../tasks/task-store'
 import type { TaskRecord } from '../../shared/domain/task'
+import { taskCanResume } from '../../shared/domain/task'
 import type {
   AssistantSettings,
   AssistantNotificationKind,
@@ -52,14 +53,15 @@ function inQuietHours(now: number, startMinute: number, endMinute: number): bool
     : minute >= startMinute || minute < endMinute
 }
 
-function taskCard(task: TaskRecord): AssistantCard {
+function taskCard(task: TaskRecord, canResume: boolean): AssistantCard {
   return {
     type: 'task',
     taskId: task.id,
     repoId: task.repoId,
     title: task.title,
     status: task.status,
-    approval: task.approval
+    approval: task.approval,
+    canResume
   }
 }
 
@@ -131,7 +133,10 @@ export class AssistantNotifier {
     const repositories = this.deps.repositories.list()
     const needs: Need[] = []
     for (const task of tasks) {
-      const card = taskCard(task)
+      // Eligibility first: ineligible tasks must not pay for a successor query.
+      const canResume =
+        taskCanResume(task, false) && this.deps.taskStore.findSuccessor(task.id) === null
+      const card = taskCard(task, canResume)
       if (task.approval === 'pending' && task.status === 'queued' && task.createdByActor !== 'mira') {
         needs.push({
           fingerprint: `task:${task.id}:approval:${String(task.createdAt)}`,

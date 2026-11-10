@@ -82,6 +82,7 @@ export const IPC_CHANNELS = {
   tasksReject: 'icode:tasks:reject',
   tasksCancel: 'icode:tasks:cancel',
   tasksRetry: 'icode:tasks:retry',
+  tasksResume: 'icode:tasks:resume',
   tasksHistory: 'icode:tasks:history',
   tasksChanges: 'icode:tasks:changes',
   tasksDecideReview: 'icode:tasks:decide-review',

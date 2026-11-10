@@ -357,3 +357,13 @@ describe('wsl distro discovery', () => {
     await expect(api.wsl.listDistros()).resolves.toEqual(payload)
   })
 })
+
+describe('task retry and continue', () => {
+  it('routes each intent to its own channel', async () => {
+    const { api, invoke } = setup()
+    await api.tasks.retry({ taskId: 'task_1' })
+    await api.tasks.resume({ taskId: 'task_1' })
+    expect(invoke).toHaveBeenNthCalledWith(1, IPC_CHANNELS.tasksRetry, { taskId: 'task_1' })
+    expect(invoke).toHaveBeenNthCalledWith(2, IPC_CHANNELS.tasksResume, { taskId: 'task_1' })
+  })
+})

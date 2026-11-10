@@ -1892,4 +1892,10 @@ export const es = {
   'settings.providers.form.saving': "Saving…",
   'settings.providers.form.cancel': "Cancel",
   'settings.providers.form.required': "Name, model, base URL, and API key are required.",
+  'tasks.row.continue': 'Continuar',
+  'tasks.row.continued': 'continuado',
+  'tasks.notice.continuing': 'Continuando como intento {count}',
+  'assistant.card.continue': 'Continuar',
+  'tasks.error.continueFailed': 'No se pudo continuar el intento anterior.',
+  'tasks.detail.continueFailed': '{detail} Inicia un intento nuevo en su lugar.'
 } satisfies MessageCatalog

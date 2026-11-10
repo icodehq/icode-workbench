@@ -10,8 +10,8 @@
  *  - what was asked (`prompt`, `harness`, `repoId`)
  *  - what happened (`status`, `attempt`, `resultSummary`, `error`).
  *
- * A retry is a NEW task row pointing at its predecessor. History is never
- * rewritten to make a later attempt look like the first one.
+ * A retry or continuation is a NEW task row pointing at its predecessor.
+ * History is never rewritten to make a later attempt look like the first one.
  */
 
 import type { HarnessId } from './harness'
@@ -55,6 +55,16 @@ export type TaskOrigin = (typeof TASK_ORIGINS)[number]
  */
 export const TASK_APPROVALS = ['approved', 'pending', 'rejected'] as const
 export type TaskApproval = (typeof TASK_APPROVALS)[number]
+
+/**
+ * How an attempt started.
+ *
+ * `fresh` is a new session and worktree. `resume` continues the predecessor's
+ * session and worktree, so the harness conversation and uncommitted work
+ * survive a quota, auth, network or interruption failure.
+ */
+export const TASK_ATTEMPT_MODES = ['fresh', 'resume'] as const
+export type TaskAttemptMode = (typeof TASK_ATTEMPT_MODES)[number]
 
 /** States that occupy a concurrency slot. */
 export const ACTIVE_TASK_STATUSES: readonly TaskStatus[] = ['dispatching', 'running', 'waiting']
@@ -105,7 +115,8 @@ export const TASK_FAILURE_REASONS = [
   'harness-failed',
   'interrupted',
   'cancelled',
-  'approval-rejected'
+  'approval-rejected',
+  'resume-failed'
 ] as const
 export type TaskFailureReason = (typeof TASK_FAILURE_REASONS)[number]
 
@@ -126,9 +137,11 @@ export type TaskRecord = {
    * session row is pruned. Never used to delete anything.
    */
   worktreePath: string | null
-  /** 1 for the first attempt; a retry is a new row with attempt + 1. */
+  /** 1 for the first attempt; a new execution episode is a new row with attempt + 1. */
   attempt: number
-  /** The task this one retries, so the chain is walkable. */
+  /** Whether this episode started fresh or continued the predecessor's workspace. */
+  attemptMode: TaskAttemptMode
+  /** The task this one retries or continues, so the chain is walkable. */
   previousTaskId: string | null
   /** Provenance: the schedule and occurrence that created this task. */
   scheduleId: string | null
@@ -187,6 +200,14 @@ export type TaskView = TaskRecord & {
   sessionLive: boolean
   /** True when a retry is possible (terminal, and not already retried). */
   canRetry: boolean
+  /**
+   * True when the same session and worktree can be continued.
+   *
+   * Only a stopped, reviewed-pending, unarchived failed or cancelled attempt
+   * with a recorded session qualifies. A shell task has no conversation to
+   * resume, and a task with a successor is already continued by that row.
+   */
+  canResume: boolean
   /** True when a linked session or worktree can be opened for review. */
   canReview: boolean
   /** True when this is a queued proposal a human may approve. */
@@ -206,6 +227,30 @@ export type TaskView = TaskRecord & {
   canDecideReview: boolean
   /** True when a previous decision must be explicitly replaced to change it. */
   reviewDecisionFinal: boolean
+}
+
+/**
+ * Whether an attempt may be continued in place.
+ *
+ * Kept as a pure predicate so the task service, the view flags and the
+ * assistant notifier cannot drift on the eligibility rules. Nullish checks are
+ * deliberate: legacy rows and partial test fixtures may omit the fields.
+ */
+export function taskCanResume(
+  task: Pick<
+    TaskRecord,
+    'status' | 'sessionId' | 'harness' | 'reviewDecision' | 'archivedAt'
+  >,
+  hasSuccessor: boolean
+): boolean {
+  return (
+    (task.status === 'failed' || task.status === 'cancelled') &&
+    task.sessionId != null &&
+    task.harness !== 'shell' &&
+    task.reviewDecision === 'pending' &&
+    task.archivedAt == null &&
+    !hasSuccessor
+  )
 }
 
 export type TaskListFilter = {
