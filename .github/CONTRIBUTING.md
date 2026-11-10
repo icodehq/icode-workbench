@@ -118,6 +118,12 @@ Every user-visible change updates `CHANGELOG.md` in the same commit, under
    `[Unreleased]`, tag the release commit `vX.Y.Z`, and bump `package.json` to the
    next iteration.
 
+Pushing the tag starts the Release workflow: it runs the same build and
+packaging jobs as CI for the tagged commit, then attaches the Linux, Windows,
+and macOS installers to the GitHub Release. The workflow can also be dispatched
+manually with an existing tag to backfill a release whose tag predates its
+introduction.
+
 The guest Host protocol version (`HOST_VERSION` in `src/host/server.ts`) is
 independent of the product version; bump it only when the Host wire protocol
 changes.

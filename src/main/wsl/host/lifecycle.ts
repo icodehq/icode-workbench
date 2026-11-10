@@ -75,6 +75,7 @@ export async function readGuestHome(
   const attempt = (): ReturnType<WslCommandRunner['run']> =>
     runner.run({
       scope: 'guest',
+      label: 'guest-home',
       distro,
       argv: ['sh', '-c', GUEST_HOME_SCRIPT, 'icode-home'],
       ...(options.signal ? { signal: options.signal } : {})

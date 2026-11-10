@@ -45,6 +45,25 @@ export function resolveWslTimeoutScale(env: NodeJS.ProcessEnv = process.env): nu
 }
 
 /**
+ * Opt-in per-spawn diagnostics.
+ *
+ * Every guest call is a fresh `wsl.exe` process, and the create path is dominated
+ * by their count. `ICODE_DEBUG_WSL_SPAWNS=1` logs one line per actual spawn so a
+ * run can be attributed label-by-label instead of guessed from wall time. The
+ * default check is a single boolean and formats nothing.
+ */
+export const WSL_DEBUG_SPAWNS_ENV = 'ICODE_DEBUG_WSL_SPAWNS'
+
+function resolveDebugSpawns(
+  env: NodeJS.ProcessEnv,
+  override: boolean | undefined
+): boolean {
+  if (override !== undefined) return override
+  const raw = env[WSL_DEBUG_SPAWNS_ENV]?.trim().toLowerCase()
+  return raw === '1' || raw === 'true'
+}
+
+/**
  * Two scopes, because `wsl.exe` has two of them and confusing them fails quietly.
  *
  * `host` runs a `wsl.exe` option (`--list`, `--status`, `--version`): argv goes
@@ -56,6 +75,8 @@ export function resolveWslTimeoutScale(env: NodeJS.ProcessEnv = process.env): nu
  */
 export type WslHostCommand = {
   scope: 'host'
+  /** Diagnostic label for `ICODE_DEBUG_WSL_SPAWNS`; never part of argv. */
+  label?: string
   argv: readonly string[]
   timeoutMs?: number
   signal?: AbortSignal
@@ -63,6 +84,8 @@ export type WslHostCommand = {
 
 export type WslGuestCommand = {
   scope: 'guest'
+  /** Diagnostic label for `ICODE_DEBUG_WSL_SPAWNS`; never part of argv. */
+  label?: string
   /** The distro to enter. Required: a guest command never silently picks one. */
   distro: string
   /**
@@ -330,6 +353,16 @@ export type WslCommandRunnerOptions = {
   program?: string
   /** Overrides `ICODE_WSL_TIMEOUT_SCALE`; mainly for tests. */
   timeoutScale?: number
+  /** Overrides `ICODE_DEBUG_WSL_SPAWNS`; mainly for tests. */
+  debugSpawns?: boolean
+  /** Sink for spawn diagnostics; defaults to stderr. */
+  logSpawn?: (line: string) => void
+}
+
+/** Small helper: a diagnostic value must never break the line format. */
+function diagnosticToken(value: string): string {
+  const token = value.replace(/\s+/gu, '_')
+  return token.length > 0 ? token : '-'
 }
 
 /**
@@ -342,6 +375,8 @@ export class WslCommandRunner {
   private readonly env: NodeJS.ProcessEnv
   private readonly program: string
   private readonly timeoutScale: number
+  private readonly debugSpawns: boolean
+  private readonly logSpawn: (line: string) => void
 
   constructor(options: WslCommandRunnerOptions = {}) {
     this.launcher = options.launcher ?? defaultLauncher
@@ -350,11 +385,40 @@ export class WslCommandRunner {
     this.program =
       options.program ?? resolveWslExecutablePath(this.env, options.platform ?? process.platform)
     this.timeoutScale = options.timeoutScale ?? resolveWslTimeoutScale(this.env)
+    this.debugSpawns = resolveDebugSpawns(this.env, options.debugSpawns)
+    this.logSpawn =
+      options.logSpawn ??
+      ((line) => {
+        process.stderr.write(`${line}\n`)
+      })
   }
 
   /** The budget actually applied to one guest call. */
   private budget(requested: number): number {
     return Math.round(requested * this.timeoutScale)
+  }
+
+  /** One line per actual `wsl.exe` launch; disabled by default. */
+  private logSpawnLine(
+    request: WslExecRequest,
+    status: string,
+    startedAt: number
+  ): void {
+    if (!this.debugSpawns) return
+    const distro = request.scope === 'guest' ? request.distro : '-'
+    const program = request.argv[0] ?? '-'
+    const elapsedMs = startedAt === 0 ? 0 : Date.now() - startedAt
+    this.logSpawn(
+      `[icode:wsl-spawn] label=${diagnosticToken(request.label ?? '-')} ` +
+        `distro=${diagnosticToken(distro)} program=${diagnosticToken(program)} ` +
+        `status=${diagnosticToken(status)} elapsedMs=${String(elapsedMs)}`
+    )
+  }
+
+  /** Status label for a completed launch, used only when diagnostics are on. */
+  private static resultStatus(result: WslProcessResult | WslByteResult): string {
+    if (result.timedOut) return 'timed_out'
+    return result.code === 0 ? 'ok' : `exit_${result.code === null ? 'null' : String(result.code)}`
   }
 
   /** The Windows-side argv this runner would use, for tests and diagnostics. */
@@ -375,6 +439,7 @@ export class WslCommandRunner {
     // Validate the shape before spawning, so a caller cannot silently get the
     // default distro by forgetting `distro`, nor run a `wsl.exe` option in a guest.
     const args = this.buildArgs(request)
+    const startedAt = this.debugSpawns ? Date.now() : 0
 
     let result: WslProcessResult
     try {
@@ -396,14 +461,30 @@ export class WslCommandRunner {
       const detail = error instanceof Error ? error.message : String(error)
       // An abort surfaces from the launcher as a rejected promise on some Node
       // versions; it is a cancellation, not a missing binary.
-      if (request.signal?.aborted) return { status: 'cancelled' }
+      if (request.signal?.aborted) {
+        this.logSpawnLine(request, 'cancelled', startedAt)
+        return { status: 'cancelled' }
+      }
       if (typeof error === 'object' && error !== null && 'code' in error) {
         const code = (error as { code?: unknown }).code
-        if (code === 'ABORT_ERR') return { status: 'cancelled' }
-        if (code === 'ENOENT') return { status: 'wsl_missing', detail }
+        if (code === 'ABORT_ERR') {
+          this.logSpawnLine(request, 'cancelled', startedAt)
+          return { status: 'cancelled' }
+        }
+        if (code === 'ENOENT') {
+          this.logSpawnLine(request, 'wsl_missing', startedAt)
+          return { status: 'wsl_missing', detail }
+        }
       }
+      this.logSpawnLine(request, 'error', startedAt)
       throw error
     }
+
+    this.logSpawnLine(
+      request,
+      request.signal?.aborted ? 'cancelled' : WslCommandRunner.resultStatus(result),
+      startedAt
+    )
 
     // An abort that lands while the process runs resolves as a non-zero exit on
     // some Node versions; the caller's intent wins over that shape.
@@ -433,6 +514,7 @@ export class WslCommandRunner {
     if (request.signal?.aborted) {
       return { code: null, signal: 'SIGTERM', stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), timedOut: false }
     }
+    const startedAt = this.debugSpawns ? Date.now() : 0
     try {
       const result = await this.byteLauncher({
         program: this.program,
@@ -443,14 +525,23 @@ export class WslCommandRunner {
         ...(request.stdin !== undefined ? { stdin: request.stdin } : {}),
         ...(request.signal ? { signal: request.signal } : {})
       })
+      this.logSpawnLine(
+        request,
+        request.signal?.aborted ? 'cancelled' : WslCommandRunner.resultStatus(result),
+        startedAt
+      )
       if (request.signal?.aborted && result.code !== 0) {
         return { ...result, timedOut: false }
       }
       return result
     } catch (error) {
       if (typeof error === 'object' && error !== null && 'code' in error) {
-        if ((error as { code?: unknown }).code === 'ENOENT') return { status: 'wsl_missing' }
+        if ((error as { code?: unknown }).code === 'ENOENT') {
+          this.logSpawnLine(request, 'wsl_missing', startedAt)
+          return { status: 'wsl_missing' }
+        }
       }
+      this.logSpawnLine(request, 'error', startedAt)
       throw error
     }
   }

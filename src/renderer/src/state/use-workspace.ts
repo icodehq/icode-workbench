@@ -7,6 +7,7 @@ import type {
 import { makeAppError, type AppError } from '../../../shared/domain/errors'
 import type { HarnessId } from '../../../shared/domain/harness'
 import type { ExecutionTarget } from '../../../shared/domain/repository'
+import type { SessionSummary } from '../../../shared/schemas/ipc'
 import { isActiveSessionState, isTerminalSessionState } from '../../../shared/domain/session'
 import { wakeDescription, wakePlan } from '../../../shared/domain/session-sleep'
 import { callApi, errorNotice, isAbsolutePathLike } from '../lib/api'
@@ -48,6 +49,17 @@ export type CreateSessionRequest = {
   branchName?: string
 }
 
+/**
+ * The outcome of a create request.
+ *
+ * The App wrapper owns failure feedback now that the dialog closes immediately:
+ * it needs the error itself to offer a Retry with the original request, not a
+ * notice that a later refresh may overwrite.
+ */
+export type CreateSessionOutcome =
+  | { ok: true; session: SessionSummary }
+  | { ok: false; error: AppError }
+
 export type AddRepositoryRequest = {
   path: string
   /** The execution target to persist. Always explicit: local is a choice too. */
@@ -61,7 +73,6 @@ export type InitializeRepositoryRequest = AddRepositoryRequest & {
 export function useWorkspace(): {
   state: WorkspaceState
   runtime: RuntimeInfo | null
-  creating: boolean
   /**
    * Registers a repository and reports the failure to the caller.
    *
@@ -76,7 +87,7 @@ export function useWorkspace(): {
   removeRepository: (repoId: string) => Promise<void>
   confirmRemoval: () => Promise<void>
   dismissRemoval: () => void
-  createSession: (input: CreateSessionRequest) => Promise<boolean>
+  createSession: (input: CreateSessionRequest) => Promise<CreateSessionOutcome>
   stopSession: (sessionId: string) => Promise<void>
   restartSession: (sessionId: string) => Promise<void>
   sleepSession: (sessionId: string) => Promise<void>
@@ -113,7 +124,6 @@ export function useWorkspace(): {
       })
   )
   const [runtime, setRuntime] = useState<RuntimeInfo | null>(null)
-  const [creating, setCreating] = useState(false)
   const booted = useRef(false)
   const stopTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>())
   // Event callbacks are registered once; they read the latest selection here.
@@ -726,16 +736,18 @@ export function useWorkspace(): {
   }, [])
 
   const createSession = useCallback(
-    async (input: CreateSessionRequest): Promise<boolean> => {
+    async (input: CreateSessionRequest): Promise<CreateSessionOutcome> => {
       const detection = state.harnesses.find((entry) => entry.harness === input.harness)
       if (!detection || detection.state !== 'available') {
-        notify({
-          tone: 'error',
-          message: translate('workspace.notice.harnessUnavailable')
-        })
-        return false
+        return {
+          ok: false,
+          error: makeAppError(
+            'HARNESS_UNAVAILABLE',
+            'That Harness is not available, so no session was started.',
+            { messageKey: 'workspace.notice.harnessUnavailable' }
+          )
+        }
       }
-      setCreating(true)
       /*
        * Start the PTY at the grid the terminal last occupied. A hardcoded
        * 100x30 was always wrong at least once and forced a visible reflow on
@@ -757,9 +769,7 @@ export function useWorkspace(): {
           rows: terminalSize.rows
         })
       )
-      setCreating(false)
       if (!result.ok) {
-        notify(errorNotice(result.error))
         // A failed create may still leave a durable failed row; load the truth
         // rather than adding a phantom session locally.
         await refreshSessions()
@@ -769,7 +779,7 @@ export function useWorkspace(): {
         ) {
           await refreshHarnesses(true)
         }
-        return false
+        return { ok: false, error: result.error }
       }
       dispatch({ type: 'sessionUpserted', session: result.value })
       dispatch({ type: 'selectSession', sessionId: result.value.id })
@@ -777,7 +787,7 @@ export function useWorkspace(): {
         tone: 'success',
         message: translate('workspace.notice.started', { title: result.value.title })
       })
-      return true
+      return { ok: true, session: result.value }
     },
     [notify, refreshHarnesses, refreshSessions, state.harnesses]
   )
@@ -943,7 +953,6 @@ export function useWorkspace(): {
   return {
     state,
     runtime,
-    creating,
     addRepository,
     initializeRepository,
     retryPreparation,

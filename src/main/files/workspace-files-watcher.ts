@@ -13,6 +13,7 @@
 
 import { relative } from 'node:path'
 import { watch as chokidarWatch } from 'chokidar'
+import { canonicalWatchPath } from '../watch-path'
 import {
   FILES_SKIP_DIRECTORIES,
   type FilesChangedEvent,
@@ -165,6 +166,10 @@ export class WorkspaceFilesWatcherService {
       this.desired.delete(sessionId)
       return { watching: false, reason: 'unsupported-target' }
     }
+    // Chokidar and libuv must agree on the spelling of the watched root; a
+    // Windows 8.3 short name makes libuv abort the process. Canonicalize before
+    // any ignore or relative-path logic sees the target.
+    target = { worktreePath: canonicalWatchPath(target.worktreePath) }
 
     await this.stop(sessionId)
     const state: SessionWatch = {

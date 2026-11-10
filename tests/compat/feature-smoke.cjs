@@ -756,7 +756,7 @@ async function run() {
     await waitForSelector('[data-testid="provider-select-claude"]', 10000)
     const providerCard = await cdp.evaluate(`(() => {
       const select = document.querySelector('[data-testid="provider-select-claude"]');
-      return select?.closest('section')?.innerText ?? '';
+      return select?.closest('section')?.textContent ?? '';
     })()`)
     assert(
       providerCard.toLowerCase().includes('agent providers'),
@@ -768,7 +768,7 @@ async function run() {
       const smart = document.querySelector('[data-testid="scm-setting-smart-commit"]');
       const section = smart?.closest('section');
       return {
-        text: section?.innerText ?? '',
+        text: section?.textContent ?? '',
         smartCommit: smart?.value ?? null,
         untracked: document.querySelector('[data-testid="scm-setting-untracked"]')?.value ?? null,
         autoFetchPresent: Boolean(document.querySelector('input[aria-label="Auto-fetch"]')),
@@ -1716,7 +1716,19 @@ async function run() {
     const mountedTop = await cdp.evaluate(
       `document.querySelectorAll('[data-testid^="files-entry-phase-d/large/file-"]').length`
     )
-    assert(mountedTop < 100, `the large folder mounted ${String(mountedTop)} rows at the top`)
+    const treeMetrics = await cdp.evaluate(`(() => {
+      const tree = document.querySelector('[data-testid="files-tree"]');
+      return {
+        height: tree?.clientHeight ?? null,
+        scrollHeight: tree?.scrollHeight ?? null,
+        innerHeight: window.innerHeight,
+        mounted: document.querySelectorAll('[data-testid^="files-entry-phase-d/large/file-"]').length
+      };
+    })()`)
+    assert(
+      mountedTop < 100,
+      `the large folder mounted ${String(mountedTop)} rows at the top (${JSON.stringify(treeMetrics)})`
+    )
     await cdp.evaluate(`(() => {
       const element = document.querySelector('[data-testid="files-tree"]');
       if (!element) return false;

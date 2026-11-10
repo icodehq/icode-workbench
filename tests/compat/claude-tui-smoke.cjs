@@ -213,6 +213,31 @@ async function click(selector) {
   assert(clicked, `Could not click ${selector}`)
 }
 
+async function openProjectSessions() {
+  if (
+    await cdp.evaluate(
+      `Boolean(document.querySelector('[data-testid="project-sessions-list"]'))`
+    )
+  ) {
+    return
+  }
+  if (
+    !(await cdp.evaluate(`Boolean(document.querySelector('[data-testid="projects-wall"]'))`))
+  ) {
+    await click('[data-testid="rail-projects"]')
+    await waitForSelector('[data-testid="projects-wall"]', 20000)
+  }
+  await waitForSelector('[data-testid^="project-row-"]', 20000)
+  const repoId = await cdp.evaluate(
+    `document.querySelector('[data-testid^="project-row-"]')?.getAttribute('data-testid')?.replace('project-row-', '') ?? null`
+  )
+  assert(repoId, 'Could not identify the registered repository')
+  await click(`[data-testid="open-project-${repoId}"]`)
+  await waitForSelector('[data-testid="project-header"]', 20000)
+  await click('[data-testid="project-mode-sessions"]')
+  await waitForSelector('[data-testid="project-sessions-list"]', 20000)
+}
+
 async function setInput(selector, value) {
   const applied = await cdp.evaluate(`(() => {
     const element = document.querySelector(${JSON.stringify(selector)});
@@ -236,7 +261,9 @@ async function notice() {
 }
 
 async function sessions() {
-  return cdp.evaluate(`Array.from(document.querySelectorAll('[data-session-id]')).map((element) => ({
+  // Scope to the session list. `data-session-id` also exists on the status-bar
+  // git summary and the Changes panel, which are not session rows.
+  return cdp.evaluate(`Array.from(document.querySelectorAll('[data-testid="project-sessions-list"] [data-session-id]')).map((element) => ({
     id: element.dataset.sessionId,
     state: element.dataset.sessionState,
     incarnation: element.dataset.sessionIncarnation,
@@ -622,7 +649,9 @@ async function launch(label, environment) {
       gateEnvOverrides: Object.keys(process.env).filter((key) => key.startsWith('ICODE_GATE_'))
     }
   }
-  await waitForSelector('[data-testid="repo-select"]', 30000)
+  // The app shell is the stable boot anchor. The old top-bar repo `<select>`
+  // (`repo-select`) was replaced by the project switcher in the redesign.
+  await waitForSelector('[data-testid="app-rail"]', 30000)
   await waitFor(
     `!document.body.innerText.includes('Loading repositories')`,
     'workspace boot',
@@ -717,8 +746,9 @@ async function main() {
       'initial',
       PACKAGED ? {} : { ICODE_HOST_DIR: HOST_DIR, ICODE_HOST_SOCKET: SOCKET }
     )
-    const text = await bodyText()
-    assert(text.includes('Add your first repository'), 'First-run empty state is missing')
+    // The empty workspace's stable anchor. The old "Add your first repository"
+    // copy was replaced by "Add a project" in the redesign.
+    await waitForSelector('[data-testid="empty-add-repo"]', 30000)
     if (PACKAGED) {
       // The packaged app must use its normal default userData path, not a
       // test override, and the profile must be the isolated one.
@@ -744,10 +774,9 @@ async function main() {
       'repository registration',
       30000
     )
-    await waitFor(
-      `Array.from(document.querySelectorAll('[data-testid="repo-select"] option')).some((option) => option.textContent.includes('repo'))`,
-      'registered repository'
-    )
+    // Registration lands on the projects wall. Open the project and switch to
+    // its Sessions surface, which is where the next step starts a session.
+    await openProjectSessions()
     await screenshot('01-repository-registered')
     return { repo: REPO_DIR }
   })
@@ -931,8 +960,11 @@ async function main() {
     assert(snapshotTokenRows === 2, `Host snapshot has ${String(snapshotTokenRows)} token rows, expected 2`)
     // Cursor-forward codes collapse the banner's spacing, so compare compacted text.
     const compactSnapshot = snapshotText.replace(/\s+/g, '')
+    // The installed Claude patch version moves independently of iCode. The
+    // detection step already accepts 2.1.x; the snapshot must prove the header
+    // survived, not pin one patch.
     assert(
-      compactSnapshot.includes('ClaudeCodev2.1.306'),
+      /ClaudeCodev2\.1\.\d+/u.test(compactSnapshot),
       'Host snapshot lost the Claude TUI header'
     )
     assert(!redactionCheck(snapshotText), 'Credential-like text appeared in the Host snapshot')
@@ -1075,8 +1107,10 @@ async function main() {
       'relaunch',
       PACKAGED ? {} : { ICODE_HOST_DIR: HOST_DIR, ICODE_HOST_SOCKET: SOCKET }
     )
+    // A relaunch opens on the projects wall; the sessions live under the project.
+    await openProjectSessions()
     await waitFor(
-      `Array.from(document.querySelectorAll('[data-session-id]')).length === 2`,
+      `document.querySelectorAll('[data-testid="project-sessions-list"] [data-session-id]').length === 2`,
       'persisted sessions',
       30000
     )

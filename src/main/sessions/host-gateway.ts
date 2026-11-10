@@ -25,6 +25,14 @@ import {
 export type HostTarget = ExecutionTarget | undefined
 
 export type HostGateway = {
+  /**
+   * Establishes the target's host connection without starting a terminal.
+   *
+   * On WSL this pays the relay/host ensure cost while the caller is still doing
+   * detection or Git work. A failure is the caller's to ignore: `createOrAttach`
+   * reports the real reason.
+   */
+  prewarm(target?: HostTarget): Promise<void>
   createOrAttach(
     params: {
       sessionId: string
@@ -102,6 +110,11 @@ export class SupervisorHostGateway implements HostGateway {
   ): Promise<CreateOrAttachPayload> {
     const client = await this.clientFor(target)
     return client.createOrAttach(params)
+  }
+
+  async prewarm(target?: HostTarget): Promise<void> {
+    if (target === undefined || target.kind === 'local') return
+    await this.clientFor(target)
   }
 
   async write(

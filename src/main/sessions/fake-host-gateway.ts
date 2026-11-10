@@ -53,10 +53,13 @@ export class FakeHostGateway implements HostGateway {
       host: string
     }>,
     kill: [] as Array<{ sessionId: string; host: string }>,
+    prewarm: [] as Array<{ host: string }>,
     listSessions: 0
   }
 
   reachable = true
+  /** One-shot prewarm failure, so create must still report its own outcome. */
+  prewarmFailure: Error | null = null
   /**
    * Fail only one host, so multi-host reconciliation can be tested. `null` fails
    * everything through `reachable`.
@@ -101,6 +104,22 @@ export class FakeHostGateway implements HostGateway {
     const session = { info, snapshot: emptySnapshot(info.cols, info.rows) }
     this.sessions.set(sessionId, session)
     return session
+  }
+
+  async prewarm(target?: HostTarget): Promise<void> {
+    this.assertTarget(target)
+    this.ensureReachable()
+    this.calls.prewarm.push({
+      host:
+        target === undefined || target.kind === 'local'
+          ? 'local'
+          : `wsl:${target.distro}:${target.distroId ?? ''}`
+    })
+    if (this.prewarmFailure !== null) {
+      const error = this.prewarmFailure
+      this.prewarmFailure = null
+      throw error
+    }
   }
 
   async createOrAttach(params: {

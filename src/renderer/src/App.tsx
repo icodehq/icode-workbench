@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { SessionSummary } from '../../shared/schemas/ipc'
 import AppRail from './components/AppRail'
@@ -24,7 +24,12 @@ import { useAppNavigation } from './router/use-app-navigation'
 import { useGlobalShortcuts } from './router/use-global-shortcuts'
 import { useSessionPanes } from './state/use-session-panes'
 import { taskAttention } from './components/task-status'
-import { useWorkspace } from './state/use-workspace'
+import { useWorkspace, type CreateSessionRequest } from './state/use-workspace'
+import {
+  createPendingCreate,
+  pendingCreateStillVisible,
+  type PendingCreate
+} from './state/pending-create'
 import { useTaskQueue } from './state/use-task-queue'
 import { useAssistant } from './state/use-assistant'
 import { useThemePreference } from './theme/use-theme'
@@ -33,7 +38,7 @@ import { translate, translatePlural } from './i18n/i18n-store'
 import { activeRepo, activeSession } from './state/workspace'
 import { hostStatus } from './state/host-status'
 import type { Surface } from './router/routes'
-import { callApi } from './lib/api'
+import { callApi, errorNotice } from './lib/api'
 import { sendAgentText, type AgentSendResult } from './lib/agent-send'
 import { setRendererPlatform } from './lib/platform'
 import { harnessLabel, isAgentHarness } from '../../shared/domain/harness'
@@ -150,6 +155,11 @@ export default function App(): React.JSX.Element {
   const [markingActivity, setMarkingActivity] = useState(false)
   const [refreshToken, setRefreshToken] = useState(0)
   const [newSessionOpen, setNewSessionOpen] = useState(false)
+  const [pendingCreate, setPendingCreate] = useState<PendingCreate | null>(null)
+  const createInFlight = useRef(false)
+  const submitCreateRef = useRef<(request: CreateSessionRequest) => Promise<boolean>>(
+    async () => false
+  )
   const [removalBusy, setRemovalBusy] = useState(false)
   const [cleanupBusy, setCleanupBusy] = useState(false)
   /** Line notes and commit messages survive panel and task switches. */
@@ -363,14 +373,49 @@ export default function App(): React.JSX.Element {
     setNewSessionOpen(true)
   }
 
-  const createSession = useCallback(
-    async (input: Parameters<typeof workspace.createSession>[0]): Promise<boolean> => {
-      const created = await workspace.createSession(input)
-      if (created) commands.showSessions()
-      return created
+  const submitCreate = useCallback(
+    async (input: CreateSessionRequest): Promise<boolean> => {
+      if (createInFlight.current) {
+        workspace.notify({ tone: 'info', message: translate('newSession.oneAtATime') })
+        return false
+      }
+      createInFlight.current = true
+      const pending = createPendingCreate(input, state.repos)
+      setPendingCreate(pending)
+      setNewSessionOpen(false)
+      // The dialog no longer blocks on the round trip, so navigation must happen
+      // now rather than after a success that may take seconds on WSL.
+      workspace.selectRepo(input.repoId)
+      commands.showSessions()
+      try {
+        const outcome = await workspace.createSession(input)
+        if (!outcome.ok) {
+          // The dialog is gone; its values live in `pending.request`. The Retry
+          // action resubmits exactly those values, so a failure loses nothing.
+          workspace.notify({
+            ...errorNotice(outcome.error),
+            action: {
+              label: translate('newSession.retry'),
+              run: () => {
+                void submitCreateRef.current(input)
+              }
+            }
+          })
+          return false
+        }
+        commands.showSessions()
+        return true
+      } finally {
+        createInFlight.current = false
+        setPendingCreate((current) => (current?.id === pending.id ? null : current))
+      }
     },
-    [commands.showSessions, workspace]
+    [commands, state.repos, workspace]
   )
+
+  useEffect(() => {
+    submitCreateRef.current = submitCreate
+  }, [submitCreate])
 
   const addRepository = useCallback(
     async (input: Parameters<typeof workspace.addRepository>[0]): Promise<Awaited<ReturnType<typeof workspace.addRepository>>> => {
@@ -401,6 +446,16 @@ export default function App(): React.JSX.Element {
   }
 
   const paneSessions = useSessionPanes(state.sessions)
+  /**
+   * The create event is emitted before the create IPC response, so the real row
+   * can be visible while the descriptor is still set. Hide the pending surface
+   * as soon as a matching non-failed session exists; the descriptor itself is
+   * cleared by the submit's outcome.
+   */
+  const pendingCreateView =
+    pendingCreate !== null && pendingCreateStillVisible(pendingCreate, state.sessions)
+      ? pendingCreate
+      : null
 
   const pages: Record<Surface, ReactNode> = {
     projects: (
@@ -423,6 +478,7 @@ export default function App(): React.JSX.Element {
         repo={repo}
         sessions={projectDirectSessions}
         activeSession={projectSession}
+        pendingCreate={pendingCreateView}
         pending={state.pending}
         branches={state.branches}
         orphans={state.orphans}
@@ -673,9 +729,8 @@ export default function App(): React.JSX.Element {
                   harnesses: state.harnesses,
                   harnessLoading: state.harnessLoading,
                   harnessError: state.harnessError,
-                  creating: workspace.creating,
                   onClose: () => setNewSessionOpen(false),
-                  onCreate: createSession,
+                  onCreate: submitCreate,
                   onRefreshHarnesses: workspace.refreshHarnesses
                 }
               : null

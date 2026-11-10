@@ -170,6 +170,116 @@ describe('execution outcomes', () => {
   })
 })
 
+describe('spawn diagnostics', () => {
+  function recorder(): { lines: string[]; logSpawn: (line: string) => void } {
+    const lines: string[] = []
+    return { lines, logSpawn: (line) => lines.push(line) }
+  }
+
+  it('is silent by default', async () => {
+    const { launcher, calls } = launcherReturning(result())
+    const { lines, logSpawn } = recorder()
+    const runner = new WslCommandRunner({ launcher, platform: 'win32', env: {}, logSpawn })
+    await runner.run({ scope: 'guest', distro: 'd', argv: ['true'] })
+    expect(calls).toHaveLength(1)
+    expect(lines).toHaveLength(0)
+  })
+
+  it('logs one line per actual spawn with label, distro and status', async () => {
+    const { launcher } = launcherReturning(result({ stdout: 'ok\n' }))
+    const { lines, logSpawn } = recorder()
+    const runner = new WslCommandRunner({
+      launcher,
+      platform: 'win32',
+      env: {},
+      debugSpawns: true,
+      logSpawn
+    })
+    await runner.run({
+      scope: 'guest',
+      distro: 'Ubuntu-26.04',
+      label: 'inspect-create',
+      argv: ['sh', '-c', 'echo hi']
+    })
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatch(/^\[icode:wsl-spawn\] /u)
+    expect(lines[0]).toContain('label=inspect-create')
+    expect(lines[0]).toContain('distro=Ubuntu-26.04')
+    expect(lines[0]).toContain('program=sh')
+    expect(lines[0]).toContain('status=ok')
+    expect(lines[0]).toMatch(/elapsedMs=\d+/u)
+  })
+
+  it('distinguishes timeout, wsl_missing and a failing exit', async () => {
+    const { launcher } = launcherReturning(
+      result({ timedOut: true, code: null }),
+      Object.assign(new Error('spawn ENOENT'), { code: 'ENOENT' }),
+      result({ code: 7 })
+    )
+    const { lines, logSpawn } = recorder()
+    const runner = new WslCommandRunner({
+      launcher,
+      platform: 'win32',
+      env: {},
+      debugSpawns: true,
+      logSpawn
+    })
+    await runner.run({ scope: 'guest', distro: 'd', argv: ['true'] })
+    await runner.run({ scope: 'guest', distro: 'd', argv: ['true'] })
+    await runner.run({ scope: 'guest', distro: 'd', argv: ['true'] })
+    expect(lines.map((line) => line.match(/status=(\S+)/u)?.[1])).toEqual([
+      'timed_out',
+      'wsl_missing',
+      'exit_7'
+    ])
+  })
+
+  it('logs runBytes once and never logs a pre-aborted call', async () => {
+    const { lines, logSpawn } = recorder()
+    const byteLauncher = async () => ({
+      code: 0,
+      signal: null,
+      stdout: Buffer.from('ok'),
+      stderr: Buffer.alloc(0),
+      timedOut: false
+    })
+    const runner = new WslCommandRunner({
+      byteLauncher,
+      platform: 'win32',
+      env: {},
+      debugSpawns: true,
+      logSpawn
+    })
+    await runner.runBytes({ scope: 'guest', distro: 'd', label: 'git-env-probe', argv: ['sh'] })
+    const controller = new AbortController()
+    controller.abort()
+    await runner.runBytes({
+      scope: 'guest',
+      distro: 'd',
+      argv: ['sh'],
+      signal: controller.signal
+    })
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toContain('label=git-env-probe')
+    expect(lines[0]).toContain('status=ok')
+  })
+
+  it('can be enabled by the environment variable', async () => {
+    const { launcher } = launcherReturning(result())
+    const { lines, logSpawn } = recorder()
+    const runner = new WslCommandRunner({
+      launcher,
+      platform: 'win32',
+      env: { ICODE_DEBUG_WSL_SPAWNS: '1' },
+      logSpawn
+    })
+    await runner.run({ scope: 'host', argv: ['--list', '--quiet'] })
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toContain('distro=-')
+    expect(lines[0]).toContain('program=--list')
+  })
+})
+
 describe('output decoding', () => {
   it('decodes the UTF-16LE that a distro listing actually returns', () => {
     // Measured: `wsl --list --quiet` yields `U\0b\0u\0n\0t\0u\0-\0…`.

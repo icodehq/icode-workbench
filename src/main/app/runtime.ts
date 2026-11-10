@@ -51,7 +51,8 @@ import { GitWorktreeService } from '../worktrees/git-worktree-service'
 import { createGitExecutorRouter } from '../git/executor'
 import { WslCommandRunner, resolveWslExecutablePath, resolveWslInteropCwd } from '../wsl/exec'
 import { profileSocketScope } from '../../host/paths'
-import { WslHostLifecycle, readGuestHome } from '../wsl/host/lifecycle'
+import { WslHostLifecycle } from '../wsl/host/lifecycle'
+import { createGuestHomeCache } from '../wsl/host/guest-home-cache'
 import { createWslHolder, createHolderRecordStore } from '../wsl/host/holder'
 import { createWindowsProcessQuery } from '../wsl/host/windows-process'
 import { createGuestHostStore } from '../wsl/host/guest-store'
@@ -60,9 +61,10 @@ import { createTargetValidator } from '../wsl/repository-target'
 import { loadWslArtifacts, type WslArtifactLoad } from '../wsl/host/artifact-locating'
 import type { HostArtifactManifest } from '../wsl/host/deploy'
 import { createGuestHarnessDetector, withGuestLaunchCommand } from '../wsl/harness/guest-harness-detector'
+import { createGuestHarnessProbeCache } from '../wsl/harness/guest-harness-probe-cache'
+import { createDetectionResultCache } from '../harness/detection-result-cache'
 import { resolvePathATerminal } from '../wsl/terminal/path-a'
 import { toGuestVisiblePath } from '../wsl/guest-visible-path'
-import { resolveGuestHarnessContext } from '../wsl/harness/guest-harness'
 import { createWslHostClientPool } from '../sessions/wsl-host-client-pool'
 import { createWorkspaceTrust } from '../harness/trust/workspace-trust'
 import { nativeLaunchSpec, providerLaunchSpec } from '../../shared/provider-launch'
@@ -119,7 +121,9 @@ export type AppRuntime = {
    *
    * Omit `repoId` for this machine, which is what every pre-W9 caller meant.
    */
-  listHarnesses: (input?: { repoId?: string }) => Promise<HarnessDetectionResult[]>
+  listHarnesses: (input?: { repoId?: string; force?: boolean }) => Promise<HarnessDetectionResult[]>
+  /** Drops cached Harness detection after a provider mutation. */
+  invalidateHarnessDetection: () => void
   /** Registered WSL distros, or why they could not be read. */
   listWslDistros: () => Promise<WslDistroListPayload>
   /**
@@ -229,6 +233,12 @@ export async function startAppRuntime(): Promise<AppRuntime> {
    */
   const isWindowsHost = process.platform === 'win32'
   const wslRunner = new WslCommandRunner()
+  /**
+   * `$HOME` is stable for a distro registration and is consulted by worktree
+   * routing, trust, the relay and the folder picker. One cached probe replaces
+   * a fresh `wsl.exe` spawn at each call site.
+   */
+  const guestHomeCache = createGuestHomeCache(wslRunner)
 
   /**
    * Harness workspace trust is prepared for every session, not only Claude.
@@ -238,7 +248,7 @@ export async function startAppRuntime(): Promise<AppRuntime> {
   const workspaceTrust = createWorkspaceTrust({
     runner: wslRunner,
     localHome: app.getPath('home'),
-    readGuestHome: (distro) => readGuestHome(wslRunner, distro)
+    readGuestHome: (distro) => guestHomeCache.read(distro)
   })
   /**
    * Worktree scope for WSL: derived from the profile directory, exactly as the
@@ -301,6 +311,7 @@ export async function startAppRuntime(): Promise<AppRuntime> {
       artifactRoot,
       manifest,
       profileDir: app.getPath('userData'),
+      readGuestHome: (distro, options) => guestHomeCache.read(distro, options ?? {}),
       // The one process the relay needs to know how to start: `wsl.exe`, from an
       // explicit Windows cwd, so an inherited deleted cwd cannot break every bridge.
       bridgeChildDeps: {
@@ -330,6 +341,13 @@ export async function startAppRuntime(): Promise<AppRuntime> {
   const wslHosts = createWslHostClientPool({ relay: wslRelay })
   const host = new SupervisorHostGateway(supervisor, wslHosts)
   const harness = createHarnessDetector()
+  /**
+   * Discovery is expensive in WSL (shell + login PATH + one lookup + one version
+   * probe per harness). The dialog asks for the list and Start asks again; these
+   * caches make the second question free for a short while.
+   */
+  const harnessProbes = createGuestHarnessProbeCache(wslRunner)
+  const detectionResults = createDetectionResultCache()
   const worktrees = new WorktreeStore(persistence.database)
   const gitWorktrees = new GitWorktreeService({
     // Why: session checkouts live on the Linux filesystem, never beside a
@@ -341,7 +359,7 @@ export async function startAppRuntime(): Promise<AppRuntime> {
       localWorktreeRoot: join(app.getPath('userData'), 'worktrees'),
       runner: wslRunner,
       guestWorktreeRoot: async (distro) => {
-        const home = await readGuestHome(wslRunner, distro)
+        const home = await guestHomeCache.read(distro)
         return home === null ? null : `${home}/.icode/worktrees/${wslProfileScope()}`
       }
     })
@@ -378,12 +396,25 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     preparations: repositoryPreparations,
     validateTarget: createTargetValidator({ runner: wslRunner }),
     localHome: app.getPath('home'),
-    readGuestHome: (distro) => readGuestHome(wslRunner, distro)
+    readGuestHome: (distro) => guestHomeCache.read(distro)
   })
   // Resume preparation that was interrupted by the previous application exit.
   // Starting is non-blocking; the project rows already exist and the renderer
   // will read their persisted state on first load.
   repositoryPreparations.resume()
+  /**
+   * A detection answer is about one harness on one distro registration. The
+   * registration id is part of the key: a replaced distro with the same name
+   * must not inherit the old answer.
+   */
+  function detectionKey(id: HarnessId, target: Extract<ExecutionTarget, { kind: 'wsl' }>): string {
+    return `${target.distro.trim().toLowerCase()}\u0000${target.distroId ?? ''}\u0000${id}`
+  }
+
+  function detectionPrefix(target: Extract<ExecutionTarget, { kind: 'wsl' }>): string {
+    return `${target.distro.trim().toLowerCase()}\u0000${target.distroId ?? ''}\u0000`
+  }
+
   /**
    * Detects one Harness **for a specific execution target**.
    *
@@ -393,7 +424,8 @@ export async function startAppRuntime(): Promise<AppRuntime> {
    */
   async function detectHarnessForTarget(
     id: HarnessId,
-    target: ExecutionTarget
+    target: ExecutionTarget,
+    options: { force?: boolean } = {}
   ): Promise<HarnessDetectionResult> {
     if (target.kind === 'local') return harness.detectOne(id)
     /**
@@ -405,16 +437,34 @@ export async function startAppRuntime(): Promise<AppRuntime> {
      * with `wsl.exe` as its command states what will actually run.
      */
     if (id === 'shell') return guestTerminalDetection()
-    const guestDetector = await createGuestHarnessDetector({
-      runner: wslRunner,
-      distro: target.distro
+
+    const key = detectionKey(id, target)
+    if (options.force !== true) {
+      const cached = detectionResults.get(key)
+      if (cached !== null) return cached
+    }
+
+    const { snapshot, transient } = await harnessProbes.get(target.distro, {
+      ...(options.force === true ? { force: true } : {})
     })
-    const detection = await guestDetector.detectOne(id)
-    const shell = await resolveGuestHarnessContext({
+    const { detector, context } = await createGuestHarnessDetector({
       runner: wslRunner,
-      distro: target.distro
+      distro: target.distro,
+      probe: snapshot
     })
-    return withGuestLaunchCommand(detection, { shell: shell.shell })
+    const detection = withGuestLaunchCommand(await detector.detectOne(id), {
+      shell: context.shell
+    })
+    if (!transient && detection.state !== 'detection_failed') {
+      detectionResults.set(key, detection)
+    }
+    return detection
+  }
+
+  /** One answer per in-flight provider change; detection is target-independent. */
+  function invalidateHarnessDetection(): void {
+    detectionResults.invalidate()
+    harnessProbes.invalidate()
   }
 
   /**
@@ -699,7 +749,7 @@ export async function startAppRuntime(): Promise<AppRuntime> {
    * answer — and would offer an Agent that the guest cannot run.
    */
   async function listHarnesses(
-    input: { repoId?: string } = {}
+    input: { repoId?: string; force?: boolean } = {}
   ): Promise<HarnessDetectionResult[]> {
     let target: ExecutionTarget = { kind: 'local' }
     if (input.repoId !== undefined) {
@@ -712,7 +762,17 @@ export async function startAppRuntime(): Promise<AppRuntime> {
       }
       target = repository.executionTarget
     }
-    return Promise.all(HARNESS_IDS.map((id) => detectHarnessForTarget(id, target)))
+    if (input.force === true && target.kind === 'wsl') {
+      detectionResults.invalidate(detectionPrefix(target))
+      harnessProbes.invalidate(target.distro)
+    }
+    return Promise.all(
+      HARNESS_IDS.map((id) =>
+        detectHarnessForTarget(id, target, {
+          ...(input.force === true ? { force: true } : {})
+        })
+      )
+    )
   }
 
   /**
@@ -891,7 +951,7 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     detectHarness: detectHarnessForTarget,
     listWslDistros: async () =>
       toWslDistroListPayload(await discoverWslDistros({ runner: wslRunner })),
-    readGuestHome: (distro) => readGuestHome(wslRunner, distro),
+    readGuestHome: (distro) => guestHomeCache.read(distro),
     wslRunner,
     workspaceTrust,
     userDataDir: app.getPath('userData'),
@@ -1016,21 +1076,9 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     assistant: assistantService,
     harness,
     listHarnesses,
+    invalidateHarnessDetection,
     listWslDistros: async () => toWslDistroListPayload(await discoverWslDistros({ runner: wslRunner })),
-    readGuestHome: async (distro) => {
-      const outcome = await wslRunner
-        .run({
-          scope: 'guest',
-          distro,
-          // `printf` rather than `echo` so no trailing newline becomes part of
-          // the path, and quoted so a home containing spaces survives.
-          argv: ['sh', '-c', 'printf %s "$HOME"'],
-          timeoutMs: 20_000
-        })
-        .catch(() => null)
-      const home = outcome?.status === 'ok' ? outcome.stdout.trim() : ''
-      return home.startsWith('/') ? home : null
-    },
+    readGuestHome: (distro) => guestHomeCache.read(distro),
     startupError,
     ready: Promise.resolve(),
     hostLogPath: () => supervisor.logPath,

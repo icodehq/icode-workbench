@@ -147,12 +147,35 @@ function hostObservation(entry: SessionInfo | undefined): HostObservation {
 }
 
 /**
+ * How long a just-created worktree may skip the attach-time re-inspection.
+ *
+ * The create path already proved the directory, HEAD and Git registration. The
+ * first attach immediately afterwards re-runs the same four Git reads and two
+ * directory probes; within this window the proof is reused. Reconnect, restart
+ * and recovery all fall back to the strict inspection.
+ */
+const FRESH_CHECKOUT_TTL_MS = 15_000
+
+type FreshCheckoutGrant = {
+  path: string
+  branch: string
+  verifiedAt: number
+  pathALaunch: {
+    command: string
+    args: string[]
+    ptyCwd: string
+    distro: string
+  } | null
+}
+
+/**
  * Coordinates durable session metadata with the PTY-owning host. The database
  * records observations; the host is the only source of process truth.
  */
 export class SessionService {
   private readonly listeners = new Set<Listener>()
   private readonly currentIncarnations = new Map<string, string>()
+  private readonly freshCheckouts = new Map<string, FreshCheckoutGrant>()
   private readonly now: () => number
   private readonly makeSessionId: () => SessionId
   private disposeHostEvents: (() => void) | null = null
@@ -236,6 +259,30 @@ export class SessionService {
     throw new SessionServiceError(
       makeAppError('WSL_UNAVAILABLE', 'That repository is not a WSL repository.')
     )
+  }
+
+  /** A Path A launch proved during create, valid only for the same checkout. */
+  private freshPathALaunch(
+    sessionId: string,
+    path: string
+  ): FreshCheckoutGrant['pathALaunch'] {
+    const grant = this.freshCheckouts.get(sessionId)
+    if (grant === undefined) return null
+    if (this.now() - grant.verifiedAt > FRESH_CHECKOUT_TTL_MS) {
+      this.freshCheckouts.delete(sessionId)
+      return null
+    }
+    return grant.path === path ? grant.pathALaunch : null
+  }
+
+  /** Drops grants no attach consumed; otherwise they would accumulate forever. */
+  private pruneFreshCheckouts(): void {
+    const now = this.now()
+    for (const [sessionId, grant] of this.freshCheckouts) {
+      if (now - grant.verifiedAt > FRESH_CHECKOUT_TTL_MS) {
+        this.freshCheckouts.delete(sessionId)
+      }
+    }
   }
 
   // ─── Reconciliation ───────────────────────────────────────────────
@@ -460,6 +507,7 @@ export class SessionService {
       base?: { ref: string | null; oid: string }
     } = {}
   ): Promise<SessionSummary> {
+    this.pruneFreshCheckouts()
     const repoId = parseRepoId(input.repoId)
     if (!repoId) {
       throw new SessionServiceError(
@@ -491,11 +539,24 @@ export class SessionService {
     // Path A owns its own shell resolution: the distro's login shell is what a
     // terminal must run, and Orca probes nothing for it (`wsl.exe` is the shell).
     const pathA = this.isPathATerminal(input.harness, target)
+    /*
+     * The WSL host/relay ensure is independent of the worktree. Start it now so
+     * its 6-8 guest calls overlap detection, the combined repository read and the
+     * worktree script. A failure is swallowed here; `createOrAttach` below
+     * reports the authoritative error.
+     */
+    const hostPrewarm =
+      pathA || target.kind === 'local'
+        ? null
+        : this.deps.host.prewarm(target).catch(() => undefined)
     const detection = pathA ? null : await this.requireHarness(input.harness, target)
     // Resolve the provider before any worktree or session row exists: a broken
     // key or an unreadable selection must not leave a half-created checkout.
     const launchSpec = this.launchSpecFor(input.harness, target)
-    await this.requireDirectory(workspace.path, target)
+    // Path A keeps this explicit check before its preflight so a missing
+    // workspace is reported before a distro-shell problem. The combined read
+    // below repeats it inside the same guest script at no extra spawn.
+    if (pathA) await this.requireDirectory(workspace.path, target)
 
     // Path A is validated **before** any worktree work, so an unavailable distro
     // or a missing guest directory cannot leave a half-created checkout behind.
@@ -506,8 +567,13 @@ export class SessionService {
       : null
 
     // Every new session in a Git repository gets its own checkout. Refuse
-    // repositories where a worktree cannot be based on a known commit.
-    const gitState = await this.deps.gitWorktrees.inspectRepository(repository.path, target)
+    // repositories where a worktree cannot be based on a known commit. On WSL
+    // the workspace check and all repository reads share one guest script.
+    const gitState = await this.deps.gitWorktrees.inspectForCreate({
+      workspacePath: workspace.path,
+      primaryRoot: repository.path,
+      target
+    })
     if (gitState.unborn) {
       throw new SessionServiceError(
         makeAppError('UNBORN_REPOSITORY', 'This repository has no commit yet.', {
@@ -677,7 +743,19 @@ export class SessionService {
         target
       })
       this.deps.worktrees.updateState(sessionId, 'created', null, this.now())
+      // The create path has just proved this checkout. Let the first attach reuse
+      // that proof instead of re-running the same guest inspection.
+      this.freshCheckouts.set(sessionId, {
+        path: worktreePath,
+        branch,
+        verifiedAt: this.now(),
+        pathALaunch
+      })
       await this.prepareWorkspaceTrust(input.harness, target, worktreePath)
+
+      // The prewarm was started before detection; by now it usually has already
+      // finished, so this await is normally free.
+      if (hostPrewarm !== null) await hostPrewarm
 
       /**
        * Two routes, chosen by persisted intent:
@@ -745,6 +823,7 @@ export class SessionService {
     } catch (error) {
       // A worktree failure keeps its specific code; only a Host failure is a
       // spawn failure. Nothing is deleted: the failed session stays inspectable.
+      this.freshCheckouts.delete(sessionId)
       const appError =
         error instanceof SessionServiceError
           ? error.appError
@@ -779,12 +858,13 @@ export class SessionService {
 
   async attach(sessionId: string): Promise<TerminalAttachPayload> {
     const row = this.requireRow(sessionId)
-    const checkout = await this.resolveCheckout(row)
+    const checkout = await this.resolveCheckout(row, { allowFreshCheckout: true })
     const target = this.targetForSession(row)
     // A Path A terminal lives on the desktop Host with a machine-local cwd; a
     // Linux path here would make the attach fail its own cwd check.
     const pathA = this.isPathATerminal(row.harness, target)
-      ? await this.requirePathATerminal(target, checkout.path)
+      ? (this.freshPathALaunch(row.id, checkout.path) ??
+        (await this.requirePathATerminal(target, checkout.path)))
       : null
 
     let attached: CreateOrAttachPayload
@@ -949,6 +1029,9 @@ export class SessionService {
     options: { resume?: boolean } = {}
   ): Promise<SessionSummary> {
     const row = this.requireRow(sessionId)
+    // A restart re-validates the checkout and may replace the PTY; the create-time
+    // grant must not hide a worktree that changed since.
+    this.freshCheckouts.delete(sessionId)
     // Validate the recorded checkout before killing anything: restart must
     // never stop a healthy PTY and then discover there is nowhere to start.
     const checkout = await this.resolveCheckout(row)
@@ -1139,6 +1222,8 @@ export class SessionService {
    */
   async recoverWorktree(sessionId: string): Promise<SessionSummary> {
     this.requireRow(sessionId)
+    // Recovery is about to rebuild the checkout; no create-time proof applies.
+    this.freshCheckouts.delete(sessionId)
     const record = this.deps.worktrees.findBySession(sessionId)
     if (!record) {
       throw new SessionServiceError(
@@ -1560,7 +1645,8 @@ export class SessionService {
   }
 
   private async resolveCheckout(
-    row: StoredSession
+    row: StoredSession,
+    options: { allowFreshCheckout?: boolean } = {}
   ): Promise<{ path: string; record: SessionWorktreeRecord | null }> {
     const workspace = this.deps.repositories.findWorkspaceById(row.workspaceId)
     if (!workspace) {
@@ -1570,6 +1656,7 @@ export class SessionService {
         })
       )
     }
+    if (options.allowFreshCheckout === true) this.pruneFreshCheckouts()
     const record = this.deps.worktrees.findBySession(row.id)
     if (!record) return { path: workspace.path, record: null }
     const repository = this.deps.repositories.findById(record.repoId)
@@ -1579,6 +1666,33 @@ export class SessionService {
           context: { sessionId: row.id }
         })
       )
+    }
+    if (options.allowFreshCheckout === true) {
+      const grant = this.freshCheckouts.get(row.id)
+      if (grant !== undefined) {
+        if (
+          this.now() - grant.verifiedAt <= FRESH_CHECKOUT_TTL_MS &&
+          grant.path === record.path &&
+          grant.branch === record.branch
+        ) {
+          /*
+           * The create proof does not make the directory immortal: a checkout
+           * deleted inside the window must still be reported as missing, not
+           * handed to the host. One existence probe replaces the six-call
+           * inspection; a transport failure falls through to the strict path,
+           * which answers (or fails) honestly.
+           */
+          const fs = await this.deps.gitWorktrees.hostFsFor(repository.executionTarget)
+          try {
+            if (await fs.isDirectory(record.path)) {
+              return { path: grant.path, record }
+            }
+          } catch {
+            // Fall through to the full inspection, which owns the error mapping.
+          }
+        }
+        this.freshCheckouts.delete(row.id)
+      }
     }
     const inspection = await this.deps.gitWorktrees.inspect({
       primaryRoot: repository.path,

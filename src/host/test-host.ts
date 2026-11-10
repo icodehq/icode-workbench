@@ -149,7 +149,9 @@ export async function connectTestClient(
 
   const waitFor = (
     predicate: (message: Record<string, unknown>) => boolean,
-    timeoutMs = 3000
+    // CI's shared runners can take several seconds to start the Host and drain
+    // a first frame under load; 3s intermittently expired on macos-15-intel.
+    timeoutMs = 8000
   ): Promise<Record<string, unknown>> => {
     const existing = messages.find(predicate)
     if (existing) return Promise.resolve(existing)

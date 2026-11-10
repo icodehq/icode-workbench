@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import { runHarnessOneShot } from '../ai/harness-one-shot'
 import { discoverWslDistros, isInternalDistro } from '../wsl/distros'
 import { WslCommandRunner } from '../wsl/exec'
-import { resolveGuestHarnessContext } from '../wsl/harness/guest-harness'
 import {
   createGuestHarnessDetector,
   withGuestLaunchCommand
@@ -26,12 +25,14 @@ describe.skipIf(!real)('Mira with real WSL Claude', () => {
       discovery.distros.find((entry) => !isInternalDistro(entry.name))?.name
     expect(distro, 'no non-internal WSL distro found').toBeTruthy()
 
-    const detector = await createGuestHarnessDetector({ runner, distro: distro! })
+    const { detector, context } = await createGuestHarnessDetector({
+      runner,
+      distro: distro!
+    })
     const raw = await detector.detectOne('claude')
     if (raw.state !== 'available') {
       throw new Error(`Claude is not available in ${distro!}: ${JSON.stringify(raw)}`)
     }
-    const context = await resolveGuestHarnessContext({ runner, distro: distro! })
     const detection = withGuestLaunchCommand(raw, { shell: context.shell })
     if (detection.state !== 'available') {
       throw new Error(`Claude launch command is unavailable in ${distro!}`)

@@ -14,6 +14,14 @@ import type {
 } from '../../shared/domain/worktree'
 import { SessionServiceError } from '../sessions/session-errors'
 import type { GuestGitResult } from '../wsl/git/guest-git'
+import type { GuestGitScriptRunner } from '../wsl/git/guest-git-script'
+import {
+  GUEST_CREATE_WORKTREE_SCRIPT,
+  GUEST_INSPECT_FOR_CREATE_SCRIPT,
+  parseCreateWorktree,
+  parseInspectForCreate
+} from '../wsl/git/guest-session-scripts'
+import { WSL_DEFAULT_TIMEOUT_MS } from '../wsl/exec'
 import type { ReadContext } from '../git/change-reader'
 import { guestContainment, localContainment, localSymlinkProbe } from '../git/path-safety'
 import { samePathResolved } from './worktree-status'
@@ -86,6 +94,8 @@ type WorktreeContext = {
   isDirectory(path: string): Promise<boolean>
   ensureParentDirectory(path: string): Promise<void>
   exists(path: string): Promise<boolean>
+  /** Batched guest-script capability; absent for local targets and fake routers. */
+  script?: GuestGitScriptRunner
 }
 
 const LOCAL_TARGET: ExecutionTarget = { kind: 'local' }
@@ -127,6 +137,7 @@ export class GitWorktreeService {
             executor: this.localExecutor,
             // Local keeps the pre-W6 root and filesystem exactly.
             worktreeRoot: this.deps.worktreeRoot,
+            script: undefined,
             fs: {
               isDirectory: async (value: string) => this.isDirectory(value),
               exists: async (value: string) => this.exists(value),
@@ -143,7 +154,8 @@ export class GitWorktreeService {
       git: (cwd, args, timeoutMs) => this.trimmed(resolved.executor, cwd, args, timeoutMs),
       isDirectory: resolved.fs.isDirectory,
       ensureParentDirectory: resolved.fs.ensureParentDirectory,
-      exists: resolved.fs.exists
+      exists: resolved.fs.exists,
+      ...(resolved.script ? { script: resolved.script } : {})
     }
   }
 
@@ -409,6 +421,76 @@ export class GitWorktreeService {
     }
   }
 
+  /**
+   * The create-time read: workspace presence and repository state in one spawn.
+   *
+   * The local path (and any fake router without a `script`) keeps the exact
+   * pre-batching sequence. A WSL target runs one guest script that checks the
+   * workspace, the five `rev-parse` answers and the six operation markers. A
+   * transport failure is `GitUnavailableError`, never "unborn" or "missing":
+   * "we could not ask" is not an answer about the user's repository.
+   */
+  async inspectForCreate(input: {
+    workspacePath: string
+    primaryRoot: string
+    target: ExecutionTarget
+  }): Promise<RepositoryGitState> {
+    const ctx = await this.contextFor(input.target)
+    if (ctx.target.kind !== 'wsl' || ctx.script === undefined) {
+      if (!(await ctx.isDirectory(input.workspacePath))) {
+        throw missingDirectory(input.workspacePath)
+      }
+      return this.inspectRepository(input.primaryRoot, input.target)
+    }
+
+    const outcome = await ctx.script({
+      distro: ctx.target.distro,
+      label: 'inspect-create',
+      script: GUEST_INSPECT_FOR_CREATE_SCRIPT,
+      args: [input.workspacePath, input.primaryRoot],
+      timeoutMs: WSL_DEFAULT_TIMEOUT_MS,
+      mutation: false
+    })
+    if (outcome.status === 'transport') {
+      throw new GitUnavailableError(
+        'The WSL distro did not answer, so the repository could not be read.',
+        outcome.detail
+      )
+    }
+    const payload = parseInspectForCreate(outcome.stdout)
+    if (payload === null) {
+      throw new GitUnavailableError(
+        'The WSL distro returned an unreadable repository answer.',
+        outcome.stderr
+      )
+    }
+    if (!payload.gitPresent) {
+      throw new GitUnavailableError(
+        'Git is not available in this distro.',
+        ctx.target.distro
+      )
+    }
+    if (!payload.workspacePresent) throw missingDirectory(input.workspacePath)
+    if (!payload.rootPresent) throw missingDirectory(input.primaryRoot)
+    if (payload.verifyStatus !== 0) {
+      return {
+        headOid: null,
+        headRef: null,
+        unborn: true,
+        inProgressOperation: null
+      }
+    }
+    return {
+      headOid: payload.head !== null && payload.head.length > 0 ? payload.head : null,
+      headRef:
+        payload.ref !== null && payload.ref.length > 0 && payload.ref !== 'HEAD'
+          ? payload.ref
+          : null,
+      unborn: false,
+      inProgressOperation: payload.operation
+    }
+  }
+
   async create(input: {
     primaryRoot: string
     path: string
@@ -419,6 +501,10 @@ export class GitWorktreeService {
     const ctx = await this.contextFor(input.target)
     this.assertManagedPath(input.path, ctx.worktreeRoot)
     await this.runExclusive(`${this.queueKey(ctx)}${input.primaryRoot}`, async () => {
+      if (ctx.target.kind === 'wsl' && ctx.script !== undefined) {
+        await this.createBatched(ctx, input)
+        return
+      }
       if (await ctx.isDirectory(input.path)) {
         throw new SessionServiceError(
           makeAppError('WORKTREE_CREATE_FAILED', 'The worktree directory already exists.', {
@@ -446,6 +532,82 @@ export class GitWorktreeService {
         baseOid: input.baseOid,
         registerRoot: input.primaryRoot
       })
+    })
+  }
+
+  /**
+   * One guest script for the whole create + verify mutation.
+   *
+   * The mutation is intentionally not retried: a transport failure after
+   * `worktree add` has an unknown outcome, and a second `add` could apply it
+   * twice. The error says so instead of guessing.
+   */
+  private async createBatched(
+    ctx: WorktreeContext,
+    input: {
+      primaryRoot: string
+      path: string
+      branch: string
+      baseOid: string
+    }
+  ): Promise<void> {
+    if (ctx.target.kind !== 'wsl' || ctx.script === undefined) return
+    const outcome = await ctx.script({
+      distro: ctx.target.distro,
+      label: 'worktree-create',
+      script: GUEST_CREATE_WORKTREE_SCRIPT,
+      args: [input.primaryRoot, input.path, input.branch, input.baseOid],
+      timeoutMs: MUTATE_TIMEOUT_MS + READ_TIMEOUT_MS,
+      mutation: true
+    })
+    if (outcome.status === 'transport') {
+      throw new SessionServiceError(
+        makeAppError('WORKTREE_CREATE_FAILED', 'The isolated worktree could not be created.', {
+          detail:
+            'The WSL distro did not answer; the worktree may or may not have been created.'
+        })
+      )
+    }
+    const payload = parseCreateWorktree(outcome.stdout)
+    if (payload === null) {
+      throw new SessionServiceError(
+        makeAppError('WORKTREE_CREATE_FAILED', 'The isolated worktree could not be created.', {
+          detail:
+            outcome.stderr.trim().slice(0, 2000) ||
+            'The guest Git script returned no usable result.'
+        })
+      )
+    }
+    switch (payload.phase) {
+      case 'exists':
+        throw new SessionServiceError(
+          makeAppError('WORKTREE_CREATE_FAILED', 'The worktree directory already exists.', {
+            detail: input.path
+          })
+        )
+      case 'mkdir_failed':
+        throw new SessionServiceError(
+          makeAppError('WORKTREE_CREATE_FAILED', 'The isolated worktree could not be created.', {
+            detail: `Could not create the worktree directory (mkdir exited ${String(payload.status)}).`
+          })
+        )
+      case 'add_failed':
+        throw new SessionServiceError(
+          makeAppError('WORKTREE_CREATE_FAILED', 'The isolated worktree could not be created.', {
+            detail:
+              payload.output.slice(0, 2000) ||
+              `git worktree add exited ${String(payload.status)}.`
+          })
+        )
+      case 'created':
+        break
+    }
+    this.assertWorktreeEvidence(ctx, {
+      path: input.path,
+      baseOid: input.baseOid,
+      topLevel: payload.topLevel,
+      head: payload.head,
+      registered: parseWorktreeList(payload.worktrees)
     })
   }
 
@@ -771,23 +933,46 @@ export class GitWorktreeService {
   ): Promise<void> {
     const git = ctx.git
     const topLevel = await git(input.path, ['rev-parse', '--show-toplevel'], READ_TIMEOUT_MS)
-    if (!samePathResolved(topLevel, input.path, ctx.comparisonPlatform)) {
+    const head = await git(input.path, ['rev-parse', 'HEAD'], READ_TIMEOUT_MS).catch(() => null)
+    const registered = await this.listWorktrees(input.registerRoot, ctx.target).catch(() => [])
+    this.assertWorktreeEvidence(ctx, {
+      path: input.path,
+      baseOid: input.baseOid,
+      topLevel,
+      head,
+      registered
+    })
+  }
+
+  /**
+   * The three post-create proofs, shared by the per-command and batched paths.
+   * Keeping one implementation means both produce the same messages and order.
+   */
+  private assertWorktreeEvidence(
+    ctx: WorktreeContext,
+    input: {
+      path: string
+      baseOid: string
+      topLevel: string
+      head: string | null
+      registered: RegisteredWorktree[]
+    }
+  ): void {
+    if (!samePathResolved(input.topLevel, input.path, ctx.comparisonPlatform)) {
       throw new SessionServiceError(
         makeAppError('WORKTREE_INCONSISTENT', 'The created worktree does not resolve to its recorded path.', {
-          detail: topLevel
+          detail: input.topLevel
         })
       )
     }
-    const head = await git(input.path, ['rev-parse', 'HEAD'], READ_TIMEOUT_MS).catch(() => null)
-    if (head !== null && head !== input.baseOid) {
+    if (input.head !== null && input.head !== input.baseOid) {
       throw new SessionServiceError(
         makeAppError('WORKTREE_INCONSISTENT', 'The created worktree is not at its recorded baseline.', {
-          detail: `${head} != ${input.baseOid}`
+          detail: `${input.head} != ${input.baseOid}`
         })
       )
     }
-    const registered = await this.listWorktrees(input.registerRoot, ctx.target).catch(() => [])
-    if (!registered.some((entry) => samePathResolved(entry.path, input.path, ctx.comparisonPlatform))) {
+    if (!input.registered.some((entry) => samePathResolved(entry.path, input.path, ctx.comparisonPlatform))) {
       throw new SessionServiceError(
         makeAppError('WORKTREE_INCONSISTENT', 'Git did not register the created worktree.', {
           detail: input.path
@@ -946,6 +1131,16 @@ function errorDetail(error: unknown): string {
     if (stderr.length > 0) return stderr.slice(0, 2000)
   }
   return error instanceof Error ? error.message : String(error)
+}
+
+/** Same code, wording and context the pre-batching `requireDirectory` used. */
+function missingDirectory(path: string): SessionServiceError {
+  return new SessionServiceError(
+    makeAppError('CWD_MISSING', 'The session working directory is missing.', {
+      detail: path,
+      context: { path }
+    })
+  )
 }
 
 export type { AppError }

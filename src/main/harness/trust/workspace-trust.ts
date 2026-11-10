@@ -151,6 +151,7 @@ function guestConfig(
     async read() {
       const result = await runner.run({
         scope: 'guest',
+        label: 'trust-read',
         distro,
         argv: ['sh', '-c', READ_GUEST_CONFIG, 'icode-trust-read', path],
         timeoutMs: CONFIG_TIMEOUT_MS
@@ -164,6 +165,7 @@ function guestConfig(
     async write(text) {
       const result = await runner.run({
         scope: 'guest',
+        label: 'trust-write',
         distro,
         argv: ['sh', '-c', WRITE_GUEST_CONFIG, 'icode-trust-write', path],
         stdin: text,

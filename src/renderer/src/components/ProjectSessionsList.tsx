@@ -1,4 +1,4 @@
-import { AlertTriangle, GitBranch, PanelLeftClose, Plus, Trash2 } from 'lucide-react'
+import { AlertTriangle, GitBranch, Loader2, PanelLeftClose, Plus, Trash2 } from 'lucide-react'
 import type {
   OrphanedHostSession,
   OwnedBranchSummary,
@@ -6,6 +6,7 @@ import type {
   SessionSummary
 } from '../../../shared/schemas/ipc'
 import type { PendingAction } from '../state/workspace'
+import type { PendingCreate } from '../state/pending-create'
 import {
   activityDotClass,
   activitySuffix,
@@ -22,6 +23,8 @@ type Props = {
   sessions: SessionSummary[]
   activeSessionId: string | null
   pending: Record<string, PendingAction>
+  /** Presentation-only create in flight; not a session and never selectable. */
+  pendingCreate?: PendingCreate | null
   branches: OwnedBranchSummary[]
   orphans: OrphanedHostSession[]
   onSelectSession: (sessionId: string) => void
@@ -43,6 +46,7 @@ export default function ProjectSessionsList({
   sessions,
   activeSessionId,
   pending,
+  pendingCreate = null,
   branches,
   orphans,
   onSelectSession,
@@ -87,7 +91,7 @@ export default function ProjectSessionsList({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3 pt-0">
-        {sessions.length === 0 ? (
+        {sessions.length === 0 && pendingCreate === null ? (
           <div className="px-2 py-3 text-[11px] leading-relaxed text-muted-foreground">
             {t('sessionsList.empty')}
             <div className="mt-2">
@@ -104,6 +108,30 @@ export default function ProjectSessionsList({
           </div>
         ) : (
           <ul className="space-y-1">
+            {pendingCreate !== null ? (
+              <li
+                key={pendingCreate.id}
+                data-testid="pending-session"
+                data-harness={pendingCreate.harness}
+                data-repo-id={pendingCreate.repoId}
+              >
+                <div
+                  className="flex items-start gap-2 rounded-md border border-signal-line bg-signal-weak px-2.5 py-2 text-left text-signal"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <Loader2 size={12} className="mt-0.5 shrink-0 animate-spin" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[12px]">{pendingCreate.title}</span>
+                    <span className="mt-0.5 block truncate text-[10px] opacity-80">
+                      {t('newSession.starting', {
+                        harness: harnessName(pendingCreate.harness)
+                      })}
+                    </span>
+                  </span>
+                </div>
+              </li>
+            ) : null}
             {sessions.map((session) => {
               const action = pending[session.id] ?? null
               const selected = session.id === activeSessionId

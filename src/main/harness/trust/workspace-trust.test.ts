@@ -35,7 +35,10 @@ function localService(home: string, platform: NodeJS.Platform = 'linux') {
 }
 
 function guestService(home: string, files: Map<string, string>) {
+  let calls = 0
+  let homeReads = 0
   const launcher: WslProcessLauncher = async (spec) => {
+    calls += 1
     const args = [...spec.args]
     const exec = args.indexOf('--exec')
     const guest = args.slice(exec + 1)
@@ -59,12 +62,20 @@ function guestService(home: string, files: Map<string, string>) {
     }
     return { code: 1, signal: null, stdout: '', stderr: 'unexpected guest command', timedOut: false }
   }
-  return createWorkspaceTrust({
+  const trust = createWorkspaceTrust({
     runner: new WslCommandRunner({ launcher, platform: 'win32' }),
     localHome: home,
-    readGuestHome: async () => '/home/u',
+    readGuestHome: async () => {
+      homeReads += 1
+      return '/home/u'
+    },
     platform: 'win32'
   })
+  return {
+    trust,
+    calls: () => calls,
+    homeReads: () => homeReads
+  }
 }
 
 describe('Claude workspace trust', () => {
@@ -213,7 +224,7 @@ describe('target routing and unsupported harnesses', () => {
   it('writes a WSL config through the guest runner, not the local home', async () => {
     const home = tempHome()
     const files = new Map<string, string>()
-    const trust = guestService(home, files)
+    const { trust } = guestService(home, files)
     const path = '/home/u/.icode/worktrees/scope/repo/ses'
 
     await expect(trust.prepare({ harness: 'claude', target: WSL, worktreePath: path })).resolves.toEqual({
@@ -223,6 +234,22 @@ describe('target routing and unsupported harnesses', () => {
     expect(guestConfig).toContain(path)
     expect(guestConfig).toContain('"hasTrustDialogAccepted": true')
     expect(() => readFileSync(join(home, '.claude.json'))).toThrow()
+  })
+
+  it('uses one read and one write spawn when the home reader is supplied', async () => {
+    const home = tempHome()
+    const files = new Map<string, string>()
+    const service = guestService(home, files)
+    const path = '/home/u/.icode/worktrees/scope/repo/ses'
+
+    await service.trust.prepare({ harness: 'claude', target: WSL, worktreePath: path })
+    expect(service.calls()).toBe(2)
+    expect(service.homeReads()).toBe(1)
+
+    // A second prepare finds the entry already trusted: read only.
+    await service.trust.prepare({ harness: 'claude', target: WSL, worktreePath: path })
+    expect(service.calls()).toBe(3)
+    expect(service.homeReads()).toBe(2)
   })
 
   it('has no config write for OpenCode or Shell', async () => {

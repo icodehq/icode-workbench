@@ -326,8 +326,19 @@ rather than a live text draft.
 
 ## Install
 
-iCode is pre-1.0. CI produces installers for Linux x64, Windows x64, and macOS
-x64 / arm64; until releases are published, build from source.
+Download the latest installer from the
+[Releases page](https://github.com/icodehq/icode-workbench/releases/latest).
+CI builds each release from its tagged commit:
+
+| Platform | Download |
+|---|---|
+| **Linux x64** | AppImage, deb, or rpm |
+| **Windows x64** | NSIS installer (`.exe`) |
+| **macOS x64 / arm64** | dmg or zip |
+
+The installers are unsigned, so Windows SmartScreen and macOS Gatekeeper warn on
+first launch. On macOS, right-click the app and choose **Open** to allow it.
+iCode is pre-1.0; features and storage schemas may still change between releases.
 
 ### From source
 

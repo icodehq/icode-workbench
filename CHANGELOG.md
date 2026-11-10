@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.7.0] - 2026-11-10
+## [0.8.0] - 2026-11-10
 
 ### Added
 
@@ -27,6 +27,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Push…** sends the session branch to an explicitly chosen remote and branch,
   setting upstream without merging. Push never satisfies a task dependency;
   only a local merge into the chain branch does.
+
+## [0.7.0] - 2026-11-10
+
+### Added
+
+- GitHub Releases now include the Linux, Windows, and macOS installers built by
+  CI from the released tag. Pushing a `v*` tag publishes the release, and the
+  workflow can be dispatched with an existing tag to backfill one.
 - Mira now keeps a native harness conversation instead of replaying a
   truncated transcript. Claude, Codex and OpenCode are resumed by the
   harness's own session id; a changed harness or target starts a bridged
@@ -93,14 +101,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - iCode Workbench is now licensed under the GNU Affero General Public License
   v3.0 only (AGPL-3.0-only). A modified version made available to users over a
   network must offer them the corresponding source under section 13.
+- Starting a new session no longer blocks on the whole WSL pipeline. The New
+  Session dialog closes immediately and shows a pending surface while the main
+  process works; the create path now caches the guest home and Harness
+  discovery, batches the workspace/repository read and the worktree
+  create+verify into one guest script each, prewarms the WSL host/relay, and
+  reuses the create-time checkout proof on the first attach. On a warm WSL
+  repository this cuts session creation from roughly 34 `wsl.exe` spawns to
+  about 5; the first attach still verifies that the checkout exists.
 
 ### Fixed
 
+- File watchers canonicalize their roots before subscribing, so a Windows 8.3
+  short path cannot trip a libuv assertion and crash the process. The watcher
+  integration test now closes chokidar before deleting its temp tree.
+- Host tests wait longer for slow CI runners instead of a fixed three-second
+  frame budget, and the scrollback test waits for xterm to drain rather than
+  sleeping for a fixed 400 ms.
 - A WSL shell session no longer reports its worktree as inconsistent after
   reconciliation. The desktop host runs `wsl.exe` from a Windows pty directory
   because a ConPTY cannot start in a Linux path; that cwd was being compared
   with the guest worktree, which blocked the terminal. The cwd comparison is
   now local-only, and guest checkouts keep the distro-side Git inspection.
+- **Detect again** in the New Session dialog now re-detects the selected
+  repository's execution target, including a WSL distro, instead of this
+  machine.
+- The Sessions workspace keeps its viewport height when the pending-session
+  surface is visible, so the Files tree virtualizes instead of mounting every
+  row.
 
 ### Security
 

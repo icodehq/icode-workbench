@@ -19,6 +19,7 @@ import { dirname } from 'node:path'
 import type { ExecutionTarget } from '../../shared/domain/repository'
 import type { WslCommandRunner } from '../wsl/exec'
 import { isTransportFailure, runIdempotentGuest } from '../wsl/probe'
+import { createGuestGitScriptRunner, type GuestGitScriptRunner } from '../wsl/git/guest-git-script'
 import { GuestGitUnavailableError, runGuestGit, type GuestGitResult } from '../wsl/git/guest-git'
 import { runGitRead, type GitReadOptions, type GitReadResult } from './bounded-read'
 import { createGuestBoundedRead } from './bounded-read-guest'
@@ -336,6 +337,11 @@ export type GitExecutorResolution = {
   /** Where worktrees for this target live; a guest path for WSL. */
   worktreeRoot: string
   fs: HostFileSystem
+  /**
+   * Batched guest-script capability. Present only for WSL; hand-built routers
+   * and local targets keep the per-command path.
+   */
+  script?: GuestGitScriptRunner
   /** Bounded read for this target, when the executor provides one. */
   read?: (request: GitReadOptions) => Promise<GitReadResult>
   /** Path dialect used to keep change reads inside the checkout. */
@@ -362,7 +368,12 @@ export function createGitExecutorRouter(deps: GitExecutorRouterDeps): GitExecuto
   const localFs = createLocalHostFileSystem()
   const cache = new Map<
     string,
-    { executor: GitExecutor; fs: HostFileSystem; symlinkProbe: SymlinkProbe }
+    {
+      executor: GitExecutor
+      fs: HostFileSystem
+      symlinkProbe: SymlinkProbe
+      script: GuestGitScriptRunner
+    }
   >()
   /**
    * `$HOME` is stable for the life of a distro registration. Resolving it on
@@ -393,7 +404,8 @@ export function createGitExecutorRouter(deps: GitExecutorRouterDeps): GitExecuto
         entry = {
           executor: createGuestGitExecutor(deps.runner, target.distro),
           fs: createGuestHostFileSystem(deps.runner, target.distro),
-          symlinkProbe: createGuestSymlinkProbe(deps.runner, target.distro)
+          symlinkProbe: createGuestSymlinkProbe(deps.runner, target.distro),
+          script: createGuestGitScriptRunner(deps.runner)
         }
         cache.set(key, entry)
       }
@@ -413,6 +425,7 @@ export function createGitExecutorRouter(deps: GitExecutorRouterDeps): GitExecuto
         executor: entry.executor,
         worktreeRoot: root,
         fs: entry.fs,
+        script: entry.script,
         ...(entry.executor.read ? { read: entry.executor.read } : {}),
         containment: guestContainment,
         symlinkProbe: entry.symlinkProbe

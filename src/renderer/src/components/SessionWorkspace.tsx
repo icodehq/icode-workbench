@@ -375,7 +375,7 @@ export default function SessionWorkspace({
           : t('session.restartDescription')
 
   return (
-    <section className="flex min-w-0 flex-1 flex-col">
+    <section className="flex min-h-0 min-w-0 flex-1 flex-col">
       <header className="shrink-0 border-b border-border bg-background" data-testid="session-header">
         <div className="flex h-12 items-center gap-2 px-3">
           <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
