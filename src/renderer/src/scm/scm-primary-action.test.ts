@@ -27,6 +27,19 @@ const groups = (entries: WorkingTreeEntry[]): WorkingTreeGroups => ({
   committed: entries.filter((item) => item.area === 'committed')
 })
 
+const mergeState = (
+  overrides: Partial<ScmPrimaryActionInput['merge']> = {}
+): ScmPrimaryActionInput['merge'] => ({
+  target: null,
+  targetOid: null,
+  locked: false,
+  loading: false,
+  reason: '',
+  recordState: null,
+  alreadyComplete: false,
+  ...overrides
+})
+
 const input = (overrides: Partial<ScmPrimaryActionInput> = {}): ScmPrimaryActionInput => ({
   groups: groups([]),
   message: '',
@@ -37,6 +50,9 @@ const input = (overrides: Partial<ScmPrimaryActionInput> = {}): ScmPrimaryAction
   smartCommit: 'off' as SmartCommitMode,
   headOid: 'a'.repeat(40),
   branch: 'main',
+  commitCount: 0,
+  commitsLoading: false,
+  merge: mergeState(),
   ...overrides
 })
 
@@ -144,6 +160,176 @@ describe('scmPrimaryAction', () => {
       label: 'Up to date',
       disabled: true,
       reason: 'Nothing to commit.'
+    })
+  })
+
+  it('offers merge before push when there are commits and a target', () => {
+    expect(
+      scmPrimaryAction(
+        input({
+          branch: 'session/one',
+          commitCount: 2,
+          ahead: 2,
+          merge: mergeState({ target: 'main', targetOid: 'main-old' })
+        })
+      )
+    ).toMatchObject({
+      kind: 'merge',
+      label: 'Merge into main',
+      disabled: false,
+      target: 'main'
+    })
+  })
+
+  it('keeps the commit ladder ahead of merge while the worktree is dirty', () => {
+    const staged = groups([entry('a.ts', 'staged')])
+    expect(
+      scmPrimaryAction(
+        input({
+          branch: 'session/one',
+          commitCount: 2,
+          groups: staged,
+          message: 'work',
+          merge: mergeState({ target: 'main' })
+        })
+      )
+    ).toMatchObject({ kind: 'commit' })
+
+    expect(
+      scmPrimaryAction(
+        input({
+          branch: 'session/one',
+          commitCount: 2,
+          groups: groups([entry('a.ts', 'unstaged')]),
+          merge: mergeState({ target: 'main' })
+        })
+      ).kind
+    ).not.toBe('merge')
+  })
+
+  it('does not merge while commits are loading or the target is unknown', () => {
+    expect(
+      scmPrimaryAction(
+        input({
+          branch: 'session/one',
+          commitCount: 2,
+          commitsLoading: true,
+          merge: mergeState({ target: 'main' })
+        })
+      ).kind
+    ).not.toBe('merge')
+
+    expect(
+      scmPrimaryAction(
+        input({
+          branch: 'session/one',
+          commitCount: 2,
+          merge: mergeState({ target: null, loading: false })
+        })
+      ).kind
+    ).not.toBe('merge')
+  })
+
+  it('shows a loading merge action while targets load', () => {
+    expect(
+      scmPrimaryAction(
+        input({
+          branch: 'session/one',
+          commitCount: 2,
+          merge: mergeState({ target: null, loading: true })
+        })
+      )
+    ).toMatchObject({
+      kind: 'merge',
+      label: 'Merge…',
+      disabled: true,
+      reason: 'Reading target branches…'
+    })
+  })
+
+  it('suppresses a repeated merge after completion', () => {
+    expect(
+      scmPrimaryAction(
+        input({
+          branch: 'session/one',
+          commitCount: 2,
+          merge: mergeState({ target: 'main', targetOid: 'head', alreadyComplete: true })
+        })
+      ).kind
+    ).not.toBe('merge')
+  })
+
+  it('lets a locked task merge even without commits', () => {
+    expect(
+      scmPrimaryAction(
+        input({
+          branch: 'session/one',
+          commitCount: 0,
+          merge: mergeState({ target: 'icode/chain/t1', locked: true })
+        })
+      )
+    ).toMatchObject({
+      kind: 'merge',
+      label: 'Merge into icode/chain/t1',
+      disabled: false
+    })
+  })
+
+  it('disables merge when the target has a blocking reason', () => {
+    expect(
+      scmPrimaryAction(
+        input({
+          branch: 'session/one',
+          commitCount: 2,
+          merge: mergeState({ target: 'main', reason: 'The target branch is gone.' })
+        })
+      )
+    ).toMatchObject({
+      kind: 'merge',
+      disabled: true,
+      reason: 'The target branch is gone.'
+    })
+  })
+
+  it('shows merge progress for an active record without a Git operation', () => {
+    expect(
+      scmPrimaryAction(
+        input({
+          branch: 'session/one',
+          commitCount: 2,
+          merge: mergeState({ target: 'main', recordState: 'running' })
+        })
+      )
+    ).toMatchObject({
+      kind: 'merge',
+      label: 'Merge in progress',
+      disabled: true
+    })
+
+    expect(
+      scmPrimaryAction(
+        input({
+          branch: 'session/one',
+          commitCount: 2,
+          merge: mergeState({ target: 'main', recordState: 'conflicted' })
+        })
+      )
+    ).toMatchObject({ kind: 'merge', label: 'Merge in progress', disabled: true })
+  })
+
+  it('continues a conflicted merge when Git reports a merge operation', () => {
+    expect(
+      scmPrimaryAction(
+        input({
+          branch: 'session/one',
+          operation: 'merge',
+          merge: mergeState({ target: 'main', recordState: 'conflicted' })
+        })
+      )
+    ).toMatchObject({
+      kind: 'continue',
+      label: 'Continue Merge',
+      disabled: false
     })
   })
 })

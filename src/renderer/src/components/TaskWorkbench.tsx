@@ -3,11 +3,9 @@ import {
   FileDiff,
   Files,
   GitBranch,
-  GitMerge,
   ListTodo,
   Square,
   TerminalSquare,
-  Upload,
   Workflow
 } from 'lucide-react'
 import type { TaskRecordPayload } from '../../../shared/icode-api'
@@ -19,9 +17,8 @@ import type { WorkbenchDraftStore } from '../review/drafts'
 import type { Notice } from '../state/workspace'
 import ChangesPanel from './ChangesPanel'
 import FilesPanel from './FilesPanel'
-import MergeDialog from './MergeDialog'
-import PushDialog from './PushDialog'
 import { StatePanel } from './SessionWorkspace'
+import type { ScmMergeRequest } from '../scm/scm-merge'
 import TaskChainGraph from './TaskChainGraph'
 import TaskOverview from './TaskOverview'
 import { useT } from '../i18n/use-i18n'
@@ -106,8 +103,7 @@ export default function TaskWorkbench({
   onChanged
 }: Props): React.JSX.Element {
   const [tab, setTab] = useState<Tab>('overview')
-  const [mergeOpen, setMergeOpen] = useState(false)
-  const [pushOpen, setPushOpen] = useState(false)
+  const [mergeRequest, setMergeRequest] = useState<ScmMergeRequest | null>(null)
   const t = useT()
   const [visited, setVisited] = useState<Set<Tab>>(() => new Set<Tab>(['overview']))
   const [filesRequest, setFilesRequest] = useState<{
@@ -259,28 +255,6 @@ export default function TaskWorkbench({
             </button>
             <button
               type="button"
-              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-3 text-[11px] hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
-              onClick={() => setMergeOpen(true)}
-              disabled={session === null}
-              title={t('merge.actionTitle')}
-              data-testid={`task-merge-${task.id}`}
-            >
-              <GitMerge size={12} />
-              {t('merge.action')}
-            </button>
-            <button
-              type="button"
-              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-3 text-[11px] hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
-              onClick={() => setPushOpen(true)}
-              disabled={session === null}
-              title={t('push.actionTitle')}
-              data-testid={`task-push-${task.id}`}
-            >
-              <Upload size={12} />
-              {t('push.action')}
-            </button>
-            <button
-              type="button"
               className="inline-flex h-8 items-center gap-1.5 rounded-md border border-destructive/40 px-3 text-[11px] text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-40"
               onClick={() => session && onStopSession(session.id)}
               disabled={!live}
@@ -325,7 +299,18 @@ export default function TaskWorkbench({
             onSelectTask={onSelectTask}
             onQueueFollowUp={onQueueFollowUp}
             onChanged={onChanged}
-            onMerge={() => setMergeOpen(true)}
+            onMerge={
+              session === null
+                ? undefined
+                : () => {
+                    selectTab('changes')
+                    setMergeRequest({
+                      target: task.chainBranch ?? null,
+                      lockTarget: (task.dependents?.length ?? 0) > 0,
+                      nonce: Date.now()
+                    })
+                  }
+            }
           />
         </div>
       ) : null}
@@ -373,6 +358,7 @@ export default function TaskWorkbench({
           <ChangesPanel
             sessionId={session.id}
             sessionState={session.state}
+            repoId={task.repoId}
             harness={session.harness}
             baseOid={session.worktree?.baseOid ?? null}
             refreshToken={refreshToken}
@@ -386,6 +372,10 @@ export default function TaskWorkbench({
             onSendToAgent={(text) => onSendToAgent(text, session)}
             canSendToAgent={session.state === 'live' && isAgentHarness(session.harness)}
             drafts={drafts}
+            mergeTargetHint={task.chainBranch ?? null}
+            lockMergeTarget={(task.dependents?.length ?? 0) > 0}
+            mergeRequest={mergeRequest}
+            onMergeRequestHandled={() => setMergeRequest(null)}
             onChanged={() => {
               onRecheckSession(session.id)
               void onReload()
@@ -424,42 +414,6 @@ export default function TaskWorkbench({
         <EmptyView>{t('task.empty.files')}</EmptyView>
       ) : null}
 
-      {pushOpen && session !== null ? (
-        <PushDialog
-          session={session}
-          onClose={() => setPushOpen(false)}
-          onPushed={(upstream) => {
-            setPushOpen(false)
-            notify({ tone: 'success', message: t('push.success', { upstream }) })
-            onRecheckSession(session.id)
-            void onReload()
-          }}
-        />
-      ) : null}
-
-      {mergeOpen && session !== null ? (
-        <MergeDialog
-          session={session}
-          defaultTarget={task.chainBranch ?? null}
-          lockTarget={
-            task.chainBranch !== null && task.chainBranch !== undefined
-              ? (task.dependents?.length ?? 0) > 0
-              : false
-          }
-          onClose={() => setMergeOpen(false)}
-          onMerged={() => {
-            setMergeOpen(false)
-            notify({ tone: 'success', message: t('merge.mergedNotice', { branch: task.chainBranch ?? '' }) })
-            onRecheckSession(session.id)
-            void onReload()
-            onChanged()
-          }}
-          onConflicted={() => {
-            selectTab('changes')
-            notify({ tone: 'info', message: t('merge.conflictNotice') })
-          }}
-        />
-      ) : null}
     </section>
   )
 }

@@ -225,7 +225,26 @@ export class MergeService {
     }
     const aborted = await this.deps.gitWorkspace.abortOperation(sessionId)
     if (aborted.status !== 'ok') {
-      throw fail('GIT_CONFLICT', aborted.detail ?? 'The merge could not be aborted.')
+      const worktree = this.deps.worktrees.findBySession(sessionId)
+      const repository = worktree ? this.deps.repositories.findById(worktree.repoId) : null
+      let noOperation = false
+      if (worktree && repository) {
+        try {
+          const state = await this.deps.gitWorktrees.inspectRepository(
+            worktree.path,
+            repository.executionTarget
+          )
+          noOperation = state.inProgressOperation === null
+        } catch {
+          noOperation = false
+        }
+      }
+      // A stale conflicted record (for example after the old generic Continue
+      // path) has no Git operation left to abort. Settle the record so it stops
+      // blocking the session and target.
+      if (!noOperation) {
+        throw fail('GIT_CONFLICT', aborted.detail ?? 'The merge could not be aborted.')
+      }
     }
     const now = this.deps.now()
     this.deps.merges.markAborted(record.id, now)
@@ -245,7 +264,7 @@ export class MergeService {
   async reconcileInterrupted(): Promise<{ interrupted: number; conflicted: number }> {
     let interrupted = 0
     let conflicted = 0
-    for (const record of this.deps.merges.listRunning()) {
+    for (const record of this.deps.merges.listActive()) {
       const worktree = this.deps.worktrees.findBySession(record.sessionId)
       const repository = worktree ? this.deps.repositories.findById(worktree.repoId) : null
       if (!worktree || !repository) {
@@ -255,7 +274,15 @@ export class MergeService {
       }
       const target = repository.executionTarget
       const git = await this.deps.gitWorktrees.gitFor(target)
-      const state = await this.deps.gitWorktrees.inspectRepository(worktree.path, target)
+      let state: Awaited<ReturnType<GitWorktreeService['inspectRepository']>>
+      try {
+        state = await this.deps.gitWorktrees.inspectRepository(worktree.path, target)
+      } catch {
+        // A temporarily unreachable worktree must not turn a live merge into a
+        // stale one. Leave the record alone and report it as unresolved.
+        conflicted += 1
+        continue
+      }
       if (state.inProgressOperation === null) {
         this.deps.merges.markInterrupted(record.id, this.deps.now())
         interrupted += 1

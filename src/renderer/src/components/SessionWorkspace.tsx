@@ -4,14 +4,12 @@ import {
   FileDiff,
   Files,
   GitBranch,
-  GitMerge,
   Loader2,
   PanelLeftOpen,
   RefreshCw,
   RotateCcw,
   TerminalSquare,
-  Trash2,
-  Upload
+  Trash2
 } from 'lucide-react'
 import type { AppError } from '../../../shared/domain/errors'
 import { isAgentHarness } from '../../../shared/domain/harness'
@@ -27,8 +25,6 @@ import type { Notice, PendingAction } from '../state/workspace'
 import TerminalPane from './TerminalPane'
 import ChangesPanel from './ChangesPanel'
 import FilesPanel from './FilesPanel'
-import MergeDialog from './MergeDialog'
-import PushDialog from './PushDialog'
 import RemoveSessionDialog from './RemoveSessionDialog'
 import SessionActionsMenu from './SessionActionsMenu'
 import SleepSessionDialog from './SleepSessionDialog'
@@ -333,8 +329,6 @@ export default function SessionWorkspace({
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [removeOpen, setRemoveOpen] = useState(false)
   const [sleepOpen, setSleepOpen] = useState(false)
-  const [mergeOpen, setMergeOpen] = useState(false)
-  const [pushOpen, setPushOpen] = useState(false)
 
   useEffect(() => {
     setDetailsOpen(false)
@@ -550,29 +544,6 @@ export default function SessionWorkspace({
             </button>
           ) : null}
 
-          <button
-            type="button"
-            className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-            onClick={() => setMergeOpen(true)}
-            disabled={worktree === null || pending !== null}
-            title={t('merge.actionTitle')}
-            data-testid="session-merge"
-          >
-            <GitMerge size={12} />
-            <span className="hidden lg:inline">{t('merge.action')}</span>
-          </button>
-          <button
-            type="button"
-            className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-            onClick={() => setPushOpen(true)}
-            disabled={worktree === null || pending !== null}
-            title={t('push.actionTitle')}
-            data-testid="session-push"
-          >
-            <Upload size={12} />
-            <span className="hidden lg:inline">{t('push.action')}</span>
-          </button>
-
           <SessionActionsMenu
             live={allowSleep && live}
             sleeping={allowSleep && sleeping}
@@ -647,6 +618,7 @@ export default function SessionWorkspace({
         <ChangesPanel
           sessionId={session.id}
           sessionState={session.state}
+          repoId={session.repoId}
           harness={session.harness}
           baseOid={worktree?.baseOid ?? null}
           refreshToken={refreshToken}
@@ -665,40 +637,6 @@ export default function SessionWorkspace({
           onHistoryPathHandled={() => setHistoryRequest(null)}
         />
       </div>
-
-      {mergeOpen ? (
-        <MergeDialog
-          session={session}
-          onClose={() => setMergeOpen(false)}
-          onMerged={() => {
-            setMergeOpen(false)
-            notify({
-              tone: 'success',
-              message: translate('merge.mergedNotice', { branch: worktree?.branch ?? '' })
-            })
-            onRecheck(session.id)
-          }}
-          onConflicted={() => {
-            setView('changes')
-            notify({ tone: 'info', message: translate('merge.conflictNotice') })
-          }}
-        />
-      ) : null}
-
-      {pushOpen ? (
-        <PushDialog
-          session={session}
-          onClose={() => setPushOpen(false)}
-          onPushed={(upstream) => {
-            setPushOpen(false)
-            notify({
-              tone: 'success',
-              message: translate('push.success', { upstream })
-            })
-            onRecheck(session.id)
-          }}
-        />
-      ) : null}
 
       {detailsOpen ? (
         <SessionDetailsDrawer

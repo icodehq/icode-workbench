@@ -483,6 +483,58 @@ async function run() {
     await screenshot('02b-committed-since-base')
   })
 
+  await step('offers merge and push-to from Source Control', async () => {
+    await waitFor(
+      `document.querySelector('[data-testid="git-commit"]')?.innerText.includes('Merge into main')`,
+      'merge primary action',
+      15000
+    )
+    assert(
+      (await cdp.evaluate(`document.querySelector('[data-testid="git-commit"]')?.disabled ?? null`)) === false,
+      'merge primary action should be enabled'
+    )
+    await click('[data-testid="git-commit"]')
+    await waitForSelector('[data-testid="scm-merge-popover"]', 10000)
+    const mergeTarget = await cdp.evaluate(
+      `document.querySelector('[data-testid="scm-merge-target"]')?.value ?? null`
+    )
+    assert(mergeTarget === 'main', `unexpected merge target: ${mergeTarget}`)
+    await cdp.evaluate(
+      `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))`
+    )
+    await waitFor(
+      `!document.querySelector('[data-testid="scm-merge-popover"]')`,
+      'merge popover dismissed',
+      5000
+    )
+
+    await click('[data-testid="git-commit-menu-button"]')
+    await waitForSelector('[data-testid="git-merge"]', 5000)
+    assert(
+      await cdp.evaluate(`Boolean(document.querySelector('[data-testid="git-push-to"]'))`),
+      'push-to menu item missing'
+    )
+    await click('[data-testid="git-push-to"]')
+    await waitForSelector('[data-testid="scm-push-popover"]', 10000)
+    await waitFor(
+      `document.querySelector('[data-testid="scm-push-remote"]')?.value === 'origin'`,
+      'push remote default',
+      10000
+    )
+    const pushBranch = await cdp.evaluate(
+      `document.querySelector('[data-testid="scm-push-branch"]')?.value ?? null`
+    )
+    assert(pushBranch && pushBranch.length > 0, 'push branch default missing')
+    await cdp.evaluate(
+      `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))`
+    )
+    await waitFor(
+      `!document.querySelector('[data-testid="scm-push-popover"]')`,
+      'push popover dismissed',
+      5000
+    )
+  })
+
   await step('filter, tree/list and batch stage two untracked files', async () => {
     await cdp.evaluate(`(async () => {
       for (const path of ['src/alpha.txt', 'src/beta.txt']) {

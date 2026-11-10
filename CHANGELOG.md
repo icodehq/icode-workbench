@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Merge and Push now live in Source Control. A contextual
+  **Merge into `<target>`** primary action and anchored **Merge into branch…**
+  / **Push to…** pickers replace the session/task header buttons and their full-screen
+  modals. Push to… also absorbs the separate Push and Publish menu entries and
+  defaults to the configured upstream, or origin plus the local branch when
+  unpublished. Merge still requires a clean worktree.
+
+### Fixed
+
+- Continuing or aborting a merge from the Source Control operation banner now
+  uses the merge service, so the target fast-forwards, the merge record lands
+  in the correct state, and dependent tasks unblock.
+- Stale conflicted merge records left by the old generic continue/abort path
+  are reconciled at boot and can be aborted without a restart.
+
 ## [0.8.0] - 2026-11-10
 
 ### Added

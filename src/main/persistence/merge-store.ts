@@ -256,10 +256,16 @@ export class MergeStore {
     return result
   }
 
-  listRunning(): MergeRecord[] {
+  /** Records that still claim a session or target, including stale conflicts. */
+  listActive(): MergeRecord[] {
+    const placeholders = ACTIVE_MERGE_STATES.map(() => '?').join(', ')
     const rows = this.db.raw
-      .prepare(`SELECT ${COLUMNS} FROM merge_records WHERE state = 'running'`)
-      .all() as MergeRow[]
+      .prepare(
+        `SELECT ${COLUMNS} FROM merge_records
+         WHERE state IN (${placeholders})
+         ORDER BY created_at ASC`
+      )
+      .all(...ACTIVE_MERGE_STATES) as MergeRow[]
     return rows.map(fromRow)
   }
 

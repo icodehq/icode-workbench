@@ -6,6 +6,7 @@ import type {
   GitApplyPatchPayload,
   GitBatchPayload,
   GitBranchPayload,
+  GitCommandResultMap,
   GitCommitPayload,
   GitOpPayload,
   GitOperationActionPayload,
@@ -16,18 +17,28 @@ import type {
   GitRangeFile,
   GitWorkspaceStatus
 } from '../../../shared/domain/git-workspace'
+import type { MergeOutcomePayload, MergeRecordPayload } from '../../../shared/schemas/ipc'
 import type { Notice } from '../state/workspace'
 import { uncommittedFileCount, workingTreeGroups, type WorkingTreeEntry } from '../review/working-tree'
 import { useWorkbenchDraft, type WorkbenchDraftStore } from '../review/drafts'
+import { useBranchRefs } from '../state/use-branch-refs'
 import { useScmStatus } from './use-scm-status'
 import { isBranchProtected } from './branch-protection'
 import { scmPrimaryAction, type ScmPrimaryAction } from './scm-primary-action'
+import {
+  isActiveMergeRecord,
+  mergeOperationRoute,
+  resolveMergeTargets,
+  type MergeTargetResolution
+} from './scm-merge'
 import type { ScmSettings } from './scm-settings'
 import { clearScmStatusSummary, setScmStatusSummary } from './scm-status-store'
 
 type ScmControllerOptions = {
   sessionId: string
   sessionState: string
+  /** The repository that owns this session, used for branch refs and merges. */
+  repoId: string
   /** The commit this session's worktree was created from. */
   baseOid: string | null
   /** The Source Control tab is visible. Hidden panes hold stale Git status. */
@@ -39,6 +50,10 @@ type ScmControllerOptions = {
   drafts: WorkbenchDraftStore
   /** Called after a Git operation changed the worktree. */
   onChanged: () => void
+  /** A task's shared chain branch, preselected as the merge target. */
+  mergeTargetHint?: string | null
+  /** Whether the task's dependents force the chain branch target. */
+  lockMergeTarget?: boolean
 }
 
 export type ScmController = {
@@ -94,6 +109,29 @@ export type ScmController = {
   /** `git commit -a` for tracked changes, used by the sidebar menu. */
   commitAll: () => Promise<void>
   runRemoteAction: (kind: 'push' | 'pull' | 'publish' | 'sync') => Promise<void>
+  /** Latest merge record for this session, in any state. */
+  mergeRecord: MergeRecordPayload | null
+  /** True only for running/conflicted records. */
+  mergeActive: boolean
+  /** Resolved target list, default target and completion state. */
+  mergeTargets: MergeTargetResolution
+  mergeTarget: string | null
+  mergeTargetOid: string | null
+  mergeTargetLocked: boolean
+  mergeTargetsLoading: boolean
+  mergeTargetsReason: string
+  reloadMergeTargets: () => Promise<void>
+  mergeMenuEnabled: boolean
+  mergeMenuReason: string
+  pushMenuEnabled: boolean
+  pushMenuReason: string
+  remotes: string[] | null
+  remotesLoading: boolean
+  loadRemotes: () => Promise<void>
+  startMerge: (targetBranch: string) => Promise<{ ok: boolean; message?: string }>
+  continueMerge: () => Promise<void>
+  abortMerge: () => Promise<void>
+  pushTo: (remote: string, branch: string) => Promise<{ ok: boolean; message?: string }>
   amend: () => Promise<void>
   runPrimary: () => void
 }
@@ -109,12 +147,15 @@ export type ScmController = {
 export function useScmController({
   sessionId,
   sessionState,
+  repoId,
   baseOid,
   active,
   refreshToken,
   notify,
   drafts,
-  onChanged
+  onChanged,
+  mergeTargetHint = null,
+  lockMergeTarget = false
 }: ScmControllerOptions): ScmController {
   const draft = useWorkbenchDraft(drafts, sessionId)
   const message = draft.commitMessage
@@ -141,6 +182,67 @@ export function useScmController({
     refresh,
     reloadOperation
   } = status
+
+  const branchRefs = useBranchRefs(repoId.length > 0 ? repoId : null)
+  const [mergeRecord, setMergeRecord] = useState<MergeRecordPayload | null>(null)
+  const mergeGeneration = useRef(0)
+  const [remotes, setRemotes] = useState<string[] | null>(null)
+  const [remotesLoading, setRemotesLoading] = useState(false)
+  const remotesGeneration = useRef(0)
+
+  const loadMergeState = useCallback(async (): Promise<void> => {
+    const generation = mergeGeneration.current + 1
+    mergeGeneration.current = generation
+    const result = await callApi<MergeRecordPayload | null>(
+      window.icode.merge.state({ sessionId })
+    )
+    if (generation !== mergeGeneration.current) return
+    setMergeRecord(result.ok ? result.value : null)
+  }, [sessionId])
+
+  const loadRemotes = useCallback(async (): Promise<void> => {
+    const generation = remotesGeneration.current + 1
+    remotesGeneration.current = generation
+    setRemotesLoading(true)
+    try {
+      const result = await callApi<GitCommandResultMap['remotes']>(
+        window.icode.git.remotes({ sessionId })
+      )
+      if (generation !== remotesGeneration.current) return
+      if (!result.ok) {
+        notify(errorNotice(result.error))
+        setRemotes([])
+        return
+      }
+      if (result.value.status !== 'ok') {
+        notify({
+          tone: 'error',
+          message: result.value.detail ?? translate('push.noRemotes')
+        })
+        setRemotes([])
+        return
+      }
+      setRemotes(result.value.remotes)
+    } finally {
+      if (generation === remotesGeneration.current) setRemotesLoading(false)
+    }
+  }, [notify, sessionId])
+
+  // A different session has a different merge record and remote list.
+  useEffect(() => {
+    mergeGeneration.current += 1
+    remotesGeneration.current += 1
+    setMergeRecord(null)
+    setRemotes(null)
+    setRemotesLoading(false)
+  }, [sessionId])
+
+  useEffect(() => {
+    if (!active) return
+    void loadMergeState()
+    void branchRefs.reload()
+  }, [active, branchRefs.reload, loadMergeState, refreshToken])
+
   // The checkbox answers the click immediately; this holds the user's intent
   // until the serialized Git operation refreshes the snapshot.
   const [pendingStage, setPendingStage] = useState<ReadonlyMap<string, boolean>>(() => new Map())
@@ -197,6 +299,78 @@ export function useScmController({
   )
   const stagePending = pendingStage.size > 0
   const stagedCount = groups.staged.length
+  const clean = uncommittedFileCount(groups) === 0
+  const mergeTargets = useMemo(
+    () =>
+      resolveMergeTargets({
+        refs: branchRefs.refs,
+        sourceBranch: snapshot?.branch ?? null,
+        headOid: snapshot?.headOid ?? null,
+        hint: mergeTargetHint,
+        lockHint: lockMergeTarget,
+        loading: branchRefs.loading,
+        record: mergeRecord
+      }),
+    [
+      branchRefs.loading,
+      branchRefs.refs,
+      lockMergeTarget,
+      mergeRecord,
+      mergeTargetHint,
+      snapshot?.branch,
+      snapshot?.headOid
+    ]
+  )
+  const mergeTargetsReason = useMemo(() => {
+    switch (mergeTargets.reason) {
+      case 'loading':
+        return translate('scm.merge.loadingTargets')
+      case 'no-target':
+        return translate('scm.merge.noTargets')
+      case 'missing-target':
+        return translate('scm.merge.targetMissing')
+      default:
+        return ''
+    }
+  }, [mergeTargets.reason])
+  const mergeMenuReason = useMemo(() => {
+    if (snapshot === null) return translate('scm.changes.gitUnavailable')
+    if (snapshot.branch === null) return translate('scm.push.detached')
+    if (snapshot.headOid === null) return translate('scm.push.unborn')
+    if (busy) return translate('scm.notice.anotherOperation')
+    if (mergeRecord !== null && isActiveMergeRecord(mergeRecord)) {
+      return translate('scm.merge.active')
+    }
+    if (operation !== null) return translate('scm.merge.operation')
+    if (!clean) return translate('scm.merge.dirty')
+    if (committedLoading) return translate('scm.merge.readingCommits')
+    if (commitCount === 0 && !lockMergeTarget) return translate('scm.merge.noCommits')
+    if (mergeTargets.reason !== '') return mergeTargetsReason
+    if (mergeTargets.target === null) return translate('scm.merge.noTargets')
+    return ''
+  }, [
+    busy,
+    clean,
+    commitCount,
+    committedLoading,
+    lockMergeTarget,
+    mergeRecord,
+    mergeTargets.reason,
+    mergeTargets.target,
+    mergeTargetsReason,
+    operation,
+    snapshot
+  ])
+  const mergeMenuEnabled = mergeMenuReason === ''
+  const pushMenuReason = useMemo(() => {
+    if (snapshot === null) return translate('scm.changes.gitUnavailable')
+    if (snapshot.branch === null) return translate('scm.push.detached')
+    if (snapshot.headOid === null) return translate('scm.push.unborn')
+    if (busy) return translate('scm.notice.anotherOperation')
+    if (operation !== null) return translate('scm.merge.operation')
+    return ''
+  }, [busy, operation, snapshot])
+  const pushMenuEnabled = pushMenuReason === ''
   const primary = useMemo(
     () =>
       scmPrimaryAction({
@@ -208,9 +382,34 @@ export function useScmController({
         operation,
         smartCommit: settings.smartCommit,
         headOid: snapshot?.headOid ?? null,
-        branch: snapshot?.branch ?? null
+        branch: snapshot?.branch ?? null,
+        commitCount,
+        commitsLoading: committedLoading,
+        merge: {
+          target: mergeTargets.target,
+          targetOid: mergeTargets.targetOid,
+          locked: mergeTargets.locked,
+          loading: mergeTargets.loading,
+          reason: mergeTargetsReason,
+          recordState:
+            mergeRecord !== null && isActiveMergeRecord(mergeRecord)
+              ? mergeRecord.state
+              : null,
+          alreadyComplete: mergeTargets.alreadyComplete
+        }
       }),
-    [groups, message, operation, settings.smartCommit, snapshot]
+    [
+      commitCount,
+      committedLoading,
+      groups,
+      mergeRecord,
+      mergeTargets,
+      mergeTargetsReason,
+      message,
+      operation,
+      settings.smartCommit,
+      snapshot
+    ]
   )
   const canAmend =
     snapshot?.headOid !== null &&
@@ -619,7 +818,18 @@ export function useScmController({
   }
 
   const runOperationAction = async (action: 'continue' | 'abort'): Promise<void> => {
-    if (busy || commitBusy || operation === null) return
+    if (busy || commitBusy) return
+    const route = mergeOperationRoute({ record: mergeRecord, operation, action })
+    if (route === 'none') return
+    if (route === 'blocked') {
+      notify({ tone: 'info', message: translate('scm.merge.continueBlocked') })
+      return
+    }
+    if (route === 'merge') {
+      if (action === 'continue') await continueMerge()
+      else await abortMerge()
+      return
+    }
     setBusy(true)
     try {
       const result = await callApi<GitOperationActionPayload>(
@@ -646,6 +856,8 @@ export function useScmController({
       setBusy(false)
       await refresh()
       await reloadOperation()
+      await loadMergeState()
+      await branchRefs.reload()
       onChanged()
     }
   }
@@ -692,6 +904,144 @@ export function useScmController({
           { branch: result.value.branch }
         )
       })
+    } finally {
+      setBusy(false)
+      await refresh()
+      onChanged()
+    }
+  }
+
+  const startMerge = async (
+    targetBranch: string
+  ): Promise<{ ok: boolean; message?: string }> => {
+    if (busy || commitBusy) {
+      return { ok: false, message: translate('scm.notice.anotherOperation') }
+    }
+    if (operation !== null) {
+      return { ok: false, message: translate('scm.merge.operation') }
+    }
+    if (mergeRecord !== null && isActiveMergeRecord(mergeRecord)) {
+      return { ok: false, message: translate('scm.merge.active') }
+    }
+    if (!clean) {
+      return { ok: false, message: translate('scm.merge.dirty') }
+    }
+    setBusy(true)
+    try {
+      const result = await callApi<MergeOutcomePayload>(
+        window.icode.merge.start({ sessionId, targetBranch })
+      )
+      if (!result.ok) return { ok: false, message: result.error.message }
+      setMergeRecord(result.value.record)
+      if (result.value.status === 'merged') {
+        notify({
+          tone: 'success',
+          message: translate('merge.mergedNotice', { branch: targetBranch })
+        })
+      } else {
+        notify({ tone: 'info', message: translate('merge.conflictNotice') })
+      }
+      return { ok: true }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : translate('merge.error')
+      notify({ tone: 'error', message })
+      return { ok: false, message }
+    } finally {
+      setBusy(false)
+      await refresh()
+      await reloadOperation()
+      await loadMergeState()
+      await branchRefs.reload()
+      onChanged()
+    }
+  }
+
+  const continueMerge = async (): Promise<void> => {
+    if (busy || commitBusy) return
+    setBusy(true)
+    try {
+      const result = await callApi<MergeOutcomePayload>(
+        window.icode.merge.continueMerge({ sessionId })
+      )
+      if (!result.ok) {
+        notify(errorNotice(result.error))
+        return
+      }
+      setMergeRecord(result.value.record)
+      if (result.value.status === 'merged') {
+        notify({
+          tone: 'success',
+          message: translate('merge.mergedNotice', {
+            branch: result.value.record.targetBranch
+          })
+        })
+      } else {
+        notify({ tone: 'info', message: translate('merge.conflictNotice') })
+      }
+    } finally {
+      setBusy(false)
+      await refresh()
+      await reloadOperation()
+      await loadMergeState()
+      await branchRefs.reload()
+      onChanged()
+    }
+  }
+
+  const abortMerge = async (): Promise<void> => {
+    if (busy || commitBusy) return
+    setBusy(true)
+    try {
+      const result = await callApi<MergeRecordPayload>(
+        window.icode.merge.abort({ sessionId })
+      )
+      if (!result.ok) {
+        notify(errorNotice(result.error))
+        return
+      }
+      setMergeRecord(result.value)
+      notify({ tone: 'info', message: translate('scm.notice.mergeAborted') })
+    } finally {
+      setBusy(false)
+      await refresh()
+      await reloadOperation()
+      await loadMergeState()
+      await branchRefs.reload()
+      onChanged()
+    }
+  }
+
+  const pushTo = async (
+    remote: string,
+    branch: string
+  ): Promise<{ ok: boolean; message?: string }> => {
+    if (busy || commitBusy) {
+      return { ok: false, message: translate('scm.notice.anotherOperation') }
+    }
+    if (operation !== null) {
+      return { ok: false, message: translate('scm.merge.operation') }
+    }
+    setBusy(true)
+    try {
+      const result = await callApi<GitCommandResultMap['pushTo']>(
+        window.icode.git.pushTo({ sessionId, remote, branch: branch.trim() })
+      )
+      if (!result.ok) return { ok: false, message: result.error.message }
+      if (result.value.status !== 'ok') {
+        return {
+          ok: false,
+          message: result.value.detail ?? translate('push.error')
+        }
+      }
+      notify({
+        tone: 'success',
+        message: translate('push.success', { upstream: result.value.upstream })
+      })
+      return { ok: true }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : translate('push.error')
+      notify({ tone: 'error', message })
+      return { ok: false, message }
     } finally {
       setBusy(false)
       await refresh()
@@ -797,6 +1147,9 @@ export function useScmController({
       case 'continue':
         void runOperationAction('continue')
         break
+      case 'merge':
+        // The presentation layer opens the merge popover instead.
+        break
       default:
         break
     }
@@ -853,6 +1206,26 @@ export function useScmController({
     commit,
     commitAll,
     runRemoteAction,
+    mergeRecord,
+    mergeActive: mergeRecord !== null && isActiveMergeRecord(mergeRecord),
+    mergeTargets,
+    mergeTarget: mergeTargets.target,
+    mergeTargetOid: mergeTargets.targetOid,
+    mergeTargetLocked: mergeTargets.locked,
+    mergeTargetsLoading: mergeTargets.loading,
+    mergeTargetsReason,
+    reloadMergeTargets: branchRefs.reload,
+    mergeMenuEnabled,
+    mergeMenuReason,
+    pushMenuEnabled,
+    pushMenuReason,
+    remotes,
+    remotesLoading,
+    loadRemotes,
+    startMerge,
+    continueMerge,
+    abortMerge,
+    pushTo,
     amend,
     runPrimary
   }

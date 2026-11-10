@@ -120,6 +120,58 @@ describe('merge service', () => {
     expect(f.git(f.repoPath, ['show', 'main:README.md'])).toBe('main')
   })
 
+  it('settles a stale conflicted record when aborting', async () => {
+    const f = await setup()
+    const source = await f.createSource('session/one', f.mainOid)
+    f.writeAndCommit(source.path, 'README.md', 'source\n', 'source')
+    f.writeAndCommit(f.repoPath, 'README.md', 'main\n', 'main')
+
+    const conflicted = await f.merges.start({
+      sessionId: source.sessionId,
+      targetBranch: 'main'
+    })
+    expect(conflicted.status).toBe('conflicted')
+    // Simulate the old generic Continue/Abort path, which removes the Git
+    // operation but leaves the durable record active.
+    f.git(source.path, ['merge', '--abort'])
+
+    const aborted = await f.merges.abort(source.sessionId)
+    expect(aborted.state).toBe('aborted')
+    expect(f.mergeStore.findActiveForSession(source.sessionId)).toBeNull()
+  })
+
+  it('reconciles a stale conflicted record at boot', async () => {
+    const f = await setup()
+    const source = await f.createSource('session/one', f.mainOid)
+    f.writeAndCommit(source.path, 'README.md', 'source\n', 'source')
+    f.writeAndCommit(f.repoPath, 'README.md', 'main\n', 'main')
+
+    const conflicted = await f.merges.start({
+      sessionId: source.sessionId,
+      targetBranch: 'main'
+    })
+    expect(conflicted.status).toBe('conflicted')
+    f.git(source.path, ['merge', '--abort'])
+
+    const reconciled = await f.merges.reconcileInterrupted()
+    expect(reconciled).toMatchObject({ interrupted: 1, conflicted: 0 })
+    expect(f.mergeStore.latestForSession(source.sessionId)?.state).toBe('interrupted')
+    expect(f.mergeStore.findActiveForSession(source.sessionId)).toBeNull()
+  })
+
+  it('keeps an in-progress conflict active during reconciliation', async () => {
+    const f = await setup()
+    const source = await f.createSource('session/one', f.mainOid)
+    f.writeAndCommit(source.path, 'README.md', 'source\n', 'source')
+    f.writeAndCommit(f.repoPath, 'README.md', 'main\n', 'main')
+
+    await f.merges.start({ sessionId: source.sessionId, targetBranch: 'main' })
+    const reconciled = await f.merges.reconcileInterrupted()
+
+    expect(reconciled).toMatchObject({ interrupted: 0, conflicted: 1 })
+    expect(f.mergeStore.latestForSession(source.sessionId)?.state).toBe('conflicted')
+  })
+
   it('refuses a target checked out in another worktree', async () => {
     const f = await setup()
     f.git(f.repoPath, ['branch', 'target', f.mainOid])

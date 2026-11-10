@@ -21,6 +21,8 @@ export type ScmCommandId =
   | 'git.push'
   | 'git.sync'
   | 'git.publish'
+  | 'git.merge'
+  | 'git.pushTo'
   | 'git.viewHistory'
   | 'git.continueOperation'
   | 'git.abortOperation'

@@ -1,16 +1,18 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   AlertTriangle,
   ArrowUpRight,
   GitBranch,
   GitCommitHorizontal,
+  GitMerge,
   History,
   Loader2,
   MoreHorizontal,
   RefreshCw,
   Sparkles,
   TerminalSquare,
-  Undo2
+  Undo2,
+  Upload
 } from 'lucide-react'
 import type { AgentSendResult } from '../lib/agent-send'
 import type { Notice } from '../state/workspace'
@@ -22,14 +24,21 @@ import { useScmController } from '../scm/use-scm-controller'
 import { useCommitMessageGeneration } from '../scm/use-commit-message-generation'
 import { registerScmCommand, type ScmCommandId } from '../scm/scm-commands'
 import AmendDialog from './AmendDialog'
+import ContextMenu, { type ContextMenuItem } from './ContextMenu'
+import type { MenuAnchor } from './context-menu-position'
 import ScmHistoryView from './ScmHistoryView'
+import ScmMergePopover from './ScmMergePopover'
+import ScmPushPopover from './ScmPushPopover'
 import type { LineComment } from './UnifiedDiffView'
 import WorkingTreeView from './WorkingTreeView'
 import { useT, useTp } from '../i18n/use-i18n'
+import type { ScmMergeRequest } from '../scm/scm-merge'
 
 type Props = {
   sessionId: string
   sessionState: string
+  /** The repository that owns this session, used for branch refs and merges. */
+  repoId: string
   /** The session's harness; generation is hidden for Shell sessions. */
   harness: HarnessId
   /** The commit this session's worktree was created from. */
@@ -49,39 +58,22 @@ type Props = {
   drafts: WorkbenchDraftStore
   /** Called after a Git operation changed the worktree. */
   onChanged: () => void
+  /** A task's shared chain branch, preselected as the merge target. */
+  mergeTargetHint?: string | null
+  /** Whether the task's dependents force the chain branch target. */
+  lockMergeTarget?: boolean
+  /** A request from a task's Accept & merge action. */
+  mergeRequest?: ScmMergeRequest | null
+  onMergeRequestHandled?: () => void
   /** A Files request to open History for one path. */
   initialHistoryPath?: { path: string; nonce: number } | null
   onHistoryPathHandled?: () => void
 }
 
-function MenuAction({
-  label,
-  children,
-  disabled = false,
-  title,
-  testId,
-  onClick
-}: {
-  label: string
-  children: React.ReactNode
-  disabled?: boolean
-  title?: string
-  testId?: string
-  onClick?: () => void
-}): React.JSX.Element {
-  return (
-    <button
-      type="button"
-      className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[11px] text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
-      disabled={disabled}
-      title={title}
-      data-testid={testId}
-      onClick={onClick}
-    >
-      {children}
-      {label}
-    </button>
-  )
+function anchorFor(element: HTMLElement | null): MenuAnchor | null {
+  if (element === null) return null
+  const rect = element.getBoundingClientRect()
+  return { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right }
 }
 
 /**
@@ -95,6 +87,7 @@ function MenuAction({
 export default function ChangesPanel({
   sessionId,
   sessionState,
+  repoId,
   harness,
   baseOid,
   refreshToken,
@@ -106,6 +99,10 @@ export default function ChangesPanel({
   canSendToAgent,
   drafts,
   onChanged,
+  mergeTargetHint = null,
+  lockMergeTarget = false,
+  mergeRequest = null,
+  onMergeRequestHandled,
   initialHistoryPath = null,
   onHistoryPathHandled
 }: Props): React.JSX.Element {
@@ -116,23 +113,42 @@ export default function ChangesPanel({
   const controller = useScmController({
     sessionId,
     sessionState,
+    repoId,
     baseOid,
     active,
     refreshToken,
     notify,
     drafts,
-    onChanged
+    onChanged,
+    mergeTargetHint,
+    lockMergeTarget
   })
   const [sent, setSent] = useState(false)
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
   const [commitMenuOpen, setCommitMenuOpen] = useState(false)
+  const [commitMenuAnchor, setCommitMenuAnchor] = useState<MenuAnchor | null>(null)
+  const [mergePopover, setMergePopover] = useState<{
+    anchor: MenuAnchor | null
+    target: string | null
+    lockTarget: boolean
+    nonce: number
+  } | null>(null)
+  const [pushPopover, setPushPopover] = useState<{
+    anchor: MenuAnchor | null
+    nonce: number
+  } | null>(null)
+  const primaryButtonRef = useRef<HTMLButtonElement | null>(null)
+  const menuButtonRef = useRef<HTMLButtonElement | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [historyPath, setHistoryPath] = useState('')
 
   useEffect(() => {
     setHistoryOpen(false)
     setHistoryPath('')
+    setCommitMenuOpen(false)
+    setMergePopover(null)
+    setPushPopover(null)
   }, [sessionId])
 
   useEffect(() => {
@@ -182,9 +198,50 @@ export default function ChangesPanel({
     commit,
     commitAll,
     runRemoteAction,
+    mergeRecord,
+    mergeActive,
+    mergeTargets,
+    reloadMergeTargets,
+    mergeMenuEnabled,
+    mergeMenuReason,
+    pushMenuEnabled,
+    pushMenuReason,
+    remotes,
+    remotesLoading,
+    loadRemotes,
+    startMerge,
+    continueMerge,
+    abortMerge,
+    pushTo,
     amend,
     runPrimary
   } = controller
+
+  const openMergePopover = (
+    target: string | null,
+    lockTarget: boolean,
+    anchor: MenuAnchor | null
+  ): void => {
+    void reloadMergeTargets()
+    setMergePopover({ anchor, target, lockTarget, nonce: Date.now() })
+  }
+
+  const openPushPopover = (anchor: MenuAnchor | null): void => {
+    void loadRemotes()
+    setPushPopover({ anchor, nonce: Date.now() })
+  }
+
+  useEffect(() => {
+    if (mergeRequest === null || snapshot === null) return
+    void reloadMergeTargets()
+    setMergePopover({
+      anchor: anchorFor(primaryButtonRef.current) ?? anchorFor(menuButtonRef.current),
+      target: mergeRequest.target,
+      lockTarget: mergeRequest.lockTarget,
+      nonce: mergeRequest.nonce
+    })
+    onMergeRequestHandled?.()
+  }, [mergeRequest, onMergeRequestHandled, reloadMergeTargets, snapshot])
 
   const generation = useCommitMessageGeneration({
     sessionId,
@@ -310,6 +367,20 @@ export default function ChangesPanel({
         t('scm.changes.alreadyUpstream'),
         () => void runRemoteAction('publish')
       ),
+      register(
+        'git.merge',
+        mergeMenuEnabled && !busy,
+        mergeMenuReason,
+        () =>
+          openMergePopover(
+            mergeTargets.target,
+            mergeTargets.locked,
+            anchorFor(menuButtonRef.current)
+          )
+      ),
+      register('git.pushTo', pushMenuEnabled && !busy, pushMenuReason, () =>
+        openPushPopover(anchorFor(menuButtonRef.current))
+      ),
       register('git.viewHistory', snapshot !== null, t('scm.changes.gitUnavailable'), () =>
         setHistoryOpen(true)
       ),
@@ -321,7 +392,7 @@ export default function ChangesPanel({
       ),
       register(
         'git.abortOperation',
-        operation !== null && !busy,
+        (operation !== null || mergeActive) && !busy,
         t('scm.changes.noOperation'),
         () => void abortOperation()
       )
@@ -337,9 +408,17 @@ export default function ChangesPanel({
     commitBusy,
     continueOperation,
     groups,
+    mergeActive,
+    mergeMenuEnabled,
+    mergeMenuReason,
+    mergeTargets,
     operation,
+    openMergePopover,
+    openPushPopover,
     primary,
     protectedBranch,
+    pushMenuEnabled,
+    pushMenuReason,
     refresh,
     requestDiscard,
     runRemoteAction,
@@ -425,6 +504,123 @@ export default function ChangesPanel({
   const partialStaged = groups.staged.some((staged) =>
     groups.unstaged.some((unstaged) => unstaged.entry.path === staged.entry.path)
   )
+
+  const commitMenuItems: ContextMenuItem[] = [
+    {
+      id: 'amend',
+      label: t('scm.changes.menu.amend'),
+      icon: <Undo2 size={10} />,
+      disabled: !canAmend,
+      reason:
+        snapshot?.headOid === null
+          ? t('scm.changes.amendNoHead')
+          : stagedCount === 0 && message.trim().length === 0
+            ? t('scm.changes.amendNothing')
+            : t('scm.changes.amendReason'),
+      testId: 'git-amend',
+      onSelect: () => {
+        setCommitMenuOpen(false)
+        setAmendOpen(true)
+      }
+    },
+    {
+      id: 'commit-all',
+      label: t('scm.changes.menu.commitAll'),
+      icon: <GitCommitHorizontal size={10} />,
+      disabled:
+        message.trim().length === 0 ||
+        groups.conflicts.length > 0 ||
+        (stagedCount === 0 && groups.unstaged.length === 0) ||
+        commitBusy ||
+        busy ||
+        stagePending,
+      reason:
+        message.trim().length === 0
+          ? t('scm.changes.commitAllNoMessage')
+          : groups.conflicts.length > 0
+            ? t('scm.changes.commitAllConflicts')
+            : stagedCount === 0 && groups.unstaged.length === 0
+              ? t('scm.changes.commitAllNothing')
+              : t('scm.changes.commitAllReason'),
+      testId: 'git-commit-all',
+      onSelect: () => {
+        setCommitMenuOpen(false)
+        void commitAll()
+      }
+    },
+    {
+      id: 'commit-push',
+      label: t('scm.changes.menu.commitPush'),
+      icon: <ArrowUpRight size={10} />,
+      disabled:
+        primary.kind !== 'commit' ||
+        primary.disabled ||
+        !snapshot?.upstream ||
+        commitBusy ||
+        stagePending,
+      reason: snapshot?.upstream
+        ? primary.reason
+        : t('scm.changes.commitPushNoUpstream'),
+      testId: 'git-commit-push',
+      onSelect: () => {
+        setCommitMenuOpen(false)
+        void commit(true)
+      }
+    },
+    {
+      id: 'merge',
+      label: t('scm.changes.menu.merge'),
+      icon: <GitMerge size={10} />,
+      disabled: !mergeMenuEnabled,
+      reason: mergeMenuReason,
+      separatorBefore: true,
+      testId: 'git-merge',
+      onSelect: () => {
+        setCommitMenuOpen(false)
+        openMergePopover(
+          mergeTargets.target,
+          mergeTargets.locked,
+          anchorFor(menuButtonRef.current)
+        )
+      }
+    },
+    {
+      id: 'push-to',
+      label: t('scm.changes.menu.pushTo'),
+      icon: <Upload size={10} />,
+      disabled: !pushMenuEnabled,
+      reason: pushMenuReason,
+      testId: 'git-push-to',
+      onSelect: () => {
+        setCommitMenuOpen(false)
+        openPushPopover(anchorFor(menuButtonRef.current))
+      }
+    },
+    {
+      id: 'pull',
+      label: t('scm.changes.menu.pull'),
+      icon: <RefreshCw size={10} />,
+      disabled: !snapshot?.upstream || busy,
+      reason: snapshot?.upstream
+        ? t('scm.changes.pullReason')
+        : t('scm.changes.pushNoUpstream'),
+      testId: 'git-pull',
+      onSelect: () => {
+        setCommitMenuOpen(false)
+        void runRemoteAction('pull')
+      }
+    },
+    {
+      id: 'terminal',
+      label: t('scm.changes.menu.openTerminal'),
+      icon: <TerminalSquare size={10} />,
+      separatorBefore: true,
+      onSelect: () => {
+        setCommitMenuOpen(false)
+        onOpenTerminal()
+      }
+    }
+  ]
 
   const header = (
     <div
@@ -529,7 +725,66 @@ export default function ChangesPanel({
   )
 
   const operationBanner =
-    operation !== null ? (
+    mergeActive && mergeRecord !== null ? (
+      <div
+        className="shrink-0 border-b border-signal/40 bg-signal-weak px-2.5 py-1.5"
+        data-testid="scm-operation-banner"
+        data-merge-state={mergeRecord.state}
+      >
+        <div className="flex items-center gap-1.5 text-[10px] text-signal">
+          <AlertTriangle size={10} />
+          <strong className="tracking-wide">
+            {t('scm.merge.banner', {
+              source: mergeRecord.sourceBranch,
+              target: mergeRecord.targetBranch
+            })}
+          </strong>
+          <span className="text-foreground">
+            {mergeRecord.state === 'running'
+              ? t('scm.merge.running')
+              : t('merge.conflictTitle')}
+          </span>
+        </div>
+        <div className="mt-1 flex items-center gap-1">
+          <button
+            type="button"
+            className="inline-flex h-6 items-center rounded border border-border px-2 text-[10px] text-foreground hover:bg-card disabled:opacity-40"
+            disabled={
+              busy ||
+              mergeRecord.state !== 'conflicted' ||
+              operation !== 'merge' ||
+              groups.conflicts.length > 0
+            }
+            title={
+              groups.conflicts.length > 0
+                ? t('scm.changes.continueBlocked')
+                : mergeRecord.state !== 'conflicted' || operation !== 'merge'
+                  ? t('scm.merge.continueBlocked')
+                  : t('scm.merge.continueTitle', { target: mergeRecord.targetBranch })
+            }
+            data-testid="scm-operation-continue"
+            onClick={() => void continueMerge()}
+          >
+            {t('scm.changes.continue')}
+          </button>
+          <button
+            type="button"
+            className="inline-flex h-6 items-center rounded border border-destructive/50 px-2 text-[10px] text-destructive hover:bg-destructive/10 disabled:opacity-40"
+            disabled={busy}
+            title={t('scm.merge.abortTitle', { target: mergeRecord.targetBranch })}
+            data-testid="scm-operation-abort"
+            onClick={() => void abortMerge()}
+          >
+            {t('scm.changes.abort')}
+          </button>
+          {groups.conflicts.length > 0 ? (
+            <span className="ml-auto text-[9px] text-destructive">
+              {tp('scm.changes.conflicts', groups.conflicts.length)}
+            </span>
+          ) : null}
+        </div>
+      </div>
+    ) : operation !== null ? (
       <div
         className="shrink-0 border-b border-signal/40 bg-signal-weak px-2.5 py-1.5"
         data-testid="scm-operation-banner"
@@ -659,7 +914,16 @@ export default function ChangesPanel({
           onKeyDown={(event) => {
             if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
               event.preventDefault()
-              if (!primary.disabled && !commitBusy && !busy && !stagePending) runPrimary()
+              if (primary.disabled || commitBusy || busy || stagePending) return
+              if (primary.kind === 'merge') {
+                openMergePopover(
+                  primary.target,
+                  primary.locked,
+                  anchorFor(primaryButtonRef.current)
+                )
+                return
+              }
+              runPrimary()
             }
           }}
         />
@@ -696,9 +960,20 @@ export default function ChangesPanel({
         ) : null}
         <div className="relative mt-1.5 flex items-center gap-1">
           <button
+            ref={primaryButtonRef}
             type="button"
             className="inline-flex h-7 min-w-0 flex-1 items-center justify-center gap-1 rounded-md border border-add/50 bg-add-weak px-2 text-[11px] text-foreground hover:bg-add/20 disabled:opacity-40"
-            onClick={runPrimary}
+            onClick={() => {
+              if (primary.kind === 'merge' && !primary.disabled) {
+                openMergePopover(
+                  primary.target,
+                  primary.locked,
+                  anchorFor(primaryButtonRef.current)
+                )
+                return
+              }
+              runPrimary()
+            }}
             disabled={primary.disabled || commitBusy || busy || stagePending}
             title={primary.reason}
             data-testid="git-commit"
@@ -707,145 +982,28 @@ export default function ChangesPanel({
               <Loader2 size={10} className="animate-spin" />
             ) : primary.kind === 'commit' ? (
               <GitCommitHorizontal size={10} />
+            ) : primary.kind === 'merge' ? (
+              <GitMerge size={10} />
             ) : (
               <ArrowUpRight size={10} />
             )}
             <span className="truncate">{primary.label}</span>
           </button>
           <button
+            ref={menuButtonRef}
             type="button"
             className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
             aria-label={t('scm.changes.actions')}
             aria-expanded={commitMenuOpen}
             title={t('scm.changes.actions')}
             data-testid="git-commit-menu-button"
-            onClick={() => setCommitMenuOpen((current) => !current)}
+            onClick={(event) => {
+              setCommitMenuAnchor(anchorFor(event.currentTarget))
+              setCommitMenuOpen((current) => !current)
+            }}
           >
             <MoreHorizontal size={12} />
           </button>
-          {commitMenuOpen ? (
-            <div
-              className="absolute right-0 top-8 z-30 w-64 rounded-md border border-border bg-card p-1 shadow-xl"
-              role="menu"
-              aria-label={t('scm.changes.actions')}
-              data-testid="git-commit-menu"
-            >
-              <MenuAction
-                label={t('scm.changes.menu.amend')}
-                disabled={!canAmend}
-                title={
-                  snapshot.headOid === null
-                    ? t('scm.changes.amendNoHead')
-                    : stagedCount === 0 && message.trim().length === 0
-                      ? t('scm.changes.amendNothing')
-                      : t('scm.changes.amendReason')
-                }
-                testId="git-amend"
-                onClick={() => {
-                  setCommitMenuOpen(false)
-                  setAmendOpen(true)
-                }}
-              >
-                <Undo2 size={10} />
-              </MenuAction>
-              <MenuAction
-                label={t('scm.changes.menu.commitAll')}
-                disabled={
-                  message.trim().length === 0 ||
-                  groups.conflicts.length > 0 ||
-                  (stagedCount === 0 && groups.unstaged.length === 0) ||
-                  commitBusy ||
-                  busy ||
-                  stagePending
-                }
-                title={
-                  message.trim().length === 0
-                    ? t('scm.changes.commitAllNoMessage')
-                    : groups.conflicts.length > 0
-                      ? t('scm.changes.commitAllConflicts')
-                      : stagedCount === 0 && groups.unstaged.length === 0
-                        ? t('scm.changes.commitAllNothing')
-                        : t('scm.changes.commitAllReason')
-                }
-                testId="git-commit-all"
-                onClick={() => {
-                  setCommitMenuOpen(false)
-                  void commitAll()
-                }}
-              >
-                <GitCommitHorizontal size={10} />
-              </MenuAction>
-              <MenuAction
-                label={t('scm.changes.menu.commitPush')}
-                disabled={
-                  primary.kind !== 'commit' ||
-                  primary.disabled ||
-                  !snapshot.upstream ||
-                  commitBusy ||
-                  stagePending
-                }
-                title={snapshot.upstream ? primary.reason : t('scm.changes.commitPushNoUpstream')}
-                testId="git-commit-push"
-                onClick={() => {
-                  setCommitMenuOpen(false)
-                  void commit(true)
-                }}
-              >
-                <ArrowUpRight size={10} />
-              </MenuAction>
-              <div className="my-1 border-t border-border" />
-              <MenuAction
-                label={t('scm.changes.menu.push')}
-                disabled={!snapshot.upstream || busy}
-                title={snapshot.upstream ? t('scm.changes.pushReason') : t('scm.changes.pushNoUpstream')}
-                testId="git-push"
-                onClick={() => {
-                  setCommitMenuOpen(false)
-                  void runRemoteAction('push')
-                }}
-              >
-                <ArrowUpRight size={10} />
-              </MenuAction>
-              <MenuAction
-                label={t('scm.changes.menu.pull')}
-                disabled={!snapshot.upstream || busy}
-                title={snapshot.upstream ? t('scm.changes.pullReason') : t('scm.changes.pushNoUpstream')}
-                testId="git-pull"
-                onClick={() => {
-                  setCommitMenuOpen(false)
-                  void runRemoteAction('pull')
-                }}
-              >
-                <RefreshCw size={10} />
-              </MenuAction>
-              <MenuAction
-                label={t('scm.changes.menu.publish')}
-                disabled={snapshot.upstream !== null && snapshot.upstream !== undefined}
-                title={
-                  snapshot.upstream
-                    ? t('scm.changes.publishExists')
-                    : t('scm.changes.publishReason')
-                }
-                testId="git-publish"
-                onClick={() => {
-                  setCommitMenuOpen(false)
-                  void runRemoteAction('publish')
-                }}
-              >
-                <ArrowUpRight size={10} />
-              </MenuAction>
-              <div className="my-1 border-t border-border" />
-              <MenuAction
-                label={t('scm.changes.menu.openTerminal')}
-                onClick={() => {
-                  setCommitMenuOpen(false)
-                  onOpenTerminal()
-                }}
-              >
-                <TerminalSquare size={10} />
-              </MenuAction>
-            </div>
-          ) : null}
         </div>
         <p className="mt-1 text-[10px] leading-snug text-muted-foreground">
           {t('scm.changes.commitsOnly')} {primary.disabled ? primary.reason : ''}
@@ -973,6 +1131,49 @@ export default function ChangesPanel({
         onAddComment={onAddComment}
         onRemoveComment={onRemoveComment}
       />
+
+      {commitMenuOpen && commitMenuAnchor !== null ? (
+        <ContextMenu
+          items={commitMenuItems}
+          anchor={commitMenuAnchor}
+          align="end"
+          width={264}
+          testId="git-commit-menu"
+          ariaLabel={t('scm.changes.actions')}
+          opener={menuButtonRef.current}
+          onClose={() => setCommitMenuOpen(false)}
+        />
+      ) : null}
+
+      {mergePopover !== null ? (
+        <ScmMergePopover
+          key={mergePopover.nonce}
+          anchor={mergePopover.anchor}
+          opener={primaryButtonRef.current ?? menuButtonRef.current}
+          sourceBranch={snapshot?.branch ?? null}
+          resolution={mergeTargets}
+          initialTarget={mergePopover.target}
+          lockTarget={mergePopover.lockTarget}
+          clean={uncommittedCount === 0}
+          onClose={() => setMergePopover(null)}
+          onSubmit={startMerge}
+        />
+      ) : null}
+
+      {pushPopover !== null ? (
+        <ScmPushPopover
+          key={pushPopover.nonce}
+          anchor={pushPopover.anchor}
+          opener={menuButtonRef.current}
+          remotes={remotes}
+          remotesLoading={remotesLoading}
+          upstream={snapshot?.upstream ?? null}
+          localBranch={snapshot?.branch ?? null}
+          headOid={snapshot?.headOid ?? null}
+          onClose={() => setPushPopover(null)}
+          onSubmit={pushTo}
+        />
+      ) : null}
 
       {amendOpen ? (
         <AmendDialog

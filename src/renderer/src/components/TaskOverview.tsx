@@ -26,7 +26,7 @@ export type TaskOverviewProps = {
   onSelectTask: (taskId: string) => void
   onQueueFollowUp: (task: TaskRecordPayload) => void
   onChanged: () => void
-  /** Opens the merge dialog (used by Accept & merge). */
+  /** Opens the Source Control merge picker (used by Accept & merge). */
   onMerge?: () => void
 }
 

@@ -12,6 +12,18 @@ import type { WorkingTreeGroups } from '../review/working-tree'
 export type GitOperationState = 'merge' | 'rebase' | 'cherry-pick' | 'revert' | 'bisect' | null
 export type SmartCommitMode = 'off' | 'all' | 'tracked'
 
+export type MergePrimaryActionState = {
+  target: string | null
+  targetOid: string | null
+  locked: boolean
+  loading: boolean
+  /** Translated blocking reason for the target, or empty when usable. */
+  reason: string
+  recordState: 'running' | 'conflicted' | null
+  /** The target already contains this worktree; suppress a no-op merge. */
+  alreadyComplete: boolean
+}
+
 export type ScmPrimaryAction =
   | {
       kind: 'commit'
@@ -34,6 +46,14 @@ export type ScmPrimaryAction =
       disabled: false
       reason: string
     }
+  | {
+      kind: 'merge'
+      label: string
+      disabled: boolean
+      reason: string
+      target: string | null
+      locked: boolean
+    }
   | { kind: 'disabled'; label: string; disabled: true; reason: string }
   | { kind: 'noop'; label: string; disabled: true; reason: string }
 
@@ -49,6 +69,11 @@ export type ScmPrimaryActionInput = {
   headOid: string | null
   /** null on detached HEAD. */
   branch: string | null
+  /** Commits between the session base and HEAD. */
+  commitCount: number
+  /** True while the committed range is still being read. */
+  commitsLoading: boolean
+  merge: MergePrimaryActionState
 }
 
 function commitVerb(headOid: string | null, branch: string | null): string {
@@ -70,12 +95,38 @@ function operationLabel(operation: Exclude<GitOperationState, null | 'bisect'>):
   }
 }
 
+function mergeInProgress(
+  input: ScmPrimaryActionInput,
+  reason: string,
+  label = translate('scm.primary.mergeRunning')
+): ScmPrimaryAction {
+  return {
+    kind: 'merge',
+    label,
+    disabled: true,
+    reason,
+    target: input.merge.target,
+    locked: input.merge.locked
+  }
+}
+
 export function scmPrimaryAction(input: ScmPrimaryActionInput): ScmPrimaryAction {
-  const { groups } = input
+  const { groups, merge } = input
   const staged = groups.staged.length
   const stageable = groups.unstaged.length + groups.untracked.length
   const hasMessage = input.message.trim().length > 0
   const verb = commitVerb(input.headOid, input.branch)
+  const dirty =
+    groups.conflicts.length > 0 ||
+    staged > 0 ||
+    groups.unstaged.length > 0 ||
+    groups.untracked.length > 0
+
+  // A stale "running" row means a previous process died before Git reported
+  // the merge result. Do not offer a second merge; the banner offers Abort.
+  if (merge.recordState === 'running') {
+    return mergeInProgress(input, translate('scm.primary.mergeRunningReason'))
+  }
 
   if (input.operation !== null) {
     if (input.operation === 'bisect') {
@@ -142,6 +193,47 @@ export function scmPrimaryAction(input: ScmPrimaryActionInput): ScmPrimaryAction
           : translate('scm.primary.commitTrackedReason'),
       stageFirst: input.smartCommit
     }
+  }
+
+  const mergeTarget = merge.target
+  if (
+    mergeTarget !== null &&
+    !dirty &&
+    !input.commitsLoading &&
+    input.operation === null &&
+    merge.recordState === null &&
+    input.branch !== null &&
+    input.headOid !== null &&
+    !merge.alreadyComplete &&
+    (input.commitCount > 0 || merge.locked)
+  ) {
+    const enabled = merge.reason.length === 0
+    return {
+      kind: 'merge',
+      label: translate('scm.primary.mergeInto', { branch: mergeTarget }),
+      disabled: !enabled,
+      reason: enabled
+        ? merge.locked
+          ? translate('scm.primary.mergeLockedReason')
+          : translate('scm.primary.mergeReason', { branch: mergeTarget })
+        : merge.reason,
+      target: mergeTarget,
+      locked: merge.locked
+    }
+  }
+
+  // An active record with no Git operation (a stale conflicted row) cannot be
+  // merged again. The banner offers Abort, which settles it.
+  if (merge.recordState !== null) {
+    return mergeInProgress(input, translate('scm.primary.mergeRunningReason'))
+  }
+
+  if (mergeTarget === null && merge.loading && !dirty) {
+    return mergeInProgress(
+      input,
+      translate('scm.primary.mergeLoadingBranches'),
+      translate('scm.primary.merge')
+    )
   }
 
   if (input.headOid !== null && input.branch !== null && !input.hasUpstream) {
