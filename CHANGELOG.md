@@ -7,8 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-10
+
 ### Added
 
+- New sessions and tasks can start from a chosen local branch and use an
+  optional branch name. Session creation resolves the exact branch tip, and a
+  duplicate or invalid name is refused before a worktree exists.
+- Sessions and tasks can now **Merge…** into a target branch chosen at finish
+  time. The session branch is updated from the target first, conflicts are
+  resolved in the existing merge editor, and the target is fast-forwarded with
+  a compare-and-swap. Merge records are durable, survive a restart, and expose
+  Continue/Abort; accepting a task still does not merge it by itself.
+- Dependency chains now share one chain branch. Each task keeps its own
+  short-lived worktree, but a dependent starts only after every blocker has
+  been merged into the chain branch; fan-in works when the blockers share the
+  chain, and legacy chains retain their pre-merge behavior. SQLite migration
+  v16 adds the chain fields and `merge_records`.
+- **Push…** sends the session branch to an explicitly chosen remote and branch,
+  setting upstream without merging. Push never satisfies a task dependency;
+  only a local merge into the chain branch does.
 - Mira now keeps a native harness conversation instead of replaying a
   truncated transcript. Claude, Codex and OpenCode are resumed by the
   harness's own session id; a changed harness or target starts a bridged

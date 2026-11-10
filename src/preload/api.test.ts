@@ -48,6 +48,7 @@ describe('preload API surface', () => {
         'git',
         'harness',
         'locale',
+        'merge',
         'onRepoEvent',
         'onSessionEvent',
         'onTaskEvent',

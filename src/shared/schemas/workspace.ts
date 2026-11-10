@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { repoIdSchema, sessionIdSchema, worktreeRelativePathSchema } from './primitives'
 import { harnessIdSchema } from './domain'
 import { changeFileSchema } from './changes'
+import { MERGE_STATES } from '../domain/merge'
 
 /**
  * Workspace file requests.
@@ -221,6 +222,12 @@ export const gitResetInputSchema = z.strictObject({
   mode: z.enum(['soft', 'mixed', 'hard'])
 })
 export const gitRemoteOpInputSchema = z.strictObject({ sessionId: sessionIdSchema })
+export const gitRemotesInputSchema = z.strictObject({ sessionId: sessionIdSchema })
+export const gitPushToInputSchema = z.strictObject({
+  sessionId: sessionIdSchema,
+  remote: z.string().trim().min(1).max(255),
+  branch: z.string().trim().min(1).max(255)
+})
 export const gitLogInputSchema = z.strictObject({
   sessionId: sessionIdSchema,
   limit: z.number().int().min(1).max(200).default(50),
@@ -278,7 +285,8 @@ export const taskFailureReasonSchema = z.enum([
   'interrupted',
   'cancelled',
   'approval-rejected',
-  'resume-failed'
+  'resume-failed',
+  'chain-base-failed'
 ])
 
 export const taskReviewDecisionSchema = z.enum(['pending', 'accepted', 'rejected'])
@@ -290,7 +298,9 @@ export const taskDependencySummarySchema = z.strictObject({
   status: taskStatusSchema,
   reviewDecision: taskReviewDecisionSchema,
   holdDependents: z.boolean(),
-  satisfied: z.boolean()
+  satisfied: z.boolean(),
+  mergedIntoChain: z.boolean().optional(),
+  mergeState: z.enum(MERGE_STATES).nullable().optional()
 })
 
 /** One task that waits for another. */
@@ -354,6 +364,9 @@ export const taskRecordSchema = z.strictObject({
   // v14 dependency fields. Optional so mutation responses and hand-built
   // fixtures remain valid; list/history always populate them.
   holdDependents: z.boolean().optional(),
+  chainBranch: z.string().min(1).max(255).nullable().optional(),
+  chainGate: z.enum(['merge', 'legacy']).optional(),
+  startFrom: z.string().min(1).max(255).nullable().optional(),
   dependencies: z.array(taskDependencySummarySchema).max(20).optional(),
   dependents: z.array(taskDependentSummarySchema).max(500).optional(),
   ready: z.boolean().optional()
@@ -373,7 +386,9 @@ export const taskCreateInputSchema = z.strictObject({
   prompt: z.string().min(1).max(20_000),
   harness: harnessIdSchema,
   dependsOn: z.array(z.string().min(1).max(80)).max(20).optional(),
-  holdDependents: z.boolean().optional()
+  holdDependents: z.boolean().optional(),
+  startFrom: z.string().trim().min(1).max(255).optional(),
+  branchName: z.string().trim().min(1).max(255).optional()
 })
 
 export const taskIdInputSchema = z.strictObject({ taskId: z.string().min(1).max(80) })

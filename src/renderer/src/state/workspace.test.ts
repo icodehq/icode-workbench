@@ -325,6 +325,8 @@ describe('worktree lifecycle state', () => {
           branch: 'icode/ses_one',
           repoId: 'repo_a',
           sessionId: 'ses_one',
+          taskId: null,
+          kind: 'session',
           baseOid: 'abc',
           createdAt: 1,
           exists: true,

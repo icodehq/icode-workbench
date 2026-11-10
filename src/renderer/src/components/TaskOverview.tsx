@@ -26,6 +26,8 @@ export type TaskOverviewProps = {
   onSelectTask: (taskId: string) => void
   onQueueFollowUp: (task: TaskRecordPayload) => void
   onChanged: () => void
+  /** Opens the merge dialog (used by Accept & merge). */
+  onMerge?: () => void
 }
 
 const ACTIVE = new Set(['queued', 'dispatching', 'running', 'waiting'])
@@ -121,7 +123,8 @@ export default function TaskOverview({
   onOpenChanges,
   onSelectTask,
   onQueueFollowUp,
-  onChanged
+  onChanged,
+  onMerge
 }: TaskOverviewProps): React.JSX.Element {
   const t = useT()
   const [changes, setChanges] = useState<TaskChangesPayload | null>(null)
@@ -154,11 +157,11 @@ export default function TaskOverview({
     void loadChanges()
   }, [loadChanges, task.updatedAt])
 
-  const decide = async (decision: 'accepted' | 'rejected'): Promise<void> => {
-    if (busy) return
+  const decide = async (decision: 'accepted' | 'rejected'): Promise<boolean> => {
+    if (busy) return false
     if (task.reviewDecision !== 'pending' && task.reviewDecision !== decision && !confirming) {
       setConfirming(decision)
-      return
+      return false
     }
     setBusy(true)
     try {
@@ -172,7 +175,7 @@ export default function TaskOverview({
       )
       if (!result.ok) {
         notify(errorNotice(result.error))
-        return
+        return false
       }
       setConfirming(null)
       notify({
@@ -183,9 +186,15 @@ export default function TaskOverview({
             : t('taskOverview.rejectedNotice')
       })
       onChanged()
+      return true
     } finally {
       setBusy(false)
     }
+  }
+
+  const acceptAndMerge = async (): Promise<void> => {
+    if (onMerge === undefined) return
+    if (await decide('accepted')) onMerge()
   }
 
   const setArchived = async (archived: boolean): Promise<void> => {
@@ -581,6 +590,16 @@ export default function TaskOverview({
                   </button>
                   <button
                     type="button"
+                    className="inline-flex h-7 items-center gap-1 rounded-md bg-accent px-2.5 text-[10.5px] font-medium text-accent-ink hover:opacity-90 disabled:opacity-40"
+                    onClick={() => void acceptAndMerge()}
+                    disabled={busy || onMerge === undefined}
+                    data-testid="task-review-accept-merge"
+                  >
+                    <Check size={11} />
+                    {t('taskOverview.acceptAndMerge')}
+                  </button>
+                  <button
+                    type="button"
                     className={`inline-flex h-7 items-center gap-1 rounded-md border px-2.5 text-[10.5px] disabled:opacity-40 ${
                       task.reviewDecision === 'rejected'
                         ? 'border-destructive/60 bg-destructive/15 text-destructive'
@@ -699,12 +718,17 @@ export default function TaskOverview({
                       {' · '}
                       {dependency.satisfied
                         ? t('taskOverview.dependencies.satisfied')
-                        : dependency.status === 'failed' ||
-                            dependency.status === 'cancelled' ||
-                            (dependency.status === 'completed' &&
-                              dependency.reviewDecision === 'rejected')
-                          ? t('taskOverview.dependencies.blockerStopped')
-                          : t('taskOverview.dependencies.waiting')}
+                        : dependency.mergeState === 'conflicted'
+                          ? t('taskOverview.dependencies.mergeConflicted')
+                          : dependency.status === 'completed' &&
+                              dependency.mergedIntoChain === false
+                            ? t('taskOverview.dependencies.waitingForMerge')
+                            : dependency.status === 'failed' ||
+                                dependency.status === 'cancelled' ||
+                                (dependency.status === 'completed' &&
+                                  dependency.reviewDecision === 'rejected')
+                              ? t('taskOverview.dependencies.blockerStopped')
+                              : t('taskOverview.dependencies.waiting')}
                     </p>
                   </li>
                 ))}

@@ -48,10 +48,17 @@ export type WorktreeSummary = {
  * Branch ownership outlives the session row so a retained branch can only be
  * deleted through iCode when iCode created it, and only with the exact name.
  */
+export const OWNED_BRANCH_KINDS = ['session', 'chain'] as const
+export type OwnedBranchKind = (typeof OWNED_BRANCH_KINDS)[number]
+
 export type OwnedBranchRecord = {
   branch: string
   repoId: RepoId
-  sessionId: string
+  /** Set for a session-owned branch. */
+  sessionId: string | null
+  /** Set for a dependency-chain branch. */
+  taskId: string | null
+  kind: OwnedBranchKind
   baseOid: string
   createdAt: number
 }

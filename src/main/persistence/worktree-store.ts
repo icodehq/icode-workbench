@@ -2,8 +2,13 @@ import type { Database } from './database'
 import type { AppError } from '../../shared/domain/errors'
 import { appErrorSchema } from '../../shared/schemas/domain'
 import { parseRepoId, parseSessionId } from './rows'
-import type { OwnedBranchRecord, SessionWorktreeRecord, WorktreeState } from '../../shared/domain/worktree'
-import { WORKTREE_STATES } from '../../shared/domain/worktree'
+import type {
+  OwnedBranchKind,
+  OwnedBranchRecord,
+  SessionWorktreeRecord,
+  WorktreeState
+} from '../../shared/domain/worktree'
+import { OWNED_BRANCH_KINDS, WORKTREE_STATES } from '../../shared/domain/worktree'
 import type { RepoId } from '../../shared/domain/ids'
 
 type WorktreeRow = {
@@ -23,13 +28,15 @@ type BranchRow = {
   branch: unknown
   repo_id: unknown
   session_id: unknown
+  task_id: unknown
+  kind: unknown
   base_oid: unknown
   created_at: unknown
 }
 
 const WORKTREE_COLUMNS = `session_id, repo_id, path, branch, base_ref, base_oid, state,
   last_error_json, created_at, updated_at`
-const BRANCH_COLUMNS = `branch, repo_id, session_id, base_oid, created_at`
+const BRANCH_COLUMNS = `branch, repo_id, session_id, task_id, kind, base_oid, created_at`
 
 function requireString(value: unknown, column: string): string {
   if (typeof value !== 'string' || value.length === 0) {
@@ -84,11 +91,25 @@ function worktreeFromRow(row: WorktreeRow): SessionWorktreeRecord {
   }
 }
 
+function optionalString(value: unknown, column: string): string | null {
+  if (value === null) return null
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error(`Unusable database value for ${column}`)
+  }
+  return value
+}
+
 function branchFromRow(row: BranchRow): OwnedBranchRecord {
+  const kind = row.kind
+  if (typeof kind !== 'string' || !OWNED_BRANCH_KINDS.includes(kind as OwnedBranchKind)) {
+    throw new Error('Unusable database value for worktree_branches.kind')
+  }
   return {
     branch: requireString(row.branch, 'worktree_branches.branch'),
     repoId: parseRepoId(row.repo_id),
-    sessionId: requireString(row.session_id, 'worktree_branches.session_id'),
+    sessionId: optionalString(row.session_id, 'worktree_branches.session_id'),
+    taskId: optionalString(row.task_id, 'worktree_branches.task_id'),
+    kind: kind as OwnedBranchKind,
     baseOid: requireString(row.base_oid, 'worktree_branches.base_oid'),
     createdAt: requireInteger(row.created_at, 'worktree_branches.created_at')
   }
@@ -167,9 +188,32 @@ export class WorktreeStore {
   insertBranch(record: OwnedBranchRecord): void {
     this.db.raw
       .prepare(
-        `INSERT INTO worktree_branches (${BRANCH_COLUMNS}) VALUES (?, ?, ?, ?, ?)`
+        `INSERT INTO worktree_branches (${BRANCH_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(record.branch, record.repoId, record.sessionId, record.baseOid, record.createdAt)
+      .run(
+        record.branch,
+        record.repoId,
+        record.sessionId,
+        record.taskId,
+        record.kind,
+        record.baseOid,
+        record.createdAt
+      )
+  }
+
+  /** Updates the review baseline after a merge has integrated the target. */
+  updateBase(
+    sessionId: string,
+    baseRef: string | null,
+    baseOid: string,
+    updatedAt: number
+  ): void {
+    this.db.raw
+      .prepare(
+        `UPDATE session_worktrees SET base_ref = ?, base_oid = ?, updated_at = ?
+         WHERE session_id = ?`
+      )
+      .run(baseRef, baseOid, updatedAt, sessionId)
   }
 
   findBranch(branch: string): OwnedBranchRecord | null {

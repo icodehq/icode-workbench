@@ -16,6 +16,7 @@
 
 import type { HarnessId } from './harness'
 import type { RepoId, SessionId, WorkspaceId } from './ids'
+import type { MergeState } from './merge'
 
 /**
  * The lifecycle. `dispatching` is a real, observable state rather than an
@@ -116,9 +117,13 @@ export const TASK_FAILURE_REASONS = [
   'interrupted',
   'cancelled',
   'approval-rejected',
-  'resume-failed'
+  'resume-failed',
+  'chain-base-failed'
 ] as const
 export type TaskFailureReason = (typeof TASK_FAILURE_REASONS)[number]
+
+export const TASK_CHAIN_GATES = ['merge', 'legacy'] as const
+export type TaskChainGate = (typeof TASK_CHAIN_GATES)[number]
 
 export type TaskRecord = {
   id: string
@@ -196,6 +201,15 @@ export type TaskRecord = {
    * sees the same gate. Completion alone satisfies an ungated blocker.
    */
   holdDependents: boolean
+  /** Shared branch for this task's merge-gated dependency component. */
+  chainBranch: string | null
+  /**
+   * `merge` requires a blocker to be merged into `chainBranch` before a
+   * dependent starts. `legacy` preserves pre-v16 behavior for old chains.
+   */
+  chainGate: TaskChainGate
+  /** Local branch a chain root should start from when it first dispatches. */
+  startFrom: string | null
 }
 
 /**
@@ -211,6 +225,10 @@ export type TaskDependencySummary = {
   reviewDecision: ReviewDecision
   holdDependents: boolean
   satisfied: boolean
+  /** Whether the blocker has been merged into this task's chain branch. */
+  mergedIntoChain?: boolean
+  /** Latest merge state for the blocker's session, when one exists. */
+  mergeState?: MergeState | null
 }
 
 /** One task that runs after another, for the detail pane's dependents list. */
@@ -229,11 +247,13 @@ export type TaskDependentSummary = {
  * unsatisfied; callers only pass a record when it exists.
  */
 export function dependencySatisfied(
-  blocker: Pick<TaskRecord, 'status' | 'reviewDecision' | 'holdDependents'>
+  blocker: Pick<TaskRecord, 'status' | 'reviewDecision' | 'holdDependents'>,
+  mergedIntoChain = true
 ): boolean {
   return (
     blocker.status === 'completed' &&
-    (!blocker.holdDependents || blocker.reviewDecision === 'accepted')
+    (!blocker.holdDependents || blocker.reviewDecision === 'accepted') &&
+    mergedIntoChain
   )
 }
 

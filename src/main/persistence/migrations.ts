@@ -664,5 +664,98 @@ export const MIGRATIONS: readonly Migration[] = [
       `ALTER TABLE task_settings ADD COLUMN max_concurrent_per_project INTEGER NOT NULL DEFAULT 1
          CHECK (max_concurrent_per_project BETWEEN 1 AND 4)`
     ]
+  },
+  {
+    version: 16,
+    name: 'session-integration-and-task-chains',
+    /**
+     * The session-first integration workflow.
+     *
+     * A dependency chain shares one chain branch. Membership is derived from the
+     * existing `task_dependencies` component, so no chain/plan row is needed; the
+     * chosen branch name is copied onto every task in the component.
+     *
+     * Existing dependency chains were written before merge gating existed. They
+     * are marked `legacy` so their queued dependents keep the old completion
+     * readiness instead of being stranded behind a merge that can never happen.
+     * New tasks default to `merge`.
+     *
+     * `merge_records` is both the audit trail and the durable exactly-once claim:
+     * the partial unique indexes allow at most one active merge per session and
+     * per target branch, even across windows or a restart.
+     *
+     * `worktree_branches` gains chain ownership. Branch ownership has to outlive
+     * the session (and now the task), so the table is rebuilt to allow a nullable
+     * session_id and an owning task id.
+     */
+    statements: [
+      `ALTER TABLE tasks ADD COLUMN chain_branch TEXT`,
+      `ALTER TABLE tasks ADD COLUMN start_from TEXT`,
+      `ALTER TABLE tasks ADD COLUMN chain_gate TEXT NOT NULL DEFAULT 'merge'
+         CHECK (chain_gate IN ('merge', 'legacy'))`,
+      `UPDATE tasks SET chain_gate = 'legacy'`,
+      `CREATE INDEX tasks_chain_branch_idx ON tasks (repo_id, chain_branch)`,
+
+      `CREATE TABLE merge_records (
+         id TEXT PRIMARY KEY NOT NULL,
+         repo_id TEXT NOT NULL REFERENCES repos(id) ON DELETE CASCADE,
+         session_id TEXT NOT NULL,
+         task_id TEXT,
+         source_branch TEXT NOT NULL,
+         target_branch TEXT NOT NULL,
+         source_oid_before TEXT NOT NULL,
+         target_oid_before TEXT NOT NULL,
+         target_oid_after TEXT,
+         result_oid TEXT,
+         review_base_oid TEXT,
+         state TEXT NOT NULL CHECK (
+           state IN ('running', 'conflicted', 'merged', 'failed', 'aborted', 'interrupted')
+         ),
+         commit_oid TEXT,
+         conflict_files_json TEXT,
+         error_json TEXT,
+         push_remote TEXT,
+         pushed_at INTEGER,
+         push_error_json TEXT,
+         created_at INTEGER NOT NULL,
+         updated_at INTEGER NOT NULL,
+         finished_at INTEGER,
+         CHECK (length(source_branch) > 0),
+         CHECK (length(target_branch) > 0)
+       ) STRICT`,
+      `CREATE INDEX merge_records_session_idx ON merge_records (session_id, created_at)`,
+      `CREATE INDEX merge_records_target_idx ON merge_records (repo_id, target_branch, state)`,
+      `CREATE UNIQUE INDEX merge_records_active_session_idx
+         ON merge_records (session_id)
+         WHERE state IN ('running', 'conflicted')`,
+      `CREATE UNIQUE INDEX merge_records_active_target_idx
+         ON merge_records (repo_id, target_branch)
+         WHERE state IN ('running', 'conflicted')`,
+
+      `CREATE TABLE worktree_branches_new (
+         branch TEXT PRIMARY KEY NOT NULL,
+         repo_id TEXT NOT NULL REFERENCES repos(id) ON DELETE CASCADE,
+         session_id TEXT,
+         task_id TEXT,
+         kind TEXT NOT NULL DEFAULT 'session'
+           CHECK (kind IN ('session', 'chain')),
+         base_oid TEXT NOT NULL,
+         created_at INTEGER NOT NULL,
+         CHECK (length(branch) > 0),
+         CHECK (
+           (kind = 'session' AND session_id IS NOT NULL)
+           OR (kind = 'chain' AND task_id IS NOT NULL)
+         )
+       ) STRICT`,
+      `INSERT INTO worktree_branches_new
+         (branch, repo_id, session_id, task_id, kind, base_oid, created_at)
+       SELECT branch, repo_id, session_id, NULL, 'session', base_oid, created_at
+       FROM worktree_branches`,
+      `DROP TABLE worktree_branches`,
+      `ALTER TABLE worktree_branches_new RENAME TO worktree_branches`,
+      `CREATE INDEX worktree_branches_repo_idx ON worktree_branches (repo_id)`,
+      `CREATE INDEX worktree_branches_task_idx ON worktree_branches (task_id)
+         WHERE task_id IS NOT NULL`
+    ]
   }
 ]

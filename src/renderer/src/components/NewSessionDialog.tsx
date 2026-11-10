@@ -11,6 +11,7 @@ import {
 import type { RepositorySummary } from '../../../shared/schemas/ipc'
 import { repositoryPreparationView } from '../lib/repository-preparation'
 import type { CreateSessionRequest } from '../state/use-workspace'
+import { useBranchRefs } from '../state/use-branch-refs'
 import { useT } from '../i18n/use-i18n'
 import type { Translator } from '../i18n/i18n-store'
 
@@ -166,8 +167,16 @@ export default function NewSessionDialog({
   const [repoId, setRepoId] = useState(activeRepoId ?? repos[0]?.id ?? '')
   const [harness, setHarness] = useState<HarnessId | null>(available[0]?.harness ?? null)
   const [title, setTitle] = useState('')
+  const [startFrom, setStartFrom] = useState('')
+  const [branchName, setBranchName] = useState('')
 
   const selectedRepo = repos.find((repo) => repo.id === repoId) ?? null
+  const branchRefs = useBranchRefs(repoId.length > 0 ? repoId : null)
+
+  useEffect(() => {
+    setStartFrom('')
+    setBranchName('')
+  }, [repoId])
   const preparation = selectedRepo === null ? null : repositoryPreparationView(selectedRepo)
   const repoTarget = selectedRepo?.target ?? null
   const targetLabel =
@@ -207,7 +216,9 @@ export default function NewSessionDialog({
     const ok = await onCreate({
       repoId,
       harness,
-      ...(title.trim().length > 0 ? { title: title.trim() } : {})
+      ...(title.trim().length > 0 ? { title: title.trim() } : {}),
+      ...(startFrom.length > 0 ? { startFrom } : {}),
+      ...(branchName.trim().length > 0 ? { branchName: branchName.trim() } : {})
     })
     if (ok) onClose()
   }
@@ -289,6 +300,50 @@ export default function NewSessionDialog({
               </span>
             </div>
           ) : null}
+
+          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <label className="block text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
+              {t('newSession.startFrom')}
+              <select
+                className="mt-1.5 w-full rounded-md border border-border bg-background px-3 py-2 text-[12px] outline-none focus:border-accent disabled:opacity-60"
+                value={startFrom}
+                onChange={(event) => setStartFrom(event.target.value)}
+                disabled={branchRefs.loading}
+                data-testid="new-session-start-from"
+              >
+                <option value="">
+                  {t('newSession.currentBranch', {
+                    branch: selectedRepo?.currentBranch ?? 'HEAD'
+                  })}
+                </option>
+                {branchRefs.refs.map((ref) => (
+                  <option key={ref.name} value={ref.name}>
+                    {ref.name}
+                    {ref.primaryHead ? ' ★' : ''}
+                    {ref.worktreePath !== null
+                      ? ` · ${t('newSession.branchInUse')}`
+                      : ''}
+                  </option>
+                ))}
+              </select>
+              {branchRefs.error !== null ? (
+                <span className="mt-1 block text-[10px] normal-case tracking-normal text-destructive">
+                  {t('newSession.branchRefsFailed')}
+                </span>
+              ) : null}
+            </label>
+            <label className="block text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
+              {t('newSession.branchName')}
+              <input
+                className="mt-1.5 w-full rounded-md border border-border bg-background px-3 py-2 text-[12px] outline-none focus:border-accent"
+                value={branchName}
+                onChange={(event) => setBranchName(event.target.value)}
+                placeholder={t('newSession.branchNamePlaceholder')}
+                spellCheck={false}
+                data-testid="new-session-branch-name"
+              />
+            </label>
+          </div>
 
           <div className="mt-4 flex items-center justify-between">
             <span className="text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">

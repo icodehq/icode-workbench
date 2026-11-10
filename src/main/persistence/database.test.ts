@@ -51,6 +51,8 @@ describe('database initialization', () => {
       'assistant_threads',
       // v13: per-harness provider configuration and its selection.
       'harness_provider_selection',
+      // v16: durable merge claims and audit trail.
+      'merge_records',
       'providers',
       // v4: durable work lives beside sessions, not inside them.
       'repos',
@@ -493,6 +495,52 @@ describe('migrations', () => {
     v2.close()
   })
 
+  it('preserves pre-v16 task and branch rows while adding merge gating', () => {
+    const root = tempRoot()
+    const path = join(root.dir, 'v16.sqlite')
+    const v15 = openDatabase({ path, migrations: MIGRATIONS.slice(0, 15) })
+    v15.raw
+      .prepare(
+        `INSERT INTO repos
+           (id, path, display_name, added_at, last_opened_at, current_branch, availability)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run('repo_legacy', '/tmp/legacy', 'legacy', 1, 1, 'main', 'present')
+    v15.raw
+      .prepare(
+        `INSERT INTO tasks
+           (id, workspace_id, repo_id, title, prompt, harness, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run('task_legacy', 'ws_legacy', 'repo_legacy', 'legacy', 'prompt', 'claude', 'queued', 1, 1)
+    v15.raw
+      .prepare(
+        `INSERT INTO worktree_branches (branch, repo_id, session_id, base_oid, created_at)
+         VALUES (?, ?, ?, ?, ?)`
+      )
+      .run('icode/ses_legacy', 'repo_legacy', 'ses_legacy', 'a'.repeat(40), 1)
+    v15.close()
+
+    const v16 = openDatabase({ path, migrations: MIGRATIONS })
+    expect(v16.userVersion()).toBe(SCHEMA_VERSION)
+    expect(
+      v16.raw
+        .prepare(
+          `SELECT chain_gate, chain_branch, start_from FROM tasks WHERE id = 'task_legacy'`
+        )
+        .get()
+    ).toEqual({ chain_gate: 'legacy', chain_branch: null, start_from: null })
+    expect(
+      v16.raw
+        .prepare(
+          `SELECT kind, session_id, task_id FROM worktree_branches
+           WHERE branch = 'icode/ses_legacy'`
+        )
+        .get()
+    ).toEqual({ kind: 'session', session_id: 'ses_legacy', task_id: null })
+    v16.close()
+  })
+
   it('rejects a migration gap', () => {
     const root = tempRoot()
     const db = new DatabaseSync(join(root.dir, 'gap.db'))
@@ -528,6 +576,11 @@ describe('migrations', () => {
       'assistant_runs_thread_started_idx',
       'assistant_threads_main_idx',
       'assistant_threads_updated_idx',
+      // v16: durable merge claims and audit trail.
+      'merge_records_active_session_idx',
+      'merge_records_active_target_idx',
+      'merge_records_session_idx',
+      'merge_records_target_idx',
       // v13: provider lookup per harness.
       'providers_harness_idx',
       // v3: one uniqueness rule per execution target, plus the host-kind lookup
@@ -551,6 +604,7 @@ describe('migrations', () => {
       'tasks_approval_status_created_idx',
       // v10: the archived working-list split.
       'tasks_archived_updated_idx',
+      'tasks_chain_branch_idx',
       'tasks_previous_idx',
       'tasks_repo_created_idx',
       // v5: review state is read per queue view and per retry chain.
@@ -559,7 +613,8 @@ describe('migrations', () => {
       'tasks_session_idx',
       'tasks_status_created_idx',
       'workspaces_repo_idx',
-      'worktree_branches_repo_idx'
+      'worktree_branches_repo_idx',
+      'worktree_branches_task_idx'
     ])
     db.close()
   })

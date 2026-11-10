@@ -22,6 +22,85 @@ export async function pull(ctx: GitWorkspaceContext, sessionId: string, rebase =
 
 
   /**
+   * Pushes the checked-out branch to an explicitly chosen remote/branch.
+   *
+   * Unlike `publish`, this does not guess a remote and does not merge anything.
+   * It is the "share this branch as-is" path; dependency readiness is untouched.
+   */
+export async function pushTo(
+    ctx: GitWorkspaceContext,
+    sessionId: string,
+    input: { remote: string; branch: string }
+  ): Promise<
+    GitOutcome<{ branch: string; remote: string; remoteBranch: string; upstream: string }>
+  > {
+    const resolved = await ctx.resolve(sessionId)
+    if (resolved.status !== 'ok') return resolved
+    const { git, worktreePath } = resolved
+    const localBranch = await git(worktreePath, ['rev-parse', '--abbrev-ref', 'HEAD']).catch(
+      () => null
+    )
+    if (localBranch === null || localBranch === 'HEAD') {
+      return {
+        status: 'unavailable',
+        reason: 'git-failed',
+        detail: 'Cannot push a detached checkout. Switch to a branch first.'
+      }
+    }
+    const remotes = await ctx.remoteNames(git, worktreePath)
+    if (!remotes.includes(input.remote)) {
+      return {
+        status: 'unavailable',
+        reason: 'no-remote',
+        detail: `The remote "${input.remote}" is not configured.`
+      }
+    }
+    try {
+      await git(worktreePath, ['check-ref-format', '--branch', input.branch])
+    } catch (error) {
+      return {
+        status: 'unavailable',
+        reason: 'git-failed',
+        detail: detailOf(error, 'The remote branch name is not valid.')
+      }
+    }
+    try {
+      await git(
+        worktreePath,
+        ['push', '--set-upstream', input.remote, `${localBranch}:${input.branch}`],
+        120_000
+      )
+    } catch (error) {
+      return {
+        status: 'unavailable',
+        reason: 'git-failed',
+        detail: detailOf(
+          error,
+          `Git could not push ${localBranch}. Check network access and credentials in the terminal.`
+        )
+      }
+    }
+    return {
+      status: 'ok',
+      branch: localBranch,
+      remote: input.remote,
+      remoteBranch: input.branch,
+      upstream: `${input.remote}/${input.branch}`
+    }
+  }
+
+  /** Remote names for the push dialog. */
+export async function remotes(
+    ctx: GitWorkspaceContext,
+    sessionId: string
+  ): Promise<GitOutcome<{ remotes: string[] }>> {
+    const resolved = await ctx.resolve(sessionId)
+    if (resolved.status !== 'ok') return resolved
+    const list = await ctx.remoteNames(resolved.git, resolved.worktreePath)
+    return { status: 'ok', remotes: list }
+  }
+
+  /**
    * Publishes the current branch by setting its upstream.
    *
    * The remote is the conventional `origin` when present, otherwise the first

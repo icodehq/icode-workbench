@@ -11,7 +11,10 @@ import {
   harnessListInputSchema,
   discardSessionInputSchema,
   listBranchesInputSchema,
+  listBranchRefsInputSchema,
   listSessionsInputSchema,
+  mergeSessionInputSchema,
+  mergeStartInputSchema,
   removeBranchInputSchema,
   removeRepositoryInputSchema,
   removeSessionInputSchema,
@@ -117,6 +120,11 @@ export type DispatcherServices = {
   sessionsDiscard: (input: { sessionId: string; confirmBranch: string }) => Promise<unknown>
   sessionsRecoverWorktree: (input: { sessionId: string }) => Promise<unknown>
   branchesList: (input: { repoId: string }) => Promise<unknown>
+  branchesRefs: (input: { repoId: string }) => Promise<unknown>
+  mergeStart: (input: z.infer<typeof mergeStartInputSchema>) => Promise<unknown>
+  mergeContinue: (input: { sessionId: string }) => Promise<unknown>
+  mergeAbort: (input: { sessionId: string }) => Promise<unknown>
+  mergeState: (input: { sessionId: string }) => Promise<unknown>
   branchesRemove: (input: { repoId: string; branch: string; confirmBranch?: string }) => Promise<unknown>
   gitInvoke: (input: unknown) => Promise<unknown>
   filesList: (input: { sessionId: string; path: string }) => Promise<unknown>
@@ -416,10 +424,40 @@ export function createDispatcher(services: DispatcherServices): Dispatcher {
         return run(() => services.branchesList(input))
       }
 
+      case IPC_CHANNELS.branchesRefs: {
+        const input = parse(listBranchRefsInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.branchesRefs(input))
+      }
+
       case IPC_CHANNELS.branchesRemove: {
         const input = parse(removeBranchInputSchema, rawInput)
         if ('code' in input) return { ok: false, error: input }
         return run(() => services.branchesRemove(input))
+      }
+
+      case IPC_CHANNELS.mergeStart: {
+        const input = parse(mergeStartInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.mergeStart(input))
+      }
+
+      case IPC_CHANNELS.mergeContinue: {
+        const input = parse(mergeSessionInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.mergeContinue(input))
+      }
+
+      case IPC_CHANNELS.mergeAbort: {
+        const input = parse(mergeSessionInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.mergeAbort(input))
+      }
+
+      case IPC_CHANNELS.mergeState: {
+        const input = parse(mergeSessionInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.mergeState(input))
       }
 
       case IPC_CHANNELS.gitInvoke:

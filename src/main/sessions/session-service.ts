@@ -6,6 +6,7 @@ import type { WorktreeStore } from '../persistence/worktree-store'
 import type { GitWorktreeService } from '../worktrees/git-worktree-service'
 import { describeWorktree, samePath } from '../worktrees/worktree-status'
 import { branchNameForSession } from '../../shared/domain/worktree'
+import { isValidBranchName } from '../../shared/domain/branch'
 import type { SessionWorktreeRecord, WorktreeSummary } from '../../shared/domain/worktree'
 import type { StoredSession } from '../persistence/rows'
 import type { HostGateway } from './host-gateway'
@@ -450,7 +451,14 @@ export class SessionService {
 
   async create(
     input: CreateSessionInput,
-    options: { role?: SessionRole } = {}
+    options: {
+      role?: SessionRole
+      /**
+       * Main-process only. Task dispatch pins the exact commit (chain tip or a
+       * resolved start-from tip); the renderer can never supply an OID.
+       */
+      base?: { ref: string | null; oid: string }
+    } = {}
   ): Promise<SessionSummary> {
     const repoId = parseRepoId(input.repoId)
     if (!repoId) {
@@ -530,7 +538,78 @@ export class SessionService {
       input.title ?? `${harnessLabel(input.harness)} · ${repository.displayName}`,
       mainT('session.untitled')
     )
-    const branch = branchNameForSession(sessionId)
+
+    let baseRef = gitState.headRef
+    let baseOid = gitState.headOid
+    if (options.base) {
+      const oid = options.base.oid.trim()
+      if (oid.length === 0 || !(await this.commitExists(repository.path, oid, target))) {
+        throw new SessionServiceError(
+          makeAppError('INVALID_ARGUMENT', 'The requested base commit does not exist.', {
+            context: { repoId: repository.id }
+          })
+        )
+      }
+      baseRef = options.base.ref
+      baseOid = oid
+    } else if (input.startFrom !== undefined) {
+      if (!isValidBranchName(input.startFrom)) {
+        throw new SessionServiceError(
+          makeAppError('INVALID_ARGUMENT', 'The start-from branch name is not valid.', {
+            context: { branch: input.startFrom }
+          })
+        )
+      }
+      const oid = await this.deps.gitWorktrees.resolveBranchOid(
+        repository.path,
+        input.startFrom,
+        target
+      )
+      if (oid === null) {
+        throw new SessionServiceError(
+          makeAppError('START_REF_NOT_FOUND', 'The start-from branch does not exist.', {
+            context: { branch: input.startFrom }
+          })
+        )
+      }
+      baseRef = input.startFrom
+      baseOid = oid
+    }
+
+    let branch = branchNameForSession(sessionId)
+    if (input.branchName !== undefined) {
+      if (!isValidBranchName(input.branchName)) {
+        throw new SessionServiceError(
+          makeAppError('INVALID_ARGUMENT', 'The branch name is not valid.', {
+            context: { branch: input.branchName }
+          })
+        )
+      }
+      const checked = await this.deps.gitWorktrees.checkBranchName(
+        repository.path,
+        input.branchName,
+        target
+      )
+      if (!checked.ok) {
+        throw new SessionServiceError(
+          makeAppError('INVALID_ARGUMENT', 'Git rejected the branch name.', {
+            detail: checked.detail,
+            context: { branch: input.branchName }
+          })
+        )
+      }
+      if (
+        (await this.deps.gitWorktrees.branchExists(repository.path, input.branchName, target)) ||
+        this.deps.worktrees.findBranch(input.branchName) !== null
+      ) {
+        throw new SessionServiceError(
+          makeAppError('BRANCH_EXISTS', 'That branch already exists.', {
+            context: { branch: input.branchName }
+          })
+        )
+      }
+      branch = input.branchName
+    }
     // The managed root belongs to the repository's host: a WSL repository's
     // sessions live on the guest filesystem, under the guest worktree root.
     const worktreeRoot = await this.deps.gitWorktrees.worktreeRootFor(target)
@@ -547,8 +626,8 @@ export class SessionService {
       repoId: repository.id,
       path: worktreePath,
       branch,
-      baseRef: gitState.headRef,
-      baseOid: gitState.headOid,
+      baseRef,
+      baseOid,
       state: 'creating',
       error: null,
       createdAt,
@@ -573,6 +652,8 @@ export class SessionService {
         branch,
         repoId: repository.id,
         sessionId,
+        taskId: null,
+        kind: 'session',
         baseOid: worktree.baseOid,
         createdAt
       })
@@ -1187,6 +1268,21 @@ export class SessionService {
       )
     }
     return detection
+  }
+
+  /** Confirms an object exists and peels to a commit in the owning checkout. */
+  private async commitExists(
+    primaryRoot: string,
+    oid: string,
+    target: ExecutionTarget
+  ): Promise<boolean> {
+    const git = await this.deps.gitWorktrees.gitFor(target)
+    try {
+      await git(primaryRoot, ['cat-file', '-e', `${oid}^{commit}`])
+      return true
+    } catch {
+      return false
+    }
   }
 
   /**

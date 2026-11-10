@@ -284,6 +284,68 @@ describe('session creation', () => {
     expect(summary.title).toBe('Fix checkout')
   })
 
+  it('bases the worktree on a chosen local branch', async () => {
+    const f = await withRepo()
+    execFileSync('git', ['-C', f.repoPath, 'checkout', '-q', '-b', 'feature/base'], {
+      stdio: 'pipe'
+    })
+    writeFileSync(join(f.repoPath, 'feature.txt'), 'feature\n')
+    execFileSync('git', ['-C', f.repoPath, 'add', 'feature.txt'], { stdio: 'pipe' })
+    execFileSync(
+      'git',
+      [
+        '-C',
+        f.repoPath,
+        '-c',
+        'user.email=icode@test',
+        '-c',
+        'user.name=iCode',
+        'commit',
+        '-qm',
+        'feature'
+      ],
+      { stdio: 'pipe' }
+    )
+    const oid = execFileSync('git', ['-C', f.repoPath, 'rev-parse', 'HEAD'], {
+      stdio: 'pipe'
+    })
+      .toString()
+      .trim()
+    execFileSync('git', ['-C', f.repoPath, 'checkout', '-q', 'main'], { stdio: 'pipe' })
+
+    const summary = await f.service.create(createInput(f, { startFrom: 'feature/base' }))
+    expect(summary.worktree?.baseOid).toBe(oid)
+  })
+
+  it('rejects a missing start-from branch before creating a worktree', async () => {
+    const f = await withRepo()
+    await expect(
+      f.service.create(createInput(f, { startFrom: 'does/not/exist' }))
+    ).rejects.toMatchObject({ appError: { code: 'START_REF_NOT_FOUND' } })
+    expect(f.host.calls.createOrAttach).toHaveLength(0)
+    expect(f.worktrees.listAll()).toHaveLength(0)
+  })
+
+  it('uses an optional branch name and records ownership', async () => {
+    const f = await withRepo()
+    const summary = await f.service.create(createInput(f, { branchName: 'icode/my-fix' }))
+    expect(summary.worktree?.branch).toBe('icode/my-fix')
+    expect(f.worktrees.findBranch('icode/my-fix')).toMatchObject({
+      sessionId: summary.id,
+      taskId: null,
+      kind: 'session'
+    })
+  })
+
+  it('rejects a duplicate branch name', async () => {
+    const f = await withRepo()
+    await f.service.create(createInput(f, { branchName: 'icode/my-fix' }))
+    await expect(
+      f.service.create(createInput(f, { branchName: 'icode/my-fix' }))
+    ).rejects.toMatchObject({ appError: { code: 'BRANCH_EXISTS' } })
+    expect(f.host.calls.createOrAttach).toHaveLength(1)
+  })
+
   it('rejects an unknown repository without spawning', async () => {
     const f = await withRepo()
     await expect(

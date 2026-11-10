@@ -54,6 +54,15 @@ export const APP_ERROR_CODES = [
   'GIT_NON_FAST_FORWARD',
   'GIT_BRANCH_IN_USE',
   'GIT_STALE_STATUS',
+  // Session-first integration: starting refs, branch naming, dependency chains.
+  'START_REF_NOT_FOUND',
+  'BRANCH_EXISTS',
+  'CHAIN_BRANCH_CONFLICT',
+  'CHAIN_BRANCH_MISMATCH',
+  'CHAIN_BRANCH_MISSING',
+  'MERGE_IN_PROGRESS',
+  'MERGE_TARGET_BUSY',
+  'MERGE_TARGET_MOVED',
   // WSL execution targets. Each names a different remedy, so they are separate
   // codes rather than one WSL_* bucket: the distro is gone, versus WSL itself is
   // unavailable, versus a probe against a live distro failed.
@@ -113,6 +122,8 @@ const RETRYABLE_CODES: ReadonlySet<AppErrorCode> = new Set<AppErrorCode>([
   'GIT_READ_TIMEOUT',
   // Index lock contention is transient: the other Git process usually finishes.
   'GIT_INDEX_LOCKED',
+  // The target branch moved while the merge was being prepared; retry.
+  'MERGE_TARGET_MOVED',
   // A stopped distro or a busy WSL service generally answers on the next attempt.
   'WSL_UNAVAILABLE',
   'WSL_GUEST_PROBE_FAILED',

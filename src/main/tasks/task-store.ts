@@ -6,6 +6,7 @@ import type {
   ReviewRecommendation,
   TaskApproval,
   TaskAttemptMode,
+  TaskChainGate,
   TaskFailureReason,
   TaskListFilter,
   TaskOrigin,
@@ -38,7 +39,7 @@ const TASK_COLUMNS = `id, workspace_id, repo_id, title, prompt, harness, status,
   review_recommended_by_session_id,
   created_at, updated_at, started_at, finished_at, result_summary, error, error_detail,
   failure_reason, last_observed_state, exit_code, review_decision, reviewed_at, review_note,
-  hold_dependents`
+  hold_dependents, chain_branch, chain_gate, start_from`
 
 /**
  * The one readiness predicate.
@@ -58,6 +59,17 @@ export const TASK_READY_SQL = `tasks.status = 'queued'
         WHERE blocker.id = dep.depends_on_task_id
           AND blocker.status = 'completed'
           AND (blocker.hold_dependents = 0 OR blocker.review_decision = 'accepted')
+          AND (
+            tasks.chain_gate = 'legacy'
+            OR tasks.chain_branch IS NULL
+            OR EXISTS (
+              SELECT 1 FROM merge_records AS merged
+              WHERE merged.repo_id = tasks.repo_id
+                AND merged.session_id = blocker.session_id
+                AND merged.target_branch = tasks.chain_branch
+                AND merged.state = 'merged'
+            )
+          )
       )
   )`
 
@@ -66,6 +78,8 @@ export type TaskRelations = {
   dependencies: Map<string, TaskRecord[]>
   dependents: Map<string, TaskRecord[]>
 }
+
+class ChainConflictError extends Error {}
 
 export type AddDependencyResult =
   | 'ok'
@@ -76,6 +90,7 @@ export type AddDependencyResult =
   | 'self'
   | 'cross-project'
   | 'cycle'
+  | 'chain-conflict'
 
 type TaskRow = {
   id: string
@@ -120,6 +135,9 @@ type TaskRow = {
   reviewed_at: number | null
   review_note: string | null
   hold_dependents: number
+  chain_branch: string | null
+  chain_gate: string
+  start_from: string | null
 }
 
 function taskFromRow(row: TaskRow): TaskRecord {
@@ -165,7 +183,10 @@ function taskFromRow(row: TaskRow): TaskRecord {
     reviewRecommendationNote: row.review_recommendation_note,
     reviewRecommendedAt: row.review_recommended_at,
     reviewRecommendedBySessionId: row.review_recommended_by_session_id as SessionId | null,
-    holdDependents: row.hold_dependents === 1
+    holdDependents: row.hold_dependents === 1,
+    chainBranch: row.chain_branch,
+    chainGate: row.chain_gate as TaskChainGate,
+    startFrom: row.start_from
   }
 }
 
@@ -197,6 +218,12 @@ export type NewTaskRow = {
   approvedBy?: string | null
   /** Whether tasks queued after this one wait for acceptance. */
   holdDependents?: boolean
+  /** Shared branch for the task's dependency component. */
+  chainBranch?: string | null
+  /** `merge` for new chains; `legacy` preserves pre-v16 readiness. */
+  chainGate?: TaskChainGate
+  /** Local branch a chain root starts from. */
+  startFrom?: string | null
 }
 
 export type TaskPatch = {
@@ -235,7 +262,7 @@ export class TaskStore {
            review_recommended_by_session_id,
            created_at, updated_at, started_at, finished_at, result_summary, error, error_detail,
            failure_reason, last_observed_state, exit_code, review_decision, reviewed_at, review_note,
-           hold_dependents
+           hold_dependents, chain_branch, chain_gate, start_from
          )
          VALUES (
            ?, ?, ?, ?, ?, ?, 'queued', ?,
@@ -245,7 +272,7 @@ export class TaskStore {
            NULL, NULL, NULL, NULL,
            ?, ?, NULL, NULL, NULL, NULL, NULL,
            NULL, NULL, NULL, 'pending', NULL, NULL,
-           ?
+           ?, ?, ?, ?
          )
          ON CONFLICT (dedupe_key) DO NOTHING`
       )
@@ -274,7 +301,10 @@ export class TaskStore {
         draft.approvedBy !== undefined ? draft.approvedBy : 'human',
         now,
         now,
-        draft.holdDependents === true ? 1 : 0
+        draft.holdDependents === true ? 1 : 0,
+        draft.chainBranch ?? null,
+        draft.chainGate ?? 'merge',
+        draft.startFrom ?? null
       )
     if (Number(result.changes) === 0) return null
     return this.findById(draft.id)
@@ -291,7 +321,11 @@ export class TaskStore {
     draft: NewTaskRow,
     dependsOn: readonly string[],
     now: number,
-    options: { repointDependentsFrom?: string | null } = {}
+    options: {
+      repointDependentsFrom?: string | null
+      /** Tasks in the dependency component that should inherit the chain. */
+      assignChainTo?: readonly string[]
+    } = {}
   ): TaskRecord | null {
     return this.db.transaction(() => {
       const created = this.insert(draft, now)
@@ -302,6 +336,18 @@ export class TaskStore {
          ON CONFLICT (task_id, depends_on_task_id) DO NOTHING`
       )
       for (const blockerId of dependsOn) insertEdge.run(draft.id, blockerId, now)
+      if (
+        draft.chainGate !== 'legacy' &&
+        draft.chainBranch &&
+        options.assignChainTo &&
+        options.assignChainTo.length > 0
+      ) {
+        this.updateChainForTasks(
+          [...new Set([draft.id, ...options.assignChainTo])],
+          draft.chainBranch,
+          now
+        )
+      }
       if (options.repointDependentsFrom) {
         const predecessorId = options.repointDependentsFrom
         this.db.raw
@@ -635,6 +681,110 @@ export class TaskStore {
       )
       .get(blockerId, taskId) as { found?: number } | undefined
     return row !== undefined
+  }
+
+  /** Both directions of the dependency component containing `taskId`. */
+  chainComponentIds(taskId: string): string[] {
+    const rows = this.db.raw
+      .prepare(
+        `WITH RECURSIVE component(id) AS (
+           SELECT ?
+           UNION
+           SELECT d.depends_on_task_id
+           FROM task_dependencies d JOIN component c ON d.task_id = c.id
+           UNION
+           SELECT d.task_id
+           FROM task_dependencies d JOIN component c ON d.depends_on_task_id = c.id
+         )
+         SELECT id FROM component`
+      )
+      .all(taskId) as Array<{ id: string }>
+    return rows.map((row) => row.id)
+  }
+
+  distinctChainBranchesForTasks(ids: readonly string[]): string[] {
+    if (ids.length === 0) return []
+    const placeholders = ids.map(() => '?').join(', ')
+    const rows = this.db.raw
+      .prepare(
+        `SELECT DISTINCT chain_branch FROM tasks
+         WHERE id IN (${placeholders}) AND chain_branch IS NOT NULL`
+      )
+      .all(...ids) as Array<{ chain_branch: string }>
+    return rows.map((row) => row.chain_branch)
+  }
+
+  /** Active/queued tasks that would lose their shared branch if it were deleted. */
+  countActiveTasksOnChain(repoId: RepoId, branch: string): number {
+    const row = this.db.raw
+      .prepare(
+        `SELECT COUNT(*) AS count FROM tasks
+         WHERE repo_id = ? AND chain_branch = ? AND archived_at IS NULL
+           AND status IN ('queued', 'dispatching', 'running', 'waiting')`
+      )
+      .get(repoId, branch) as { count: number } | undefined
+    return row?.count ?? 0
+  }
+
+  updateChainForTasks(ids: readonly string[], branch: string, now: number): void {
+    const unique = [...new Set(ids)]
+    if (unique.length === 0) return
+    const placeholders = unique.map(() => '?').join(', ')
+    this.db.raw
+      .prepare(
+        `UPDATE tasks SET chain_branch = ?, chain_gate = 'merge', updated_at = ?
+         WHERE id IN (${placeholders})`
+      )
+      .run(branch, now, ...unique)
+  }
+
+  /**
+   * Adds an edge and assigns one chain branch to the joined component in the
+   * same transaction. A blocker already on a different branch refuses the edge
+   * rather than silently moving either side.
+   */
+  addDependencyWithChain(
+    taskId: string,
+    blockerId: string,
+    chainBranch: string,
+    now: number
+  ): AddDependencyResult {
+    try {
+      return this.db.transaction(() => {
+        const dependent = this.findById(taskId)
+        if (!dependent) return 'dependent-missing'
+        const blocker = this.findById(blockerId)
+        if (!blocker) return 'blocker-missing'
+        if (taskId === blockerId) return 'self'
+        if (dependent.repoId !== blocker.repoId) return 'cross-project'
+        if (dependent.status !== 'queued') return 'dependent-not-queued'
+        if (this.wouldCreateCycle(taskId, blockerId)) return 'cycle'
+        const result = this.db.raw
+          .prepare(
+            `INSERT INTO task_dependencies (task_id, depends_on_task_id, created_at)
+             VALUES (?, ?, ?)
+             ON CONFLICT (task_id, depends_on_task_id) DO NOTHING`
+          )
+          .run(taskId, blockerId, now)
+        if (Number(result.changes) === 0) return 'duplicate'
+        const component = this.chainComponentIds(taskId)
+        if (
+          this.distinctChainBranchesForTasks(component).some(
+            (branch) => branch !== chainBranch
+          )
+        ) {
+          throw new ChainConflictError()
+        }
+        this.updateChainForTasks(component, chainBranch, now)
+        this.db.raw
+          .prepare(`UPDATE tasks SET updated_at = ? WHERE id = ?`)
+          .run(now, taskId)
+        return 'ok'
+      })
+    } catch (error) {
+      if (error instanceof ChainConflictError) return 'chain-conflict'
+      throw error
+    }
   }
 
   /**

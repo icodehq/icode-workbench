@@ -12,6 +12,9 @@ import type {
   createSessionInputSchema,
   discardSessionInputSchema,
   listBranchesInputSchema,
+  listBranchRefsInputSchema,
+  mergeSessionInputSchema,
+  mergeStartInputSchema,
   removeBranchInputSchema,
   harnessListInputSchema,
   removeRepositoryInputSchema,
@@ -109,6 +112,7 @@ import type {
   GitWorkspaceStatus
 } from './domain/git-workspace'
 import type {
+  BranchRefSummary,
   DiscardSessionResult,
   IpcResult,
   ListSessionsInput,
@@ -117,6 +121,8 @@ import type {
   RemoveRepositoryResult,
   RemoveSessionResult,
   ActivitySummaryPayload,
+  MergeOutcomePayload,
+  MergeRecordPayload,
   RepositorySummary,
   SessionListView,
   SessionSummary,
@@ -178,6 +184,10 @@ export type GitCommandResultMap = {
   push: GitBranchPayload
   pull: GitBranchPayload
   publish: GitBranchPayload
+  pushTo:
+    | { status: 'ok'; branch: string; remote: string; remoteBranch: string; upstream: string }
+    | WorkspaceUnavailablePayload
+  remotes: { status: 'ok'; remotes: string[] } | WorkspaceUnavailablePayload
   amend: GitCommitPayload
   log: GitLogPayload
   commitDetail: GitCommitDetailPayload
@@ -273,7 +283,24 @@ export type IcodeProductApi = {
   }
   branches: {
     list: (input: z.infer<typeof listBranchesInputSchema>) => Promise<IpcResult<OwnedBranchSummary[]>>
+    refs: (
+      input: z.infer<typeof listBranchRefsInputSchema>
+    ) => Promise<IpcResult<BranchRefSummary[]>>
     remove: (input: z.infer<typeof removeBranchInputSchema>) => Promise<IpcResult<RemoveBranchResult>>
+  }
+  merge: {
+    start: (
+      input: z.infer<typeof mergeStartInputSchema>
+    ) => Promise<IpcResult<MergeOutcomePayload>>
+    continueMerge: (
+      input: z.infer<typeof mergeSessionInputSchema>
+    ) => Promise<IpcResult<MergeOutcomePayload>>
+    abort: (
+      input: z.infer<typeof mergeSessionInputSchema>
+    ) => Promise<IpcResult<MergeRecordPayload>>
+    state: (
+      input: z.infer<typeof mergeSessionInputSchema>
+    ) => Promise<IpcResult<MergeRecordPayload | null>>
   }
   activity: {
     /** Snapshot of per-session activity for the sessions this window knows. */

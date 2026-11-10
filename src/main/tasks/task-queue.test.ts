@@ -125,6 +125,7 @@ type Harness = {
   service: TaskService
   dispatcher: TaskDispatcher
   sessions: FakeSessions
+  db: ReturnType<typeof openTempDatabase>
   repoId: string
   workspaceId: string
   /** Present when the harness created a second project for cap/fairness tests. */
@@ -229,6 +230,7 @@ async function harness(
     service,
     dispatcher,
     sessions,
+    db,
     repoId: added.repository.id,
     workspaceId: stores.repositories.workspaceForRepo(added.repository.id)!.id,
     ...(added2
@@ -243,7 +245,14 @@ async function harness(
 }
 
 function createQueued(h: Harness, prompt: string, harnessId: HarnessId = 'claude') {
-  const created = h.service.create({ repoId: h.repoId as never, prompt, harness: harnessId })
+  const created = h.service.create({
+    repoId: h.repoId as never,
+    prompt,
+    harness: harnessId,
+    // These tests own queue ordering, not merge gating. Chain gating has its
+    // own suite; legacy keeps these fixtures about the pump.
+    chainGate: 'legacy'
+  })
   if (!created.ok) throw new Error(created.error.message)
   return created.value
 }
@@ -1066,6 +1075,7 @@ describe('task dependencies', () => {
       prompt,
       harness: 'claude',
       dependsOn,
+      chainGate: 'legacy',
       ...options
     })
     if (!created.ok) throw new Error(created.error.message)
@@ -1077,6 +1087,61 @@ describe('task dependencies', () => {
     h.dispatcher.onActivity(task.sessionId!, { state: 'idle', outcome: 'completed' })
     await settle(h)
   }
+
+  /** Records that the blocker landed on the dependent's chain branch. */
+  function recordMerge(h: Harness, blockerId: string, dependentId: string): void {
+    const blocker = h.store.findById(blockerId)!
+    const dependent = h.store.findById(dependentId)!
+    h.db.raw
+      .prepare(
+        `INSERT INTO merge_records
+           (id, repo_id, session_id, source_branch, target_branch,
+            source_oid_before, target_oid_before, state, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'merged', ?, ?)`
+      )
+      .run(
+        `merge_${blockerId}`,
+        h.repoId,
+        blocker.sessionId,
+        blocker.chainBranch ?? 'source',
+        dependent.chainBranch,
+        'a'.repeat(40),
+        'b'.repeat(40),
+        h.clock.now,
+        h.clock.now
+      )
+  }
+
+  it('waits for the blocker to merge onto the chain, not just complete', async () => {
+    const h = await harness({ maxConcurrent: 2 })
+    const blocker = h.service.create({
+      repoId: h.repoId as never,
+      prompt: 'blocker',
+      harness: 'claude'
+    })
+    expect(blocker.ok).toBe(true)
+    if (!blocker.ok) return
+    await settle(h)
+    const dependentResult = h.service.create({
+      repoId: h.repoId as never,
+      prompt: 'dependent',
+      harness: 'claude',
+      dependsOn: [blocker.value.id]
+    })
+    expect(dependentResult.ok).toBe(true)
+    if (!dependentResult.ok) return
+    const dependent = dependentResult.value
+    await settle(h)
+
+    expect(h.store.findById(dependent.id)!.status).toBe('queued')
+    await completeTask(h, blocker.value.id)
+    expect(h.store.findById(blocker.value.id)!.status).toBe('completed')
+    expect(h.store.findById(dependent.id)!.status).toBe('queued')
+
+    recordMerge(h, blocker.value.id, dependent.id)
+    await settle(h)
+    expect(h.store.findById(dependent.id)!.status).toBe('running')
+  })
 
   it('does not start a dependent until its blocker completes', async () => {
     const h = await harness({ maxConcurrent: 2 })

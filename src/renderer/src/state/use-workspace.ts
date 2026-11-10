@@ -44,6 +44,8 @@ export type CreateSessionRequest = {
   repoId: string
   harness: HarnessId
   title?: string
+  startFrom?: string
+  branchName?: string
 }
 
 export type AddRepositoryRequest = {
@@ -745,6 +747,12 @@ export function useWorkspace(): {
           repoId: input.repoId,
           harness: input.harness,
           ...(input.title && input.title.trim().length > 0 ? { title: input.title.trim() } : {}),
+          ...(input.startFrom && input.startFrom.trim().length > 0
+            ? { startFrom: input.startFrom.trim() }
+            : {}),
+          ...(input.branchName && input.branchName.trim().length > 0
+            ? { branchName: input.branchName.trim() }
+            : {}),
           cols: terminalSize.cols,
           rows: terminalSize.rows
         })

@@ -29,6 +29,8 @@ export type SessionRemovalDeps = {
   host: HostGateway
   workspaceTrust?: Pick<WorkspaceTrustService, 'remove'>
   summarise: (sessionId: string) => Promise<SessionSummary>
+  /** Active tasks that still share a chain branch; deleting it would strand them. */
+  activeTasksOnChain?: (repoId: RepoId, branch: string) => number
 }
 
 type Liveness = { ok: true; live: boolean } | { ok: false; error: ReturnType<typeof errorFromHost> }
@@ -279,6 +281,8 @@ export class SessionRemovalService {
         branch: branch.branch,
         repoId: branch.repoId,
         sessionId: branch.sessionId,
+        taskId: branch.taskId,
+        kind: branch.kind,
         baseOid: branch.baseOid,
         createdAt: branch.createdAt,
         exists: await this.deps.gitWorktrees.branchExists(repository.path, branch.branch, target),
@@ -309,6 +313,15 @@ export class SessionRemovalService {
     const owned = this.deps.worktrees.findBranch(branch)
     if (!owned || owned.repoId !== repository.id) {
       return { status: 'not_owned', branch }
+    }
+    const activeTasks = this.deps.activeTasksOnChain?.(repoId, branch) ?? 0
+    if (activeTasks > 0) {
+      throw new SessionServiceError(
+        makeAppError('GIT_BRANCH_IN_USE', 'This chain branch is still used by active tasks.', {
+          detail: `Finish or cancel ${String(activeTasks)} active task(s) on this chain before deleting the branch.`,
+          context: { branch }
+        })
+      )
     }
     const target = repository.executionTarget
     const registered = await this.deps.gitWorktrees

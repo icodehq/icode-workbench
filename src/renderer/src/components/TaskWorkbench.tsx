@@ -1,5 +1,15 @@
 import { useEffect, useState } from 'react'
-import { FileDiff, Files, GitBranch, ListTodo, Square, TerminalSquare, Workflow } from 'lucide-react'
+import {
+  FileDiff,
+  Files,
+  GitBranch,
+  GitMerge,
+  ListTodo,
+  Square,
+  TerminalSquare,
+  Upload,
+  Workflow
+} from 'lucide-react'
 import type { TaskRecordPayload } from '../../../shared/icode-api'
 import type { AppError } from '../../../shared/domain/errors'
 import { isAgentHarness } from '../../../shared/domain/harness'
@@ -9,6 +19,8 @@ import type { WorkbenchDraftStore } from '../review/drafts'
 import type { Notice } from '../state/workspace'
 import ChangesPanel from './ChangesPanel'
 import FilesPanel from './FilesPanel'
+import MergeDialog from './MergeDialog'
+import PushDialog from './PushDialog'
 import { StatePanel } from './SessionWorkspace'
 import TaskChainGraph from './TaskChainGraph'
 import TaskOverview from './TaskOverview'
@@ -94,6 +106,8 @@ export default function TaskWorkbench({
   onChanged
 }: Props): React.JSX.Element {
   const [tab, setTab] = useState<Tab>('overview')
+  const [mergeOpen, setMergeOpen] = useState(false)
+  const [pushOpen, setPushOpen] = useState(false)
   const t = useT()
   const [visited, setVisited] = useState<Set<Tab>>(() => new Set<Tab>(['overview']))
   const [filesRequest, setFilesRequest] = useState<{
@@ -245,6 +259,28 @@ export default function TaskWorkbench({
             </button>
             <button
               type="button"
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-3 text-[11px] hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
+              onClick={() => setMergeOpen(true)}
+              disabled={session === null}
+              title={t('merge.actionTitle')}
+              data-testid={`task-merge-${task.id}`}
+            >
+              <GitMerge size={12} />
+              {t('merge.action')}
+            </button>
+            <button
+              type="button"
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-3 text-[11px] hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
+              onClick={() => setPushOpen(true)}
+              disabled={session === null}
+              title={t('push.actionTitle')}
+              data-testid={`task-push-${task.id}`}
+            >
+              <Upload size={12} />
+              {t('push.action')}
+            </button>
+            <button
+              type="button"
               className="inline-flex h-8 items-center gap-1.5 rounded-md border border-destructive/40 px-3 text-[11px] text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-40"
               onClick={() => session && onStopSession(session.id)}
               disabled={!live}
@@ -289,6 +325,7 @@ export default function TaskWorkbench({
             onSelectTask={onSelectTask}
             onQueueFollowUp={onQueueFollowUp}
             onChanged={onChanged}
+            onMerge={() => setMergeOpen(true)}
           />
         </div>
       ) : null}
@@ -385,6 +422,43 @@ export default function TaskWorkbench({
       ) : null}
       {tab === 'files' && session === null ? (
         <EmptyView>{t('task.empty.files')}</EmptyView>
+      ) : null}
+
+      {pushOpen && session !== null ? (
+        <PushDialog
+          session={session}
+          onClose={() => setPushOpen(false)}
+          onPushed={(upstream) => {
+            setPushOpen(false)
+            notify({ tone: 'success', message: t('push.success', { upstream }) })
+            onRecheckSession(session.id)
+            void onReload()
+          }}
+        />
+      ) : null}
+
+      {mergeOpen && session !== null ? (
+        <MergeDialog
+          session={session}
+          defaultTarget={task.chainBranch ?? null}
+          lockTarget={
+            task.chainBranch !== null && task.chainBranch !== undefined
+              ? (task.dependents?.length ?? 0) > 0
+              : false
+          }
+          onClose={() => setMergeOpen(false)}
+          onMerged={() => {
+            setMergeOpen(false)
+            notify({ tone: 'success', message: t('merge.mergedNotice', { branch: task.chainBranch ?? '' }) })
+            onRecheckSession(session.id)
+            void onReload()
+            onChanged()
+          }}
+          onConflicted={() => {
+            selectTab('changes')
+            notify({ tone: 'info', message: t('merge.conflictNotice') })
+          }}
+        />
       ) : null}
     </section>
   )

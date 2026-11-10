@@ -14,6 +14,7 @@ import {
   type ReviewRecommendation,
   type TaskApproval,
   type TaskAttemptMode,
+  type TaskChainGate,
   type TaskDependencySummary,
   type TaskDependentSummary,
   type TaskListFilter,
@@ -23,6 +24,9 @@ import {
 } from '../../shared/domain/task'
 import type { TaskRelations, TaskStore } from './task-store'
 import type { ReviewDecision } from '../../shared/domain/task'
+import type { MergeState } from '../../shared/domain/merge'
+import type { MergeStore } from '../persistence/merge-store'
+import { chainBranchNameForTask, isValidBranchName } from '../../shared/domain/branch'
 
 export type TaskServiceError = { kind: 'app'; error: AppError }
 
@@ -31,6 +35,11 @@ function fail(code: AppError['code'], message: string, detail?: string): TaskSer
 }
 
 export type TaskOutcome<T> = { ok: true; value: T } | { ok: false; error: AppError }
+
+type MergeFacts = {
+  mergedByRepo: Map<string, Map<string, Set<string>>>
+  states: Map<string, MergeState>
+}
 
 /**
  * A task's changes, as reported by the session change listing.
@@ -104,6 +113,14 @@ export type CreateTaskInput = {
   dependsOn?: readonly string[]
   /** Whether tasks queued after this one wait for acceptance. */
   holdDependents?: boolean
+  /** Local branch a chain root should start from. Renderer-supplied. */
+  startFrom?: string | null
+  /** Optional chain branch name. Renderer-supplied for a chain root. */
+  branchName?: string | null
+  /** Internal: preserves the predecessor's gate on retry/resume. */
+  chainGate?: TaskChainGate
+  /** Internal: preserves the predecessor's chain on retry/resume. */
+  chainBranch?: string | null
   /**
    * Internal only: the predecessor whose dependents move to this successor in
    * the same transaction. Set by retry/resume, never by a caller.
@@ -133,6 +150,8 @@ export type TaskServiceDeps = {
   listChanges: (sessionId: string) => Promise<TaskChangesOutcome>
   /** Called after a mutation that should make the dispatcher look at the queue. */
   onQueueChanged: () => void
+  /** Merge facts used to decide whether a blocker has landed on the chain. */
+  merges?: MergeStore
 }
 
 /**
@@ -200,6 +219,20 @@ export class TaskService {
       input.approval ?? (origin === 'supervisor' ? 'pending' : 'approved')
     const approvedAt = approval === 'approved' ? now : null
     const approvedBy = approval === 'approved' ? (input.approvedBy ?? 'human') : null
+    const startFrom = input.startFrom?.trim() || null
+    const branchName = input.branchName?.trim() || null
+    if (startFrom !== null && !isValidBranchName(startFrom)) {
+      return {
+        ok: false,
+        error: fail('INVALID_ARGUMENT', 'The start-from branch name is not valid.').error
+      }
+    }
+    if (branchName !== null && !isValidBranchName(branchName)) {
+      return {
+        ok: false,
+        error: fail('INVALID_ARGUMENT', 'The chain branch name is not valid.').error
+      }
+    }
 
     if (input.dedupeKey) {
       const existing = this.deps.tasks.findByDedupeKey(input.dedupeKey)
@@ -241,6 +274,64 @@ export class TaskService {
       }
     }
 
+    let chainGate: TaskChainGate = input.chainGate ?? 'merge'
+    let chainBranch: string | null = input.chainBranch ?? null
+    let assignChainTo: string[] = []
+    if (chainGate === 'merge') {
+      const blockers = dependsOn.map((blockerId) => this.deps.tasks.findById(blockerId)!)
+      if (blockers.some((blocker) => blocker.chainGate === 'legacy')) {
+        chainGate = 'legacy'
+        chainBranch = null
+      } else {
+        const distinct = [
+          ...new Set(
+            blockers
+              .map((blocker) => blocker.chainBranch)
+              .filter((branch): branch is string => branch !== null)
+          )
+        ]
+        if (chainBranch !== null) {
+          if (distinct.some((branch) => branch !== chainBranch)) {
+            return {
+              ok: false,
+              error: fail(
+                'CHAIN_BRANCH_MISMATCH',
+                'That chain branch does not match the blockers.'
+              ).error
+            }
+          }
+        } else if (distinct.length === 0) {
+          // A lone root has no shared branch until a dependent joins it. That
+          // keeps independent roots able to fan in later without a conflict.
+          chainBranch =
+            branchName ?? (dependsOn.length > 0 ? chainBranchNameForTask(taskId) : null)
+        } else if (distinct.length === 1) {
+          if (branchName !== null && branchName !== distinct[0]) {
+            return {
+              ok: false,
+              error: fail(
+                'CHAIN_BRANCH_MISMATCH',
+                'That chain branch does not match the blockers.'
+              ).error
+            }
+          }
+          chainBranch = distinct[0]!
+        } else {
+          return {
+            ok: false,
+            error: fail(
+              'CHAIN_BRANCH_CONFLICT',
+              'Blockers already belong to different chain branches.',
+              'Merge them onto one chain branch before adding this dependent.'
+            ).error
+          }
+        }
+        assignChainTo = blockers.flatMap((blocker) =>
+          this.deps.tasks.chainComponentIds(blocker.id)
+        )
+      }
+    }
+
     if (approval === 'pending' && this.deps.tasks.countPending(input.repoId) >= TASK_LIMITS.maxPendingProposals) {
       return {
         ok: false,
@@ -276,11 +367,17 @@ export class TaskService {
         approval,
         approvedAt,
         approvedBy,
-        holdDependents: input.holdDependents === true
+        holdDependents: input.holdDependents === true,
+        chainBranch,
+        chainGate,
+        startFrom
       },
       dependsOn,
       now,
-      { repointDependentsFrom: input.repointDependentsFrom ?? null }
+      {
+        repointDependentsFrom: input.repointDependentsFrom ?? null,
+        assignChainTo
+      }
     )
     if (!created) {
       // Lost a race on the dedupe key: the winner's row is the truth.
@@ -461,7 +558,40 @@ export class TaskService {
    * same transaction as the insert, so a concurrent claim cannot slip between.
    */
   addDependency(taskId: string, blockerId: string): TaskOutcome<TaskRecord> {
-    const result = this.deps.tasks.addDependency(taskId, blockerId, this.deps.now())
+    const task = this.deps.tasks.findById(taskId)
+    const blocker = this.deps.tasks.findById(blockerId)
+    if (!task) {
+      return { ok: false, error: fail('INVALID_ARGUMENT', 'That task no longer exists.').error }
+    }
+    if (!blocker) {
+      return { ok: false, error: fail('INVALID_ARGUMENT', 'That blocker no longer exists.').error }
+    }
+    let result: ReturnType<TaskStore['addDependency']>
+    if (task.chainGate === 'legacy' || blocker.chainGate === 'legacy') {
+      result = this.deps.tasks.addDependency(taskId, blockerId, this.deps.now())
+    } else {
+      if (
+        task.chainBranch !== null &&
+        blocker.chainBranch !== null &&
+        task.chainBranch !== blocker.chainBranch
+      ) {
+        return {
+          ok: false,
+          error: fail(
+            'CHAIN_BRANCH_CONFLICT',
+            'Those tasks belong to different chain branches.'
+          ).error
+        }
+      }
+      const chainBranch =
+        task.chainBranch ?? blocker.chainBranch ?? chainBranchNameForTask(task.id)
+      result = this.deps.tasks.addDependencyWithChain(
+        taskId,
+        blockerId,
+        chainBranch,
+        this.deps.now()
+      )
+    }
     switch (result) {
       case 'ok':
       case 'duplicate':
@@ -494,6 +624,14 @@ export class TaskService {
             'INVALID_ARGUMENT',
             'That blocker would create a cycle.',
             'Choose a task that does not already run after this one.'
+          ).error
+        }
+      case 'chain-conflict':
+        return {
+          ok: false,
+          error: fail(
+            'CHAIN_BRANCH_CONFLICT',
+            'Those tasks belong to different chain branches.'
           ).error
         }
     }
@@ -679,6 +817,10 @@ export class TaskService {
       // store moves the predecessor's dependents onto it in the same commit.
       dependsOn: this.deps.tasks.dependenciesOf(task.id),
       holdDependents: task.holdDependents,
+      startFrom: task.startFrom,
+      chainGate: task.chainGate,
+      chainBranch: task.chainBranch,
+      branchName: task.chainBranch,
       repointDependentsFrom: task.id,
       ...(attemptMode === 'resume'
         ? { sessionId: task.sessionId, worktreePath: task.worktreePath }
@@ -879,27 +1021,83 @@ export class TaskService {
     return this.toViews(this.deps.tasks.chainOf(taskId))
   }
 
+  /**
+   * One batched read of the merge facts the dependency chips need. Grouping by
+   * repo keeps `mergedSessionIdsForChains` from scanning the whole table.
+   */
+  private mergeFacts(
+    tasks: readonly TaskRecord[],
+    relations: TaskRelations
+  ): MergeFacts {
+    const branchesByRepo = new Map<string, Set<string>>()
+    const sessionIds = new Set<string>()
+    for (const task of tasks) {
+      if (task.chainGate === 'merge' && task.chainBranch !== null) {
+        const set = branchesByRepo.get(task.repoId) ?? new Set<string>()
+        set.add(task.chainBranch)
+        branchesByRepo.set(task.repoId, set)
+      }
+      for (const blocker of relations.dependencies.get(task.id) ?? []) {
+        if (blocker.sessionId) sessionIds.add(blocker.sessionId)
+      }
+    }
+    const mergedByRepo = new Map<string, Map<string, Set<string>>>()
+    if (this.deps.merges) {
+      for (const [repoId, branches] of branchesByRepo) {
+        mergedByRepo.set(
+          repoId,
+          this.deps.merges.mergedSessionIdsForChains(repoId as RepoId, [...branches])
+        )
+      }
+    }
+    return {
+      mergedByRepo,
+      states: this.deps.merges
+        ? this.deps.merges.latestStatesForSessions([...sessionIds])
+        : new Map<string, MergeState>()
+    }
+  }
+
   /** Loads both directions of the relation once for a whole page of tasks. */
   private toViews(tasks: readonly TaskRecord[]): TaskView[] {
     const relations = this.deps.tasks.relationsFor(tasks.map((task) => task.id))
-    return tasks.map((task) => this.toView(task, relations))
+    const facts = this.mergeFacts(tasks, relations)
+    return tasks.map((task) => this.toView(task, relations, facts))
   }
 
-  private toView(task: TaskRecord, relations?: TaskRelations): TaskView {
+  private toView(
+    task: TaskRecord,
+    relations?: TaskRelations,
+    facts?: MergeFacts
+  ): TaskView {
     // Only a host-confirmed state counts; a persisted `live` proves nothing.
     const sessionLive = task.sessionId ? this.deps.isSessionLive(task.sessionId) : false
     const successor = this.deps.tasks.findSuccessor(task.id)
     const relation = relations ?? this.deps.tasks.relationsFor([task.id])
+    const mergeFacts = facts ?? this.mergeFacts([task], relation)
     const blockers = relation.dependencies.get(task.id) ?? []
     const dependents = relation.dependents.get(task.id) ?? []
-    const dependencies: TaskDependencySummary[] = blockers.map((blocker) => ({
-      id: blocker.id,
-      title: blocker.title,
-      status: blocker.status,
-      reviewDecision: blocker.reviewDecision,
-      holdDependents: blocker.holdDependents,
-      satisfied: dependencySatisfied(blocker)
-    }))
+    const dependencies: TaskDependencySummary[] = blockers.map((blocker) => {
+      const mergedIntoChain =
+        task.chainGate === 'legacy' || task.chainBranch === null
+          ? true
+          : mergeFacts.mergedByRepo
+              .get(task.repoId)
+              ?.get(task.chainBranch)
+              ?.has(blocker.sessionId ?? '') === true
+      return {
+        id: blocker.id,
+        title: blocker.title,
+        status: blocker.status,
+        reviewDecision: blocker.reviewDecision,
+        holdDependents: blocker.holdDependents,
+        satisfied: dependencySatisfied(blocker, mergedIntoChain),
+        mergedIntoChain,
+        mergeState: blocker.sessionId
+          ? (mergeFacts.states.get(blocker.sessionId) ?? null)
+          : null
+      }
+    })
     const dependentViews: TaskDependentSummary[] = dependents.map((dependent) => ({
       id: dependent.id,
       title: dependent.title,

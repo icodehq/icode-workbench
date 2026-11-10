@@ -416,6 +416,21 @@ export class GitWorkspaceService {
     return remoteOps.publish(this, sessionId)
   }
 
+  /** Pushes the checked-out branch to an explicitly chosen remote/branch. */
+  async pushTo(
+    sessionId: string,
+    input: { remote: string; branch: string }
+  ): Promise<
+    GitOutcome<{ branch: string; remote: string; remoteBranch: string; upstream: string }>
+  > {
+    return remoteOps.pushTo(this, sessionId, input)
+  }
+
+  /** Configured remote names, for the push dialog. */
+  async remotes(sessionId: string): Promise<GitOutcome<{ remotes: string[] }>> {
+    return remoteOps.remotes(this, sessionId)
+  }
+
 
   /**
    * Rewrites the last commit's message. This is deliberately local; no

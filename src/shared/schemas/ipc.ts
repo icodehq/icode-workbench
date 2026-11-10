@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { AppError } from '../domain/errors'
 import { WORKTREE_STATES, WORKTREE_STATUSES } from '../domain/worktree'
+import { MERGE_STATES } from '../domain/merge'
 import { SESSION_ROLES } from '../domain/session'
 import { activitySummarySchema } from './activity'
 import {
@@ -54,7 +55,12 @@ export const IPC_CHANNELS = {
   sessionsDiscard: 'icode:sessions:discard',
   sessionsRecoverWorktree: 'icode:sessions:recover-worktree',
   branchesList: 'icode:branches:list',
+  branchesRefs: 'icode:branches:refs',
   branchesRemove: 'icode:branches:remove',
+  mergeStart: 'icode:merge:start',
+  mergeContinue: 'icode:merge:continue',
+  mergeAbort: 'icode:merge:abort',
+  mergeState: 'icode:merge:state',
   filesList: 'icode:files:list',
   filesRead: 'icode:files:read',
   filesWrite: 'icode:files:write',
@@ -268,13 +274,72 @@ export const listSessionsInputSchema = z.strictObject({
   repoId: repoIdSchema.optional()
 })
 
+export const branchNameSchema = z.string().trim().min(1).max(255)
+
 export const createSessionInputSchema = z.strictObject({
   repoId: repoIdSchema,
   harness: harnessIdSchema,
   title: sessionTitleSchema.optional(),
+  /** Local branch to base the worktree on. Absent keeps the primary HEAD. */
+  startFrom: branchNameSchema.optional(),
+  /** Optional user-chosen branch name. Absent keeps the generated session name. */
+  branchName: branchNameSchema.optional(),
   cols: dimensionSchema,
   rows: dimensionSchema
 })
+
+export const branchRefSummarySchema = z.strictObject({
+  name: z.string().min(1).max(255),
+  oid: z.string().min(1).max(128),
+  primaryHead: z.boolean(),
+  worktreePath: absolutePathSchema.nullable()
+})
+
+export const listBranchRefsInputSchema = z.strictObject({
+  repoId: repoIdSchema
+})
+
+export const mergeStateSchema = z.enum(MERGE_STATES)
+
+export const mergeRecordSchema = z.strictObject({
+  id: z.string().min(1).max(128),
+  repoId: repoIdSchema,
+  sessionId: sessionIdSchema,
+  taskId: z.string().min(1).max(128).nullable(),
+  sourceBranch: branchNameSchema,
+  targetBranch: branchNameSchema,
+  sourceOidBefore: z.string().min(1).max(128),
+  targetOidBefore: z.string().min(1).max(128),
+  targetOidAfter: z.string().min(1).max(128).nullable(),
+  resultOid: z.string().min(1).max(128).nullable(),
+  reviewBaseOid: z.string().min(1).max(128).nullable(),
+  state: mergeStateSchema,
+  commitOid: z.string().min(1).max(128).nullable(),
+  conflictFiles: z.array(z.string().min(1).max(4096)).max(200),
+  error: appErrorSchema.nullable(),
+  pushRemote: z.string().min(1).max(255).nullable(),
+  pushedAt: timestampSchema.nullable(),
+  pushError: appErrorSchema.nullable(),
+  createdAt: timestampSchema,
+  updatedAt: timestampSchema,
+  finishedAt: timestampSchema.nullable()
+})
+
+export const mergeStartInputSchema = z.strictObject({
+  sessionId: sessionIdSchema,
+  targetBranch: branchNameSchema,
+  commitMessage: z.string().max(20_000).optional(),
+  pushRemote: z.string().trim().min(1).max(255).optional()
+})
+
+export const mergeSessionInputSchema = z.strictObject({
+  sessionId: sessionIdSchema
+})
+
+export const mergeOutcomeSchema = z.discriminatedUnion('status', [
+  z.strictObject({ status: z.literal('merged'), record: mergeRecordSchema }),
+  z.strictObject({ status: z.literal('conflicted'), record: mergeRecordSchema })
+])
 
 export const sessionTargetInputSchema = z.strictObject({
   sessionId: sessionIdSchema
@@ -520,7 +585,9 @@ export const discardSessionInputSchema = z.strictObject({
 export const ownedBranchSummarySchema = z.strictObject({
   branch: z.string().min(1).max(255),
   repoId: repoIdSchema,
-  sessionId: z.string().min(1).max(128),
+  sessionId: z.string().min(1).max(128).nullable(),
+  taskId: z.string().min(1).max(128).nullable(),
+  kind: z.enum(['session', 'chain']),
   baseOid: z.string().min(1).max(128),
   createdAt: timestampSchema,
   exists: z.boolean(),
@@ -664,6 +731,12 @@ export type InitializeRepositoryResult = z.infer<typeof initializeRepositoryResu
 export type RemoveRepositoryInput = z.infer<typeof removeRepositoryInputSchema>
 export type ListSessionsInput = z.infer<typeof listSessionsInputSchema>
 export type CreateSessionInput = z.infer<typeof createSessionInputSchema>
+export type BranchRefSummary = z.infer<typeof branchRefSummarySchema>
+export type ListBranchRefsInput = z.infer<typeof listBranchRefsInputSchema>
+export type MergeRecordPayload = z.infer<typeof mergeRecordSchema>
+export type MergeStartInput = z.infer<typeof mergeStartInputSchema>
+export type MergeSessionInput = z.infer<typeof mergeSessionInputSchema>
+export type MergeOutcomePayload = z.infer<typeof mergeOutcomeSchema>
 export type SessionTargetInput = z.infer<typeof sessionTargetInputSchema>
 export type RemoveSessionInput = z.infer<typeof removeSessionInputSchema>
 export type TerminalAttachInput = z.infer<typeof terminalAttachInputSchema>

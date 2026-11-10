@@ -588,6 +588,125 @@ export class GitWorktreeService {
     return Number.isInteger(value) && value >= 0 ? value : null
   }
 
+  /** Resolves a local branch to its commit, or null when it does not exist. */
+  async resolveBranchOid(
+    primaryRoot: string,
+    branch: string,
+    target: ExecutionTarget = LOCAL_TARGET
+  ): Promise<string | null> {
+    const ctx = await this.contextFor(target)
+    const oid = await ctx
+      .git(primaryRoot, ['rev-parse', '--verify', `refs/heads/${branch}^{commit}`], READ_TIMEOUT_MS)
+      .catch(() => null)
+    return oid !== null && oid.length > 0 ? oid.trim() : null
+  }
+
+  /** Authoritative Git branch-name validation (see `git check-ref-format`). */
+  async checkBranchName(
+    primaryRoot: string,
+    branch: string,
+    target: ExecutionTarget = LOCAL_TARGET
+  ): Promise<{ ok: boolean; detail?: string }> {
+    const ctx = await this.contextFor(target)
+    try {
+      await ctx.git(primaryRoot, ['check-ref-format', '--branch', branch], READ_TIMEOUT_MS)
+      return { ok: true }
+    } catch (error) {
+      return { ok: false, detail: errorDetail(error) }
+    }
+  }
+
+  /** Remote names, read where the repository lives. */
+  async listRemotes(
+    primaryRoot: string,
+    target: ExecutionTarget = LOCAL_TARGET
+  ): Promise<string[]> {
+    const ctx = await this.contextFor(target)
+    const output = await ctx.git(primaryRoot, ['remote'], READ_TIMEOUT_MS)
+    return output
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+  }
+
+  /** True when `ancestorOid` is reachable from `descendantOid`. */
+  async isAncestor(
+    cwd: string,
+    ancestorOid: string,
+    descendantOid: string,
+    target: ExecutionTarget = LOCAL_TARGET
+  ): Promise<boolean> {
+    const ctx = await this.contextFor(target)
+    try {
+      await ctx.git(cwd, ['merge-base', '--is-ancestor', ancestorOid, descendantOid], READ_TIMEOUT_MS)
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * Compare-and-swap a branch ref. Returns `moved` when another writer changed
+   * the ref between the read and the update; the caller decides whether to
+   * retry.
+   */
+  async fastForwardRef(input: {
+    primaryRoot: string
+    ref: string
+    to: string
+    expected: string
+    target?: ExecutionTarget
+  }): Promise<'updated' | 'moved'> {
+    const ctx = await this.contextFor(input.target)
+    try {
+      await ctx.git(
+        input.primaryRoot,
+        ['update-ref', input.ref, input.to, input.expected],
+        MUTATE_TIMEOUT_MS
+      )
+      return 'updated'
+    } catch {
+      return 'moved'
+    }
+  }
+
+  /** Creates a local branch ref at an existing commit. */
+  async createBranch(input: {
+    primaryRoot: string
+    branch: string
+    oid: string
+    target?: ExecutionTarget
+  }): Promise<void> {
+    const ctx = await this.contextFor(input.target)
+    await ctx.git(
+      input.primaryRoot,
+      ['update-ref', `refs/heads/${input.branch}`, input.oid],
+      MUTATE_TIMEOUT_MS
+    )
+  }
+
+  /** Porcelain status, read where the checkout lives. */
+  async statusPorcelain(
+    cwd: string,
+    target: ExecutionTarget = LOCAL_TARGET
+  ): Promise<string> {
+    const ctx = await this.contextFor(target)
+    return ctx.git(cwd, ['status', '--porcelain', '-uall'], READ_TIMEOUT_MS)
+  }
+
+  /**
+   * Runs a repository-level mutation under the same lock as worktree
+   * add/remove/prune. Merge must not race worktree metadata updates.
+   */
+  async runRepositoryExclusive<T>(
+    primaryRoot: string,
+    target: ExecutionTarget,
+    task: () => Promise<T>
+  ): Promise<T> {
+    const ctx = await this.contextFor(target)
+    return this.runExclusive(`${this.queueKey(ctx)}${primaryRoot}`, task)
+  }
+
   async branchExists(
     primaryRoot: string,
     branch: string,

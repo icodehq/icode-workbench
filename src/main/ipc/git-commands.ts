@@ -181,6 +181,19 @@ const GIT_COMMANDS: Record<GitCommandName, GitCommand> = {
     run: (runtime, input: { sessionId: string }) =>
       runtime.gitWorkspace.publish(input.sessionId)
   },
+  pushTo: {
+    input: GIT_COMMAND_INPUTS.pushTo,
+    run: (runtime, input: { sessionId: string; remote: string; branch: string }) =>
+      runtime.gitWorkspace.pushTo(input.sessionId, {
+        remote: input.remote,
+        branch: input.branch
+      })
+  },
+  remotes: {
+    input: GIT_COMMAND_INPUTS.remotes,
+    run: (runtime, input: { sessionId: string }) =>
+      runtime.gitWorkspace.remotes(input.sessionId)
+  },
   amend: {
     input: GIT_COMMAND_INPUTS.amend,
     run: (runtime, input: { sessionId: string; message?: string; sign?: boolean }) =>

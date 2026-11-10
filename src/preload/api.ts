@@ -95,7 +95,14 @@ export function createIcodeApi(
     },
     branches: {
       list: (input) => call(IPC_CHANNELS.branchesList, input),
+      refs: (input) => call(IPC_CHANNELS.branchesRefs, input),
       remove: (input) => call(IPC_CHANNELS.branchesRemove, input)
+    },
+    merge: {
+      start: (input) => call(IPC_CHANNELS.mergeStart, input),
+      continueMerge: (input) => call(IPC_CHANNELS.mergeContinue, input),
+      abort: (input) => call(IPC_CHANNELS.mergeAbort, input),
+      state: (input) => call(IPC_CHANNELS.mergeState, input)
     },
     activity: {
       list: () => call(IPC_CHANNELS.activityList),

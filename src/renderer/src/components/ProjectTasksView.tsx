@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   Ban,
   CheckCircle2,
+  GitBranch,
   Loader2,
   Pause,
   Play,
@@ -21,6 +22,7 @@ import { repositoryPreparationView } from '../lib/repository-preparation'
 import type { AgentSendResult } from '../lib/agent-send'
 import type { WorkbenchDraftStore } from '../review/drafts'
 import type { Notice } from '../state/workspace'
+import { useBranchRefs } from '../state/use-branch-refs'
 import { useT, useTp } from '../i18n/use-i18n'
 import TaskWorkbench from './TaskWorkbench'
 import {
@@ -169,6 +171,16 @@ function ProjectTaskRow({
       </button>
       <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
         <span>{task.harness}</span>
+        {task.chainBranch ? (
+          <span
+            className="inline-flex max-w-[150px] items-center gap-0.5 font-mono text-[9px]"
+            title={task.chainBranch}
+            data-testid={`task-chain-branch-${task.id}`}
+          >
+            <GitBranch size={9} className="shrink-0" />
+            <span className="truncate">{task.chainBranch}</span>
+          </span>
+        ) : null}
         {task.dependencies !== undefined && task.dependencies.length > 0 ? (
           <span
             className={taskIsBlocked(task) ? 'text-signal' : ''}
@@ -335,6 +347,9 @@ export default function ProjectTasksView({
   /** Blockers chosen for the next composer submission; empty means parallel. */
   const [after, setAfter] = useState<string[]>([])
   const [holdDependents, setHoldDependents] = useState(false)
+  const [startFrom, setStartFrom] = useState('')
+  const [chainBranchName, setChainBranchName] = useState('')
+  const branchRefs = useBranchRefs(repo.id)
   const [harnesses, setHarnesses] = useState<HarnessDetection[]>([])
   const [harnessLoading, setHarnessLoading] = useState(true)
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -381,6 +396,8 @@ export default function ProjectTasksView({
     // blocker after this effect runs.
     setAfter([])
     setHoldDependents(false)
+    setStartFrom('')
+    setChainBranchName('')
     window.requestAnimationFrame(() => promptRef.current?.focus())
   }, [focusComposerNonce])
 
@@ -422,6 +439,18 @@ export default function ProjectTasksView({
     () => after.map((id) => allProjectTasks.find((task) => task.id === id)).filter((task): task is TaskRecordPayload => task !== undefined),
     [after, allProjectTasks]
   )
+  const inheritedChains = useMemo(
+    () => [
+      ...new Set(
+        afterTasks
+          .map((task) => task.chainBranch)
+          .filter((branch): branch is string => typeof branch === 'string' && branch.length > 0)
+      )
+    ],
+    [afterTasks]
+  )
+  const inheritedChain = inheritedChains.length === 1 ? inheritedChains[0]! : null
+  const chainConflict = inheritedChains.length > 1
 
   const startFollowUp = useCallback((task: TaskRecordPayload): void => {
     setAfter([task.id])
@@ -561,7 +590,7 @@ export default function ProjectTasksView({
             : groups.history
 
   const submit = useCallback(async (): Promise<void> => {
-    if (prompt.trim().length === 0) return
+    if (prompt.trim().length === 0 || chainConflict) return
     setBusyId('create')
     try {
       const result = await callApi<TaskRecordPayload>(
@@ -570,7 +599,11 @@ export default function ProjectTasksView({
           prompt: prompt.trim(),
           harness: harness as never,
           ...(after.length > 0 ? { dependsOn: after } : {}),
-          ...(holdDependents ? { holdDependents: true } : {})
+          ...(holdDependents ? { holdDependents: true } : {}),
+          ...(startFrom.length > 0 ? { startFrom } : {}),
+          ...(!inheritedChain && chainBranchName.trim().length > 0
+            ? { branchName: chainBranchName.trim() }
+            : {})
         })
       )
       if (!result.ok) {
@@ -580,6 +613,8 @@ export default function ProjectTasksView({
       setPrompt('')
       setAfter([])
       setHoldDependents(false)
+      setStartFrom('')
+      setChainBranchName('')
       setComposerOpen(false)
       setSelectedTaskId(result.value.id)
       reportSelection(result.value.id)
@@ -591,7 +626,20 @@ export default function ProjectTasksView({
     } finally {
       setBusyId(null)
     }
-  }, [after, harness, holdDependents, notify, onReload, prompt, repo.id, reportSelection])
+  }, [
+    after,
+    chainBranchName,
+    chainConflict,
+    harness,
+    holdDependents,
+    inheritedChain,
+    notify,
+    onReload,
+    prompt,
+    repo.id,
+    reportSelection,
+    startFrom
+  ])
 
   const cancel = useCallback(
     async (task: TaskRecordPayload): Promise<void> => {
@@ -899,6 +947,65 @@ export default function ProjectTasksView({
                 </div>
               ) : null}
             </div>
+            <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+              <label className="block text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
+                {t('tasks.composer.startFrom')}
+                <select
+                  className="mt-0.5 h-7 w-full rounded border border-border bg-background px-1.5 text-[10px] font-normal normal-case tracking-normal"
+                  value={startFrom}
+                  onChange={(event) => setStartFrom(event.target.value)}
+                  disabled={branchRefs.loading}
+                  data-testid="task-start-from"
+                >
+                  <option value="">
+                    {t('tasks.composer.startFromCurrent', {
+                      branch: repo.currentBranch ?? 'HEAD'
+                    })}
+                  </option>
+                  {branchRefs.refs.map((ref) => (
+                    <option
+                      key={ref.name}
+                      value={ref.name}
+                      disabled={
+                        ref.worktreePath !== null && ref.worktreePath !== selectedSession?.worktree?.path
+                      }
+                    >
+                      {ref.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
+                {t('tasks.composer.chainBranch')}
+                {inheritedChain !== null ? (
+                  <span
+                    className="mt-0.5 flex h-7 items-center gap-1 rounded border border-border bg-muted/40 px-1.5 font-mono text-[9.5px] font-normal normal-case tracking-normal"
+                    title={inheritedChain}
+                    data-testid="task-chain-inherited"
+                  >
+                    <GitBranch size={9} />
+                    <span className="truncate">{inheritedChain}</span>
+                  </span>
+                ) : (
+                  <input
+                    className="mt-0.5 h-7 w-full rounded border border-border bg-background px-1.5 font-mono text-[9.5px] font-normal normal-case tracking-normal outline-none focus:border-accent"
+                    value={chainBranchName}
+                    onChange={(event) => setChainBranchName(event.target.value)}
+                    placeholder={t('tasks.composer.chainPlaceholder')}
+                    spellCheck={false}
+                    data-testid="task-chain-branch"
+                  />
+                )}
+              </label>
+            </div>
+            {chainConflict ? (
+              <p
+                className="mt-1 text-[9.5px] text-destructive"
+                data-testid="task-chain-conflict"
+              >
+                {t('tasks.composer.chainConflict')}
+              </p>
+            ) : null}
             <label className="mt-1 flex items-center gap-1.5 text-[10px] text-muted-foreground">
               <input
                 type="checkbox"
@@ -914,7 +1021,12 @@ export default function ProjectTasksView({
                 type="button"
                 className="inline-flex items-center gap-1 rounded-md bg-accent px-2 py-1 text-[10px] font-medium text-accent-ink hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
                 onClick={() => void submit()}
-                disabled={busyId !== null || prompt.trim().length === 0 || harnesses.length === 0}
+                disabled={
+                  busyId !== null ||
+                  prompt.trim().length === 0 ||
+                  harnesses.length === 0 ||
+                  chainConflict
+                }
                 data-testid="task-create"
               >
                 <Plus size={10} />

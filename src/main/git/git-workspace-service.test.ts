@@ -937,6 +937,35 @@ describe('git workspace: inspection and history operations', () => {
 
   })
 
+  it('pushes to an explicit remote and branch without merging', async () => {
+    const f = await realRepo()
+    const bare = join(f.worktree, '..', 'remote.git')
+    execFileSync('git', ['init', '-q', '--bare', bare], { stdio: 'pipe' })
+    git(f.worktree, 'remote', 'add', 'origin', bare)
+
+    const pushed = await f.service.pushTo(f.sessionId, {
+      remote: 'origin',
+      branch: 'shared/review'
+    })
+    expect(pushed).toMatchObject({
+      status: 'ok',
+      remote: 'origin',
+      remoteBranch: 'shared/review'
+    })
+    expect(git(f.worktree, 'rev-parse', '--abbrev-ref', '@{upstream}')).toBe(
+      'origin/shared/review'
+    )
+    expect(git(bare, 'rev-parse', 'refs/heads/shared/review')).toBe(
+      git(f.worktree, 'rev-parse', 'HEAD')
+    )
+
+    const missing = await f.service.pushTo(f.sessionId, {
+      remote: 'missing',
+      branch: 'shared/review'
+    })
+    expect(missing).toMatchObject({ status: 'unavailable', reason: 'no-remote' })
+  })
+
   it('resolves the local worktree and Git directory for the watcher', async () => {
     const f = await realRepo()
     const details = await f.service.watchTargetDetails(f.sessionId)

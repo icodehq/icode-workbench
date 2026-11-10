@@ -22,7 +22,11 @@ import { SessionRemovalService } from '../sessions/session-removal-service'
 import { WorkspaceFilesService } from '../files/workspace-files-service'
 import { WorkspaceFilesWatcherService } from '../files/workspace-files-watcher'
 import { GitWorkspaceService } from '../git/git-workspace-service'
+import { BranchService } from '../git/branch-service'
 import { CommitMessageService } from '../ai/commit-message-service'
+import { MergeStore } from '../persistence/merge-store'
+import { MergeService } from '../integration/merge-service'
+import { ChainService } from '../integration/chain-service'
 import { GitStatusWatcherService } from '../git/status-watcher'
 import { TaskStore } from '../tasks/task-store'
 import { TaskService } from '../tasks/task-service'
@@ -81,6 +85,10 @@ export type AppRuntime = {
   files: WorkspaceFilesService
   /** Worktree-scoped Git state and stage/commit operations. */
   gitWorkspace: GitWorkspaceService
+  /** Local branch refs, name validation, and chain-branch creation. */
+  branchRefs: BranchService
+  /** Local merge into a target branch, with durable claims and conflicts. */
+  merges: MergeService
   /** One-shot AI commit-message drafts from the staged index. */
   commitMessages: CommitMessageService
   /** Watches visible local worktrees and emits coalesced status changes. */
@@ -574,6 +582,7 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     }
   })
 
+  let taskStoreForRemoval: TaskStore | null = null
   const sessionRemovals = new SessionRemovalService({
     database: persistence.database,
     sessions: persistence.sessions,
@@ -582,7 +591,9 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     gitWorktrees,
     host,
     workspaceTrust,
-    summarise: (sessionId) => sessions.get(sessionId)
+    summarise: (sessionId) => sessions.get(sessionId),
+    activeTasksOnChain: (repoId, branch) =>
+      taskStoreForRemoval?.countActiveTasksOnChain(repoId, branch) ?? 0
   })
 
   // The repository list asks a distro about its own checkout; without this the
@@ -605,6 +616,11 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     worktrees,
     gitWorktrees,
     sessions
+  })
+  const branchRefs = new BranchService({
+    repositories: persistence.repositories,
+    worktrees,
+    gitWorktrees
   })
   const commitMessages = new CommitMessageService({
     sessions,
@@ -708,6 +724,14 @@ export async function startAppRuntime(): Promise<AppRuntime> {
    * schedule tick must be able to create a task without being able to start it.
    */
   const taskStore = new TaskStore(persistence.database)
+  taskStoreForRemoval = taskStore
+  const mergeStore = new MergeStore(persistence.database)
+  const chainService = new ChainService({
+    repositories: persistence.repositories,
+    tasks: taskStore,
+    gitWorktrees,
+    branches: branchRefs
+  })
   taskStoreForActivity = taskStore
   let supervisorService: SupervisorService | null = null
 
@@ -744,7 +768,24 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     },
     sessionState: (sessionId) => sessionFacts.get(sessionId) ?? null,
     sessionWorktree: sessionWorktreePath,
-    activity
+    activity,
+    resolveTaskBase: (task) => chainService.resolveTaskBase(task)
+  })
+
+  const mergeService = new MergeService({
+    database: persistence.database,
+    repositories: persistence.repositories,
+    worktrees,
+    merges: mergeStore,
+    tasks: taskStore,
+    gitWorktrees,
+    gitWorkspace,
+    now: () => Date.now(),
+    newId: () => `merge_${globalThis.crypto.randomUUID()}`,
+    onChanged: () => {
+      taskDispatcher.kick()
+      emitTaskChange()
+    }
   })
 
   const taskService = new TaskService({
@@ -782,7 +823,8 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     onQueueChanged: () => {
       taskDispatcher.kick()
       emitTaskChange()
-    }
+    },
+    merges: mergeStore
   })
 
   onTaskActivity = (sessionId, activityState) => {
@@ -956,6 +998,8 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     sessionRemovals,
     files,
     gitWorkspace,
+    branchRefs,
+    merges: mergeService,
     commitMessages,
     gitStatusWatcher,
     filesWatcher,
@@ -1026,6 +1070,7 @@ export async function startAppRuntime(): Promise<AppRuntime> {
       trackSessionFacts(payload as never)
       assistantNotifier?.onChange()
     })
+    await mergeService.reconcileInterrupted().catch(() => undefined)
     taskDispatcher.start()
     const recovered = await taskDispatcher.recover().catch(() => ({ requeued: 0, interrupted: 0 }))
     if (recovered.interrupted > 0 || recovered.requeued > 0) emitTaskChange()

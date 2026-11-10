@@ -31,6 +31,8 @@ export type TaskDispatcherDeps = {
   submitDelayMs?: number
   /** Claude activity, used to resend an Enter lost during startup. */
   activity?: { get: (sessionId: string) => { state: string } }
+  /** Resolves the chain/start-from commit before the worktree is created. */
+  resolveTaskBase?: (task: TaskRecord) => Promise<{ baseRef: string | null; baseOid: string }>
 }
 
 /**
@@ -137,16 +139,30 @@ export class TaskDispatcher {
       return
     }
     const now = this.deps.now()
+    let base: { baseRef: string | null; baseOid: string } | undefined
+    try {
+      base = await this.deps.resolveTaskBase?.(task)
+    } catch (error) {
+      this.fail(task, {
+        reason: 'chain-base-failed',
+        message: mainT('tasks.error.chainBaseFailed'),
+        detail: messageOf(error)
+      })
+      return
+    }
     let sessionId: SessionId
     try {
-      const summary = await this.deps.sessions.create({
-        repoId: task.repoId,
-        harness: task.harness,
-        // The title is the task's own, so the sidebar and the queue agree.
-        title: task.title,
-        cols: 100,
-        rows: 30
-      })
+      const summary = await this.deps.sessions.create(
+        {
+          repoId: task.repoId,
+          harness: task.harness,
+          // The title is the task's own, so the sidebar and the queue agree.
+          title: task.title,
+          cols: 100,
+          rows: 30
+        },
+        base ? { base: { ref: base.baseRef, oid: base.baseOid } } : {}
+      )
       sessionId = summary.id as SessionId
     } catch (error) {
       this.fail(task, {
@@ -614,7 +630,11 @@ export class TaskDispatcher {
   private fail(
     task: TaskRecord,
     input: {
-      reason: 'session-create-failed' | 'prompt-write-failed' | 'resume-failed'
+      reason:
+        | 'session-create-failed'
+        | 'prompt-write-failed'
+        | 'resume-failed'
+        | 'chain-base-failed'
       message: string
       detail: string
       sessionId?: SessionId
