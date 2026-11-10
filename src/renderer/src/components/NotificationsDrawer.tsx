@@ -39,10 +39,12 @@ function attentionDot(task: TaskRecordPayload): string {
   if (attention === 'Answer') return 'bg-signal animate-pulse'
   if (attention === 'Retry') return 'bg-destructive'
   if (attention === 'Review') return 'bg-add'
+  if (attention === 'Blocked') return 'bg-signal'
   return 'bg-muted-foreground'
 }
 
 function attentionText(task: TaskRecordPayload): string {
+  if (taskAttention(task) === 'Blocked') return translate('notifications.blocked')
   if (task.approval === 'pending' && task.status === 'queued') {
     return task.createdByActor === 'mira'
       ? translate('notifications.proposedByMira')

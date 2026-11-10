@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Check, Copy, GitBranch, Loader2, Terminal, X } from 'lucide-react'
 import { callApi, errorNotice } from '../lib/api'
 import type { TaskChangesPayload, TaskRecordPayload } from '../../../shared/icode-api'
@@ -16,11 +16,15 @@ import {
 export type TaskOverviewProps = {
   task: TaskRecordPayload
   previousAttempts: TaskRecordPayload[]
+  /** The project's tasks, used to resolve dependency titles for pickers. */
+  projectTasks: TaskRecordPayload[]
   notify: (notice: Notice) => void
   session: SessionSummary | null
   onOpenTerminal: () => void
   onOpenFullSession: () => void
   onOpenChanges: () => void
+  onSelectTask: (taskId: string) => void
+  onQueueFollowUp: (task: TaskRecordPayload) => void
   onChanged: () => void
 }
 
@@ -42,6 +46,24 @@ function formatDuration(milliseconds: number): string {
   }
   const hours = Math.floor(minutes / 60)
   return translate('duration.hoursMinutes', { hours, minutes: minutes % 60 })
+}
+
+/** Whether `startId` already waits on `targetId`; adding the reverse edge cycles. */
+function canReach(
+  startId: string,
+  targetId: string,
+  tasksById: Map<string, TaskRecordPayload>
+): boolean {
+  const stack = [startId]
+  const seen = new Set<string>()
+  while (stack.length > 0) {
+    const id = stack.pop()!
+    if (id === targetId) return true
+    if (seen.has(id)) continue
+    seen.add(id)
+    for (const dependency of tasksById.get(id)?.dependencies ?? []) stack.push(dependency.id)
+  }
+  return false
 }
 
 function Card({
@@ -91,19 +113,24 @@ function Row({
 export default function TaskOverview({
   task,
   previousAttempts,
+  projectTasks,
   notify,
   session,
   onOpenTerminal,
   onOpenFullSession,
   onOpenChanges,
+  onSelectTask,
+  onQueueFollowUp,
   onChanged
 }: TaskOverviewProps): React.JSX.Element {
   const t = useT()
   const [changes, setChanges] = useState<TaskChangesPayload | null>(null)
   const [loadingChanges, setLoadingChanges] = useState(true)
   const [busy, setBusy] = useState(false)
+  const [dependencyBusy, setDependencyBusy] = useState(false)
   const [note, setNote] = useState(task.reviewNote ?? '')
   const [confirming, setConfirming] = useState<'accepted' | 'rejected' | null>(null)
+  const blockerSelectRef = useRef<HTMLSelectElement | null>(null)
 
   const active = ACTIVE.has(task.status)
 
@@ -212,10 +239,75 @@ export default function TaskOverview({
     }
   }
 
+  const addDependency = async (blockerId: string): Promise<void> => {
+    if (!blockerId || dependencyBusy) return
+    setDependencyBusy(true)
+    try {
+      const result = await callApi<TaskRecordPayload>(
+        window.icode.tasks.addDependency({ taskId: task.id, blockerId })
+      )
+      if (!result.ok) {
+        notify(errorNotice(result.error))
+        return
+      }
+      notify({ tone: 'info', message: t('taskOverview.dependencies.added') })
+      onChanged()
+    } finally {
+      setDependencyBusy(false)
+    }
+  }
+
+  const removeDependency = async (blockerId: string): Promise<void> => {
+    if (dependencyBusy) return
+    setDependencyBusy(true)
+    try {
+      const result = await callApi<TaskRecordPayload>(
+        window.icode.tasks.removeDependency({ taskId: task.id, blockerId })
+      )
+      if (!result.ok) {
+        notify(errorNotice(result.error))
+        return
+      }
+      notify({ tone: 'info', message: t('taskOverview.dependencies.removed') })
+      onChanged()
+    } finally {
+      setDependencyBusy(false)
+    }
+  }
+
+  const setHoldDependents = async (hold: boolean): Promise<void> => {
+    if (dependencyBusy) return
+    setDependencyBusy(true)
+    try {
+      const result = await callApi<TaskRecordPayload>(
+        window.icode.tasks.setHoldDependents({ taskId: task.id, hold })
+      )
+      if (!result.ok) {
+        notify(errorNotice(result.error))
+        return
+      }
+      onChanged()
+    } finally {
+      setDependencyBusy(false)
+    }
+  }
+
   const duration =
     task.startedAt !== null && task.finishedAt !== null
       ? formatDuration(task.finishedAt - task.startedAt)
       : null
+  const dependencies = task.dependencies ?? []
+  const dependents = task.dependents ?? []
+  const blockerIds = new Set(dependencies.map((dependency) => dependency.id))
+  const tasksById = new Map(projectTasks.map((candidate) => [candidate.id, candidate]))
+  const availableBlockers = projectTasks.filter(
+    (candidate) =>
+      candidate.id !== task.id &&
+      !blockerIds.has(candidate.id) &&
+      !canReach(candidate.id, task.id, tasksById)
+  )
+  const holdEditable = task.reviewDecision === 'pending' && task.archivedAt == null
+  const queued = task.status === 'queued'
   const changedFiles = changes?.status === 'available' ? changes.files ?? [] : []
   const additions = changedFiles.reduce((total, file) => total + (file.additions ?? 0), 0)
   const deletions = changedFiles.reduce((total, file) => total + (file.deletions ?? 0), 0)
@@ -548,6 +640,139 @@ export default function TaskOverview({
               </span>
             </Row>
             {task.scheduleId ? <Row label={t('taskOverview.row.schedule')}>{t('taskOverview.fromSchedule')}</Row> : null}
+          </Card>
+
+          <Card
+            title={t('taskOverview.dependencies.title')}
+            action={
+              <button
+                type="button"
+                className="rounded border border-border px-1.5 py-0.5 text-[9px] text-muted-foreground hover:bg-muted hover:text-foreground"
+                onClick={() => onQueueFollowUp(task)}
+                data-testid="task-queue-follow-up"
+              >
+                {t('taskOverview.dependencies.followUp')}
+              </button>
+            }
+          >
+            {dependencies.length === 0 ? (
+              <p className="text-[11px] text-muted-foreground" data-testid="task-dependencies-empty">
+                {t('taskOverview.dependencies.none')}
+              </p>
+            ) : (
+              <ul className="space-y-1.5" data-testid="task-dependencies-list">
+                {dependencies.map((dependency) => (
+                  <li
+                    key={dependency.id}
+                    className="rounded-md border border-border bg-muted/30 px-2 py-1.5 text-[10.5px]"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        className="min-w-0 flex-1 truncate text-left text-foreground hover:underline disabled:cursor-default disabled:hover:no-underline"
+                        onClick={() => {
+                          if (tasksById.has(dependency.id)) onSelectTask(dependency.id)
+                        }}
+                        disabled={!tasksById.has(dependency.id)}
+                        title={dependency.title}
+                        data-testid={`task-dependency-open-${dependency.id}`}
+                      >
+                        {dependency.title}
+                      </button>
+                      {queued ? (
+                        <button
+                          type="button"
+                          className="shrink-0 text-muted-foreground hover:text-destructive disabled:opacity-40"
+                          onClick={() => void removeDependency(dependency.id)}
+                          disabled={dependencyBusy}
+                          aria-label={t('taskOverview.dependencies.remove')}
+                          data-testid={`task-dependency-remove-${dependency.id}`}
+                        >
+                          ×
+                        </button>
+                      ) : null}
+                    </div>
+                    <p className="mt-0.5 text-[9.5px] text-muted-foreground">
+                      {dependency.holdDependents
+                        ? t('taskOverview.dependencies.waitsForAcceptance')
+                        : t('taskOverview.dependencies.startsWhenFinished')}
+                      {' · '}
+                      {dependency.satisfied
+                        ? t('taskOverview.dependencies.satisfied')
+                        : dependency.status === 'failed' ||
+                            dependency.status === 'cancelled' ||
+                            (dependency.status === 'completed' &&
+                              dependency.reviewDecision === 'rejected')
+                          ? t('taskOverview.dependencies.blockerStopped')
+                          : t('taskOverview.dependencies.waiting')}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {queued && availableBlockers.length > 0 ? (
+              <div className="mt-2 flex items-center gap-1.5">
+                <select
+                  ref={blockerSelectRef}
+                  className="h-7 min-w-0 flex-1 rounded border border-border bg-background px-1.5 text-[10px]"
+                  aria-label={t('taskOverview.dependencies.blocker')}
+                  data-testid="task-dependency-select"
+                >
+                  {availableBlockers.map((candidate) => (
+                    <option key={candidate.id} value={candidate.id}>
+                      {candidate.title}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  className="h-7 shrink-0 rounded border border-border px-1.5 text-[9.5px] hover:bg-muted disabled:opacity-40"
+                  onClick={() => void addDependency(blockerSelectRef.current?.value ?? '')}
+                  disabled={dependencyBusy}
+                  data-testid="task-dependency-add"
+                >
+                  {t('taskOverview.dependencies.add')}
+                </button>
+              </div>
+            ) : null}
+
+            <label className="mt-2 flex items-start gap-1.5 text-[10px] text-muted-foreground">
+              <input
+                type="checkbox"
+                className="mt-0.5 accent-accent"
+                checked={task.holdDependents === true}
+                disabled={!holdEditable || dependencyBusy}
+                onChange={(event) => void setHoldDependents(event.target.checked)}
+                data-testid="task-hold-dependents-toggle"
+              />
+              <span>{t('taskOverview.dependencies.hold')}</span>
+            </label>
+
+            {dependents.length > 0 ? (
+              <div className="mt-2 border-t border-line pt-2">
+                <p className="text-[9px] uppercase tracking-wide text-muted-foreground">
+                  {t('taskOverview.dependencies.dependents')}
+                </p>
+                <ul className="mt-1 space-y-0.5">
+                  {dependents.map((dependent) => (
+                    <li key={dependent.id}>
+                      <button
+                        type="button"
+                        className="max-w-full truncate text-left text-[10.5px] text-foreground hover:underline disabled:cursor-default disabled:hover:no-underline"
+                        onClick={() => {
+                          if (tasksById.has(dependent.id)) onSelectTask(dependent.id)
+                        }}
+                        disabled={!tasksById.has(dependent.id)}
+                        title={dependent.title}
+                      >
+                        {dependent.title}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
           </Card>
 
           <Card title={t('taskOverview.session')}>

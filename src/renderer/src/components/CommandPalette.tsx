@@ -106,7 +106,9 @@ function workHint(
   t: ReturnType<typeof useT>
 ): string {
   const attention = taskAttention(task)
-  return `${repoName(repos, task.repoId, t)} · ${attention ?? taskStatusLabel(task)}`
+  const attentionLabel =
+    attention === null ? taskStatusLabel(task) : t(`taskAttention.${attention}`)
+  return `${repoName(repos, task.repoId, t)} · ${attentionLabel}`
 }
 
 function workMatches(

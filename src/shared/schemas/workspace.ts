@@ -283,6 +283,24 @@ export const taskFailureReasonSchema = z.enum([
 
 export const taskReviewDecisionSchema = z.enum(['pending', 'accepted', 'rejected'])
 
+/** One blocker as the renderer displays it. */
+export const taskDependencySummarySchema = z.strictObject({
+  id: z.string().min(1).max(80),
+  title: z.string().min(1).max(200),
+  status: taskStatusSchema,
+  reviewDecision: taskReviewDecisionSchema,
+  holdDependents: z.boolean(),
+  satisfied: z.boolean()
+})
+
+/** One task that waits for another. */
+export const taskDependentSummarySchema = z.strictObject({
+  id: z.string().min(1).max(80),
+  title: z.string().min(1).max(200),
+  status: taskStatusSchema,
+  archivedAt: z.number().int().nullable()
+})
+
 export const taskRecordSchema = z.strictObject({
   id: z.string().min(1).max(80),
   repoId: repoIdSchema,
@@ -332,7 +350,13 @@ export const taskRecordSchema = z.strictObject({
   canArchive: z.boolean().optional(),
   canUnarchive: z.boolean().optional(),
   canDecideReview: z.boolean(),
-  reviewDecisionFinal: z.boolean()
+  reviewDecisionFinal: z.boolean(),
+  // v14 dependency fields. Optional so mutation responses and hand-built
+  // fixtures remain valid; list/history always populate them.
+  holdDependents: z.boolean().optional(),
+  dependencies: z.array(taskDependencySummarySchema).max(20).optional(),
+  dependents: z.array(taskDependentSummarySchema).max(500).optional(),
+  ready: z.boolean().optional()
 })
 
 export const taskListInputSchema = z.strictObject({
@@ -347,10 +371,22 @@ export const taskCreateInputSchema = z.strictObject({
   repoId: repoIdSchema,
   title: z.string().min(1).max(200).optional(),
   prompt: z.string().min(1).max(20_000),
-  harness: harnessIdSchema
+  harness: harnessIdSchema,
+  dependsOn: z.array(z.string().min(1).max(80)).max(20).optional(),
+  holdDependents: z.boolean().optional()
 })
 
 export const taskIdInputSchema = z.strictObject({ taskId: z.string().min(1).max(80) })
+
+export const taskDependencyInputSchema = z.strictObject({
+  taskId: z.string().min(1).max(80),
+  blockerId: z.string().min(1).max(80)
+})
+
+export const taskHoldDependentsInputSchema = z.strictObject({
+  taskId: z.string().min(1).max(80),
+  hold: z.boolean()
+})
 
 export const taskArchiveFinishedInputSchema = z.strictObject({
   repoId: repoIdSchema.optional()
@@ -380,9 +416,15 @@ export const taskChangesPayloadSchema = z.strictObject({
   detail: z.string().max(500).optional()
 })
 
-export const taskSettingsInputSchema = z.strictObject({
-  maxConcurrent: z.number().int().min(1).max(4)
-})
+export const taskSettingsInputSchema = z
+  .strictObject({
+    maxConcurrent: z.number().int().min(1).max(4).optional(),
+    maxConcurrentPerProject: z.number().int().min(1).max(4).optional()
+  })
+  .refine(
+    (value) => value.maxConcurrent !== undefined || value.maxConcurrentPerProject !== undefined,
+    { message: 'Set at least one concurrency limit.' }
+  )
 
 export const scheduleShapeSchema = z.strictObject({
   type: z.enum(['once', 'daily', 'weekdays', 'weekly', 'hours']),

@@ -185,6 +185,7 @@ export default function SessionDetailsDrawer({
             className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
             onClick={onClose}
             aria-label={t('common.close')}
+            data-testid="session-details-close"
           >
             <X size={14} />
           </button>

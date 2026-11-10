@@ -31,6 +31,7 @@ import {
   taskAttentionCounts,
   taskGroup,
   taskIsActive,
+  taskIsBlocked,
   taskStatusLabel,
   taskStatusTone
 } from './task-status'
@@ -128,6 +129,7 @@ function ProjectTaskRow({
   archived?: boolean
 }): React.JSX.Element {
   const t = useT()
+  const tp = useTp()
   const attention = taskAttention(task)
   return (
     <li
@@ -167,6 +169,17 @@ function ProjectTaskRow({
       </button>
       <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
         <span>{task.harness}</span>
+        {task.dependencies !== undefined && task.dependencies.length > 0 ? (
+          <span
+            className={taskIsBlocked(task) ? 'text-signal' : ''}
+            title={task.dependencies.map((dependency) => dependency.title).join(', ')}
+            data-testid={`task-dependencies-${task.id}`}
+          >
+            {taskIsBlocked(task)
+              ? tp('tasks.row.blockedBy', task.dependencies.filter((dependency) => !dependency.satisfied).length)
+              : tp('tasks.row.after', task.dependencies.length)}
+          </span>
+        ) : null}
         {task.attempt > 1 ? (
           <span>{t('tasks.row.try', { count: task.attempt })}</span>
         ) : null}
@@ -319,14 +332,26 @@ export default function ProjectTasksView({
   const [composerOpen, setComposerOpen] = useState(false)
   const [prompt, setPrompt] = useState('')
   const [harness, setHarness] = useState('claude')
+  /** Blockers chosen for the next composer submission; empty means parallel. */
+  const [after, setAfter] = useState<string[]>([])
+  const [holdDependents, setHoldDependents] = useState(false)
   const [harnesses, setHarnesses] = useState<HarnessDetection[]>([])
   const [harnessLoading, setHarnessLoading] = useState(true)
   const [busyId, setBusyId] = useState<string | null>(null)
   const promptRef = useRef<HTMLTextAreaElement | null>(null)
+  const afterSelectRef = useRef<HTMLSelectElement | null>(null)
   /** A focus request is applied once; a task event must not reopen a closed detail. */
   const appliedFocus = useRef<string | null>(null)
   /** Report a selection to the shell once per distinct task. */
   const reportedSelection = useRef<string | null>(null)
+  /**
+   * IDs that have appeared in the project list at least once.
+   *
+   * A newly created task is selected before the reload that adds it to
+   * `allProjectTasks`; without this guard the reset effect below would treat it
+   * as removed and fall back to an older task.
+   */
+  const seenTaskIds = useRef(new Set<string>())
   const reportSelection = useCallback(
     (taskId: string): void => {
       if (reportedSelection.current === taskId) return
@@ -352,6 +377,10 @@ export default function ProjectTasksView({
   useEffect(() => {
     if (focusComposerNonce === 0) return
     setComposerOpen(true)
+    // An external "Queue task" starts a fresh draft; a follow-up sets its own
+    // blocker after this effect runs.
+    setAfter([])
+    setHoldDependents(false)
     window.requestAnimationFrame(() => promptRef.current?.focus())
   }, [focusComposerNonce])
 
@@ -384,8 +413,30 @@ export default function ProjectTasksView({
       ? null
       : sessions.find((session) => session.id === selectedTask.sessionId) ?? null
 
+  /** Tasks the composer may add as blockers; archived history is not offered. */
+  const afterCandidates = useMemo(
+    () => projectTasks.filter((task) => !after.includes(task.id)),
+    [after, projectTasks]
+  )
+  const afterTasks = useMemo(
+    () => after.map((id) => allProjectTasks.find((task) => task.id === id)).filter((task): task is TaskRecordPayload => task !== undefined),
+    [after, allProjectTasks]
+  )
+
+  const startFollowUp = useCallback((task: TaskRecordPayload): void => {
+    setAfter([task.id])
+    setPrompt('')
+    setComposerOpen(true)
+    window.requestAnimationFrame(() => promptRef.current?.focus())
+  }, [])
+
   useEffect(() => {
-    if (selectedTaskId !== null && !allProjectTasks.some((task) => task.id === selectedTaskId)) {
+    for (const task of allProjectTasks) seenTaskIds.current.add(task.id)
+    if (
+      selectedTaskId !== null &&
+      seenTaskIds.current.has(selectedTaskId) &&
+      !allProjectTasks.some((task) => task.id === selectedTaskId)
+    ) {
       setSelectedTaskId(null)
     }
   }, [allProjectTasks, selectedTaskId])
@@ -517,7 +568,9 @@ export default function ProjectTasksView({
         window.icode.tasks.create({
           repoId: repo.id,
           prompt: prompt.trim(),
-          harness: harness as never
+          harness: harness as never,
+          ...(after.length > 0 ? { dependsOn: after } : {}),
+          ...(holdDependents ? { holdDependents: true } : {})
         })
       )
       if (!result.ok) {
@@ -525,6 +578,8 @@ export default function ProjectTasksView({
         return
       }
       setPrompt('')
+      setAfter([])
+      setHoldDependents(false)
       setComposerOpen(false)
       setSelectedTaskId(result.value.id)
       reportSelection(result.value.id)
@@ -536,7 +591,7 @@ export default function ProjectTasksView({
     } finally {
       setBusyId(null)
     }
-  }, [harness, notify, onReload, prompt, repo.id, reportSelection])
+  }, [after, harness, holdDependents, notify, onReload, prompt, repo.id, reportSelection])
 
   const cancel = useCallback(
     async (task: TaskRecordPayload): Promise<void> => {
@@ -787,6 +842,73 @@ export default function ProjectTasksView({
               }}
               data-testid="task-prompt"
             />
+            <div className="mt-1.5 rounded-md border border-border bg-background px-2 py-1.5">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  {t('tasks.composer.after')}
+                </span>
+                {afterTasks.length === 0 ? (
+                  <span className="text-[9.5px] text-muted-foreground">
+                    {t('tasks.composer.afterNone')}
+                  </span>
+                ) : (
+                  afterTasks.map((task) => (
+                    <span
+                      key={task.id}
+                      className="inline-flex max-w-[160px] items-center gap-1 rounded border border-border bg-muted/50 px-1.5 py-0.5 text-[9.5px]"
+                    >
+                      <span className="truncate">{task.title}</span>
+                      <button
+                        type="button"
+                        className="text-muted-foreground hover:text-destructive"
+                        aria-label={t('tasks.composer.removeBlocker', { title: task.title })}
+                        onClick={() => setAfter((current) => current.filter((id) => id !== task.id))}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))
+                )}
+              </div>
+              {afterCandidates.length > 0 ? (
+                <div className="mt-1 flex items-center gap-1.5">
+                  <select
+                    ref={afterSelectRef}
+                    className="h-7 min-w-0 flex-1 rounded border border-border bg-card px-1.5 text-[10px]"
+                    aria-label={t('tasks.composer.blocker')}
+                    data-testid="task-after"
+                  >
+                    {afterCandidates.map((task) => (
+                      <option key={task.id} value={task.id}>
+                        {task.title}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className="h-7 shrink-0 rounded border border-border px-1.5 text-[9.5px] hover:bg-muted"
+                    onClick={() => {
+                      const id = afterSelectRef.current?.value
+                      if (!id) return
+                      setAfter((current) => (current.includes(id) ? current : [...current, id]))
+                    }}
+                    data-testid="task-after-add"
+                  >
+                    {t('tasks.composer.addBlocker')}
+                  </button>
+                </div>
+              ) : null}
+            </div>
+            <label className="mt-1 flex items-center gap-1.5 text-[10px] text-muted-foreground">
+              <input
+                type="checkbox"
+                className="accent-accent"
+                checked={holdDependents}
+                onChange={(event) => setHoldDependents(event.target.checked)}
+                data-testid="task-hold-dependents"
+              />
+              {t('tasks.composer.holdDependents')}
+            </label>
             <div className="mt-1 flex items-center gap-2">
               <button
                 type="button"
@@ -837,6 +959,9 @@ export default function ProjectTasksView({
                     : null,
                   attention.retry > 0
                     ? t('tasks.attention.retry', { count: attention.retry })
+                    : null,
+                  attention.blocked > 0
+                    ? t('tasks.attention.blocked', { count: attention.blocked })
                     : null,
                   attention.review > 0
                     ? t('tasks.attention.review', { count: attention.review })
@@ -986,6 +1111,12 @@ export default function ProjectTasksView({
             key={selectedTask.id}
             task={selectedTask}
             previousAttempts={attempts}
+            projectTasks={allProjectTasks}
+            onSelectTask={(taskId) => {
+              setSelectedTaskId(taskId)
+              reportSelection(taskId)
+            }}
+            onQueueFollowUp={startFollowUp}
             repo={repo}
             session={selectedSession}
             notify={notify}

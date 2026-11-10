@@ -127,11 +127,20 @@ type Harness = {
   sessions: FakeSessions
   repoId: string
   workspaceId: string
+  /** Present when the harness created a second project for cap/fairness tests. */
+  repoId2?: string
+  workspaceId2?: string
   clock: { now: number }
   advance: (ms: number) => void
 }
 
-async function harness(options: { maxConcurrent?: number } = {}): Promise<Harness> {
+async function harness(
+  options: {
+    maxConcurrent?: number
+    maxConcurrentPerProject?: number
+    secondRepo?: boolean
+  } = {}
+): Promise<Harness> {
   const root = makeTempRoot('icode-w84-')
   const db = openTempDatabase(root)
   const stores = makeRepositoryService(db)
@@ -151,8 +160,30 @@ async function harness(options: { maxConcurrent?: number } = {}): Promise<Harnes
   )
   const added = await stores.service.addRepository(repoDir)
 
+  let added2: Awaited<ReturnType<typeof stores.service.addRepository>> | null = null
+  if (options.secondRepo) {
+    const repoDir2 = `${root.dir}/repo2`
+    mkdirSync(repoDir2, { recursive: true })
+    execFileSync('git', ['init', '-q', '-b', 'main', repoDir2], { stdio: 'pipe' })
+    writeFileSync(`${repoDir2}/README.md`, 'base\n')
+    execFileSync('git', ['-C', repoDir2, 'add', '.'], { stdio: 'pipe' })
+    execFileSync(
+      'git',
+      ['-C', repoDir2, '-c', 'user.email=w84@test', '-c', 'user.name=W84', 'commit', '-qm', 'base'],
+      { stdio: 'pipe' }
+    )
+    added2 = await stores.service.addRepository(repoDir2)
+  }
+
   const store = new TaskStore(db)
   if (options.maxConcurrent !== undefined) store.setMaxConcurrent(options.maxConcurrent)
+  if (options.maxConcurrentPerProject !== undefined) {
+    store.setMaxConcurrentPerProject(options.maxConcurrentPerProject)
+  } else if (options.maxConcurrent !== undefined) {
+    // These tests predate per-project admission and use one repository, so the
+    // raised global limit is also the project's limit unless a test says otherwise.
+    store.setMaxConcurrentPerProject(options.maxConcurrent)
+  }
   const sessions = fakeSessions()
   const clock = { now: 1_700_000_000_000 }
   const advance = (ms: number): void => {
@@ -200,6 +231,12 @@ async function harness(options: { maxConcurrent?: number } = {}): Promise<Harnes
     sessions,
     repoId: added.repository.id,
     workspaceId: stores.repositories.workspaceForRepo(added.repository.id)!.id,
+    ...(added2
+      ? {
+          repoId2: added2.repository.id,
+          workspaceId2: stores.repositories.workspaceForRepo(added2.repository.id)!.id
+        }
+      : {}),
     clock,
     advance
   }
@@ -361,8 +398,9 @@ describe('concurrency', () => {
     expect(h.store.findById(second.id)!.status).toBe('queued')
     expect(h.store.findById(third.id)!.status).toBe('queued')
 
-    // Raising the limit admits the next one, not all of them.
+    // Raising both limits admits the next one, not all of them.
     h.service.setMaxConcurrent(2)
+    h.service.setMaxConcurrentPerProject(2)
     await settle(h)
     expect(h.store.findById(second.id)!.status).toBe('running')
     expect(h.store.findById(third.id)!.status).toBe('queued')
@@ -387,6 +425,36 @@ describe('concurrency', () => {
     expect(h.service.maxConcurrent()).toBe(4)
     expect(h.service.setMaxConcurrent(0).ok).toBe(true)
     expect(h.service.maxConcurrent()).toBe(1)
+    expect(h.service.setMaxConcurrentPerProject(99).ok).toBe(true)
+    expect(h.service.maxConcurrentPerProject()).toBe(4)
+    expect(h.service.setMaxConcurrentPerProject(0).ok).toBe(true)
+    expect(h.service.maxConcurrentPerProject()).toBe(1)
+  })
+
+  it('admits each project up to its cap while sharing the global pool', async () => {
+    const h = await harness({
+      maxConcurrent: 3,
+      maxConcurrentPerProject: 1,
+      secondRepo: true
+    })
+    const first = createQueued(h, 'project one first')
+    const other = h.service.create({
+      repoId: h.repoId2 as never,
+      prompt: 'project two first',
+      harness: 'claude'
+    })
+    if (!other.ok) throw new Error(other.error.message)
+    const second = createQueued(h, 'project one second')
+    await settle(h)
+
+    expect(h.store.findById(first.id)!.status).toBe('running')
+    expect(h.store.findById(other.value.id)!.status).toBe('running')
+    expect(h.store.findById(second.id)!.status).toBe('queued')
+
+    const cleared = h.store.findById(first.id)!
+    h.dispatcher.onActivity(cleared.sessionId!, { state: 'idle', outcome: 'completed' })
+    await settle(h)
+    expect(h.store.findById(second.id)!.status).toBe('running')
   })
 })
 
@@ -983,5 +1051,181 @@ describe('continue dispatch', () => {
     expect(stored.status).toBe('failed')
     expect(stored.failureReason).toBe('prompt-write-failed')
     expect(h.sessions.created).toHaveLength(1)
+  })
+})
+
+describe('task dependencies', () => {
+  function createWithDeps(
+    h: Harness,
+    prompt: string,
+    dependsOn: string[],
+    options: { holdDependents?: boolean } = {}
+  ) {
+    const created = h.service.create({
+      repoId: h.repoId as never,
+      prompt,
+      harness: 'claude',
+      dependsOn,
+      ...options
+    })
+    if (!created.ok) throw new Error(created.error.message)
+    return created.value
+  }
+
+  async function completeTask(h: Harness, taskId: string): Promise<void> {
+    const task = h.store.findById(taskId)!
+    h.dispatcher.onActivity(task.sessionId!, { state: 'idle', outcome: 'completed' })
+    await settle(h)
+  }
+
+  it('does not start a dependent until its blocker completes', async () => {
+    const h = await harness({ maxConcurrent: 2 })
+    const blocker = createQueued(h, 'blocker')
+    await settle(h)
+    const dependent = createWithDeps(h, 'dependent', [blocker.id])
+    await settle(h)
+
+    expect(h.store.findById(blocker.id)!.status).toBe('running')
+    expect(h.store.findById(dependent.id)!.status).toBe('queued')
+    expect(h.sessions.created).toHaveLength(1)
+
+    await completeTask(h, blocker.id)
+    expect(h.store.findById(dependent.id)!.status).toBe('running')
+  })
+
+  it('waits for acceptance when the blocker holds dependents', async () => {
+    const h = await harness({ maxConcurrent: 2 })
+    const blocker = createWithDeps(h, 'reviewed blocker', [], { holdDependents: true })
+    await settle(h)
+    const dependent = createWithDeps(h, 'dependent', [blocker.id])
+    await settle(h)
+
+    await completeTask(h, blocker.id)
+    expect(h.store.findById(blocker.id)!.reviewDecision).toBe('pending')
+    expect(h.store.findById(dependent.id)!.status).toBe('queued')
+
+    const decided = h.service.decideReview(blocker.id, 'accepted')
+    expect(decided.ok).toBe(true)
+    await settle(h)
+    expect(h.store.findById(dependent.id)!.status).toBe('running')
+  })
+
+  it('applies a gate that is turned on after the blocker starts', async () => {
+    const h = await harness({ maxConcurrent: 2 })
+    const blocker = createQueued(h, 'blocker')
+    await settle(h)
+
+    const gated = h.service.setHoldDependents(blocker.id, true)
+    expect(gated.ok).toBe(true)
+    const dependent = createWithDeps(h, 'dependent', [blocker.id])
+    await settle(h)
+
+    await completeTask(h, blocker.id)
+    expect(h.store.findById(dependent.id)!.status).toBe('queued')
+
+    h.service.decideReview(blocker.id, 'accepted')
+    await settle(h)
+    expect(h.store.findById(dependent.id)!.status).toBe('running')
+  })
+
+  it('starts a fan-in only after every blocker completes', async () => {
+    const h = await harness({ maxConcurrent: 2 })
+    const first = createQueued(h, 'first')
+    const second = createQueued(h, 'second')
+    await settle(h)
+    const joined = createWithDeps(h, 'joined', [first.id, second.id])
+    await settle(h)
+
+    expect(h.store.findById(joined.id)!.status).toBe('queued')
+    await completeTask(h, first.id)
+    expect(h.store.findById(joined.id)!.status).toBe('queued')
+    await completeTask(h, second.id)
+    expect(h.store.findById(joined.id)!.status).toBe('running')
+  })
+
+  it('leaves a dependent queued when a blocker fails, then starts it after the edge is removed', async () => {
+    const h = await harness({ maxConcurrent: 1 })
+    const blocker = createQueued(h, 'will fail')
+    await settle(h)
+    const dependent = createWithDeps(h, 'dependent', [blocker.id])
+    await settle(h)
+
+    const failed = h.store.findById(blocker.id)!
+    h.dispatcher.onActivity(failed.sessionId!, { state: 'idle', outcome: 'failed' })
+    await settle(h)
+    expect(h.store.findById(dependent.id)!.status).toBe('queued')
+
+    const removed = h.service.removeDependency(dependent.id, blocker.id)
+    expect(removed.ok).toBe(true)
+    await settle(h)
+    expect(h.store.findById(dependent.id)!.status).toBe('running')
+  })
+
+  it('copies blockers and re-points dependents on retry', async () => {
+    const h = await harness({ maxConcurrent: 1 })
+    const base = createQueued(h, 'base')
+    await settle(h)
+    await completeTask(h, base.id)
+
+    const predecessor = createWithDeps(h, 'will fail', [base.id])
+    await settle(h)
+    const dependent = createWithDeps(h, 'after the retry', [predecessor.id])
+    await settle(h)
+
+    const failed = h.store.findById(predecessor.id)!
+    h.dispatcher.onActivity(failed.sessionId!, { state: 'idle', outcome: 'failed' })
+    await settle(h)
+
+    const retried = h.service.retry(predecessor.id)
+    expect(retried.ok).toBe(true)
+    if (!retried.ok) return
+    const successor = h.store.findById(retried.value.id)!
+
+    expect(h.store.dependenciesOf(successor.id)).toEqual([base.id])
+    expect(h.service.get(successor.id)!.dependencies[0]!.satisfied).toBe(true)
+    const view = h.service.get(dependent.id)!
+    expect(view.dependencies.map((dependency) => dependency.id)).toEqual([successor.id])
+
+    await settle(h)
+    expect(h.store.findById(successor.id)!.status).toBe('running')
+    await completeTask(h, successor.id)
+    expect(h.store.findById(dependent.id)!.status).toBe('running')
+  })
+
+  it('rejects a blocker in another project', async () => {
+    const h = await harness({ maxConcurrent: 1, secondRepo: true })
+    const source = createQueued(h, 'source')
+    const result = h.service.create({
+      repoId: h.repoId2 as never,
+      prompt: 'other project',
+      harness: 'claude',
+      dependsOn: [source.id]
+    })
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error.message).toContain('same project')
+  })
+
+  it('rejects self edges and cycles at the store', async () => {
+    const h = await harness({ maxConcurrent: 1 })
+    const now = h.clock.now
+    const draft = (id: string, title: string) => ({
+      id,
+      workspaceId: h.workspaceId as never,
+      repoId: h.repoId as never,
+      title,
+      prompt: title,
+      harness: 'claude' as const,
+      attempt: 1,
+      previousTaskId: null,
+      scheduleId: null,
+      occurrenceAt: null,
+      dedupeKey: null
+    })
+    h.store.insert(draft('task_cycle_a', 'A'), now)
+    h.store.insert(draft('task_cycle_b', 'B'), now)
+
+    expect(h.store.addDependency('task_cycle_b', 'task_cycle_a', now)).toBe('ok')
+    expect(h.store.addDependency('task_cycle_a', 'task_cycle_b', now)).toBe('cycle')
+    expect(h.store.addDependency('task_cycle_a', 'task_cycle_a', now)).toBe('self')
   })
 })

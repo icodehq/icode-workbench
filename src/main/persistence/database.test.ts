@@ -59,6 +59,8 @@ describe('database initialization', () => {
       'sqlite_sequence',
       'supervisor_actions',
       'supervisor_bindings',
+      // v14: ordering edges between tasks.
+      'task_dependencies',
       'task_occurrences',
       'task_schedules',
       'task_settings',
@@ -539,6 +541,8 @@ describe('migrations', () => {
       'sessions_workspace_idx',
       // v8: supervisor actions and the approval queue.
       'supervisor_actions_repo_created_idx',
+      // v14: the reverse edge lookup used by readiness and successor re-pointing.
+      'task_dependencies_depends_on_idx',
       // v4: the queue's own access paths, and the occurrence receipt that makes
       // duplicate triggers a database answer rather than a memory one.
       'task_occurrences_schedule_idx',

@@ -363,7 +363,7 @@ async function run() {
     assert(text.includes('Smoke session') || text.includes('Session details'), 'Session details are empty')
     assert(text.includes('Harness'), 'Session details omitted the Harness')
     await screenshot('01-session-details')
-    await click('[aria-label="Close session details"]')
+    await click('[data-testid="session-details-close"]')
     return { title: 'Smoke session' }
   })
 
@@ -758,7 +758,10 @@ async function run() {
       const select = document.querySelector('[data-testid="provider-select-claude"]');
       return select?.closest('section')?.innerText ?? '';
     })()`)
-    assert(providerCard.includes('Agent providers'), 'Settings omitted the Agent providers card')
+    assert(
+      providerCard.toLowerCase().includes('agent providers'),
+      'Settings omitted the Agent providers card'
+    )
     assert(providerCard.includes('Claude Code'), 'Provider card omitted Claude Code')
     await waitForSelector('[data-testid="scm-setting-smart-commit"]', 10000)
     const card = await cdp.evaluate(`(() => {
@@ -864,6 +867,130 @@ async function run() {
       `document.querySelector('[data-testid="task-workbench"] h1')?.innerText === 'Task continuity smoke'`,
       'the last task is restored after switching project modes',
       10000
+    )
+
+    // Dependency flow: a dependent stays queued until its blocker completes,
+    // then a gated blocker holds its dependent until the result is accepted.
+    // This is the only path that drives the DAG UI through the real renderer.
+    const continuityTaskId = await cdp.evaluate(
+      `document.querySelector('[data-testid^="task-row-"]')?.getAttribute('data-testid')?.replace('task-row-', '') ?? null`
+    )
+    assert(continuityTaskId, 'continuity task row was not found')
+    await click(`[data-testid="task-cancel-${continuityTaskId}"]`)
+    await waitFor(
+      `!document.querySelector('[data-testid="task-cancel-${continuityTaskId}"]')`,
+      'continuity task cancelled',
+      15000
+    )
+
+    async function queueSmokeTask(prompt, afterId = null, hold = false) {
+      const open = await cdp.evaluate(
+        `Boolean(document.querySelector('[data-testid="task-composer"]'))`
+      )
+      if (!open) await click('[data-testid="task-composer-toggle"]')
+      await waitForSelector('[data-testid="task-composer"]', 10000)
+      await setValue('[data-testid="task-harness"]', 'shell')
+      await setValue('[data-testid="task-prompt"]', prompt)
+      if (afterId) {
+        await setValue('[data-testid="task-after"]', afterId)
+        await click('[data-testid="task-after-add"]')
+        await sleep(150)
+      }
+      if (hold) {
+        const checked = await cdp.evaluate(
+          `document.querySelector('[data-testid="task-hold-dependents"]')?.checked === true`
+        )
+        if (!checked) await click('[data-testid="task-hold-dependents"]')
+        await sleep(100)
+      }
+      await click('[data-testid="task-create"]')
+      await sleep(700)
+      const diagnostic = await cdp.evaluate(`(() => ({
+        heading: document.querySelector('[data-testid="task-workbench"] h1')?.innerText ?? null,
+        notice: document.querySelector('[data-testid="notice"]')?.innerText ?? null,
+        composer: Boolean(document.querySelector('[data-testid="task-composer"]')),
+        createDisabled: document.querySelector('[data-testid="task-create"]')?.disabled ?? null,
+        rows: Array.from(document.querySelectorAll('[data-testid^="task-row-"]')).map((el) => el.innerText.replace(/\\n/g, ' '))
+      }))()`)
+      console.log('[feature-smoke] task create diagnostic', JSON.stringify(diagnostic))
+      if (diagnostic.heading !== prompt) {
+        await screenshot(`10b-task-${prompt.replace(/[^a-z0-9]+/gi, '-')}`)
+      }
+      await waitForSelector('[data-testid="task-workbench"]', 15000)
+      await waitFor(
+        `document.querySelector('[data-testid="task-workbench"] h1')?.innerText === ${JSON.stringify(prompt)}`,
+        `task ${prompt} selected`,
+        15000
+      )
+      return cdp.evaluate(`(() => {
+        const row = Array.from(document.querySelectorAll('[data-testid^="task-row-"]')).find((el) => el.innerText.includes(${JSON.stringify(prompt)}))
+        return row?.getAttribute('data-testid')?.replace('task-row-', '') ?? null
+      })()`)
+    }
+
+    const blockerId = await queueSmokeTask('sleep 10; exit 0')
+    assert(blockerId, 'blocker task row was not found')
+    const dependentId = await queueSmokeTask('dependent smoke', blockerId)
+    assert(dependentId, 'dependent task row was not found')
+    await waitFor(
+      `document.querySelector('[data-testid="task-tab-terminal"]')?.disabled === true`,
+      'dependent is blocked while the blocker runs',
+      10000
+    )
+    const dependencyText = await cdp.evaluate(
+      `document.querySelector('[data-testid="task-dependencies-list"]')?.innerText ?? ''`
+    )
+    assert(dependencyText.includes('sleep 10; exit 0'), 'dependent did not list its blocker')
+    await waitFor(
+      `document.querySelector('[data-testid="task-tab-terminal"]') && !document.querySelector('[data-testid="task-tab-terminal"]').disabled`,
+      'dependent started after the blocker completed',
+      35000
+    )
+    await click(`[data-testid="task-cancel-${dependentId}"]`)
+    await waitFor(
+      `!document.querySelector('[data-testid="task-cancel-${dependentId}"]')`,
+      'dependent task cancelled',
+      15000
+    )
+
+    const gatedBlockerId = await queueSmokeTask('sleep 8; exit 0', null, true)
+    assert(gatedBlockerId, 'gated blocker row was not found')
+    const gatedDependentId = await queueSmokeTask('gated dependent', gatedBlockerId)
+    assert(gatedDependentId, 'gated dependent row was not found')
+    await waitFor(
+      `document.querySelector('[data-testid="task-tab-terminal"]')?.disabled === true`,
+      'gated dependent is blocked',
+      10000
+    )
+    await sleep(15000)
+    assert(
+      await cdp.evaluate(
+        `document.querySelector('[data-testid="task-tab-terminal"]')?.disabled === true`
+      ),
+      'gated dependent started before its blocker was accepted'
+    )
+    await click(`[data-testid="task-dependency-open-${gatedBlockerId}"]`)
+    await waitFor(
+      `document.querySelector('[data-testid="task-workbench"] h1')?.innerText === 'sleep 8; exit 0'`,
+      'gated blocker selected',
+      15000
+    )
+    await waitFor(
+      `Boolean(document.querySelector('[data-testid="task-review-accept"]')) && !document.querySelector('[data-testid="task-review-accept"]').disabled`,
+      'gated blocker is ready to accept',
+      15000
+    )
+    await click('[data-testid="task-review-accept"]')
+    await click(`[data-testid="task-open-detail-${gatedDependentId}"]`)
+    await waitFor(
+      `document.querySelector('[data-testid="task-workbench"] h1')?.innerText === 'gated dependent'`,
+      'gated dependent selected again',
+      15000
+    )
+    await waitFor(
+      `document.querySelector('[data-testid="task-tab-terminal"]') && !document.querySelector('[data-testid="task-tab-terminal"]').disabled`,
+      'gated dependent started after acceptance',
+      20000
     )
 
     // Phase A Files: session-scoped tabs, live external refresh, conflict-safe

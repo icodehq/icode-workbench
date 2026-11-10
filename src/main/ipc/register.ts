@@ -93,6 +93,9 @@ export const HANDLED_CHANNELS: readonly string[] = [
   IPC_CHANNELS.tasksArchive,
   IPC_CHANNELS.tasksUnarchive,
   IPC_CHANNELS.tasksArchiveFinished,
+  IPC_CHANNELS.tasksAddDependency,
+  IPC_CHANNELS.tasksRemoveDependency,
+  IPC_CHANNELS.tasksSetHoldDependents,
   IPC_CHANNELS.tasksSettings,
   IPC_CHANNELS.tasksSetSettings,
   IPC_CHANNELS.supervisorOpen,
@@ -356,8 +359,31 @@ export function createAppDispatcher(
       Promise.resolve(outcomeOrThrow(runtime.tasks.unarchive(input.taskId))),
     tasksArchiveFinished: (input) =>
       Promise.resolve(outcomeOrThrow(runtime.tasks.archiveFinished(input.repoId as never))),
-    tasksSettings: () => Promise.resolve({ maxConcurrent: runtime.tasks.maxConcurrent() }),
-    tasksSetSettings: (input) => Promise.resolve(outcomeOrThrow(runtime.tasks.setMaxConcurrent(input.maxConcurrent))),
+    tasksAddDependency: (input) =>
+      Promise.resolve(outcomeOrThrow(runtime.tasks.addDependency(input.taskId, input.blockerId))),
+    tasksRemoveDependency: (input) =>
+      Promise.resolve(
+        outcomeOrThrow(runtime.tasks.removeDependency(input.taskId, input.blockerId))
+      ),
+    tasksSetHoldDependents: (input) =>
+      Promise.resolve(outcomeOrThrow(runtime.tasks.setHoldDependents(input.taskId, input.hold))),
+    tasksSettings: () =>
+      Promise.resolve({
+        maxConcurrent: runtime.tasks.maxConcurrent(),
+        maxConcurrentPerProject: runtime.tasks.maxConcurrentPerProject()
+      }),
+    tasksSetSettings: (input) => {
+      if (input.maxConcurrent !== undefined) {
+        outcomeOrThrow(runtime.tasks.setMaxConcurrent(input.maxConcurrent))
+      }
+      if (input.maxConcurrentPerProject !== undefined) {
+        outcomeOrThrow(runtime.tasks.setMaxConcurrentPerProject(input.maxConcurrentPerProject))
+      }
+      return Promise.resolve({
+        maxConcurrent: runtime.tasks.maxConcurrent(),
+        maxConcurrentPerProject: runtime.tasks.maxConcurrentPerProject()
+      })
+    },
     supervisorOpen: (input) => runtime.supervisor.open(input.repoId as never),
     assistantState: () => Promise.resolve(runtime.assistant.state()),
     assistantMessagesList: (input) => Promise.resolve(runtime.assistant.listMessages(input)),

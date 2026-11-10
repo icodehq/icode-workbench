@@ -629,5 +629,40 @@ export const MIGRATIONS: readonly Migration[] = [
          updated_at INTEGER NOT NULL
        ) STRICT`
     ]
+  },
+  {
+    version: 15,
+    name: 'task-dependencies-and-project-cap',
+    /**
+     * Task ordering edges and the per-project admission cap.
+     *
+     * A dependency is an AND constraint: a task may not be dispatched until
+     * every blocker is `completed`. `hold_dependents` is a property of the
+     * blocker, not the edge: when set, completion alone is not enough — the
+     * blocker must also have been accepted by a person. That is the only gate,
+     * and it is deliberately stored on the task because it describes the result,
+     * not one particular consumer of it.
+     *
+     * The task family keeps its repo/session relationships by application rule
+     * instead of foreign keys (see the v4 comment), and task rows are never
+     * deleted, so the edge table follows the same convention. The primary key
+     * indexes "blockers of a task"; the secondary index indexes "dependents of a
+     * task", which readiness and successor re-pointing both read.
+     */
+    statements: [
+      `ALTER TABLE tasks ADD COLUMN hold_dependents INTEGER NOT NULL DEFAULT 0
+         CHECK (hold_dependents IN (0, 1))`,
+      `CREATE TABLE task_dependencies (
+         task_id TEXT NOT NULL,
+         depends_on_task_id TEXT NOT NULL,
+         created_at INTEGER NOT NULL,
+         PRIMARY KEY (task_id, depends_on_task_id),
+         CHECK (task_id <> depends_on_task_id)
+       )`,
+      `CREATE INDEX task_dependencies_depends_on_idx
+         ON task_dependencies (depends_on_task_id)`,
+      `ALTER TABLE task_settings ADD COLUMN max_concurrent_per_project INTEGER NOT NULL DEFAULT 1
+         CHECK (max_concurrent_per_project BETWEEN 1 AND 4)`
+    ]
   }
 ]

@@ -75,6 +75,8 @@ import type {
   taskChangesPayloadSchema,
   taskCreateInputSchema,
   taskDecideReviewInputSchema,
+  taskDependencyInputSchema,
+  taskHoldDependentsInputSchema,
   taskIdInputSchema,
   taskListInputSchema,
   taskRecordSchema,
@@ -411,8 +413,19 @@ export type IcodeProductApi = {
       archiveFinished: (
         input: z.infer<typeof taskArchiveFinishedInputSchema>
       ) => Promise<IpcResult<number>>
-      settings: () => Promise<IpcResult<{ maxConcurrent: number }>>
-      setSettings: (input: z.infer<typeof taskSettingsInputSchema>) => Promise<IpcResult<number>>
+      addDependency: (
+        input: z.infer<typeof taskDependencyInputSchema>
+      ) => Promise<IpcResult<TaskRecordPayload>>
+      removeDependency: (
+        input: z.infer<typeof taskDependencyInputSchema>
+      ) => Promise<IpcResult<TaskRecordPayload>>
+      setHoldDependents: (
+        input: z.infer<typeof taskHoldDependentsInputSchema>
+      ) => Promise<IpcResult<TaskRecordPayload>>
+      settings: () => Promise<IpcResult<TaskSettingsPayload>>
+      setSettings: (
+        input: z.infer<typeof taskSettingsInputSchema>
+      ) => Promise<IpcResult<TaskSettingsPayload>>
     }
     /** One project-scoped control session; opening creates it on first use. */
     supervisor: {
@@ -540,6 +553,10 @@ export type AddRepositoryResultPayload = z.infer<typeof addRepositoryResultSchem
 export type ProjectFolderInspectionPayload = z.infer<typeof projectFolderInspectionSchema>
 export type InitializeRepositoryResultPayload = z.infer<typeof initializeRepositoryResultSchema>
 export type RepositoryFolderPickPayload = z.infer<typeof pickRepositoryFolderResultSchema>
+export type TaskSettingsPayload = {
+  maxConcurrent: number
+  maxConcurrentPerProject: number
+}
 export type TaskRecordPayload = z.infer<typeof taskRecordSchema>
 export type TaskChangesPayload = z.infer<typeof taskChangesPayloadSchema>
 export type TaskSchedulePayload = z.infer<typeof taskScheduleSchema>

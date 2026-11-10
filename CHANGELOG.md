@@ -30,6 +30,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   supports resume, and the same uncommitted changes. **Retry** still starts a
   fresh attempt in a new worktree. SQLite migration v13 records each attempt's
   mode (`fresh` or `resume`).
+- Tasks can now depend on one or more other tasks. A dependent starts only
+  after every blocker reaches `completed`, a blocker can hold its dependents
+  until its result is accepted, and the task detail shows blockers and
+  dependents with a read-only chain graph tab. Dependencies can be changed
+  while the dependent is queued and follow the newest attempt on retry or
+  continue. SQLite migration v14 adds `task_dependencies`, the
+  `hold_dependents` gate and a per-project concurrency limit. An edge orders
+  starts; it does not transfer uncommitted work between worktrees.
 - Full app-chrome localization for English, Simplified Chinese, Japanese,
   Korean, Spanish, Brazilian Portuguese, German and French: renderer UI,
   native menus, dialogs, folder pickers, OS notifications and user-facing
@@ -53,6 +61,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Task admission is now bounded per project: by default at most one task per
+  project runs at a time, in addition to the global limit. Raising the global
+  limit lets different projects run in parallel; raising **Tasks per project**
+  in Settings also lets one project run several. The lower of the two limits
+  applies.
 - The installer, executable and desktop icons now use the transparent green
   brand mark from the README instead of the retired black tile.
 - Codex runs for Mira no longer use `--ephemeral` when resume is available, so

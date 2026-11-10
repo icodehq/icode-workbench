@@ -42,7 +42,7 @@ import { openFilesStore } from './files/open-files'
 import { pruneTreeStates } from './files/tree-state'
 import { filesClipboardStore } from './files/files-clipboard'
 
-const NEEDS_ORDER = { Approval: 0, Answer: 1, Retry: 2, Review: 3 } as const
+const NEEDS_ORDER = { Approval: 0, Answer: 1, Retry: 2, Blocked: 3, Review: 4 } as const
 const SESSIONS_LIST_KEY = 'icode.sessionsListOpen'
 
 /**
@@ -517,7 +517,9 @@ export default function App(): React.JSX.Element {
         state={state}
         runtime={workspace.runtime}
         maxConcurrent={tasks.maxConcurrent}
+        maxConcurrentPerProject={tasks.maxConcurrentPerProject}
         onSetMaxConcurrent={tasks.setMaxConcurrent}
+        onSetMaxConcurrentPerProject={tasks.setMaxConcurrentPerProject}
         refreshing={state.refreshing}
         onRefresh={refreshEverything}
         themePreference={theme.preference}

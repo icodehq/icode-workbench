@@ -19,7 +19,9 @@ type SettingsPageProps = {
   state: WorkspaceState
   runtime: RuntimeInfo | null
   maxConcurrent: number
+  maxConcurrentPerProject: number
   onSetMaxConcurrent: (value: number) => Promise<void>
+  onSetMaxConcurrentPerProject: (value: number) => Promise<void>
   refreshing: boolean
   onRefresh: () => void
   themePreference: ThemePreference
@@ -65,7 +67,9 @@ export default function SettingsPage({
   state,
   runtime,
   maxConcurrent,
+  maxConcurrentPerProject,
   onSetMaxConcurrent,
+  onSetMaxConcurrentPerProject,
   refreshing,
   onRefresh,
   themePreference,
@@ -161,6 +165,31 @@ export default function SettingsPage({
                   value={maxConcurrent}
                   onChange={(event) => void onSetMaxConcurrent(Number(event.target.value))}
                   data-testid="settings-concurrency"
+                >
+                  {[1, 2, 3, 4].map((value) => (
+                    <option key={value} value={value}>
+                      {t(value === 1 ? 'settings.taskExecution.task.one' : 'settings.taskExecution.task.other', { count: value })}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-3">
+                <div>
+                  <label className="text-[12px] font-medium text-foreground" htmlFor="settings-project-concurrency">
+                    {t('settings.taskExecution.perProject')}
+                  </label>
+                  <p className="mt-0.5 text-[10.5px] text-muted-foreground">
+                    {t('settings.taskExecution.perProjectHelp')}
+                  </p>
+                </div>
+                <select
+                  id="settings-project-concurrency"
+                  className="h-8 rounded-md border border-border bg-muted/40 px-2 text-[11.5px] text-foreground"
+                  value={maxConcurrentPerProject}
+                  onChange={(event) =>
+                    void onSetMaxConcurrentPerProject(Number(event.target.value))
+                  }
+                  data-testid="settings-project-concurrency"
                 >
                   {[1, 2, 3, 4].map((value) => (
                     <option key={value} value={value}>
