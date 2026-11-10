@@ -363,7 +363,7 @@ async function run() {
     assert(text.includes('Smoke session') || text.includes('Session details'), 'Session details are empty')
     assert(text.includes('Harness'), 'Session details omitted the Harness')
     await screenshot('01-session-details')
-    await click('[aria-label="Close session details"]')
+    await click('[data-testid="session-details-close"]')
     return { title: 'Smoke session' }
   })
 
@@ -756,7 +756,7 @@ async function run() {
     await waitForSelector('[data-testid="provider-select-claude"]', 10000)
     const providerCard = await cdp.evaluate(`(() => {
       const select = document.querySelector('[data-testid="provider-select-claude"]');
-      return select?.closest('section')?.innerText ?? '';
+      return select?.closest('section')?.textContent ?? '';
     })()`)
     assert(providerCard.includes('Agent providers'), 'Settings omitted the Agent providers card')
     assert(providerCard.includes('Claude Code'), 'Provider card omitted Claude Code')
@@ -765,7 +765,7 @@ async function run() {
       const smart = document.querySelector('[data-testid="scm-setting-smart-commit"]');
       const section = smart?.closest('section');
       return {
-        text: section?.innerText ?? '',
+        text: section?.textContent ?? '',
         smartCommit: smart?.value ?? null,
         untracked: document.querySelector('[data-testid="scm-setting-untracked"]')?.value ?? null,
         autoFetchPresent: Boolean(document.querySelector('input[aria-label="Auto-fetch"]')),
@@ -1589,7 +1589,19 @@ async function run() {
     const mountedTop = await cdp.evaluate(
       `document.querySelectorAll('[data-testid^="files-entry-phase-d/large/file-"]').length`
     )
-    assert(mountedTop < 100, `the large folder mounted ${String(mountedTop)} rows at the top`)
+    const treeMetrics = await cdp.evaluate(`(() => {
+      const tree = document.querySelector('[data-testid="files-tree"]');
+      return {
+        height: tree?.clientHeight ?? null,
+        scrollHeight: tree?.scrollHeight ?? null,
+        innerHeight: window.innerHeight,
+        mounted: document.querySelectorAll('[data-testid^="files-entry-phase-d/large/file-"]').length
+      };
+    })()`)
+    assert(
+      mountedTop < 100,
+      `the large folder mounted ${String(mountedTop)} rows at the top (${JSON.stringify(treeMetrics)})`
+    )
     await cdp.evaluate(`(() => {
       const element = document.querySelector('[data-testid="files-tree"]');
       if (!element) return false;
