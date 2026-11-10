@@ -20,9 +20,14 @@
  * middle), and with the absolute guest path resolved by discovery.
  */
 
-import type { HarnessId } from '../../../shared/domain/harness'
+import {
+  HARNESS_DEFINITIONS,
+  HARNESS_IDS,
+  type HarnessId
+} from '../../../shared/domain/harness'
 import type { WslCommandRunner } from '../exec'
 import { quoteForShell } from '../git/guest-git'
+import { isTransportFailure } from '../probe'
 import { PROBE_TIMEOUT_MS, type ProbeResult } from '../../harness/harness-detector'
 
 /** Marks the resolved path so a shell banner cannot be mistaken for it. */
@@ -107,7 +112,7 @@ export function parseGuestExecutableMap(stdout: string): Map<string, string> {
 }
 
 export type GuestHarnessProbeDeps = {
-  runner: WslCommandRunner
+  runner: Pick<WslCommandRunner, 'runBytes'>
   distro: string
   signal?: AbortSignal
 }
@@ -117,10 +122,12 @@ async function runShell(
   shell: string,
   mode: '-ilc' | '-lc' | '-c',
   script: string,
-  argument: string | null
+  argument: string | null,
+  label: string
 ): Promise<{ stdout: string; code: number | null } | null> {
   const result = await deps.runner.runBytes({
     scope: 'guest',
+    label,
     distro: deps.distro,
     argv: [
       shell,
@@ -143,7 +150,7 @@ async function runShell(
  * script's POSIX constructs, and Orca restricts itself the same way.
  */
 export async function resolveGuestShell(deps: GuestHarnessProbeDeps): Promise<GuestShell> {
-  const result = await runShell(deps, '/bin/sh', '-c', GUEST_SHELL_SCRIPT, null)
+  const result = await runShell(deps, '/bin/sh', '-c', GUEST_SHELL_SCRIPT, null, 'harness-shell')
   const shell = result?.stdout.trim() ?? ''
   const name = shell.slice(shell.lastIndexOf('/') + 1).toLowerCase()
   if (!isAbsolutePosix(shell) || !SUPPORTED_SHELLS.has(name)) {
@@ -166,12 +173,12 @@ export async function resolveGuestExecutables(
   const names = [...new Set(deps.names)]
   if (names.length === 0) return new Map()
 
-  const viaLogin = await runShellBatch(deps, chosen.shell, chosen.mode, names)
+  const viaLogin = await runShellBatch(deps, chosen.shell, chosen.mode, names, 'harness-lookup')
   const resolved = viaLogin === null ? new Map<string, string>() : parseGuestExecutableMap(viaLogin)
   const missing = names.filter((name) => !resolved.has(name))
   if (missing.length === 0 || chosen.shell === '/bin/sh') return resolved
 
-  const viaSh = await runShellBatch(deps, '/bin/sh', '-c', missing)
+  const viaSh = await runShellBatch(deps, '/bin/sh', '-c', missing, 'harness-lookup-sh')
   if (viaSh !== null) {
     for (const [name, path] of parseGuestExecutableMap(viaSh)) {
       if (!resolved.has(name)) resolved.set(name, path)
@@ -180,14 +187,56 @@ export async function resolveGuestExecutables(
   return resolved
 }
 
+/**
+ * One discovery snapshot: the login shell, its PATH, and every harness binary.
+ *
+ * `transient` is sticky evidence that at least one guest call timed out or hit
+ * the WSL service failure path. The snapshot is still usable for this request —
+ * a caller may prefer a partial answer to a hard failure — but it must not be
+ * cached: the next call is likely to succeed on a cold distro.
+ */
+export type GuestHarnessSnapshot = GuestHarnessContext & {
+  executables: ReadonlyMap<string, string>
+  transient: boolean
+}
+
+export async function resolveGuestHarnessSnapshot(
+  deps: GuestHarnessProbeDeps
+): Promise<GuestHarnessSnapshot> {
+  let transient = false
+  const observed: Pick<WslCommandRunner, 'runBytes'> = {
+    async runBytes(command) {
+      const result = await deps.runner.runBytes(command)
+      if ('status' in result) transient = true
+      else if (isTransportFailure(result)) transient = true
+      return result
+    }
+  }
+  const observedDeps: GuestHarnessProbeDeps = { ...deps, runner: observed }
+  const shell = await resolveGuestShell(observedDeps)
+  const loginPath = await resolveGuestLoginPath(observedDeps, shell)
+  const names = HARNESS_IDS.flatMap((id) => {
+    const command = HARNESS_DEFINITIONS[id].command
+    return command.kind === 'executable' ? [command.name] : []
+  })
+  const executables = await resolveGuestExecutables({
+    ...observedDeps,
+    names,
+    shell
+  })
+  return { shell, loginPath, executables, transient }
+}
+
 async function runShellBatch(
   deps: GuestHarnessProbeDeps,
   shell: string,
   mode: '-ilc' | '-lc' | '-c',
-  names: readonly string[]
+  names: readonly string[],
+  label: string
 ): Promise<string | null> {
   const result = await deps.runner.runBytes({
     scope: 'guest',
+    label,
     distro: deps.distro,
     argv: [shell, mode, GUEST_PATH_LOOKUP_BATCH_SCRIPT, 'icode-lookup', ...names],
     timeoutMs: LOOKUP_TIMEOUT_MS,
@@ -228,6 +277,7 @@ export async function probeGuestHarnessVersion(
   const path = loginPath && loginPath.length > 0 ? `${directory}:${loginPath}` : directory
   const result = await deps.runner.runBytes({
     scope: 'guest',
+    label: 'harness-version',
     distro: deps.distro,
     argv: ['env', `PATH=${path}`, 'NO_COLOR=1', 'CI=1', file, ...args],
     timeoutMs: PROBE_TIMEOUT_MS,
@@ -274,7 +324,14 @@ export async function resolveGuestLoginPath(
   deps: GuestHarnessProbeDeps,
   shell: GuestShell
 ): Promise<string | null> {
-  const result = await runShell(deps, shell.shell, shell.mode, GUEST_LOGIN_PATH_SCRIPT, null)
+  const result = await runShell(
+    deps,
+    shell.shell,
+    shell.mode,
+    GUEST_LOGIN_PATH_SCRIPT,
+    null,
+    'harness-login-path'
+  )
   const value = result?.stdout.trim() ?? ''
   return value.includes('/') ? value : null
 }

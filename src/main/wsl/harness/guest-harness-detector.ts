@@ -8,15 +8,16 @@
  * shell. Availability evidence and launch shape stay in one place per concern.
  */
 
-import { HARNESS_DEFINITIONS, HARNESS_IDS, type HarnessId } from '../../../shared/domain/harness'
+import type { HarnessId } from '../../../shared/domain/harness'
 import { HarnessDetector, type HarnessDetectionResult } from '../../harness/harness-detector'
 import type { WslCommandRunner } from '../exec'
 import {
   guestLaunchSpec,
   probeGuestHarnessVersion,
-  resolveGuestExecutables,
   resolveGuestHarnessContext,
-  type GuestHarnessContext
+  resolveGuestHarnessSnapshot,
+  type GuestHarnessContext,
+  type GuestHarnessSnapshot
 } from './guest-harness'
 
 export type GuestHarnessDetectorOptions = {
@@ -24,37 +25,46 @@ export type GuestHarnessDetectorOptions = {
   distro: string
   signal?: AbortSignal
   now?: () => number
+  /**
+   * A snapshot already resolved for this distro. Supplying it removes the shell,
+   * login-PATH and executable-lookup spawns; only the version probe remains.
+   */
+  probe?: GuestHarnessSnapshot
+}
+
+export type GuestHarnessDetectorBundle = {
+  detector: HarnessDetector
+  /** The context this detector resolved (or was handed), so callers do not re-probe. */
+  context: GuestHarnessContext
 }
 
 /**
  * Discovers the harnesses for one distro.
  *
  * Every executable is resolved **before** the detector runs, because resolution is
- * async while `HarnessDetector.resolve` is sync. That keeps the classification
- * code untouched and keeps the number of guest calls predictable: one context
- * resolution plus one lookup per harness.
+ * async while `HarnessDetector.resolve` is sync. The snapshot is either supplied
+ * by the probe cache or resolved once here; the same context is returned so the
+ * launch-command rewrite does not ask the guest a second time.
  */
 export async function createGuestHarnessDetector(
   options: GuestHarnessDetectorOptions
-): Promise<HarnessDetector> {
-  const context = await detectContext(options)
-  // Names come from the fixed registry (never from user input), and one batched
-  // lookup keeps discovery deterministic.
-  const names = HARNESS_IDS.flatMap((id) => {
-    const command = HARNESS_DEFINITIONS[id].command
-    return command.kind === 'executable' ? [command.name] : []
-  })
-  const resolved = await resolveGuestExecutables({
-    runner: options.runner,
-    distro: options.distro,
-    names,
-    shell: context.shell,
-    ...(options.signal ? { signal: options.signal } : {})
-  })
+): Promise<GuestHarnessDetectorBundle> {
+  const snapshot =
+    options.probe ??
+    (await resolveGuestHarnessSnapshot({
+      runner: options.runner,
+      distro: options.distro,
+      ...(options.signal ? { signal: options.signal } : {})
+    }))
+  const context: GuestHarnessContext = {
+    shell: snapshot.shell,
+    loginPath: snapshot.loginPath
+  }
 
-  return new HarnessDetector({
-    // Sync by contract: the map was filled above.
-    resolve: (name) => (name.startsWith('/') ? name : (resolved.get(name) ?? null)),
+  const detector = new HarnessDetector({
+    // Sync by contract: the snapshot was filled before the detector runs.
+    resolve: (name) =>
+      name.startsWith('/') ? name : (snapshot.executables.get(name) ?? null),
     probe: (file, args) =>
       probeGuestHarnessVersion(
         {
@@ -71,14 +81,7 @@ export async function createGuestHarnessDetector(
     platform: 'linux',
     ...(options.now ? { now: options.now } : {})
   })
-}
-
-async function detectContext(options: GuestHarnessDetectorOptions): Promise<GuestHarnessContext> {
-  return resolveGuestHarnessContext({
-    runner: options.runner,
-    distro: options.distro,
-    ...(options.signal ? { signal: options.signal } : {})
-  })
+  return { detector, context }
 }
 
 /**
@@ -106,7 +109,11 @@ export function withGuestLaunchCommand(
 export async function guestHarnessContextFor(
   options: GuestHarnessDetectorOptions
 ): Promise<GuestHarnessContext> {
-  return detectContext(options)
+  return resolveGuestHarnessContext({
+    runner: options.runner,
+    distro: options.distro,
+    ...(options.signal ? { signal: options.signal } : {})
+  })
 }
 
 /** Re-exported so a caller can name a harness without importing the registry. */

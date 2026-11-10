@@ -384,7 +384,11 @@ export function createAppDispatcher(
     schedulesRemove: (input) => Promise.resolve(runtime.schedules.remove(input.scheduleId)),
     // Detection is per execution target: a WSL repository's Harnesses live in its
     // distro, so the repository is part of the question, not just a UI detail.
-    harnessList: (input) => runtime.listHarnesses(input?.repoId === undefined ? {} : { repoId: input.repoId }),
+    harnessList: (input) =>
+      runtime.listHarnesses({
+        ...(input?.repoId === undefined ? {} : { repoId: input.repoId }),
+        ...(input?.force === true ? { force: true } : {})
+      }),
     providersList: async () => {
       const persistence = getPersistence()
       return {
@@ -395,20 +399,26 @@ export function createAppDispatcher(
     },
     providersCreate: async (input) => {
       const persistence = getPersistence()
-      return persistence.providers.createAndSelect(input, Date.now())
+      const created = persistence.providers.createAndSelect(input, Date.now())
+      runtime.invalidateHarnessDetection()
+      return created
     },
     providersUpdate: async (input) => {
       const persistence = getPersistence()
-      return persistence.providers.update(input, Date.now())
+      const updated = persistence.providers.update(input, Date.now())
+      runtime.invalidateHarnessDetection()
+      return updated
     },
     providersRemove: async (input) => {
       const persistence = getPersistence()
       persistence.providers.remove(input.providerId)
+      runtime.invalidateHarnessDetection()
       return null
     },
     providersSelect: async (input) => {
       const persistence = getPersistence()
       persistence.providers.select(input.harness, input.providerId, Date.now())
+      runtime.invalidateHarnessDetection()
       return null
     },
     providersTest: async (input) => {

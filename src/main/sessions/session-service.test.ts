@@ -1054,6 +1054,67 @@ describe('Path A terminal routing', () => {
   })
 })
 
+describe('session create prewarm and fresh checkout grant', () => {
+  const WSL_TARGET = {
+    kind: 'wsl' as const,
+    distro: 'Ubuntu-26.04',
+    distroId: 'a5489bf0-2b9e-49bf-940e-0c19a6caef73'
+  }
+
+  async function wslRepo(f: Fixture): Promise<string> {
+    const added = await f.stores.service.addRepository(f.repoPath, WSL_TARGET)
+    return added.repository.id
+  }
+
+  it('prewarms the managed host for a WSL agent', async () => {
+    const f = await withRepo()
+    const repoId = await wslRepo(f)
+    await f.service.create({ repoId, harness: 'claude', cols: 80, rows: 24 })
+    expect(f.host.calls.prewarm).toHaveLength(1)
+    expect(f.host.calls.prewarm[0]?.host).toContain('wsl:Ubuntu-26.04')
+  })
+
+  it('does not prewarm a local session', async () => {
+    const f = await withRepo()
+    await f.service.create({ repoId: f.repoId, harness: 'shell', cols: 80, rows: 24 })
+    expect(f.host.calls.prewarm).toHaveLength(0)
+  })
+
+  it('does not fail create when the prewarm fails', async () => {
+    const f = await withRepo()
+    const repoId = await wslRepo(f)
+    f.host.prewarmFailure = new Error('relay down')
+    const created = await f.service.create({ repoId, harness: 'claude', cols: 80, rows: 24 })
+    expect(created.state).toBe('live')
+  })
+
+  it('reuses the create-time checkout proof for the first attach', async () => {
+    const f = await withRepo()
+    const created = await f.service.create({
+      repoId: f.repoId,
+      harness: 'shell',
+      cols: 80,
+      rows: 24
+    })
+    const inspect = vi.spyOn(f.gitWorktrees, 'inspect')
+    await f.service.attach(created.id)
+    expect(inspect).not.toHaveBeenCalled()
+  })
+
+  it('re-inspects after a restart, where the grant no longer applies', async () => {
+    const f = await withRepo()
+    const created = await f.service.create({
+      repoId: f.repoId,
+      harness: 'shell',
+      cols: 80,
+      rows: 24
+    })
+    const inspect = vi.spyOn(f.gitWorktrees, 'inspect')
+    await f.service.restart(created.id)
+    expect(inspect).toHaveBeenCalled()
+  })
+})
+
 describe('Path A lifecycle is judged by the desktop host', () => {
   const WSL_TARGET = {
     kind: 'wsl' as const,

@@ -136,6 +136,7 @@ export function createGuestGitEnvironmentCache(
     const pending = (async (): Promise<GuestGitProbeOutcome> => {
       const result = await runner.runBytes({
         scope: 'guest',
+        label: 'git-env-probe',
         distro,
         // The login shell, because that is where the user's PATH lives.
         argv: ['sh', '-lc', fencedCommand(GUEST_GIT_PROBE_SCRIPT)],

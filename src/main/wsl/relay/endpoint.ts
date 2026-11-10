@@ -80,6 +80,14 @@ export type WslHostRelayDeps = {
   artifactRoot: string
   manifest: HostArtifactManifest
   profileDir: string
+  /**
+   * The guest `$HOME` probe. Composition passes the process-wide cached reader;
+   * the default keeps tests and standalone construction on the primitive.
+   */
+  readGuestHome?: (
+    distro: string,
+    options?: { signal?: AbortSignal }
+  ) => Promise<string | null>
   /** Test seam: a bridge child without a real `wsl.exe`. */
   spawnBridge?: (spec: { distro: string; nodePath: string; socketPath: string }) => BridgeChild
   bridgeChildDeps?: BridgeChildDeps
@@ -187,7 +195,11 @@ export class WslHostRelay {
       throw error
     }
 
-    const home = await readGuestHome(this.deps.runner, distro, options)
+    const readHome =
+      this.deps.readGuestHome ??
+      ((distro: string, options?: { signal?: AbortSignal }) =>
+        readGuestHome(this.deps.runner, distro, options ?? {}))
+    const home = await readHome(distro, options)
     if (home === null) {
       return unavailable(
         makeAppError('WSL_UNAVAILABLE', 'Could not resolve the guest home directory.'),

@@ -236,6 +236,7 @@ function defaultGuestIsDirectory(
   return async (distro, path) => {
     const result = await runIdempotentGuest(runner, {
       scope: 'guest',
+      label: 'path-a-preflight',
       distro,
       argv: ['sh', '-c', 'test -d "$1"', 'icode-path-a', path],
       timeoutMs: 10_000

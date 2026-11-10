@@ -20,7 +20,6 @@ type Props = {
   harnesses: HarnessDetection[]
   harnessLoading: boolean
   harnessError: AppError | null
-  creating: boolean
   onClose: () => void
   onCreate: (input: CreateSessionRequest) => Promise<boolean>
   /** Re-detect for one repository's execution target (`repoId` omitted = this machine). */
@@ -153,7 +152,6 @@ export default function NewSessionDialog({
   harnesses,
   harnessLoading,
   harnessError,
-  creating,
   onClose,
   onCreate,
   onRefreshHarnesses
@@ -186,6 +184,7 @@ export default function NewSessionDialog({
    * do not share an answer, and the list is what the user chooses from.
    */
   const requested = useRef<string | null>(null)
+  const submitted = useRef(false)
   useEffect(() => {
     if (repoId.length === 0) return
     if (requested.current === repoId) return
@@ -201,15 +200,22 @@ export default function NewSessionDialog({
     setHarness(preferred?.harness ?? available[0]?.harness ?? null)
   }, [available, harness])
 
-  const submit = async (event: React.FormEvent): Promise<void> => {
+  const submit = (event: React.FormEvent): void => {
     event.preventDefault()
-    if (creating || harness === null || repoId.length === 0) return
-    const ok = await onCreate({
+    if (submitted.current || harness === null || repoId.length === 0) return
+    submitted.current = true
+    /*
+     * The dialog must not block on the create round trip: on WSL that is the
+     * whole multi-second pipeline. The App wrapper owns the request, renders a
+     * pending surface, and reports failures with a Retry that preserves these
+     * values. Closing here is what makes the click feel immediate.
+     */
+    void onCreate({
       repoId,
       harness,
       ...(title.trim().length > 0 ? { title: title.trim() } : {})
     })
-    if (ok) onClose()
+    onClose()
   }
 
   return (
@@ -221,7 +227,7 @@ export default function NewSessionDialog({
     >
       <form
         className="icode-modal flex max-h-[86vh] w-full max-w-xl flex-col overflow-hidden rounded-lg border border-border bg-card shadow-2xl"
-        onSubmit={(event) => void submit(event)}
+        onSubmit={(event) => submit(event)}
       >
         <div className="flex items-start justify-between border-b border-border px-5 py-4">
           <div>
@@ -297,7 +303,7 @@ export default function NewSessionDialog({
             <button
               type="button"
               className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10.5px] text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
-              onClick={() => void onRefreshHarnesses(true)}
+              onClick={() => void onRefreshHarnesses(true, repoId)}
               disabled={harnessLoading}
               data-testid="harness-redetect"
             >
@@ -312,7 +318,7 @@ export default function NewSessionDialog({
               <button
                 type="button"
                 className="ml-1 underline"
-                onClick={() => void onRefreshHarnesses(true)}
+                onClick={() => void onRefreshHarnesses(true, repoId)}
               >
                 {t('newSession.retry')}
               </button>
@@ -448,14 +454,12 @@ export default function NewSessionDialog({
               type="submit"
               className="inline-flex items-center gap-1.5 rounded-md bg-accent h-9 px-3.5 text-[12.5px] font-medium text-accent-ink hover:opacity-90 disabled:opacity-50"
               disabled={
-                creating ||
                 harness === null ||
                 repoId.length === 0 ||
                 preparation !== null
               }
               data-testid="create-session-submit"
             >
-              {creating ? <Loader2 size={12} className="animate-spin" /> : null}
               {t('newSession.start')}
             </button>
           </div>

@@ -4,6 +4,12 @@ import { describe, expect, it } from 'vitest'
 import type { ExecutionTarget } from '../../shared/domain/repository'
 import { WslCommandRunner, type WslByteResult } from '../wsl/exec'
 import { GitUnavailableError, createGitExecutorRouter } from '../git/executor'
+import {
+  CREATE_WORKTREE_SENTINEL,
+  GUEST_CREATE_WORKTREE_SCRIPT,
+  GUEST_INSPECT_FOR_CREATE_SCRIPT,
+  INSPECT_FOR_CREATE_SENTINEL
+} from '../wsl/git/guest-session-scripts'
 import { makeTempRoot } from '../persistence/persistence-test-fixtures'
 import { GitWorktreeService } from './git-worktree-service'
 
@@ -41,14 +47,111 @@ function guestRunner(handlers: {
   git?: (cwd: string, args: string[]) => { code: number; stdout?: string; stderr?: string }
   exists?: (path: string) => boolean
   directories?: string[]
+  transportScript?: boolean
 }) {
-  const calls: { kind: 'git' | 'fs'; cwd?: string; args?: string[]; path?: string }[] = []
+  const calls: { kind: 'git' | 'fs' | 'script'; cwd?: string; args?: string[]; path?: string }[] = []
+  const markers = [
+    'MERGE_HEAD',
+    'CHERRY_PICK_HEAD',
+    'REVERT_HEAD',
+    'rebase-merge',
+    'rebase-apply',
+    'BISECT_LOG'
+  ]
+  const bytes = (stdout: string, code = 0): WslByteResult => ({
+    code,
+    signal: null,
+    stdout: Buffer.from(stdout),
+    stderr: Buffer.alloc(0),
+    timedOut: false
+  })
+  const answerGit = (cwd: string, args: string[], record = true) => {
+    if (record) calls.push({ kind: 'git', cwd, args })
+    return handlers.git?.(cwd, args) ?? { code: 1, stderr: 'unexpected' }
+  }
+  const batch = (guest: readonly string[]): WslByteResult | null => {
+    const index = guest.findIndex(
+      (part) => part === GUEST_INSPECT_FOR_CREATE_SCRIPT || part === GUEST_CREATE_WORKTREE_SCRIPT
+    )
+    if (index === -1) return null
+    calls.push({ kind: 'script', args: guest.slice(index + 2) })
+    if (handlers.transportScript === true) {
+      return { code: null, signal: null, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), timedOut: true }
+    }
+    const args = guest.slice(index + 2)
+    if (guest[index] === GUEST_INSPECT_FOR_CREATE_SCRIPT) {
+      const workspace = args[1] ?? ''
+      const root = args[2] ?? ''
+      const workspacePresent = handlers.directories?.includes(workspace) ?? true
+      const verify = answerGit(root, ['rev-parse', '--verify', 'HEAD'])
+      const head = verify.code === 0 ? answerGit(root, ['rev-parse', 'HEAD']) : null
+      const ref = verify.code === 0 ? answerGit(root, ['rev-parse', '--abbrev-ref', 'HEAD']) : null
+      const operation = markers.find((marker) => handlers.exists?.(`${root}/.git/${marker}`)) ?? ''
+      return bytes(
+        [
+          INSPECT_FOR_CREATE_SENTINEL,
+          `workspace=${workspacePresent ? 'present' : 'missing'}`,
+          'root=present',
+          'git=present',
+          `verify_status=${verify.code}`,
+          `head=${verify.code === 0 ? (head?.stdout ?? '').trim() : ''}`,
+          `ref=${verify.code === 0 ? (ref?.stdout ?? '').trim() : ''}`,
+          `operation=${operation}`,
+          INSPECT_FOR_CREATE_SENTINEL
+        ].join('\n')
+      )
+    }
+    const primaryRoot = args[1] ?? ''
+    const path = args[2] ?? ''
+    const branch = args[3] ?? ''
+    const baseOid = args[4] ?? ''
+    if (handlers.exists?.(path)) {
+      return bytes([CREATE_WORKTREE_SENTINEL, 'exists=1', CREATE_WORKTREE_SENTINEL].join('\n'))
+    }
+    const addArgs = ['worktree', 'add', '-b', branch, path, baseOid]
+    const add = answerGit(primaryRoot, addArgs)
+    if (add.code !== 0) {
+      return bytes(
+        [
+          CREATE_WORKTREE_SENTINEL,
+          'exists=0',
+          'mkdir=0',
+          `add=${add.code}`,
+          'add_begin',
+          add.stderr ?? '',
+          'add_end',
+          CREATE_WORKTREE_SENTINEL
+        ].join('\n')
+      )
+    }
+    const top = answerGit(path, ['rev-parse', '--show-toplevel'])
+    const head = answerGit(path, ['rev-parse', 'HEAD'])
+    const list = answerGit(primaryRoot, ['worktree', 'list', '--porcelain'])
+    return bytes(
+      [
+        CREATE_WORKTREE_SENTINEL,
+        'exists=0',
+        'mkdir=0',
+        'add=0',
+        'add_begin',
+        'add_end',
+        `toplevel=${(top.stdout ?? '').trim()}`,
+        `head=${(head.stdout ?? '').trim()}`,
+        'worktrees_begin',
+        (list.stdout ?? '').trim(),
+        'worktrees_end',
+        CREATE_WORKTREE_SENTINEL
+      ].join('\n')
+    )
+  }
   const byteLauncher = async (spec: { args: readonly string[] }): Promise<WslByteResult> => {
     const args = [...spec.args]
     const guest = args.slice(args.indexOf('--exec') + 1)
     if (isProbe(guest)) {
       return { code: 0, signal: null, stdout: probeAnswer(), stderr: Buffer.alloc(0), timedOut: false }
     }
+    const batched = batch(guest)
+    if (batched !== null) return batched
     const resolved = gitArgv(guest)
     if (resolved !== null) {
       const { cwd, args: gitArgs } = resolved
@@ -236,6 +339,120 @@ describe('WSL worktree routing', () => {
     // Two creates for one repository never overlap.
     expect(maxConcurrent).toBeLessThanOrEqual(1)
   }, 15_000)
+
+  it('reads workspace and repository state in one guest script', async () => {
+    const { runner, calls } = guestRunner({
+      git: (_cwd, args) => {
+        const joined = args.join(' ')
+        if (joined === 'rev-parse --verify HEAD') return { code: 0, stdout: 'abc\n' }
+        if (joined === 'rev-parse HEAD') return { code: 0, stdout: 'abc\n' }
+        if (joined === 'rev-parse --abbrev-ref HEAD') return { code: 0, stdout: 'main\n' }
+        return { code: 1 }
+      }
+    })
+    const service = serviceWith(runner, '/local/worktrees')
+    const state = await service.inspectForCreate({
+      workspacePath: '/home/u/src',
+      primaryRoot: '/home/u/src',
+      target: WSL
+    })
+    expect(state).toEqual({
+      headOid: 'abc',
+      headRef: 'main',
+      unborn: false,
+      inProgressOperation: null
+    })
+    expect(calls.filter((call) => call.kind === 'script')).toHaveLength(1)
+  })
+
+  it('reports a missing workspace as CWD_MISSING from the same script', async () => {
+    const { runner } = guestRunner({ directories: [] })
+    const service = serviceWith(runner, '/local/worktrees')
+    await expect(
+      service.inspectForCreate({
+        workspacePath: '/home/u/missing',
+        primaryRoot: '/home/u/src',
+        target: WSL
+      })
+    ).rejects.toMatchObject({ appError: { code: 'CWD_MISSING' } })
+  })
+
+  it('reports an in-progress operation from the same script', async () => {
+    const { runner } = guestRunner({
+      exists: (path) => path === '/home/u/src/.git/MERGE_HEAD',
+      git: (_cwd, args) => {
+        const joined = args.join(' ')
+        if (joined === 'rev-parse --verify HEAD') return { code: 0, stdout: 'abc\n' }
+        if (joined === 'rev-parse HEAD') return { code: 0, stdout: 'abc\n' }
+        if (joined === 'rev-parse --abbrev-ref HEAD') return { code: 0, stdout: 'main\n' }
+        return { code: 1 }
+      }
+    })
+    const service = serviceWith(runner, '/local/worktrees')
+    const state = await service.inspectForCreate({
+      workspacePath: '/home/u/src',
+      primaryRoot: '/home/u/src',
+      target: WSL
+    })
+    expect(state.inProgressOperation).toBe('MERGE_HEAD')
+  })
+
+  it('reports a transport failure on the read script as unavailable, after one retry', async () => {
+    const { runner, calls } = guestRunner({ transportScript: true })
+    const service = serviceWith(runner, '/local/worktrees')
+    await expect(
+      service.inspectForCreate({
+        workspacePath: '/home/u/src',
+        primaryRoot: '/home/u/src',
+        target: WSL
+      })
+    ).rejects.toBeInstanceOf(GitUnavailableError)
+    expect(calls.filter((call) => call.kind === 'script')).toHaveLength(2)
+  })
+
+  it('never retries the create mutation and reports an unknown outcome', async () => {
+    const { runner, calls } = guestRunner({ transportScript: true })
+    const service = serviceWith(runner, '/local/worktrees')
+    await expect(
+      service.create({
+        primaryRoot: '/home/u/src/atlas',
+        path: '/home/u/.icode/worktrees/scope/r1/s1',
+        branch: 'icode/session-1',
+        baseOid: 'base1',
+        target: WSL
+      })
+    ).rejects.toMatchObject({
+      appError: {
+        code: 'WORKTREE_CREATE_FAILED',
+        detail: expect.stringContaining('may or may not')
+      }
+    })
+    expect(calls.filter((call) => call.kind === 'script')).toHaveLength(1)
+  })
+
+  it('maps a failed add to WORKTREE_CREATE_FAILED with Git output', async () => {
+    const { runner } = guestRunner({
+      git: (_cwd, args) =>
+        args.join(' ').startsWith('worktree add')
+          ? { code: 128, stderr: 'fatal: already checked out' }
+          : { code: 1 }
+    })
+    const service = serviceWith(runner, '/local/worktrees')
+    await expect(
+      service.create({
+        primaryRoot: '/home/u/src/atlas',
+        path: '/home/u/.icode/worktrees/scope/r1/s1',
+        branch: 'icode/session-1',
+        baseOid: 'base1',
+        target: WSL
+      })
+    ).rejects.toMatchObject({
+      appError: {
+        code: 'WORKTREE_CREATE_FAILED',
+        detail: expect.stringContaining('already checked out')
+      }
+    })
+  })
 })
 
 describe('local worktree behaviour is unchanged', () => {
