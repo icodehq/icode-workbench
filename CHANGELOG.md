@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-10
+
 ### Added
 
 - Mira now keeps a native harness conversation instead of replaying a
@@ -75,6 +77,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - iCode Workbench is now licensed under the GNU Affero General Public License
   v3.0 only (AGPL-3.0-only). A modified version made available to users over a
   network must offer them the corresponding source under section 13.
+- Starting a new session no longer blocks on the whole WSL pipeline. The New
+  Session dialog closes immediately and shows a pending surface while the main
+  process works; the create path now caches the guest home and Harness
+  discovery, batches the workspace/repository read and the worktree
+  create+verify into one guest script each, prewarms the WSL host/relay, and
+  reuses the create-time checkout proof on the first attach. On a warm WSL
+  repository this cuts session creation from roughly 34 `wsl.exe` spawns to
+  about 5; the first attach still verifies that the checkout exists.
 
 ### Fixed
 
@@ -83,6 +93,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   because a ConPTY cannot start in a Linux path; that cwd was being compared
   with the guest worktree, which blocked the terminal. The cwd comparison is
   now local-only, and guest checkouts keep the distro-side Git inspection.
+- **Detect again** in the New Session dialog now re-detects the selected
+  repository's execution target, including a WSL distro, instead of this
+  machine.
+- The Sessions workspace keeps its viewport height when the pending-session
+  surface is visible, so the Files tree virtualizes instead of mounting every
+  row.
 
 ### Security
 

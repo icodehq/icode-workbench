@@ -1,6 +1,6 @@
 {
   "name": "icode",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "private": true,
   "description": "iCode Workbench — the universal agent development environment for every agent and platform",
   "license": "AGPL-3.0-only",
