@@ -4,9 +4,9 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { GitStatusWatcherService, type GitStatusChangeEvent } from './status-watcher'
 
-const cleanups: Array<() => void> = []
-afterEach(() => {
-  while (cleanups.length > 0) cleanups.pop()!()
+const cleanups: Array<() => void | Promise<void>> = []
+afterEach(async () => {
+  while (cleanups.length > 0) await cleanups.pop()!()
 })
 
 const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
@@ -25,8 +25,12 @@ describe('GitStatusWatcherService with chokidar', () => {
     })
     const events: GitStatusChangeEvent[] = []
     service.subscribe((event) => events.push(event))
-    cleanups.push(() => {
-      void service.stopAll()
+    cleanups.push(async () => {
+      // Close the native watchers before removing their roots. Deleting a
+      // watched directory first can leave libuv processing events for a path
+      // that no longer exists, the suspected source of the Windows worker abort
+      // (0xC0000409) that surfaced while the next test file was starting.
+      await service.stopAll()
       rmSync(root, { recursive: true, force: true })
     })
 

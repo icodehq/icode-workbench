@@ -117,8 +117,9 @@ describe('terminal snapshots', () => {
     const emulator = createEmulator(40, 6)
     const line = `${'x'.repeat(38)}\r\n`
     for (let i = 0; i < SCROLLBACK_LINES + 200; i += 1) emulator.write(line)
-    // Let xterm drain in chunks so the pending counter is honest.
-    await new Promise((resolve) => setTimeout(resolve, 400))
+    // Wait until xterm has parsed every line before asking for the snapshot;
+    // a fixed delay expires under load on the macOS x64 runner.
+    await emulator.whenIdle()
     const snapshot = emulator.snapshot(9)
     expect(snapshot.scrollbackLines).toBeLessThanOrEqual(SCROLLBACK_LINES)
     expect(snapshot.truncated).toBe(true)

@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- GitHub Releases now include the Linux, Windows, and macOS installers built by
+  CI from the released tag. Pushing a `v*` tag publishes the release, and the
+  workflow can be dispatched with an existing tag to backfill one.
+
+### Fixed
+
+- File watchers canonicalize their roots before subscribing, so a Windows 8.3
+  short path cannot trip a libuv assertion and crash the process. The watcher
+  integration test now closes chokidar before deleting its temp tree.
+- Host tests wait longer for slow CI runners instead of a fixed three-second
+  frame budget, and the scrollback test waits for xterm to drain rather than
+  sleeping for a fixed 400 ms.
+
 ## [0.7.0] - 2026-11-10
 
 ### Added

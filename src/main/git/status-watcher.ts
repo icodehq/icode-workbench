@@ -10,6 +10,7 @@
 import { relative } from 'node:path'
 import { watch as chokidarWatch } from 'chokidar'
 import { GENERATED_IGNORE_PATTERNS } from '../repositories/first-commit'
+import { canonicalWatchPath } from '../watch-path'
 import type { GitStatusWatchEvent } from '../../shared/domain/git-workspace'
 
 export type WatchTarget = {
@@ -169,6 +170,13 @@ export class GitStatusWatcherService {
     if (target === null) {
       this.desired.delete(sessionId)
       return { watching: false, reason: 'unsupported-target' }
+    }
+    // Chokidar and libuv must agree on the spelling of the watched root; a
+    // Windows 8.3 short name makes libuv abort the process. Canonicalize before
+    // any ignore or relative-path logic sees the target.
+    target = {
+      worktreePath: canonicalWatchPath(target.worktreePath),
+      gitDir: canonicalWatchPath(target.gitDir)
     }
 
     await this.stop(sessionId)
