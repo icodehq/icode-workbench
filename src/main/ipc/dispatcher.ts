@@ -48,10 +48,12 @@ import {
   taskCreateInputSchema,
   taskArchiveFinishedInputSchema,
   taskDecideReviewInputSchema,
+  taskDependencyInputSchema,
+  taskHoldDependentsInputSchema,
   taskIdInputSchema,
   taskListInputSchema,
   taskRejectInputSchema,
-  taskSettingsInputSchema,
+  taskSettingsInputSchema
 } from '../../shared/schemas/workspace'
 import { clearActivityUnreadInputSchema } from '../../shared/schemas/activity'
 import {
@@ -197,8 +199,14 @@ export type DispatcherServices = {
   tasksArchive: (input: { taskId: string }) => Promise<unknown>
   tasksUnarchive: (input: { taskId: string }) => Promise<unknown>
   tasksArchiveFinished: (input: { repoId?: string }) => Promise<unknown>
+  tasksAddDependency: (input: { taskId: string; blockerId: string }) => Promise<unknown>
+  tasksRemoveDependency: (input: { taskId: string; blockerId: string }) => Promise<unknown>
+  tasksSetHoldDependents: (input: { taskId: string; hold: boolean }) => Promise<unknown>
   tasksSettings: () => Promise<unknown>
-  tasksSetSettings: (input: { maxConcurrent: number }) => Promise<unknown>
+  tasksSetSettings: (input: {
+    maxConcurrent?: number
+    maxConcurrentPerProject?: number
+  }) => Promise<unknown>
   supervisorOpen: (input: { repoId: string }) => Promise<unknown>
   assistantState: () => Promise<unknown>
   assistantMessagesList: (input: {
@@ -613,6 +621,24 @@ export function createDispatcher(services: DispatcherServices): Dispatcher {
         const input = parse(taskArchiveFinishedInputSchema, rawInput)
         if ('code' in input) return { ok: false, error: input }
         return run(() => services.tasksArchiveFinished(input))
+      }
+
+      case IPC_CHANNELS.tasksAddDependency: {
+        const input = parse(taskDependencyInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.tasksAddDependency(input))
+      }
+
+      case IPC_CHANNELS.tasksRemoveDependency: {
+        const input = parse(taskDependencyInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.tasksRemoveDependency(input))
+      }
+
+      case IPC_CHANNELS.tasksSetHoldDependents: {
+        const input = parse(taskHoldDependentsInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.tasksSetHoldDependents(input))
       }
 
       case IPC_CHANNELS.tasksSettings: {

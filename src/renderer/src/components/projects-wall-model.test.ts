@@ -176,6 +176,7 @@ describe('project directory model', () => {
       answer: 1,
       retry: 0,
       review: 1,
+      blocked: 0,
       waiting: 0,
       setup: 0,
       total: 2
@@ -445,6 +446,7 @@ describe('project directory model', () => {
         answer: 1,
         retry: 1,
         review: 0,
+        blocked: 0,
         waiting: 0,
         setup: 0,
         total: 2
@@ -472,6 +474,7 @@ describe('project directory model', () => {
         answer: 1,
         retry: 0,
         review: 0,
+        blocked: 0,
         waiting: 1,
         setup: 0,
         total: 2
@@ -519,6 +522,7 @@ describe('project directory model', () => {
         answer: 0,
         retry: 0,
         review: 0,
+        blocked: 0,
         waiting: 0,
         setup: 0,
         total: 0
@@ -534,6 +538,7 @@ describe('project directory model', () => {
         answer: 0,
         retry: 0,
         review: 0,
+        blocked: 0,
         waiting: 0,
         setup: 1,
         total: 1
@@ -609,10 +614,10 @@ describe('project directory model', () => {
       expect(needYouLabel(0)).toBe('—')
       expect(needYouLabel(2)).toBe('2 need you')
       expect(
-        needsLabel({ answer: 0, retry: 0, review: 0, waiting: 0, setup: 0, total: 0 })
+        needsLabel({ answer: 0, retry: 0, review: 0, blocked: 0, waiting: 0, setup: 0, total: 0 })
       ).toBe('')
       expect(
-        needsLabel({ answer: 1, retry: 2, review: 1, waiting: 1, setup: 1, total: 6 })
+        needsLabel({ answer: 1, retry: 2, review: 1, blocked: 0, waiting: 1, setup: 1, total: 6 })
       ).toBe('Answer 1 · Retry 2 · Review 1 · Waiting 1 · Setup failed')
 
       const project = repo('project')
@@ -628,6 +633,7 @@ describe('project directory model', () => {
         answer: 1,
         retry: 1,
         review: 0,
+        blocked: 0,
         waiting: 1,
         setup: 0,
         total: 3

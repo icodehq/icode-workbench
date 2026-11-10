@@ -6,18 +6,22 @@ import type { HarnessId } from '../../shared/domain/harness'
 import type { RepoId, SessionId } from '../../shared/domain/ids'
 import { repositoryPreparationBlocksSessions } from '../../shared/domain/repository'
 import {
+  dependencySatisfied,
   isTerminalTaskStatus,
+  taskCanHoldDependents,
   taskCanResume,
   TASK_LIMITS,
   type ReviewRecommendation,
   type TaskApproval,
   type TaskAttemptMode,
+  type TaskDependencySummary,
+  type TaskDependentSummary,
   type TaskListFilter,
   type TaskOrigin,
   type TaskRecord,
   type TaskView
 } from '../../shared/domain/task'
-import type { TaskStore } from './task-store'
+import type { TaskRelations, TaskStore } from './task-store'
 import type { ReviewDecision } from '../../shared/domain/task'
 
 export type TaskServiceError = { kind: 'app'; error: AppError }
@@ -96,6 +100,15 @@ export type CreateTaskInput = {
   dedupeKey?: string | null
   attempt?: number
   previousTaskId?: string | null
+  /** Blockers this task waits for. Internal: the renderer supplies IDs. */
+  dependsOn?: readonly string[]
+  /** Whether tasks queued after this one wait for acceptance. */
+  holdDependents?: boolean
+  /**
+   * Internal only: the predecessor whose dependents move to this successor in
+   * the same transaction. Set by retry/resume, never by a caller.
+   */
+  repointDependentsFrom?: string | null
 }
 
 export type TaskServiceDeps = {
@@ -193,6 +206,41 @@ export class TaskService {
       if (existing) return ok(existing)
     }
 
+    const taskId = this.deps.newId()
+    const dependsOn = [...new Set(input.dependsOn ?? [])].filter((id) => id.length > 0)
+    if (dependsOn.length > TASK_LIMITS.maxDependencies) {
+      return {
+        ok: false,
+        error: fail(
+          'INVALID_ARGUMENT',
+          'That task waits on too many blockers.',
+          `A task can wait for at most ${String(TASK_LIMITS.maxDependencies)} blockers.`
+        ).error
+      }
+    }
+    for (const blockerId of dependsOn) {
+      if (blockerId === taskId) {
+        return { ok: false, error: fail('INVALID_ARGUMENT', 'A task cannot wait for itself.').error }
+      }
+      const blocker = this.deps.tasks.findById(blockerId)
+      if (!blocker) {
+        return {
+          ok: false,
+          error: fail('INVALID_ARGUMENT', 'A blocker no longer exists.', blockerId).error
+        }
+      }
+      if (blocker.repoId !== input.repoId) {
+        return {
+          ok: false,
+          error: fail(
+            'INVALID_ARGUMENT',
+            'Blockers must belong to the same project.',
+            'Task dependencies only order work inside one project.'
+          ).error
+        }
+      }
+    }
+
     if (approval === 'pending' && this.deps.tasks.countPending(input.repoId) >= TASK_LIMITS.maxPendingProposals) {
       return {
         ok: false,
@@ -204,9 +252,9 @@ export class TaskService {
       }
     }
 
-    const created = this.deps.tasks.insert(
+    const created = this.deps.tasks.insertWithDependencies(
       {
-        id: this.deps.newId(),
+        id: taskId,
         workspaceId: workspace.id,
         repoId: input.repoId,
         title,
@@ -227,9 +275,12 @@ export class TaskService {
         approvalPolicy: input.approvalPolicy ?? null,
         approval,
         approvedAt,
-        approvedBy
+        approvedBy,
+        holdDependents: input.holdDependents === true
       },
-      now
+      dependsOn,
+      now,
+      { repointDependentsFrom: input.repointDependentsFrom ?? null }
     )
     if (!created) {
       // Lost a race on the dedupe key: the winner's row is the truth.
@@ -242,7 +293,7 @@ export class TaskService {
   }
 
   list(filter: TaskListFilter = {}): TaskView[] {
-    return this.deps.tasks.list(filter).map((task) => this.toView(task))
+    return this.toViews(this.deps.tasks.list(filter))
   }
 
   get(taskId: string): TaskView | null {
@@ -403,6 +454,105 @@ export class TaskService {
   }
 
   /**
+   * Adds a blocker to a queued task.
+   *
+   * Rewiring is allowed only before the dependent starts: once a slot is
+   * claimed, "wait for this" would be a lie. The store repeats the checks in the
+   * same transaction as the insert, so a concurrent claim cannot slip between.
+   */
+  addDependency(taskId: string, blockerId: string): TaskOutcome<TaskRecord> {
+    const result = this.deps.tasks.addDependency(taskId, blockerId, this.deps.now())
+    switch (result) {
+      case 'ok':
+      case 'duplicate':
+        this.deps.onQueueChanged()
+        return ok(this.deps.tasks.findById(taskId)!)
+      case 'dependent-missing':
+        return { ok: false, error: fail('INVALID_ARGUMENT', 'That task no longer exists.').error }
+      case 'blocker-missing':
+        return { ok: false, error: fail('INVALID_ARGUMENT', 'That blocker no longer exists.').error }
+      case 'self':
+        return { ok: false, error: fail('INVALID_ARGUMENT', 'A task cannot wait for itself.').error }
+      case 'cross-project':
+        return {
+          ok: false,
+          error: fail('INVALID_ARGUMENT', 'Blockers must belong to the same project.').error
+        }
+      case 'dependent-not-queued':
+        return {
+          ok: false,
+          error: fail(
+            'INVALID_ARGUMENT',
+            'Dependencies are locked once a task starts.',
+            'Only a queued task can be rewired.'
+          ).error
+        }
+      case 'cycle':
+        return {
+          ok: false,
+          error: fail(
+            'INVALID_ARGUMENT',
+            'That blocker would create a cycle.',
+            'Choose a task that does not already run after this one.'
+          ).error
+        }
+    }
+  }
+
+  /** Removes a blocker from a queued task. */
+  removeDependency(taskId: string, blockerId: string): TaskOutcome<TaskRecord> {
+    const task = this.deps.tasks.findById(taskId)
+    if (!task) return { ok: false, error: fail('INVALID_ARGUMENT', 'That task no longer exists.').error }
+    if (task.status !== 'queued') {
+      return {
+        ok: false,
+        error: fail(
+          'INVALID_ARGUMENT',
+          'Dependencies are locked once a task starts.',
+          'Only a queued task can be rewired.'
+        ).error
+      }
+    }
+    const removed = this.deps.tasks.removeDependency(taskId, blockerId, this.deps.now())
+    if (removed) this.deps.onQueueChanged()
+    const current = this.deps.tasks.findById(taskId)
+    if (!current) return { ok: false, error: fail('INVALID_ARGUMENT', 'That task no longer exists.').error }
+    // An absent edge is idempotent: two removes do not fail the second click.
+    return ok(current)
+  }
+
+  /**
+   * Sets whether dependent tasks wait for this task's acceptance.
+   *
+   * The flag may change while the review is pending, including after completion:
+   * that is how a person releases (or holds) queued dependents without retrying
+   * anything.
+   */
+  setHoldDependents(taskId: string, hold: boolean): TaskOutcome<TaskRecord> {
+    const task = this.deps.tasks.findById(taskId)
+    if (!task) return { ok: false, error: fail('INVALID_ARGUMENT', 'That task no longer exists.').error }
+    if (!taskCanHoldDependents(task)) {
+      return {
+        ok: false,
+        error: fail(
+          'INVALID_ARGUMENT',
+          'This task already has a settled review.',
+          'The gate can change only while its review is pending.'
+        ).error
+      }
+    }
+    if (task.holdDependents === hold) return ok(task)
+    if (!this.deps.tasks.setHoldDependents(taskId, hold, this.deps.now())) {
+      return {
+        ok: false,
+        error: fail('INVALID_ARGUMENT', 'That task changed while the gate was being saved.').error
+      }
+    }
+    this.deps.onQueueChanged()
+    return ok(this.deps.tasks.findById(taskId)!)
+  }
+
+  /**
    * Retries a finished task as a fresh attempt.
    *
    * The previous attempt keeps its row, its error and its worktree link, so the
@@ -525,6 +675,11 @@ export class TaskService {
       attempt: task.attempt + 1,
       previousTaskId: task.id,
       attemptMode,
+      // The successor inherits the predecessor's ordering and gate, and the
+      // store moves the predecessor's dependents onto it in the same commit.
+      dependsOn: this.deps.tasks.dependenciesOf(task.id),
+      holdDependents: task.holdDependents,
+      repointDependentsFrom: task.id,
       ...(attemptMode === 'resume'
         ? { sessionId: task.sessionId, worktreePath: task.worktreePath }
         : {})
@@ -699,18 +854,67 @@ export class TaskService {
     return this.deps.tasks.maxConcurrent()
   }
 
-  /** The retry chain, newest first, for the history panel. */
-  history(taskId: string): TaskView[] {
-    return this.deps.tasks.chainOf(taskId).map((task) => this.toView(task))
+  setMaxConcurrentPerProject(value: number): TaskOutcome<number> {
+    const bounded = Math.max(
+      TASK_LIMITS.minConcurrent,
+      Math.min(TASK_LIMITS.maxConcurrent, Math.trunc(value))
+    )
+    if (!Number.isFinite(bounded)) {
+      return {
+        ok: false,
+        error: fail('INVALID_ARGUMENT', 'That project concurrency limit is not a number.').error
+      }
+    }
+    this.deps.tasks.setMaxConcurrentPerProject(bounded)
+    this.deps.onQueueChanged()
+    return ok(bounded)
   }
 
-  private toView(task: TaskRecord): TaskView {
+  maxConcurrentPerProject(): number {
+    return this.deps.tasks.maxConcurrentPerProject()
+  }
+
+  /** The retry chain, newest first, for the history panel. */
+  history(taskId: string): TaskView[] {
+    return this.toViews(this.deps.tasks.chainOf(taskId))
+  }
+
+  /** Loads both directions of the relation once for a whole page of tasks. */
+  private toViews(tasks: readonly TaskRecord[]): TaskView[] {
+    const relations = this.deps.tasks.relationsFor(tasks.map((task) => task.id))
+    return tasks.map((task) => this.toView(task, relations))
+  }
+
+  private toView(task: TaskRecord, relations?: TaskRelations): TaskView {
     // Only a host-confirmed state counts; a persisted `live` proves nothing.
     const sessionLive = task.sessionId ? this.deps.isSessionLive(task.sessionId) : false
     const successor = this.deps.tasks.findSuccessor(task.id)
+    const relation = relations ?? this.deps.tasks.relationsFor([task.id])
+    const blockers = relation.dependencies.get(task.id) ?? []
+    const dependents = relation.dependents.get(task.id) ?? []
+    const dependencies: TaskDependencySummary[] = blockers.map((blocker) => ({
+      id: blocker.id,
+      title: blocker.title,
+      status: blocker.status,
+      reviewDecision: blocker.reviewDecision,
+      holdDependents: blocker.holdDependents,
+      satisfied: dependencySatisfied(blocker)
+    }))
+    const dependentViews: TaskDependentSummary[] = dependents.map((dependent) => ({
+      id: dependent.id,
+      title: dependent.title,
+      status: dependent.status,
+      archivedAt: dependent.archivedAt
+    }))
     return {
       ...task,
       sessionLive,
+      dependencies,
+      dependents: dependentViews,
+      ready:
+        task.status === 'queued' &&
+        task.approval === 'approved' &&
+        dependencies.every((dependency) => dependency.satisfied),
       canRetry:
         isTerminalTaskStatus(task.status) && task.status === 'failed' && successor === null,
       canResume: taskCanResume(task, successor !== null),

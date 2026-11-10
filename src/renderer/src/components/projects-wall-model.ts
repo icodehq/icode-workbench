@@ -33,6 +33,8 @@ export type ProjectNeeds = {
   answer: number
   retry: number
   review: number
+  /** Queued tasks whose blocker can never satisfy the gate without a person. */
+  blocked: number
   /** Active direct sessions whose agent is waiting for input. */
   waiting: number
   /** Failed first-commit preparation; at most one per project. */
@@ -207,6 +209,7 @@ export function projectStats(
       answer: taskNeeds.answer,
       retry: taskNeeds.retry,
       review: taskNeeds.review,
+      blocked: taskNeeds.blocked,
       waiting,
       setup,
       total: taskNeeds.total + waiting + setup
@@ -284,6 +287,7 @@ export function needsLabel(needs: ProjectNeeds): string {
   }
   if (needs.answer > 0) parts.push(translate('projects.needs.answer', { count: needs.answer }))
   if (needs.retry > 0) parts.push(translate('projects.needs.retry', { count: needs.retry }))
+  if (needs.blocked > 0) parts.push(translate('projects.needs.blocked', { count: needs.blocked }))
   if (needs.review > 0) parts.push(translate('projects.needs.review', { count: needs.review }))
   if (needs.waiting > 0) {
     parts.push(translate('projects.needs.waiting', { count: needs.waiting }))
@@ -331,7 +335,9 @@ export function attentionEntries(
           ? 2
           : kind === 'Retry'
             ? 3
-            : 4
+            : kind === 'Blocked'
+              ? 4
+              : 5
   const taskEntries: NeedEntry[] = tasks.flatMap((task) => {
     const kind = taskAttention(task)
     const repo = reposById.get(task.repoId)
@@ -378,6 +384,7 @@ export function needCounts(entries: readonly NeedEntry[]): ProjectNeeds {
     answer: 0,
     retry: 0,
     review: 0,
+    blocked: 0,
     waiting: 0,
     setup: 0,
     total: 0
@@ -387,6 +394,7 @@ export function needCounts(entries: readonly NeedEntry[]): ProjectNeeds {
     else if (entry.kind === 'Answer') counts.answer += 1
     else if (entry.kind === 'Retry') counts.retry += 1
     else if (entry.kind === 'Review') counts.review += 1
+    else if (entry.kind === 'Blocked') counts.blocked += 1
     else if (entry.kind === 'Waiting') counts.waiting += 1
     else counts.setup += 1
     counts.total += 1

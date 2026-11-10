@@ -99,13 +99,20 @@ export class TaskDispatcher {
       do {
         this.pumpAgain = false
         const max = this.deps.tasks.maxConcurrent()
+        const perProject = Math.min(this.deps.tasks.maxConcurrentPerProject(), max)
         let active = this.deps.tasks.countActive()
-        // Oldest first: the queue is FIFO, and a task that cannot start must not
-        // be skipped in favour of a newer one unless capacity is the reason.
+        // A project at its cap is skipped for this pass, not skipped forever: a
+        // later event starts a fresh pass with an empty set. This is the smallest
+        // fair-share rule that keeps one backlog from taking every slot.
+        const saturated = new Set<string>()
         for (;;) {
           if (active >= max) break
-          const next = this.deps.tasks.nextQueued()
+          const next = this.deps.tasks.nextReady([...saturated])
           if (!next) break
+          if (this.deps.tasks.countActive(next.repoId) >= perProject) {
+            saturated.add(next.repoId)
+            continue
+          }
           const claimed = this.deps.tasks.claim(next.id, this.deps.now())
           if (!claimed) continue // someone else won the claim; the next row is ours
           active += 1

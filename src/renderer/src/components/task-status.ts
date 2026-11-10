@@ -1,14 +1,42 @@
 import type { TaskRecordPayload } from '../../../shared/icode-api'
 import { translate } from '../i18n/i18n-store'
 
-export type TaskAttentionKind = 'Approval' | 'Answer' | 'Retry' | 'Review'
+export type TaskAttentionKind = 'Approval' | 'Answer' | 'Retry' | 'Review' | 'Blocked'
 
 export type TaskAttentionCounts = {
   approval: number
   answer: number
   retry: number
   review: number
+  blocked: number
   total: number
+}
+
+/**
+ * Whether a queued task is waiting on at least one unsatisfied dependency.
+ * This is display state; the lifecycle status stays `queued`.
+ */
+export function taskIsBlocked(task: TaskRecordPayload): boolean {
+  return (
+    task.status === 'queued' &&
+    (task.dependencies ?? []).some((dependency) => !dependency.satisfied)
+  )
+}
+
+/**
+ * Whether one of those blockers can never satisfy the gate without a person.
+ *
+ * A failed or cancelled blocker has no completion to give, and a rejected
+ * review will not become an acceptance on its own. Those are the dead ends that
+ * need their own Needs row; a running blocker or one awaiting review is already
+ * represented by its own state.
+ */
+export function taskBlockedByDeadEnd(task: TaskRecordPayload): boolean {
+  return (task.dependencies ?? []).some((dependency) => {
+    if (dependency.satisfied) return false
+    if (dependency.status === 'failed' || dependency.status === 'cancelled') return true
+    return dependency.status === 'completed' && dependency.reviewDecision === 'rejected'
+  })
 }
 
 export function taskAttention(task: TaskRecordPayload): TaskAttentionKind | null {
@@ -17,17 +45,19 @@ export function taskAttention(task: TaskRecordPayload): TaskAttentionKind | null
   if (task.status === 'waiting') return 'Answer'
   if (task.status === 'failed') return 'Retry'
   if (task.status === 'completed' && task.reviewDecision === 'pending') return 'Review'
+  if (task.status === 'queued' && taskBlockedByDeadEnd(task)) return 'Blocked'
   return null
 }
 
 export function taskAttentionCounts(tasks: readonly TaskRecordPayload[]): TaskAttentionCounts {
-  const counts = { approval: 0, answer: 0, retry: 0, review: 0, total: 0 }
+  const counts = { approval: 0, answer: 0, retry: 0, review: 0, blocked: 0, total: 0 }
   for (const task of tasks) {
     const kind = taskAttention(task)
     if (kind === 'Approval') counts.approval += 1
     else if (kind === 'Answer') counts.answer += 1
     else if (kind === 'Retry') counts.retry += 1
     else if (kind === 'Review') counts.review += 1
+    else if (kind === 'Blocked') counts.blocked += 1
     if (kind !== null) counts.total += 1
   }
   return counts

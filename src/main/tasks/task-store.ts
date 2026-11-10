@@ -37,7 +37,45 @@ const TASK_COLUMNS = `id, workspace_id, repo_id, title, prompt, harness, status,
   review_recommendation, review_recommendation_note, review_recommended_at,
   review_recommended_by_session_id,
   created_at, updated_at, started_at, finished_at, result_summary, error, error_detail,
-  failure_reason, last_observed_state, exit_code, review_decision, reviewed_at, review_note`
+  failure_reason, last_observed_state, exit_code, review_decision, reviewed_at, review_note,
+  hold_dependents`
+
+/**
+ * The one readiness predicate.
+ *
+ * Used verbatim by the ready-task query and by the conditional claim, so a
+ * blocked task cannot be launched by a pump that read an older queue. The inner
+ * `NOT EXISTS` deliberately treats a dangling edge as unsatisfied: a blocker
+ * row that no longer resolves must never be read as "done".
+ */
+export const TASK_READY_SQL = `tasks.status = 'queued'
+  AND tasks.approval = 'approved'
+  AND NOT EXISTS (
+    SELECT 1 FROM task_dependencies AS dep
+    WHERE dep.task_id = tasks.id
+      AND NOT EXISTS (
+        SELECT 1 FROM tasks AS blocker
+        WHERE blocker.id = dep.depends_on_task_id
+          AND blocker.status = 'completed'
+          AND (blocker.hold_dependents = 0 OR blocker.review_decision = 'accepted')
+      )
+  )`
+
+/** Both directions of the dependency relation for a set of tasks. */
+export type TaskRelations = {
+  dependencies: Map<string, TaskRecord[]>
+  dependents: Map<string, TaskRecord[]>
+}
+
+export type AddDependencyResult =
+  | 'ok'
+  | 'duplicate'
+  | 'dependent-missing'
+  | 'blocker-missing'
+  | 'dependent-not-queued'
+  | 'self'
+  | 'cross-project'
+  | 'cycle'
 
 type TaskRow = {
   id: string
@@ -81,6 +119,7 @@ type TaskRow = {
   review_decision: string
   reviewed_at: number | null
   review_note: string | null
+  hold_dependents: number
 }
 
 function taskFromRow(row: TaskRow): TaskRecord {
@@ -125,7 +164,8 @@ function taskFromRow(row: TaskRow): TaskRecord {
     reviewRecommendation: row.review_recommendation as ReviewRecommendation | null,
     reviewRecommendationNote: row.review_recommendation_note,
     reviewRecommendedAt: row.review_recommended_at,
-    reviewRecommendedBySessionId: row.review_recommended_by_session_id as SessionId | null
+    reviewRecommendedBySessionId: row.review_recommended_by_session_id as SessionId | null,
+    holdDependents: row.hold_dependents === 1
   }
 }
 
@@ -155,6 +195,8 @@ export type NewTaskRow = {
   approval?: TaskApproval
   approvedAt?: number | null
   approvedBy?: string | null
+  /** Whether tasks queued after this one wait for acceptance. */
+  holdDependents?: boolean
 }
 
 export type TaskPatch = {
@@ -192,7 +234,8 @@ export class TaskStore {
            review_recommendation, review_recommendation_note, review_recommended_at,
            review_recommended_by_session_id,
            created_at, updated_at, started_at, finished_at, result_summary, error, error_detail,
-           failure_reason, last_observed_state, exit_code, review_decision, reviewed_at, review_note
+           failure_reason, last_observed_state, exit_code, review_decision, reviewed_at, review_note,
+           hold_dependents
          )
          VALUES (
            ?, ?, ?, ?, ?, ?, 'queued', ?,
@@ -201,7 +244,8 @@ export class TaskStore {
            ?, ?, ?,
            NULL, NULL, NULL, NULL,
            ?, ?, NULL, NULL, NULL, NULL, NULL,
-           NULL, NULL, NULL, 'pending', NULL, NULL
+           NULL, NULL, NULL, 'pending', NULL, NULL,
+           ?
          )
          ON CONFLICT (dedupe_key) DO NOTHING`
       )
@@ -229,10 +273,50 @@ export class TaskStore {
         draft.approvedAt !== undefined ? draft.approvedAt : now,
         draft.approvedBy !== undefined ? draft.approvedBy : 'human',
         now,
-        now
+        now,
+        draft.holdDependents === true ? 1 : 0
       )
     if (Number(result.changes) === 0) return null
     return this.findById(draft.id)
+  }
+
+  /**
+   * Inserts a task and its ordering edges in one transaction.
+   *
+   * `repointDependentsFrom` is used by retry/resume: the predecessor's
+   * dependents are copied to the successor and the old edges are removed in the
+   * same commit, so a dependent can never observe a half-moved chain.
+   */
+  insertWithDependencies(
+    draft: NewTaskRow,
+    dependsOn: readonly string[],
+    now: number,
+    options: { repointDependentsFrom?: string | null } = {}
+  ): TaskRecord | null {
+    return this.db.transaction(() => {
+      const created = this.insert(draft, now)
+      if (!created) return null
+      const insertEdge = this.db.raw.prepare(
+        `INSERT INTO task_dependencies (task_id, depends_on_task_id, created_at)
+         VALUES (?, ?, ?)
+         ON CONFLICT (task_id, depends_on_task_id) DO NOTHING`
+      )
+      for (const blockerId of dependsOn) insertEdge.run(draft.id, blockerId, now)
+      if (options.repointDependentsFrom) {
+        const predecessorId = options.repointDependentsFrom
+        this.db.raw
+          .prepare(
+            `INSERT OR IGNORE INTO task_dependencies (task_id, depends_on_task_id, created_at)
+             SELECT task_id, ?, created_at FROM task_dependencies
+             WHERE depends_on_task_id = ?`
+          )
+          .run(draft.id, predecessorId)
+        this.db.raw
+          .prepare(`DELETE FROM task_dependencies WHERE depends_on_task_id = ?`)
+          .run(predecessorId)
+      }
+      return this.findById(draft.id)
+    })
   }
 
   findById(id: string): TaskRecord | null {
@@ -240,6 +324,17 @@ export class TaskStore {
       .prepare(`SELECT ${TASK_COLUMNS} FROM tasks WHERE id = ?`)
       .get(id) as TaskRow | undefined
     return row ? taskFromRow(row) : null
+  }
+
+  /** Batch lookup used by dependency facts; keeps the list query free of N+1. */
+  findByIds(ids: readonly string[]): TaskRecord[] {
+    const unique = [...new Set(ids)]
+    if (unique.length === 0) return []
+    const placeholders = unique.map(() => '?').join(', ')
+    const rows = this.db.raw
+      .prepare(`SELECT ${TASK_COLUMNS} FROM tasks WHERE id IN (${placeholders})`)
+      .all(...unique) as TaskRow[]
+    return rows.map(taskFromRow)
   }
 
   findByDedupeKey(key: string): TaskRecord | null {
@@ -404,42 +499,210 @@ export class TaskStore {
     return Number(result.changes)
   }
 
-  /** Tasks that would occupy a slot right now. */
-  countActive(): number {
-    const row = this.db.raw
-      .prepare(
-        `SELECT COUNT(*) AS n FROM tasks WHERE status IN ('dispatching', 'running', 'waiting')`
-      )
-      .get() as { n: number }
+  /** Tasks that would occupy a slot right now; optionally within one project. */
+  countActive(repoId?: RepoId): number {
+    const sql = repoId
+      ? `SELECT COUNT(*) AS n FROM tasks
+         WHERE status IN ('dispatching', 'running', 'waiting') AND repo_id = ?`
+      : `SELECT COUNT(*) AS n FROM tasks
+         WHERE status IN ('dispatching', 'running', 'waiting')`
+    const row = (
+      repoId ? this.db.raw.prepare(sql).get(repoId) : this.db.raw.prepare(sql).get()
+    ) as { n: number }
     return Number(row.n)
   }
 
-  /** The oldest approved queued task, or `null`. Ordering is the queue. */
-  nextQueued(): TaskRecord | null {
+  /**
+   * The oldest ready task, optionally excluding projects already at their cap.
+   *
+   * Readiness is the shared predicate, so a blocked task never reaches the pump.
+   * Exclusions are how the pump gives other projects a turn without persisting a
+   * round-robin cursor.
+   */
+  nextReady(excludeRepoIds: readonly string[] = []): TaskRecord | null {
+    const excluded = [...new Set(excludeRepoIds)]
+    const exclusion =
+      excluded.length > 0
+        ? ` AND tasks.repo_id NOT IN (${excluded.map(() => '?').join(', ')})`
+        : ''
     const row = this.db.raw
       .prepare(
         `SELECT ${TASK_COLUMNS} FROM tasks
-         WHERE status = 'queued' AND approval = 'approved'
+         WHERE ${TASK_READY_SQL}${exclusion}
          ORDER BY created_at ASC, id ASC LIMIT 1`
       )
-      .get() as TaskRow | undefined
+      .get(...excluded) as TaskRow | undefined
     return row ? taskFromRow(row) : null
   }
 
   /**
-   * Claims a queued task for dispatch.
+   * Claims a ready task for dispatch.
    *
-   * The `WHERE status = 'queued' AND approval = 'approved'` is the duplicate-start
-   * and human-gate guard: a task already claimed, or not yet approved, cannot be
-   * claimed no matter how many callers race.
+   * The shared predicate is the duplicate-start, approval and dependency guard:
+   * a task already claimed, not yet approved, or still blocked by an edge cannot
+   * be claimed no matter how many callers race.
    */
   claim(id: string, now: number): boolean {
     const result = this.db.raw
       .prepare(
         `UPDATE tasks SET status = 'dispatching', started_at = ?, updated_at = ?
-         WHERE id = ? AND status = 'queued' AND approval = 'approved'`
+         WHERE tasks.id = ? AND ${TASK_READY_SQL}`
       )
       .run(now, now, id)
+    return Number(result.changes) === 1
+  }
+
+  /** Blocker IDs for one task, in edge-creation order. */
+  dependenciesOf(taskId: string): string[] {
+    const rows = this.db.raw
+      .prepare(
+        `SELECT depends_on_task_id FROM task_dependencies
+         WHERE task_id = ? ORDER BY created_at ASC, rowid ASC`
+      )
+      .all(taskId) as Array<{ depends_on_task_id: string }>
+    return rows.map((row) => row.depends_on_task_id)
+  }
+
+  /**
+   * Both directions of the relation for a page of tasks.
+   *
+   * Three queries regardless of page size: the outgoing edges, the incoming
+   * edges, and one lookup of every referenced task. Blockers outside the listed
+   * page are still resolved, which is what keeps a truncated list honest.
+   */
+  relationsFor(taskIds: readonly string[]): TaskRelations {
+    const dependencies = new Map<string, TaskRecord[]>()
+    const dependents = new Map<string, TaskRecord[]>()
+    const ids = [...new Set(taskIds)]
+    if (ids.length === 0) return { dependencies, dependents }
+
+    const placeholders = ids.map(() => '?').join(', ')
+    const outgoing = this.db.raw
+      .prepare(
+        `SELECT task_id, depends_on_task_id FROM task_dependencies
+         WHERE task_id IN (${placeholders})
+         ORDER BY created_at ASC, rowid ASC`
+      )
+      .all(...ids) as Array<{ task_id: string; depends_on_task_id: string }>
+    const incoming = this.db.raw
+      .prepare(
+        `SELECT task_id, depends_on_task_id FROM task_dependencies
+         WHERE depends_on_task_id IN (${placeholders})
+         ORDER BY created_at ASC, rowid ASC`
+      )
+      .all(...ids) as Array<{ task_id: string; depends_on_task_id: string }>
+
+    const referenced = new Set<string>()
+    for (const row of outgoing) referenced.add(row.depends_on_task_id)
+    for (const row of incoming) referenced.add(row.task_id)
+    const byId = new Map(this.findByIds([...referenced]).map((task) => [task.id, task]))
+
+    for (const row of outgoing) {
+      const blocker = byId.get(row.depends_on_task_id)
+      if (!blocker) continue
+      const list = dependencies.get(row.task_id) ?? []
+      list.push(blocker)
+      dependencies.set(row.task_id, list)
+    }
+    for (const row of incoming) {
+      const dependent = byId.get(row.task_id)
+      if (!dependent) continue
+      const list = dependents.get(row.depends_on_task_id) ?? []
+      list.push(dependent)
+      dependents.set(row.depends_on_task_id, list)
+    }
+    return { dependencies, dependents }
+  }
+
+  /**
+   * Whether adding `taskId → blockerId` would close a cycle.
+   *
+   * Walking up from the proposed blocker: if the dependent is already an
+   * ancestor, the new edge makes the graph cyclic. `UNION` (not `UNION ALL`)
+   * also makes malformed existing data terminate.
+   */
+  wouldCreateCycle(taskId: string, blockerId: string): boolean {
+    if (taskId === blockerId) return true
+    const row = this.db.raw
+      .prepare(
+        `WITH RECURSIVE upstream(id) AS (
+           SELECT depends_on_task_id FROM task_dependencies WHERE task_id = ?
+           UNION
+           SELECT d.depends_on_task_id
+           FROM task_dependencies d JOIN upstream u ON d.task_id = u.id
+         )
+         SELECT 1 AS found FROM upstream WHERE id = ? LIMIT 1`
+      )
+      .get(blockerId, taskId) as { found?: number } | undefined
+    return row !== undefined
+  }
+
+  /**
+   * Adds an edge while the dependent is still queued.
+   *
+   * The checks and the insert share one transaction so a task cannot start
+   * between "is queued" and "edge written". Returns why the write was refused
+   * rather than throwing, because the service turns each case into a different
+   * message.
+   */
+  addDependency(taskId: string, blockerId: string, now: number): AddDependencyResult {
+    return this.db.transaction(() => {
+      const dependent = this.findById(taskId)
+      if (!dependent) return 'dependent-missing'
+      const blocker = this.findById(blockerId)
+      if (!blocker) return 'blocker-missing'
+      if (taskId === blockerId) return 'self'
+      if (dependent.repoId !== blocker.repoId) return 'cross-project'
+      if (dependent.status !== 'queued') return 'dependent-not-queued'
+      if (this.wouldCreateCycle(taskId, blockerId)) return 'cycle'
+      const result = this.db.raw
+        .prepare(
+          `INSERT INTO task_dependencies (task_id, depends_on_task_id, created_at)
+           VALUES (?, ?, ?)
+           ON CONFLICT (task_id, depends_on_task_id) DO NOTHING`
+        )
+        .run(taskId, blockerId, now)
+      if (Number(result.changes) === 0) return 'duplicate'
+      this.db.raw
+        .prepare(`UPDATE tasks SET updated_at = ? WHERE id = ?`)
+        .run(now, taskId)
+      return 'ok'
+    })
+  }
+
+  /** Removes an edge while the dependent is still queued. */
+  removeDependency(taskId: string, blockerId: string, now: number): boolean {
+    return this.db.transaction(() => {
+      const dependent = this.findById(taskId)
+      if (!dependent || dependent.status !== 'queued') return false
+      const result = this.db.raw
+        .prepare(
+          `DELETE FROM task_dependencies WHERE task_id = ? AND depends_on_task_id = ?`
+        )
+        .run(taskId, blockerId)
+      if (Number(result.changes) === 0) return false
+      this.db.raw
+        .prepare(`UPDATE tasks SET updated_at = ? WHERE id = ?`)
+        .run(now, taskId)
+      return true
+    })
+  }
+
+  /**
+   * Stores the blocker's acceptance gate.
+   *
+   * The gate describes how the result will be judged, so it is editable only
+   * while that judgement is pending and the row is not history.
+   */
+  setHoldDependents(taskId: string, hold: boolean, now: number): boolean {
+    const task = this.findById(taskId)
+    if (!task || task.archivedAt !== null || task.reviewDecision !== 'pending') return false
+    const result = this.db.raw
+      .prepare(
+        `UPDATE tasks SET hold_dependents = ?, updated_at = ?
+         WHERE id = ? AND archived_at IS NULL AND review_decision = 'pending'`
+      )
+      .run(hold ? 1 : 0, now, taskId)
     return Number(result.changes) === 1
   }
 
@@ -834,6 +1097,19 @@ export class TaskStore {
 
   setMaxConcurrent(value: number): void {
     this.db.raw.prepare(`UPDATE task_settings SET max_concurrent = ? WHERE id = 1`).run(value)
+  }
+
+  maxConcurrentPerProject(): number {
+    const row = this.db.raw
+      .prepare(`SELECT max_concurrent_per_project FROM task_settings WHERE id = 1`)
+      .get() as { max_concurrent_per_project: number } | undefined
+    return row ? Number(row.max_concurrent_per_project) : 1
+  }
+
+  setMaxConcurrentPerProject(value: number): void {
+    this.db.raw
+      .prepare(`UPDATE task_settings SET max_concurrent_per_project = ? WHERE id = 1`)
+      .run(value)
   }
 }
 

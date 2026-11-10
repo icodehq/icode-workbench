@@ -80,6 +80,7 @@ function reasonPillClass(kind: NeedEntry['kind']): string {
     case 'Approval':
     case 'Answer':
     case 'Waiting':
+    case 'Blocked':
       return 'border-signal-line bg-signal-weak text-signal'
     case 'Review':
       return 'border-info/50 bg-info-weak text-info'
@@ -94,6 +95,7 @@ function reasonTextClass(kind: NeedEntry['kind']): string {
     case 'Approval':
     case 'Answer':
     case 'Waiting':
+    case 'Blocked':
       return 'text-signal'
     case 'Review':
       return 'text-info'
@@ -127,12 +129,15 @@ function AttentionRow({
                 ? t('projects.row.proposedByMira')
                 : t('projects.row.proposedBySupervisor')
             } · ${t('projects.row.needsApproval')}`
-          : entry.task.error ?? entry.task.resultSummary
+          : entry.kind === 'Blocked'
+            ? t('projects.row.blockedDependency')
+            : entry.task.error ?? entry.task.resultSummary
   const kindLabel: Record<NeedEntry['kind'], string> = {
     Approval: t('projects.needKind.approval'),
     Answer: t('projects.needKind.answer'),
     Retry: t('projects.needKind.retry'),
     Review: t('projects.needKind.review'),
+    Blocked: t('projects.needKind.blocked'),
     Setup: t('projects.needKind.setup'),
     Waiting: t('projects.needKind.waiting')
   }

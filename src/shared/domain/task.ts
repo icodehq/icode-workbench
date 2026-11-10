@@ -189,6 +189,52 @@ export type TaskRecord = {
   reviewRecommendationNote: string | null
   reviewRecommendedAt: number | null
   reviewRecommendedBySessionId: SessionId | null
+  /**
+   * Whether tasks that run after this one wait for acceptance.
+   *
+   * This is a property of the result, not of a particular edge: every dependent
+   * sees the same gate. Completion alone satisfies an ungated blocker.
+   */
+  holdDependents: boolean
+}
+
+/**
+ * One blocker, as shown beside a task.
+ *
+ * `satisfied` is derived from the same predicate the dispatcher uses, so the
+ * UI cannot show "starts when finished" for an edge the scheduler still blocks.
+ */
+export type TaskDependencySummary = {
+  id: string
+  title: string
+  status: TaskStatus
+  reviewDecision: ReviewDecision
+  holdDependents: boolean
+  satisfied: boolean
+}
+
+/** One task that runs after another, for the detail pane's dependents list. */
+export type TaskDependentSummary = {
+  id: string
+  title: string
+  status: TaskStatus
+  archivedAt: number | null
+}
+
+/**
+ * Whether one blocker has satisfied its ordering constraint.
+ *
+ * Kept pure and shared so the dispatcher-facing store predicate, the service's
+ * view flags and the renderer's chips cannot drift. A missing blocker is
+ * unsatisfied; callers only pass a record when it exists.
+ */
+export function dependencySatisfied(
+  blocker: Pick<TaskRecord, 'status' | 'reviewDecision' | 'holdDependents'>
+): boolean {
+  return (
+    blocker.status === 'completed' &&
+    (!blocker.holdDependents || blocker.reviewDecision === 'accepted')
+  )
 }
 
 /**
@@ -198,6 +244,15 @@ export type TaskRecord = {
 export type TaskView = TaskRecord & {
   /** True when the linked Session still exists and is live right now. */
   sessionLive: boolean
+  /** Every blocker, in edge-creation order, with whether the gate is open. */
+  dependencies: TaskDependencySummary[]
+  /** Tasks that will not start until this one satisfies its gate. */
+  dependents: TaskDependentSummary[]
+  /**
+   * True when this queued task could be dispatched now: approved, and every
+   * blocker satisfied. A blocked task is still `queued`; this flag is derived.
+   */
+  ready: boolean
   /** True when a retry is possible (terminal, and not already retried). */
   canRetry: boolean
   /**
@@ -253,6 +308,18 @@ export function taskCanResume(
   )
 }
 
+/**
+ * Whether this task's gate can still be changed.
+ *
+ * The gate describes how a result should be judged, so it is meaningful only
+ * while the result is not yet settled. An archived task is history.
+ */
+export function taskCanHoldDependents(
+  task: Pick<TaskRecord, 'reviewDecision' | 'archivedAt'>
+): boolean {
+  return task.reviewDecision === 'pending' && task.archivedAt == null
+}
+
 export type TaskListFilter = {
   repoId?: RepoId
   statuses?: readonly TaskStatus[]
@@ -269,5 +336,7 @@ export const TASK_LIMITS = {
   maxPromptLength: 20_000,
   maxConcurrent: 4,
   minConcurrent: 1,
-  maxPendingProposals: 20
+  maxPendingProposals: 20,
+  /** Enough for a real fan-in without turning the picker into a directory. */
+  maxDependencies: 20
 } as const

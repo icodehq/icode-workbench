@@ -73,6 +73,7 @@ describe('task attention and lifecycle', () => {
       answer: 1,
       retry: 1,
       review: 1,
+      blocked: 0,
       total: 3
     })
     expect(tasks.map((entry) => taskGroup(entry))).toEqual(['running', 'finished', 'finished', 'finished', 'queued'])
@@ -93,8 +94,42 @@ describe('task attention and lifecycle', () => {
       answer: 0,
       retry: 0,
       review: 0,
+      blocked: 0,
       total: 1
     })
+  })
+
+  it('flags a queued task only when a blocker is a dead end', () => {
+    const blocked = task({
+      status: 'queued',
+      dependencies: [
+        {
+          id: 'blocker',
+          title: 'Blocker',
+          status: 'cancelled',
+          reviewDecision: 'pending',
+          holdDependents: false,
+          satisfied: false
+        }
+      ]
+    })
+    expect(taskAttention(blocked)).toBe('Blocked')
+    expect(taskAttentionCounts([blocked]).blocked).toBe(1)
+
+    const merelyWaiting = task({
+      status: 'queued',
+      dependencies: [
+        {
+          id: 'blocker',
+          title: 'Blocker',
+          status: 'running',
+          reviewDecision: 'pending',
+          holdDependents: false,
+          satisfied: false
+        }
+      ]
+    })
+    expect(taskAttention(merelyWaiting)).toBeNull()
   })
 
   it('orders finished work review-first, then failed, then decided work', () => {

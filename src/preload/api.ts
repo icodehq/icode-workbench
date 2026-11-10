@@ -140,6 +140,9 @@ export function createIcodeApi(
       archive: (input) => call(IPC_CHANNELS.tasksArchive, input),
       unarchive: (input) => call(IPC_CHANNELS.tasksUnarchive, input),
       archiveFinished: (input) => call(IPC_CHANNELS.tasksArchiveFinished, input),
+      addDependency: (input) => call(IPC_CHANNELS.tasksAddDependency, input),
+      removeDependency: (input) => call(IPC_CHANNELS.tasksRemoveDependency, input),
+      setHoldDependents: (input) => call(IPC_CHANNELS.tasksSetHoldDependents, input),
       settings: () => call(IPC_CHANNELS.tasksSettings),
       setSettings: (input) => call(IPC_CHANNELS.tasksSetSettings, input)
     },

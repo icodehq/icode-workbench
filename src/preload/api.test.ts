@@ -367,3 +367,24 @@ describe('task retry and continue', () => {
     expect(invoke).toHaveBeenNthCalledWith(2, IPC_CHANNELS.tasksResume, { taskId: 'task_1' })
   })
 })
+
+describe('task dependencies', () => {
+  it('routes each intent to its own channel', async () => {
+    const { api, invoke } = setup()
+    await api.tasks.addDependency({ taskId: 'task_1', blockerId: 'task_2' })
+    await api.tasks.removeDependency({ taskId: 'task_1', blockerId: 'task_2' })
+    await api.tasks.setHoldDependents({ taskId: 'task_1', hold: true })
+    expect(invoke).toHaveBeenNthCalledWith(1, IPC_CHANNELS.tasksAddDependency, {
+      taskId: 'task_1',
+      blockerId: 'task_2'
+    })
+    expect(invoke).toHaveBeenNthCalledWith(2, IPC_CHANNELS.tasksRemoveDependency, {
+      taskId: 'task_1',
+      blockerId: 'task_2'
+    })
+    expect(invoke).toHaveBeenNthCalledWith(3, IPC_CHANNELS.tasksSetHoldDependents, {
+      taskId: 'task_1',
+      hold: true
+    })
+  })
+})

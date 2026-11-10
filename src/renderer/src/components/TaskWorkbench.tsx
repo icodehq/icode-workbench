@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { FileDiff, Files, GitBranch, ListTodo, Square, TerminalSquare } from 'lucide-react'
+import { FileDiff, Files, GitBranch, ListTodo, Square, TerminalSquare, Workflow } from 'lucide-react'
 import type { TaskRecordPayload } from '../../../shared/icode-api'
 import type { AppError } from '../../../shared/domain/errors'
 import { isAgentHarness } from '../../../shared/domain/harness'
@@ -10,6 +10,7 @@ import type { Notice } from '../state/workspace'
 import ChangesPanel from './ChangesPanel'
 import FilesPanel from './FilesPanel'
 import { StatePanel } from './SessionWorkspace'
+import TaskChainGraph from './TaskChainGraph'
 import TaskOverview from './TaskOverview'
 import { useT } from '../i18n/use-i18n'
 import { sessionStateLabel, stateDotClass } from './status'
@@ -19,11 +20,15 @@ import {
 } from './task-status'
 import TerminalPane from './TerminalPane'
 
-type Tab = 'overview' | 'terminal' | 'changes' | 'files'
+type Tab = 'overview' | 'terminal' | 'changes' | 'files' | 'graph'
 
 type Props = {
   task: TaskRecordPayload
   previousAttempts: TaskRecordPayload[]
+  /** Every task in the project, for the dependency picker and graph. */
+  projectTasks: TaskRecordPayload[]
+  onSelectTask: (taskId: string) => void
+  onQueueFollowUp: (task: TaskRecordPayload) => void
   repo: RepositorySummary
   session: SessionSummary | null
   notify: (notice: Notice) => void
@@ -69,6 +74,9 @@ function EmptyView({ children }: { children: React.ReactNode }): React.JSX.Eleme
 export default function TaskWorkbench({
   task,
   previousAttempts,
+  projectTasks,
+  onSelectTask,
+  onQueueFollowUp,
   repo,
   session,
   notify,
@@ -95,8 +103,9 @@ export default function TaskWorkbench({
   } | null>(null)
 
   useEffect(() => {
-    if (session === null) setTab('overview')
-  }, [session])
+    // Graph and Overview do not need a session; the execution tabs do.
+    if (session === null && tab !== 'overview' && tab !== 'graph') setTab('overview')
+  }, [session, tab])
 
   /**
    * Once a tab has been opened, its pane stays mounted and hidden. That is what
@@ -257,6 +266,7 @@ export default function TaskWorkbench({
           {tabButton('terminal', t('task.tab.terminal'), <TerminalSquare size={14} />, session === null)}
           {tabButton('changes', t('task.tab.sourceControl'), <FileDiff size={14} />, session === null)}
           {tabButton('files', t('task.tab.files'), <Files size={14} />, session === null)}
+          {tabButton('graph', t('task.tab.graph'), <Workflow size={14} />)}
         </div>
       </header>
 
@@ -268,6 +278,7 @@ export default function TaskWorkbench({
           <TaskOverview
             task={task}
             previousAttempts={previousAttempts}
+            projectTasks={projectTasks}
             notify={notify}
             session={session}
             onOpenTerminal={() => selectTab('terminal')}
@@ -275,7 +286,22 @@ export default function TaskWorkbench({
               if (session) onOpenSession(session.id)
             }}
             onOpenChanges={() => selectTab('changes')}
+            onSelectTask={onSelectTask}
+            onQueueFollowUp={onQueueFollowUp}
             onChanged={onChanged}
+          />
+        </div>
+      ) : null}
+
+      {visited.has('graph') ? (
+        <div
+          className={`min-h-0 flex-1 ${tab === 'graph' ? 'flex flex-col' : 'hidden'}`}
+          data-testid="task-graph-view"
+        >
+          <TaskChainGraph
+            tasks={projectTasks}
+            rootTaskId={task.id}
+            onSelectTask={onSelectTask}
           />
         </div>
       ) : null}
