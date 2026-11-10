@@ -4,7 +4,8 @@ import { join } from 'node:path'
 import { app } from 'electron'
 import { canConnect, hostSocketPath } from '../../host/paths'
 import { isNamedPipe } from '../../shared/domain/endpoint'
-import { HostClient, HostRequestError } from './host-client'
+import { HOST_PROTOCOL_VERSION } from '../../shared/host-protocol'
+import { HostClient, HostRequestError, type HostConnectionOptions } from './host-client'
 
 export type HostMeta = {
   pid: number
@@ -13,6 +14,94 @@ export type HostMeta = {
   hostVersion: string
   socket: string
   tokenFile: string
+}
+
+type StaleHostConnection = {
+  info: { hostPid: number } | null
+  shutdown(): Promise<void>
+  close(): void
+}
+
+/**
+ * Ask a profile-owned host that speaks an older protocol to shut down.
+ *
+ * A terminal host is detached and survives an app update, so the new build must
+ * replace it before it can send v2 `createOrAttach` frames. The old process is
+ * never signalled: we speak its protocol with this profile's token, prove the
+ * hello reports the recorded PID, and then send the explicit `shutdown` request.
+ * Every proof must pass, or the caller refuses and asks the user to stop it.
+ */
+export async function shutdownStaleHost(input: {
+  meta: HostMeta
+  socketPath: string
+  tokenPath: string
+  token: string | null
+  connect?: (options: HostConnectionOptions) => Promise<StaleHostConnection>
+  isAlive?: (pid: number) => boolean
+  wait?: (ms: number) => Promise<void>
+  timeoutMs?: number
+}): Promise<{ ok: true } | { ok: false; message: string }> {
+  const connect = input.connect ?? ((options) => HostClient.connect(options))
+  const isAlive = input.isAlive ?? isProcessAlive
+  const wait = input.wait ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)))
+  const meta = input.meta
+
+  if (!Number.isInteger(meta.protocolVersion) || meta.protocolVersion === HOST_PROTOCOL_VERSION) {
+    return { ok: false, message: 'The recorded terminal host does not report an older protocol.' }
+  }
+  if (meta.socket !== input.socketPath) {
+    return {
+      ok: false,
+      message: `The recorded terminal host uses ${meta.socket}, not this profile's endpoint. Refusing to replace it.`
+    }
+  }
+  if (meta.tokenFile !== input.tokenPath) {
+    return {
+      ok: false,
+      message: 'The recorded terminal host belongs to another profile. Refusing to replace it.'
+    }
+  }
+  if (input.token === null) {
+    return { ok: false, message: 'This profile has no terminal-host token. Refusing to replace the host.' }
+  }
+
+  let client: StaleHostConnection | null = null
+  try {
+    client = await connect({
+      socketPath: input.socketPath,
+      token: input.token,
+      protocolVersion: meta.protocolVersion
+    })
+    if (client.info?.hostPid !== meta.pid) {
+      return {
+        ok: false,
+        message: `The terminal host did not identify itself as pid ${meta.pid}. Refusing to replace it.`
+      }
+    }
+    await client.shutdown()
+  } catch (error) {
+    return {
+      ok: false,
+      message:
+        `The previous terminal host (pid ${meta.pid}) could not be stopped: ` +
+        `${error instanceof Error ? error.message : String(error)}. ` +
+        'Stop that process, then retry.'
+    }
+  } finally {
+    client?.close()
+  }
+
+  const deadline = Date.now() + (input.timeoutMs ?? 5_000)
+  while (Date.now() < deadline) {
+    if (!isAlive(meta.pid)) return { ok: true }
+    await wait(100)
+  }
+  return {
+    ok: false,
+    message:
+      `The previous terminal host (pid ${meta.pid}) is still running after shutdown. ` +
+      'Stop that process, then retry.'
+  }
 }
 
 export class HostSupervisor {
@@ -99,11 +188,25 @@ export class HostSupervisor {
 
     const meta = this.readMeta()
     if (meta && isProcessAlive(meta.pid)) {
-      throw new HostRequestError(
-        'HOST_UNREACHABLE',
-        unreachableMessage(meta, this.socketPath),
-        this.logPath
-      )
+      if (meta.protocolVersion !== HOST_PROTOCOL_VERSION) {
+        // A detached host from the previous app version. Replace it only after
+        // proving this profile owns it; otherwise keep the refusal below.
+        const replaced = await shutdownStaleHost({
+          meta,
+          socketPath: this.socketPath,
+          tokenPath: this.tokenPath,
+          token: this.readToken()
+        })
+        if (!replaced.ok) {
+          throw new HostRequestError('HOST_UNREACHABLE', replaced.message, this.logPath)
+        }
+      } else {
+        throw new HostRequestError(
+          'HOST_UNREACHABLE',
+          unreachableMessage(meta, this.socketPath),
+          this.logPath
+        )
+      }
     }
 
     // Ownership-safe: nothing is unlinked here. The endpoint is probed first, so

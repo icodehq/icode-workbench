@@ -97,15 +97,18 @@ export type SessionServiceDeps = {
     target: ExecutionTarget,
     guestCwd: string
   ) => Promise<PathATerminalOutcome>
-  /** Extra CLI arguments for a harness (Claude receives iCode's hook overlay). */
   /**
-   * Extra arguments for a harness launch — the Claude hook overlay.
+   * Provider and overlay inputs for a harness launch.
    *
-   * Target-aware because `--settings` must name a path the *process that reads it*
-   * can open: the same file is a Windows path for a local session and a
-   * `/mnt/…` path for a guest one.
+   * Target-aware because `--settings` must name a path the *process that reads
+   * it* can open: the same file is a Windows path for a local session and a
+   * `/mnt/…` path for a guest one. `env` is handed to the terminal host and
+   * merged into the PTY environment.
    */
-  launchArgs?: (harness: HarnessId, target: ExecutionTarget) => string[]
+  launchSpec?: (
+    harness: HarnessId,
+    target: ExecutionTarget
+  ) => { args: string[]; env: Record<string, string> }
   /**
    * Reports the incarnation a session is now bound to, or null when the process
    * is gone. Activity uses this to reject events from a previous process.
@@ -481,6 +484,9 @@ export class SessionService {
     // terminal must run, and Orca probes nothing for it (`wsl.exe` is the shell).
     const pathA = this.isPathATerminal(input.harness, target)
     const detection = pathA ? null : await this.requireHarness(input.harness, target)
+    // Resolve the provider before any worktree or session row exists: a broken
+    // key or an unreadable selection must not leave a half-created checkout.
+    const launchSpec = this.launchSpecFor(input.harness, target)
     await this.requireDirectory(workspace.path, target)
 
     // Path A is validated **before** any worktree work, so an unavailable distro
@@ -621,10 +627,8 @@ export class SessionService {
               sessionId,
               cwd,
               command: detection!.command!.command,
-              args: withLaunchArgs(
-                detection!.command!,
-                this.launchArgsFor(input.harness, target)
-              ).args,
+              args: withLaunchArgs(detection!.command!, launchSpec.args).args,
+              env: launchSpec.env,
               cols: input.cols,
               rows: input.rows
             },
@@ -875,8 +879,9 @@ export class SessionService {
     // shell is decided inside the guest.
     const detection = pathA === null ? await this.requireHarness(row.harness, target) : null
     const hostTarget = pathA === null ? target : LOCAL_TARGET
+    const launchSpec = this.launchSpecFor(row.harness, target)
     const launchArgs = [
-      ...this.launchArgsFor(row.harness, target),
+      ...launchSpec.args,
       ...(options.resume === true ? wakePlan(row.harness, row.resumeToken).args : [])
     ]
     const repository = checkout.record === null
@@ -917,6 +922,7 @@ export class SessionService {
           args:
             pathA?.args ??
             withLaunchArgs(detection!.command!, launchArgs).args,
+          env: pathA === null ? launchSpec.env : undefined,
           cols: previous?.cols ?? 100,
           rows: previous?.rows ?? 30
         },
@@ -1114,8 +1120,11 @@ export class SessionService {
     )
   }
 
-  private launchArgsFor(harness: HarnessId, target: ExecutionTarget): string[] {
-    return this.deps.launchArgs?.(harness, target) ?? []
+  private launchSpecFor(
+    harness: HarnessId,
+    target: ExecutionTarget
+  ): { args: string[]; env: Record<string, string> } {
+    return this.deps.launchSpec?.(harness, target) ?? { args: [], env: {} }
   }
 
   /**

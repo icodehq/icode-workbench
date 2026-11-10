@@ -173,6 +173,14 @@ export function createIcodeApi(
     harness: {
       list: (input) => call(IPC_CHANNELS.harnessList, input ?? {})
     },
+    providers: {
+      list: () => call(IPC_CHANNELS.providersList),
+      create: (input) => call(IPC_CHANNELS.providersCreate, input),
+      update: (input) => call(IPC_CHANNELS.providersUpdate, input),
+      remove: (input) => call(IPC_CHANNELS.providersRemove, input),
+      select: (input) => call(IPC_CHANNELS.providersSelect, input),
+      test: (input) => call(IPC_CHANNELS.providersTest, input)
+    },
     ai: {
       commitMessage: (input) => call(IPC_CHANNELS.aiCommitMessage, input),
       cancelCommitMessage: (input) => call(IPC_CHANNELS.aiCancelCommitMessage, input)

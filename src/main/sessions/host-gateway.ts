@@ -33,6 +33,7 @@ export type HostGateway = {
       args?: string[] | string
       cols: number
       rows: number
+      env?: Record<string, string>
       attachOnly?: boolean
     },
     target?: HostTarget

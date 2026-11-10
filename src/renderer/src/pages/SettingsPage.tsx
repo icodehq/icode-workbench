@@ -11,6 +11,7 @@ import FilesSettingsCard from '../files/FilesSettingsCard'
 import SettingsCard from '../components/SettingsCard'
 import AssistantSettingsCard from '../components/AssistantSettingsCard'
 import LanguageSettingsCard from '../components/LanguageSettingsCard'
+import ProviderSettingsCard from '../components/ProviderSettingsCard'
 import { useT } from '../i18n/use-i18n'
 import type { Translator } from '../i18n/i18n-store'
 
@@ -169,6 +170,8 @@ export default function SettingsPage({
                 </select>
               </div>
             </SettingsCard>
+
+            <ProviderSettingsCard />
 
             <SettingsCard title={t('settings.harnesses.title')}>
               <ul className="space-y-2" data-testid="settings-harnesses">

@@ -186,7 +186,7 @@ export async function connectTestClient(
   socket.write(
     `${JSON.stringify({
       type: 'hello',
-      protocolVersion: options.protocolVersion ?? 1,
+      protocolVersion: options.protocolVersion ?? 2,
       token,
       clientId: `test-${randomUUID().slice(0, 8)}`
     })}\n`

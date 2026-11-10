@@ -279,7 +279,7 @@ describe('running host', () => {
       dirMode: '700',
       tokenMode: '600',
       socketMode: '600',
-      protocolVersion: 1
+      protocolVersion: 2
     })
     expect(meta.hostVersion).toContain('icode1')
     host.stop()

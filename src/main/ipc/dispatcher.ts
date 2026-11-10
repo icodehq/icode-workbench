@@ -67,6 +67,19 @@ import {
   assistantSetSettingsInputSchema
 } from '../../shared/schemas/assistant'
 import type { IpcResult } from '../../shared/schemas/ipc'
+import {
+  providerCreateInputSchema,
+  providerRemoveInputSchema,
+  providerSelectInputSchema,
+  providerTestInputSchema,
+  providerUpdateInputSchema
+} from '../../shared/schemas/provider'
+import type {
+  ProviderCreateInput,
+  ProviderSelectInput,
+  ProviderTestInput,
+  ProviderUpdateInput
+} from '../../shared/schemas/provider'
 import { makeAppError } from '../../shared/domain/errors'
 import type { AppError } from '../../shared/domain/errors'
 import { DatabaseError } from '../persistence/database'
@@ -226,6 +239,12 @@ export type DispatcherServices = {
   activityList: () => Promise<unknown>
   activityClearUnread: (input: { sessionId: string }) => Promise<unknown>
   harnessList: (input: { force?: boolean; repoId?: string }) => Promise<unknown>
+  providersList: () => Promise<unknown>
+  providersCreate: (input: ProviderCreateInput) => Promise<unknown>
+  providersUpdate: (input: ProviderUpdateInput) => Promise<unknown>
+  providersRemove: (input: { providerId: string }) => Promise<unknown>
+  providersSelect: (input: ProviderSelectInput) => Promise<unknown>
+  providersTest: (input: ProviderTestInput) => Promise<unknown>
   wslListDistros: () => Promise<unknown>
   terminalAttach: (input: { sessionId: string }) => Promise<unknown>
   terminalWrite: (input: { sessionId: string; incarnationId: string; data: string }) => Promise<unknown>
@@ -705,6 +724,39 @@ export function createDispatcher(services: DispatcherServices): Dispatcher {
         const input = parse(harnessListInputSchema, rawInput ?? {})
         if ('code' in input) return { ok: false, error: input }
         return run(() => services.harnessList(input))
+      }
+
+      case IPC_CHANNELS.providersList:
+        return run(() => services.providersList())
+
+      case IPC_CHANNELS.providersCreate: {
+        const input = parse(providerCreateInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.providersCreate(input))
+      }
+
+      case IPC_CHANNELS.providersUpdate: {
+        const input = parse(providerUpdateInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.providersUpdate(input))
+      }
+
+      case IPC_CHANNELS.providersRemove: {
+        const input = parse(providerRemoveInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.providersRemove(input))
+      }
+
+      case IPC_CHANNELS.providersSelect: {
+        const input = parse(providerSelectInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.providersSelect(input))
+      }
+
+      case IPC_CHANNELS.providersTest: {
+        const input = parse(providerTestInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.providersTest(input))
       }
 
       case IPC_CHANNELS.wslListDistros:

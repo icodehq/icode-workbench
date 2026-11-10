@@ -55,6 +55,11 @@ export type HostConnectionOptions = HostTransportTarget & {
   token: string
   clientId?: string
   requestTimeoutMs?: number
+  /**
+   * Maintenance only: speak an older protocol so a profile-owned stale host can
+   * be asked to shut down during an upgrade. Normal clients omit this.
+   */
+  protocolVersion?: number
 }
 
 export type HostClientInfo = {
@@ -130,7 +135,7 @@ export class HostClient {
         socket.write(
           `${JSON.stringify({
             type: 'hello',
-            protocolVersion: HOST_PROTOCOL_VERSION,
+            protocolVersion: options.protocolVersion ?? HOST_PROTOCOL_VERSION,
             token: options.token,
             clientId: options.clientId ?? `icode-main-${process.pid}`
           })}\n`
@@ -244,6 +249,7 @@ export class HostClient {
     args?: string[] | string
     cols: number
     rows: number
+    env?: Record<string, string>
     attachOnly?: boolean
   }): Promise<CreateOrAttachPayload> {
     return this.request<CreateOrAttachPayload>({

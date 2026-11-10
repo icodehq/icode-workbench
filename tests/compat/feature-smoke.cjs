@@ -753,6 +753,13 @@ async function run() {
   await step('show Source Control defaults in Settings and persist a change', async () => {
     await click('[data-testid="rail-settings"]')
     await waitForSelector('[data-testid="settings-view"]', 15000)
+    await waitForSelector('[data-testid="provider-select-claude"]', 10000)
+    const providerCard = await cdp.evaluate(`(() => {
+      const select = document.querySelector('[data-testid="provider-select-claude"]');
+      return select?.closest('section')?.innerText ?? '';
+    })()`)
+    assert(providerCard.includes('Agent providers'), 'Settings omitted the Agent providers card')
+    assert(providerCard.includes('Claude Code'), 'Provider card omitted Claude Code')
     await waitForSelector('[data-testid="scm-setting-smart-commit"]', 10000)
     const card = await cdp.evaluate(`(() => {
       const smart = document.querySelector('[data-testid="scm-setting-smart-commit"]');

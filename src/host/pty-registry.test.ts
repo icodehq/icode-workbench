@@ -26,7 +26,12 @@ function setup(options: { maxSessions?: number } = {}): {
       let tick = 1000
       return () => tick++
     })(),
-    env: { PATH: '/usr/bin', HOME: '/home/dev', ELECTRON_RUN_AS_NODE: '1' },
+    env: {
+      PATH: '/usr/bin',
+      HOME: '/home/dev',
+      ELECTRON_RUN_AS_NODE: '1',
+      ICODE_ACTIVITY_SOCKET: '/profile/activity.sock'
+    },
     ...(options.maxSessions !== undefined ? { maxSessions: options.maxSessions } : {})
   })
   return { registry, fake, events }
@@ -81,6 +86,26 @@ describe('session creation', () => {
       rows: 40,
       seq: 0
     })
+  })
+
+  it('merges per-request env but keeps host-owned keys', () => {
+    const { registry, fake } = setup()
+    registry.createOrAttach({
+      ...params({ sessionId: 'ses_env00000001' }),
+      env: {
+        ICODE_PROVIDER_API_KEY: 'sk-test',
+        TERM: 'dumb',
+        ICODE_SESSION_ID: 'ses_impostor',
+        ICODE_ACTIVITY_SOCKET: '/tmp/impostor.sock'
+      }
+    })
+
+    const env = fake.instances[0]!.config.env
+    expect(env.ICODE_PROVIDER_API_KEY).toBe('sk-test')
+    expect(env.TERM).toBe('xterm-256color')
+    expect(env.ICODE_SESSION_ID).toBe('ses_env00000001')
+    expect(env.ICODE_ACTIVITY_SOCKET).toBe('/profile/activity.sock')
+    expect(env.ELECTRON_RUN_AS_NODE).toBeUndefined()
   })
 
   it('is idempotent for a live session and never spawns a duplicate', () => {

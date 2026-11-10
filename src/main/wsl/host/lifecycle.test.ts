@@ -62,7 +62,7 @@ function identity(overrides: Partial<{
             : {
                 pid: hostPid,
                 startedAt: 1,
-                protocolVersion: 1,
+                protocolVersion: 2,
                 hostVersion: '0.1.0-icode1',
                 socket: '/home/u/.icode/host/scope/v-test/run/host.sock'
               }
@@ -184,7 +184,7 @@ const RECORD: WslGuestHostRecord = {
   startTicks: '52397645',
   hostDir: '/home/u/.icode/host/scope/v-test',
   socket: '/home/u/.icode/host/scope/v-test/run/host.sock',
-  protocolVersion: 1,
+  protocolVersion: 2,
   hostVersion: '0.1.0-icode1',
   buildFingerprint: FINGERPRINT,
   artifactVersion: 'v-test',
@@ -306,8 +306,8 @@ describe('protocol and build mismatch', () => {
       stored: RECORD,
       identities: [
         identity({ hostPid: 991, meta: { pid: 991, startedAt: 1, protocolVersion: 9, hostVersion: 'old', socket: '/s' } }),
-        identity({ hostPid: 991, meta: { pid: 991, startedAt: 2, protocolVersion: 1, hostVersion: '0.1.0-icode1', socket: '/s' } }),
-        identity({ hostPid: 991, meta: { pid: 991, startedAt: 2, protocolVersion: 1, hostVersion: '0.1.0-icode1', socket: '/s' } })
+        identity({ hostPid: 991, meta: { pid: 991, startedAt: 2, protocolVersion: 2, hostVersion: '0.1.0-icode1', socket: '/s' } }),
+        identity({ hostPid: 991, meta: { pid: 991, startedAt: 2, protocolVersion: 2, hostVersion: '0.1.0-icode1', socket: '/s' } })
       ],
       aliveResults: [false]
     })

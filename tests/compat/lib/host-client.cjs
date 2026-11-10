@@ -3,7 +3,7 @@
 const net = require('node:net')
 const { randomUUID } = require('node:crypto')
 
-const HOST_PROTOCOL_VERSION = 1
+const HOST_PROTOCOL_VERSION = 2
 
 class HostClient {
   constructor(socket, token) {

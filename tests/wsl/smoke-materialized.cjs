@@ -71,7 +71,7 @@ function connect(socketPath, token) {
         clearTimeout(timer)
         resolve(message)
       })
-      socket.write(JSON.stringify({ type: 'hello', protocolVersion: 1, token, clientId: 'wsl-smoke' }) + '\n')
+      socket.write(JSON.stringify({ type: 'hello', protocolVersion: 2, token, clientId: 'wsl-smoke' }) + '\n')
     })
 
   const request = (id, method, params) =>

@@ -52,6 +52,7 @@ describe('preload API surface', () => {
         'onSessionEvent',
         'onTaskEvent',
         'onViewCommand',
+        'providers',
         'repos',
         'schedules',
         'sessions',
@@ -302,6 +303,41 @@ describe('session event subscription', () => {
     expect(subscribe.mock.calls[0]![0]).toBe(IPC_CHANNELS.viewCommand)
     emit('focus')
     expect(listener).toHaveBeenCalledWith('focus')
+  })
+})
+
+describe('provider operations', () => {
+  it('routes list/create/update/remove/select/test to their channels', async () => {
+    const { api, invoke } = setup()
+    const providerId = 'prv_00000000-0000-4000-8000-000000000001'
+    await api.providers.list()
+    await api.providers.create({
+      harness: 'claude',
+      name: 'Relay',
+      baseUrl: 'https://relay.example.com',
+      model: 'claude-sonnet-5',
+      apiKey: 'sk-test',
+      authStyle: 'auth_token'
+    })
+    await api.providers.update({
+      id: providerId,
+      harness: 'claude',
+      name: 'Relay',
+      baseUrl: 'https://relay.example.com',
+      model: 'claude-sonnet-5'
+    })
+    await api.providers.remove({ providerId })
+    await api.providers.select({ harness: 'claude', providerId: null })
+    await api.providers.test({ providerId })
+
+    expect(invoke.mock.calls.map((call) => call[0])).toEqual([
+      IPC_CHANNELS.providersList,
+      IPC_CHANNELS.providersCreate,
+      IPC_CHANNELS.providersUpdate,
+      IPC_CHANNELS.providersRemove,
+      IPC_CHANNELS.providersSelect,
+      IPC_CHANNELS.providersTest
+    ])
   })
 })
 

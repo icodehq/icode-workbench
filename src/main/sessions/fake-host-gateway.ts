@@ -40,6 +40,7 @@ export class FakeHostGateway implements HostGateway {
       command: string
       cwd: string
       args: string[] | string
+      env?: Record<string, string>
       /** Which host served the call: `local` or the distro's registration. */
       host: string
     }>,
@@ -107,6 +108,7 @@ export class FakeHostGateway implements HostGateway {
     cwd: string
     command: string
     args?: string[] | string
+    env?: Record<string, string>
     cols: number
     rows: number
     attachOnly?: boolean
@@ -119,6 +121,7 @@ export class FakeHostGateway implements HostGateway {
       command: params.command,
       cwd: params.cwd,
       args: params.args ?? [],
+      ...(params.env === undefined ? {} : { env: params.env }),
       host:
         target === undefined || target.kind === 'local'
           ? 'local'

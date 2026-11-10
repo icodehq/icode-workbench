@@ -3,6 +3,7 @@ import {
   clipboard,
   dialog,
   ipcMain,
+  net,
   shell,
   type IpcMainInvokeEvent,
   type WebFrameMain
@@ -23,6 +24,7 @@ import { respondToWindowClose } from '../window-close'
 import { localeSetInputSchema } from '../../shared/schemas/locale'
 import type { LocaleService } from '../i18n/locale-service'
 import { getMainLocale } from '../i18n/main-i18n'
+import { createProviderProbe } from '../providers/provider-probe'
 
 export const WINDOW_CONTROL_CHANNELS: readonly string[] = [
   IPC_CHANNELS.windowMinimize,
@@ -113,6 +115,12 @@ export const HANDLED_CHANNELS: readonly string[] = [
   IPC_CHANNELS.activityList,
   IPC_CHANNELS.activityClearUnread,
   IPC_CHANNELS.harnessList,
+  IPC_CHANNELS.providersList,
+  IPC_CHANNELS.providersCreate,
+  IPC_CHANNELS.providersUpdate,
+  IPC_CHANNELS.providersRemove,
+  IPC_CHANNELS.providersSelect,
+  IPC_CHANNELS.providersTest,
   IPC_CHANNELS.aiCommitMessage,
   IPC_CHANNELS.aiCancelCommitMessage,
   IPC_CHANNELS.wslListDistros,
@@ -138,6 +146,10 @@ export function createAppDispatcher(
   runtime: AppRuntime,
   getPersistence: () => import('../persistence').AppPersistence
 ): Dispatcher {
+  // `net.fetch` follows Electron's proxy and certificate configuration.
+  const providerProbe = createProviderProbe({
+    fetch: (url, init) => net.fetch(url, init)
+  })
   return createDispatcher({
     reposList: async () => {
       const persistence = getPersistence()
@@ -371,6 +383,42 @@ export function createAppDispatcher(
     // Detection is per execution target: a WSL repository's Harnesses live in its
     // distro, so the repository is part of the question, not just a UI detail.
     harnessList: (input) => runtime.listHarnesses(input?.repoId === undefined ? {} : { repoId: input.repoId }),
+    providersList: async () => {
+      const persistence = getPersistence()
+      return {
+        providers: persistence.providers.list(),
+        selections: persistence.providers.selections(),
+        secretStorage: persistence.providers.storageStatus()
+      }
+    },
+    providersCreate: async (input) => {
+      const persistence = getPersistence()
+      return persistence.providers.createAndSelect(input, Date.now())
+    },
+    providersUpdate: async (input) => {
+      const persistence = getPersistence()
+      return persistence.providers.update(input, Date.now())
+    },
+    providersRemove: async (input) => {
+      const persistence = getPersistence()
+      persistence.providers.remove(input.providerId)
+      return null
+    },
+    providersSelect: async (input) => {
+      const persistence = getPersistence()
+      persistence.providers.select(input.harness, input.providerId, Date.now())
+      return null
+    },
+    providersTest: async (input) => {
+      const persistence = getPersistence()
+      const provider = persistence.providers.findLaunchConfig(input.providerId)
+      if (provider === null) {
+        throw makeAppError('INVALID_ARGUMENT', 'The provider does not exist.', {
+          context: { providerId: input.providerId }
+        })
+      }
+      return providerProbe.test(provider)
+    },
     aiCommitMessage: (input) =>
       runtime.commitMessages.generate(input.sessionId, input.requestId),
     aiCancelCommitMessage: async (input) => ({

@@ -123,6 +123,15 @@ import type {
   WslDistroListPayload
 } from './schemas/ipc'
 import type { HarnessDetection } from './domain/harness'
+import type {
+  ProviderCreateInput,
+  ProviderListPayload,
+  ProviderSelectInput,
+  ProviderTestInput,
+  ProviderTestResult,
+  ProviderUpdateInput,
+  ProviderViewPayload
+} from './schemas/provider'
 import type { LocaleSetInput, LocaleState } from './schemas/locale'
 import type { Locale } from './i18n/locales'
 
@@ -341,6 +350,21 @@ export type IcodeProductApi = {
     list: (
       input?: z.infer<typeof harnessListInputSchema>
     ) => Promise<IpcResult<HarnessDetection[]>>
+  }
+  /**
+   * Machine-level provider configurations.
+   *
+   * Selecting a provider applies to the *next* launch of that harness; a
+   * running session keeps the configuration it started with.
+   */
+  providers: {
+    list: () => Promise<IpcResult<ProviderListPayload>>
+    create: (input: ProviderCreateInput) => Promise<IpcResult<ProviderViewPayload>>
+    update: (input: ProviderUpdateInput) => Promise<IpcResult<ProviderViewPayload>>
+    remove: (input: { providerId: string }) => Promise<IpcResult<null>>
+    select: (input: ProviderSelectInput) => Promise<IpcResult<null>>
+    /** Sends one tiny request; the stored key never crosses into the renderer. */
+    test: (input: ProviderTestInput) => Promise<IpcResult<ProviderTestResult>>
   }
   ai: {
     /** Drafts a commit message from the staged diff with the session's agent. */

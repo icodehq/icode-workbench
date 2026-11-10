@@ -97,6 +97,21 @@ describe.skipIf(isWindows)('real PTY sessions', () => {
     expect(snapshot.seq).toBeGreaterThan(0)
   })
 
+  it('passes per-request provider env to the child process', async () => {
+    const { registry, waitFor } = setup()
+    const marker = `ENV_${Date.now()}`
+    registry.createOrAttach({
+      ...createParams('ses_real-env'),
+      args: [...ARGS, '-c', 'printf \'%s\\n\' "$ICODE_PROVIDER_API_KEY"'],
+      env: { ICODE_PROVIDER_API_KEY: marker }
+    })
+
+    const event = await waitFor(
+      (item) => item.event === 'data' && item.data.includes(marker)
+    )
+    expect(event.event).toBe('data')
+  })
+
   it('captures the exit code when the process ends', async () => {
     const { registry, waitFor } = setup()
     const created = registry.createOrAttach(createParams('ses_real-exit'))

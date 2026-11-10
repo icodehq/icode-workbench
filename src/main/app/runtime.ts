@@ -61,6 +61,11 @@ import { toGuestVisiblePath } from '../wsl/guest-visible-path'
 import { resolveGuestHarnessContext } from '../wsl/harness/guest-harness'
 import { createWslHostClientPool } from '../sessions/wsl-host-client-pool'
 import { createWorkspaceTrust } from '../harness/trust/workspace-trust'
+import { nativeLaunchSpec, providerLaunchSpec } from '../../shared/provider-launch'
+import {
+  materializeClaudeProviderOverlay,
+  pruneClaudeProviderOverlays
+} from '../harness/claude-provider-overlay'
 import { join } from 'node:path'
 import type { AppError } from '../../shared/domain/errors'
 import { makeAppError } from '../../shared/domain/errors'
@@ -433,6 +438,64 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     }
   }
 
+  /**
+   * Provider launch inputs for one harness.
+   *
+   * The selection is read at launch time so changing it affects the next
+   * session without restarting iCode. Provider credentials normally travel in
+   * the PTY environment; Claude still receives its keyless hook overlay as a
+   * second set of arguments.
+   */
+  const providerOverlayDirectory = join(activityDirectory, 'providers')
+  pruneClaudeProviderOverlays(providerOverlayDirectory, Date.now())
+  function launchSpecForHarness(
+    id: HarnessId,
+    target: ExecutionTarget
+  ): { args: string[]; env: Record<string, string> } {
+    if (id === 'shell') return nativeLaunchSpec()
+    const provider = persistence.providers.selected(id)
+    if (provider === null) {
+      if (id !== 'claude') return nativeLaunchSpec()
+      if (target.kind !== 'wsl') return { args: hooks.launchArgs, env: {} }
+      if (hooks.guestSettingsPath === null) return nativeLaunchSpec()
+      return { args: ['--settings', toGuestVisiblePath(hooks.guestSettingsPath)], env: {} }
+    }
+
+    const spec = providerLaunchSpec(provider)
+    if (id !== 'claude') return { args: spec.args, env: spec.env }
+
+    const hookArgs =
+      target.kind === 'wsl'
+        ? hooks.guestSettingsPath === null
+          ? []
+          : ['--settings', toGuestVisiblePath(hooks.guestSettingsPath)]
+        : hooks.launchArgs
+
+    if (Object.keys(spec.claudeEnv).length === 0) {
+      return { args: [...spec.args, ...hookArgs], env: spec.env }
+    }
+
+    // Fallback only: merge the provider env into the hook overlay, because two
+    // `--settings` files replace `env` instead of deep-merging it.
+    const basePath =
+      target.kind === 'wsl' && hooks.guestSettingsPath !== null
+        ? hooks.guestSettingsPath
+        : hooks.settingsPath
+    const overlayPath = materializeClaudeProviderOverlay({
+      baseSettingsPath: basePath,
+      directory: providerOverlayDirectory,
+      env: spec.claudeEnv
+    })
+    return {
+      args: [
+        ...spec.args,
+        '--settings',
+        target.kind === 'wsl' ? toGuestVisiblePath(overlayPath) : overlayPath
+      ],
+      env: {}
+    }
+  }
+
   const sessions = new SessionService({
     database: persistence.database,
     repositories: persistence.repositories,
@@ -459,18 +522,14 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     // under that distro's login shell.
     detectHarness: (id, target) => detectHarnessForTarget(id, target),
     /**
-     * Only Claude understands the hook overlay; every other harness is untouched.
+     * Claude always receives the hook overlay; a selected provider adds its
+     * environment to the same document. Codex and OpenCode receive args/env.
      *
      * A WSL Agent gets its own overlay, because its hook commands must cross into
      * Windows; the file is read through `/mnt/<drive>/…`, since a Windows path is
      * not a path inside the distro.
      */
-    launchArgs: (id, target) => {
-      if (id !== 'claude') return []
-      if (target.kind !== 'wsl') return hooks.launchArgs
-      if (hooks.guestSettingsPath === null) return []
-      return ['--settings', toGuestVisiblePath(hooks.guestSettingsPath)]
-    },
+    launchSpec: (id, target) => launchSpecForHarness(id, target),
     onIncarnation: (sessionId, incarnationId) => activity.bindIncarnation(sessionId, incarnationId),
     activityFor: (sessionId) => activity.get(sessionId)
   })

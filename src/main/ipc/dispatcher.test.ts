@@ -95,6 +95,22 @@ function services(overrides: Partial<DispatcherServices> = {}): DispatcherServic
     schedulesRunNow: vi.fn(async () => ({ result: 'created', taskId: 'task_1', occurrenceAt: 1, trigger: 'manual' })),
     schedulesRemove: vi.fn(async () => undefined),
     harnessList: vi.fn(async () => []),
+    providersList: vi.fn(async () => ({
+      providers: [],
+      selections: [],
+      secretStorage: { backend: 'safe_storage', secure: true }
+    })),
+    providersCreate: vi.fn(async () => ({})),
+    providersUpdate: vi.fn(async () => ({})),
+    providersRemove: vi.fn(async () => null),
+    providersSelect: vi.fn(async () => null),
+    providersTest: vi.fn(async () => ({
+      ok: true,
+      code: 'ok',
+      status: 200,
+      latencyMs: 1,
+      message: 'ok'
+    })),
     aiCommitMessage: vi.fn(async () => ({ status: 'ok', message: 'test', agent: 'claude' })),
     aiCancelCommitMessage: vi.fn(async () => ({ cancelled: true })),
     wslListDistros: vi.fn(async () => ({ status: 'ok', distros: [], defaultRegistrationId: null })),
@@ -492,5 +508,47 @@ describe('execution-target aware IPC', () => {
       await dispatch(IPC_CHANNELS.assistantFocus, { messageId: 'msg_1' })
     ).toMatchObject({ ok: true })
     expect(service.assistantFocus).toHaveBeenCalledWith({ messageId: 'msg_1' })
+  })
+
+  it('validates provider update and test requests', async () => {
+    const update = vi.fn(async (input: { id: string }) => ({ id: input.id }))
+    const test = vi.fn(async (_input: { providerId: string }) => ({
+      ok: true,
+      code: 'ok',
+      status: 200,
+      latencyMs: 1,
+      message: 'ok'
+    }))
+    const dispatch = createDispatcher(
+      services({ providersUpdate: update, providersTest: test })
+    )
+    const providerId = 'prv_00000000-0000-4000-8000-000000000001'
+
+    expect(
+      await dispatch(IPC_CHANNELS.providersUpdate, {
+        id: providerId,
+        harness: 'claude',
+        name: 'Relay',
+        baseUrl: 'https://relay.example.com',
+        model: 'claude-sonnet-5'
+      })
+    ).toMatchObject({ ok: true })
+    expect(update).toHaveBeenCalledWith({
+      id: providerId,
+      harness: 'claude',
+      name: 'Relay',
+      baseUrl: 'https://relay.example.com',
+      model: 'claude-sonnet-5'
+    })
+
+    expect(await dispatch(IPC_CHANNELS.providersTest, { providerId })).toMatchObject({
+      ok: true
+    })
+    expect(test).toHaveBeenCalledWith({ providerId })
+
+    expect(await dispatch(IPC_CHANNELS.providersUpdate, { id: 'bad' })).toMatchObject({
+      ok: false,
+      error: { code: 'INVALID_ARGUMENT' }
+    })
   })
 })

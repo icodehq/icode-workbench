@@ -49,6 +49,9 @@ describe('database initialization', () => {
       'assistant_runs',
       'assistant_settings',
       'assistant_threads',
+      // v13: per-harness provider configuration and its selection.
+      'harness_provider_selection',
+      'providers',
       // v4: durable work lives beside sessions, not inside them.
       'repos',
       'session_worktrees',
@@ -523,6 +526,8 @@ describe('migrations', () => {
       'assistant_runs_thread_started_idx',
       'assistant_threads_main_idx',
       'assistant_threads_updated_idx',
+      // v13: provider lookup per harness.
+      'providers_harness_idx',
       // v3: one uniqueness rule per execution target, plus the host-kind lookup
       // index. The partial unique indexes are what allow the same path string on
       // two targets while still refusing a duplicate within one.

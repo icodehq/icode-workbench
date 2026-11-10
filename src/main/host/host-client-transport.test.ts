@@ -69,7 +69,7 @@ describe('HostClient over TCP', () => {
     cleanup.push(() => client.close())
 
     await expect(client.ping()).resolves.toBeUndefined()
-    expect(client.info?.protocolVersion).toBe(1)
+    expect(client.info?.protocolVersion).toBe(2)
     expect(client.info?.hostPid).toBeGreaterThan(0)
   })
 

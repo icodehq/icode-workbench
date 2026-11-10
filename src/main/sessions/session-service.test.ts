@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { SessionService, SessionServiceError } from './session-service'
+import { SessionService, SessionServiceError, type SessionServiceDeps } from './session-service'
 import { FakeHostGateway } from './fake-host-gateway'
 import { makeRepositoryService, makeTempRoot, openTempDatabase } from '../persistence/persistence-test-fixtures'
 import { resolveRepositoryRoot } from '../repositories/repository-path'
@@ -97,6 +97,7 @@ function unusable(
 function setup(options: {
   harness?: HarnessDetectionResult
   workspaceTrust?: WorkspaceTrustService
+  launchSpec?: NonNullable<SessionServiceDeps['launchSpec']>
 } = {}): Fixture {
   const root = makeTempRoot('icode-session-')
   const db = openTempDatabase(root)
@@ -131,12 +132,18 @@ function setup(options: {
       detection.targets.push(target)
       return detection.current
     },
-    launchArgs: (harness, target) => {
-      if (harness !== 'claude') return []
-      return target.kind === 'wsl'
-        ? ['--settings', '/mnt/d/profile/agent-hooks/settings.json']
-        : ['--settings', 'D:\\profile\\agent-hooks\\settings.json']
-    },
+    launchSpec:
+      options.launchSpec ??
+      ((harness, target) => {
+        if (harness !== 'claude') return { args: [], env: {} }
+        return {
+          args:
+            target.kind === 'wsl'
+              ? ['--settings', '/mnt/d/profile/agent-hooks/settings.json']
+              : ['--settings', 'D:\\profile\\agent-hooks\\settings.json'],
+          env: {}
+        }
+      }),
     resolveWslTerminal: async (_target, guestCwd) => {
       pathA.requested.push(guestCwd)
       if (pathA.fail) {
@@ -198,6 +205,7 @@ function setup(options: {
 
 async function withRepo(options: {
   workspaceTrust?: WorkspaceTrustService
+  launchSpec?: NonNullable<SessionServiceDeps['launchSpec']>
 } = {}): Promise<Fixture> {
   const fixture = setup(options)
   const added = await fixture.stores.service.addRepository(fixture.repoPath)
@@ -242,6 +250,32 @@ describe('session creation', () => {
     expect(stored?.observation.lastObservedState).toBe('live')
     expect(stored?.observation.lastObservedIncarnationId).toBe(summary.incarnationId)
     expect(f.events.some((event) => event.type === 'state')).toBe(true)
+  })
+
+  it('forwards provider env to create and restart, never to attach', async () => {
+    const env = {
+      ANTHROPIC_BASE_URL: 'https://relay.example.com',
+      ANTHROPIC_AUTH_TOKEN: 'sk-test'
+    }
+    const f = await withRepo({
+      launchSpec: (harness) =>
+        harness === 'claude'
+          ? { args: ['--model', 'claude-sonnet-5'], env }
+          : { args: [], env: {} }
+    })
+    const created = await f.service.create(createInput(f))
+    expect(f.host.calls.createOrAttach[0]).toMatchObject({
+      args: ['--model', 'claude-sonnet-5'],
+      env
+    })
+
+    await f.service.restart(created.id)
+    expect(f.host.calls.createOrAttach.at(-1)).toMatchObject({ env })
+
+    await f.service.attach(created.id)
+    const attach = f.host.calls.createOrAttach.at(-1)!
+    expect(attach.attachOnly).toBe(true)
+    expect(attach.env).toBeUndefined()
   })
 
   it('uses an optional title', async () => {

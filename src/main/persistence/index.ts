@@ -1,10 +1,12 @@
 import { join } from 'node:path'
-import { app } from 'electron'
+import { app, safeStorage } from 'electron'
 import { openDatabase, type Database } from './database'
 import { MIGRATIONS } from './migrations'
 import { RepositoryStore } from './repository-store'
 import { SessionStore } from './session-store'
 import { UiStateStore } from './ui-state-store'
+import { ProviderStore } from './provider-store'
+import { createSafeStorageCipher } from '../secrets/secret-cipher'
 import {
   createRepositoryService,
   defaultPathStatus,
@@ -20,6 +22,7 @@ export type AppPersistence = {
   repositories: RepositoryStore
   sessions: SessionStore
   uiState: UiStateStore
+  providers: ProviderStore
   repositoryService: RepositoryService
 }
 
@@ -49,11 +52,13 @@ export function getAppPersistence(): AppPersistence {
   const repositories = new RepositoryStore(database)
   const sessions = new SessionStore(database)
   const uiState = new UiStateStore(database)
+  const providers = new ProviderStore(database, createSafeStorageCipher(safeStorage))
   instance = {
     database,
     repositories,
     sessions,
     uiState,
+    providers,
     repositoryService: createRepositoryService({
       database,
       repositories,

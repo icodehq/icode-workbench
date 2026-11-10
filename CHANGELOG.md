@@ -35,6 +35,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and user content are never translated. Persisted task, schedule and assistant
   text keeps the language it was written in.
 
+- Agent providers: configure an API provider per harness (Claude Code, Codex,
+  OpenCode) in **Settings → Agent providers**. iCode injects the endpoint, key,
+  and model into the launched session's environment instead of writing the
+  tool's global config, so plugins, hooks, and user settings stay untouched.
+  Includes curated presets, encrypted key storage via Electron `safeStorage`,
+  a real **Test connection** request, and a Settings preview of the exact
+  launch inputs. SQLite migration v13 adds `providers` and
+  `harness_provider_selection`; terminal-host protocol v2 adds per-session
+  environment so Codex and OpenCode receive credentials without exposing them
+  in argv or on disk.
+
 ### Changed
 
 - Codex runs for Mira no longer use `--ephemeral` when resume is available, so

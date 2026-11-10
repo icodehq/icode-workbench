@@ -63,6 +63,46 @@ describe('client frame parsing', () => {
     expect(create.ok).toBe(true)
   })
 
+  it('accepts per-request provider env within the limits', () => {
+    const params = {
+      sessionId,
+      cwd: '/home/dev/atlas',
+      command: '/bin/bash',
+      cols: 120,
+      rows: 32,
+      env: { ICODE_PROVIDER_API_KEY: 'sk-test' }
+    }
+    const accepted = parseHostClientFrame(
+      JSON.stringify({ type: 'request', id: 'r1', method: 'createOrAttach', params })
+    )
+    expect(accepted.ok).toBe(true)
+
+    const tooMany = parseHostClientFrame(
+      JSON.stringify({
+        type: 'request',
+        id: 'r2',
+        method: 'createOrAttach',
+        params: {
+          ...params,
+          env: Object.fromEntries(
+            Array.from({ length: 33 }, (_, index) => [`K${index}`, 'v'])
+          )
+        }
+      })
+    )
+    expect(tooMany.ok).toBe(false)
+
+    const tooLong = parseHostClientFrame(
+      JSON.stringify({
+        type: 'request',
+        id: 'r3',
+        method: 'createOrAttach',
+        params: { ...params, env: { BIG: 'x'.repeat(16_385) } }
+      })
+    )
+    expect(tooLong.ok).toBe(false)
+  })
+
   it('rejects unknown methods explicitly', () => {
     const result = parseHostClientFrame(
       JSON.stringify({ type: 'request', id: 'r1', method: 'exec', params: {} })
@@ -119,7 +159,7 @@ describe('protocol version', () => {
     const parsed = parseHostClientFrame(
       JSON.stringify({
         type: 'hello',
-        protocolVersion: 2,
+        protocolVersion: 3,
         token: 'b'.repeat(64),
         clientId: 'icode-main-123'
       })
@@ -128,7 +168,7 @@ describe('protocol version', () => {
     if (!parsed.ok || parsed.value.type !== 'hello') return
     const error = checkHelloProtocolVersion(parsed.value)
     expect(error?.code).toBe('UNSUPPORTED_VERSION')
-    expect(error?.message).toContain('v2')
+    expect(error?.message).toContain('v3')
   })
 
   it('accepts the current version', () => {

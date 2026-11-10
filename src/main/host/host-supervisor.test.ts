@@ -13,7 +13,7 @@ const appStub = {
 }
 vi.mock('electron', () => ({ app: appStub }))
 
-const { HostSupervisor } = await import('./host-supervisor')
+const { HostSupervisor, shutdownStaleHost } = await import('./host-supervisor')
 const { hostSocketPath, profileSocketScope } = await import('../../host/paths')
 
 const roots: string[] = []
@@ -38,7 +38,7 @@ function profile(name: string): string {
 function writeMeta(dir: string, pid: number, socket: string): void {
   writeFileSync(
     join(dir, 'meta.json'),
-    `${JSON.stringify({ pid, startedAt: 1, protocolVersion: 1, hostVersion: 'test', socket, tokenFile: join(dir, 'token') })}\n`,
+    `${JSON.stringify({ pid, startedAt: 1, protocolVersion: 2, hostVersion: 'test', socket, tokenFile: join(dir, 'token') })}\n`,
     { mode: 0o600 }
   )
 }
@@ -292,4 +292,93 @@ describe('named-pipe endpoints', () => {
       await expect(supervisor.ensure()).rejects.toThrow(/no matching credentials/)
     }
   )
+})
+
+describe('stale host replacement', () => {
+  const meta = {
+    pid: 991,
+    startedAt: 1,
+    protocolVersion: 1,
+    hostVersion: 'old',
+    socket: '/profile/terminal-host.sock',
+    tokenFile: '/profile/token'
+  }
+
+  function connection(options: { hostPid: number; onShutdown?: () => void }): {
+    info: { hostPid: number }
+    shutdown: () => Promise<void>
+    close: () => void
+  } {
+    return {
+      info: { hostPid: options.hostPid },
+      shutdown: async () => {
+        options.onShutdown?.()
+      },
+      close: () => {}
+    }
+  }
+
+  it('shuts down a profile-owned host after proving its pid', async () => {
+    let alive = true
+    const outcome = await shutdownStaleHost({
+      meta,
+      socketPath: meta.socket,
+      tokenPath: meta.tokenFile,
+      token: 'tok',
+      connect: async (options) => {
+        expect(options.protocolVersion).toBe(1)
+        return connection({ hostPid: meta.pid, onShutdown: () => (alive = false) })
+      },
+      isAlive: () => alive,
+      wait: async () => {}
+    })
+
+    expect(outcome).toEqual({ ok: true })
+  })
+
+  it('refuses when the recorded endpoint belongs to another profile', async () => {
+    const outcome = await shutdownStaleHost({
+      meta,
+      socketPath: '/other/terminal-host.sock',
+      tokenPath: meta.tokenFile,
+      token: 'tok'
+    })
+    expect(outcome.ok).toBe(false)
+  })
+
+  it('refuses when the hello identifies another pid', async () => {
+    const outcome = await shutdownStaleHost({
+      meta,
+      socketPath: meta.socket,
+      tokenPath: meta.tokenFile,
+      token: 'tok',
+      connect: async () => connection({ hostPid: 992 }),
+      isAlive: () => true
+    })
+    expect(outcome.ok).toBe(false)
+  })
+
+  it('reports a host that does not exit after shutdown', async () => {
+    const outcome = await shutdownStaleHost({
+      meta,
+      socketPath: meta.socket,
+      tokenPath: meta.tokenFile,
+      token: 'tok',
+      connect: async () => connection({ hostPid: meta.pid }),
+      isAlive: () => true,
+      wait: async () => {},
+      timeoutMs: 0
+    })
+    expect(outcome.ok).toBe(false)
+  })
+
+  it('requires this profile token', async () => {
+    const outcome = await shutdownStaleHost({
+      meta,
+      socketPath: meta.socket,
+      tokenPath: meta.tokenFile,
+      token: null
+    })
+    expect(outcome.ok).toBe(false)
+  })
 })

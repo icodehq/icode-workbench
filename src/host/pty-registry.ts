@@ -41,6 +41,8 @@ export type CreateOrAttachParams = {
   args?: string[] | string
   cols: number
   rows: number
+  /** Extra environment; reserved keys are forced by buildEnv. */
+  env?: Record<string, string>
   attachOnly?: boolean
 }
 
@@ -97,13 +99,39 @@ type Entry = {
   exitSub: Disposable
 }
 
-function buildEnv(base: Record<string, string>, sessionId: string, incarnationId: string): Record<string, string> {
+/** Values the host owns; a per-request env may not replace them. */
+const HOST_OWNED_ENV = [
+  'ICODE_ACTIVITY_SOCKET',
+  'ICODE_HOST_DIR',
+  'ICODE_HOST_SOCKET',
+  'ICODE_PROFILE_DIR',
+  'ICODE_SESSION_ID',
+  'ICODE_SESSION_INCARNATION'
+] as const
+
+function buildEnv(
+  base: Record<string, string>,
+  sessionId: string,
+  incarnationId: string,
+  extra?: Record<string, string>
+): Record<string, string> {
   const env: Record<string, string> = {}
   for (const [key, value] of Object.entries(base)) {
     // The host itself runs under ELECTRON_RUN_AS_NODE; child TUIs must not.
     if (key === 'ELECTRON_RUN_AS_NODE') continue
     env[key] = value
   }
+  // Remember the host-owned values before a caller can override them.
+  const owned = new Map(HOST_OWNED_ENV.map((key) => [key, base[key]] as const))
+  for (const [key, value] of Object.entries(extra ?? {})) {
+    if (key === 'ELECTRON_RUN_AS_NODE') continue
+    env[key] = value
+  }
+  for (const [key, value] of owned) {
+    if (value === undefined) delete env[key]
+    else env[key] = value
+  }
+  // Host-owned identity wins over a caller-supplied value.
   env.TERM = 'xterm-256color'
   env.ICODE_SESSION_ID = sessionId
   env.ICODE_SESSION_INCARNATION = incarnationId
@@ -299,7 +327,7 @@ export class PtyRegistry {
         cwd: params.cwd,
         cols: params.cols,
         rows: params.rows,
-        env: buildEnv(this.env, params.sessionId, incarnationId)
+        env: buildEnv(this.env, params.sessionId, incarnationId, params.env)
       })
     } catch (error) {
       emulator.dispose()

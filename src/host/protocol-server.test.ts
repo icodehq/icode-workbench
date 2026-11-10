@@ -35,7 +35,7 @@ describe('handshake', () => {
     const host = await hostWith(fake)
     const client = track(await connectTestClient(host.paths, host.token))
     const hello = client.messages[0]!
-    expect(hello).toMatchObject({ type: 'hello', ok: true, hostPid: 4242, protocolVersion: 1 })
+    expect(hello).toMatchObject({ type: 'hello', ok: true, hostPid: 4242, protocolVersion: 2 })
   })
 
   it('rejects an invalid token and closes the connection', async () => {

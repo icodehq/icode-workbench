@@ -19,7 +19,7 @@ import {
   wireSessionIdSchema
 } from './schemas/primitives'
 
-export const HOST_PROTOCOL_VERSION = 1
+export const HOST_PROTOCOL_VERSION = 2
 export const MAX_FRAME_BYTES = 4 * 1024 * 1024
 export const MAX_REQUEST_TIMEOUT_MS = 60_000
 export const HELLO_TIMEOUT_MS = 3_000
@@ -74,6 +74,17 @@ export const createOrAttachParamsSchema = z.strictObject({
     .optional(),
   cols: dimensionSchema,
   rows: dimensionSchema,
+  /**
+   * Extra environment for the PTY, merged over the host's own environment.
+   *
+   * iCode uses this to hand a harness its provider credentials without writing
+   * them into the user's global config. Reserved keys (TERM and the session
+   * identity) are set by the host after the merge and cannot be overridden.
+   */
+  env: z
+    .record(z.string().min(1).max(128), z.string().max(16384))
+    .refine((value) => Object.keys(value).length <= 32, 'at most 32 variables')
+    .optional(),
   attachOnly: z.boolean().optional()
 })
 

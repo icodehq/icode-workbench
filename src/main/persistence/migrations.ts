@@ -565,5 +565,53 @@ export const MIGRATIONS: readonly Migration[] = [
          SELECT MAX(rowid) FROM assistant_conversations GROUP BY thread_id
        )`
     ]
+  },
+  {
+    version: 13,
+    name: 'providers',
+    /**
+     * Provider configurations for coding-agent harnesses.
+     *
+     * One row is one endpoint for one harness: model names and auth conventions
+     * differ per tool, so a provider is not shared across harnesses (cc-switch
+     * reached the same conclusion with its per-app provider rows).
+     *
+     * The API key is never stored in plaintext. `api_key_cipher` is the
+     * Electron safeStorage output (or its `basic_text` fallback, marked by
+     * `api_key_backend`), and `api_key_scheme` versions the envelope.
+     *
+     * `harness_provider_selection` is machine-level. It records which provider a
+     * harness should launch with; a missing row or a NULL provider means "use
+     * the harness's own native configuration". `ON DELETE RESTRICT` is a second
+     * line of defence behind the store's explicit "switch away first" check.
+     */
+    statements: [
+      `CREATE TABLE providers (
+         id TEXT PRIMARY KEY NOT NULL,
+         harness TEXT NOT NULL CHECK (harness IN ('claude', 'codex', 'opencode')),
+         name TEXT NOT NULL,
+         base_url TEXT NOT NULL,
+         model TEXT NOT NULL,
+         auth_style TEXT CHECK (
+           (harness = 'claude' AND auth_style IN ('auth_token', 'api_key'))
+           OR (harness <> 'claude' AND auth_style IS NULL)
+         ),
+         api_key_cipher BLOB NOT NULL,
+         api_key_scheme TEXT NOT NULL CHECK (api_key_scheme IN ('safe_storage_v1')),
+         api_key_backend TEXT NOT NULL CHECK (api_key_backend IN ('safe_storage', 'basic_text')),
+         created_at INTEGER NOT NULL,
+         updated_at INTEGER NOT NULL,
+         UNIQUE (harness, name),
+         CHECK (length(name) > 0 AND length(base_url) > 0 AND length(model) > 0),
+         CHECK (length(api_key_cipher) > 0)
+       ) STRICT`,
+      `CREATE INDEX providers_harness_idx ON providers (harness, created_at)`,
+      `CREATE TABLE harness_provider_selection (
+         harness TEXT PRIMARY KEY NOT NULL
+           CHECK (harness IN ('claude', 'codex', 'opencode')),
+         provider_id TEXT REFERENCES providers(id) ON DELETE RESTRICT,
+         updated_at INTEGER NOT NULL
+       ) STRICT`
+    ]
   }
 ]
