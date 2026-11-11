@@ -13,6 +13,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { ActivityHookServer } from './hook-server'
 import { ActivityService } from './activity-service'
 import { buildClaudeSettings, HOOK_WRAPPER_NAME, installClaudeHooks } from './claude-hooks'
+import { testSocketPath } from '../../host/test-platform'
 import type { ActivityHookEvent } from '../../shared/domain/activity'
 
 /**
@@ -100,7 +101,8 @@ function runAsync(
 }
 
 function socketPath(root: string): string {
-  return join(root, 'activity.sock')
+  // POSIX keeps the socket beside the profile; Windows needs a named pipe.
+  return testSocketPath(root, 'activity')
 }
 
 async function startIngress(root: string): Promise<{
@@ -343,6 +345,34 @@ describe.runIf(hasClaude())('shipped hook script with real Claude', () => {
     expect(settings.hooks.Stop?.[0]?.hooks[0]?.command).toContain('icode-activity-hook.cmd')
   })
 
+})
+
+describe('shipped hook script transport', () => {
+  it('delivers one event over the real ingress and exits 0', async () => {
+    const root = tempRoot()
+    const ingress = await startIngress(root)
+    const hooks = installClaudeHooks({
+      directory: join(root, 'agent-hooks'),
+      execPath: process.execPath,
+      electronRunAsNode: false
+    })
+    const run = await runAsync(process.execPath, [hooks.scriptPath, 'Stop'], {
+      input: JSON.stringify({ session_id: 'claude-delivery' }),
+      timeoutMs: 5_000,
+      env: {
+        ...process.env,
+        ICODE_SESSION_ID: SESSION,
+        ICODE_SESSION_INCARNATION: INC,
+        ICODE_ACTIVITY_SOCKET: socketPath(root)
+      }
+    })
+    expect(run.timedOut).toBe(false)
+    expect(run.status).toBe(0)
+    expect(run.stdout).toBe('')
+    expect(ingress.events.map((event) => event.event)).toContain('Stop')
+    await ingress.server.stop()
+  })
+
   it('never lingers when the socket accepts but never replies', async () => {
     const root = tempRoot()
     const hooks = installClaudeHooks({
@@ -351,6 +381,8 @@ describe.runIf(hasClaude())('shipped hook script with real Claude', () => {
       electronRunAsNode: false
     })
     const path = socketPath(root)
+    // A named pipe needs no directory; the POSIX socket's parent does.
+    if (!path.startsWith('\\\\')) mkdirSync(dirname(path), { recursive: true })
     const server = (await import('node:net')).createServer((socket) => {
       // Accept and hold the connection without a reply.
       socket.on('data', () => undefined)
@@ -368,8 +400,8 @@ describe.runIf(hasClaude())('shipped hook script with real Claude', () => {
     })
     expect(run.timedOut).toBe(false)
     expect(run.status).toBe(0)
-    // The 100 ms deadline must win well before the 5 s hard timeout.
-    expect(run.elapsedMs).toBeLessThan(1_500)
+    // The one-second transport guard must win well before the 5 s hard timeout.
+    expect(run.elapsedMs).toBeLessThan(2_000)
     await new Promise<void>((resolve) => server.close(() => resolve()))
   })
 })
