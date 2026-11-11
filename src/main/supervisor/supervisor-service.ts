@@ -52,6 +52,14 @@ export type SupervisorServiceDeps = {
   /** Let the agent TUI finish drawing before the first paste. */
   bootstrapDelayMs?: number
   onError?: (error: unknown) => void
+  /**
+   * A control client dropped its connection before or during a request.
+   *
+   * This is a diagnostic, not an application error: an agent command can be
+   * interrupted, and the control plane has nothing to answer. Keeping it apart
+   * from `onError` stops routine disconnects from being logged as failures.
+   */
+  onRejected?: (reason: string, detail?: string) => void
 }
 
 type TaskSummary = {
@@ -133,9 +141,7 @@ export class SupervisorService {
       this.server = new SupervisorControlServer({
         socketPath: this.endpoint(),
         handle: (request) => this.handleControl(request),
-        onRejected: (reason, detail) => {
-          this.deps.onError?.(new Error(`supervisor control rejected: ${reason}${detail ? `: ${detail}` : ''}`))
-        }
+        onRejected: (reason, detail) => this.deps.onRejected?.(reason, detail)
       })
       await this.server.start()
       // AppImage mount paths change between launches. Rewriting the wrappers is

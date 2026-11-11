@@ -232,7 +232,13 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     socketPath: activitySocketPath,
     ingest: (event) => activity.ingest(event),
     onRejected: (reason, detail) => {
-      process.stderr.write(`[icode] activity payload dropped (${reason}) ${detail ?? ''}\n`)
+      // An empty frame means a client connected and closed without sending a
+      // byte. The hook now frames with a newline so this should not happen on
+      // a healthy transport, but an interrupted client can still produce one.
+      const hint = reason === 'empty-payload' ? ' [client sent no bytes]' : ''
+      process.stderr.write(
+        `[icode] activity payload dropped (${reason})${detail ? `: ${detail}` : ''}${hint}\n`
+      )
     }
   })
 
@@ -919,7 +925,18 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     listHarnesses,
     activity,
     onError: (error) => {
-      process.stderr.write(`[icode] supervisor: ${String(error)}\n`)
+      // `String(error)` prefixes the message with "Error:", which made routine
+      // control-plane diagnostics look like application failures.
+      process.stderr.write(
+        `[icode] supervisor: ${error instanceof Error ? error.message : String(error)}\n`
+      )
+    },
+    onRejected: (reason, detail) => {
+      const message =
+        reason === 'empty-payload'
+          ? 'a control client closed the connection before sending a request'
+          : `a control request was rejected (${reason})${detail ? `: ${detail}` : ''}`
+      process.stderr.write(`[icode] supervisor: ${message}\n`)
     }
   })
   await supervisorService.start().catch((error) => {
