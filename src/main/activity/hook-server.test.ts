@@ -32,16 +32,6 @@ function send(path: string, payload: string, options: { stall?: boolean } = {}):
   })
 }
 
-/** The hook's frame: write a newline and keep the read side open for the close. */
-function sendFrame(path: string, payload: string): Promise<void> {
-  return new Promise((resolve) => {
-    const socket = createConnection(path)
-    socket.on('error', () => resolve())
-    socket.on('close', () => resolve())
-    socket.on('connect', () => socket.write(`${payload}\n`))
-  })
-}
-
 type Verdict = 'accepted' | 'duplicate' | 'stale' | 'unknown-session' | 'stale-incarnation'
 
 function start(
@@ -86,17 +76,6 @@ describe('hook ingress', () => {
     await send(path, VALID)
     expect(events).toHaveLength(1)
     expect(events[0]).toMatchObject({ event: 'PreToolUse', toolName: 'Bash' })
-  })
-
-  it('accepts a newline-framed payload without a half-close', async () => {
-    const { server, path, events } = start()
-    await server.start()
-    await sendFrame(path, VALID)
-    expect(events).toHaveLength(1)
-    expect(events[0]).toMatchObject({ event: 'PreToolUse', toolName: 'Bash' })
-    // Windows can report extra zero-byte connections when the client and the
-    // server share one process. The cross-process transport test in
-    // claude-hooks.test.ts is the production topology and asserts no drops.
   })
 
   it('drops malformed JSON and invalid payloads', async () => {

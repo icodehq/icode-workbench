@@ -15,10 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   directory by an interrupted install or by a previous install at another
   location; the uninstaller cleans the same orphaned directory. Only a
   directory that still carries iCode's own files is touched.
-- Claude activity hooks now send a newline-terminated frame and keep the
-  connection open until the ingress closes it. A Windows named pipe can no
-  longer drop an event as an `empty-payload`. The ingress still accepts the
-  old end-of-stream framing.
+- Claude activity hooks no longer wait indefinitely when the ingress accepts
+  a connection and then stalls; the hook exits after at most one second.
 - Zero-byte connections to the activity ingress and the supervisor control
   plane are ignored instead of logged as errors. Windows named pipes are
   world-open, so security software and stray probes can open one and close it

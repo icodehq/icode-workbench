@@ -32,7 +32,7 @@ export const GUEST_SETTINGS_NAME = 'settings.wsl.json'
  * - writes nothing to stdout (Claude consumes hook stdout),
  * - exits 0 even when iCode is unreachable, so an iCode failure cannot block Claude,
  * - reads stdin for at most 100 ms and never waits more than a second for the
- *   ingress to accept the frame, so the process cannot linger.
+ *   ingress to close the connection, so the process cannot linger.
  */
 const HOOK_SCRIPT = `#!/usr/bin/env node
 'use strict'
@@ -61,17 +61,15 @@ function finish(payload) {
   } catch {
     done()
   }
-  // Windows named pipes do not reliably deliver a frame that is half-closed
-  // with \`socket.end(text)\`; the server can see an empty connection and drop
-  // the event. Send a newline-terminated frame and keep the connection open
-  // until the ingress closes it. The guard is a safety net for a server that
-  // accepts the pipe and then stalls; the normal path closes immediately.
+  // The ingress destroys the connection once it has the payload. The guard is
+  // a safety net for a server that accepts the pipe and then stalls; a hook
+  // must never hold a Claude turn open.
   const guard = setTimeout(done, 1000)
   guard.unref()
   socket.on('error', function () { clearTimeout(guard); done() })
   socket.on('connect', function () {
     try {
-      socket.write(JSON.stringify(payload) + '\\n')
+      socket.end(JSON.stringify(payload))
     } catch {
       clearTimeout(guard)
       done()

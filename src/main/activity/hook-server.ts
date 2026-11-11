@@ -97,16 +97,6 @@ export class ActivityHookServer {
         return
       }
       chunks.push(chunk)
-      // A newline is the portable frame. On Windows, a named pipe can lose a
-      // frame that the client half-closes with `socket.end(text)`, so the hook
-      // writes the payload plus a newline and waits for this close. The
-      // end-of-stream path below stays for older framing and for tests.
-      const raw = Buffer.concat(chunks).toString('utf8')
-      const newline = raw.indexOf('\n')
-      if (newline === -1) return
-      clearTimeout(timer)
-      this.process(raw.slice(0, newline))
-      finish()
     })
     socket.on('end', () => {
       clearTimeout(timer)

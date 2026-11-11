@@ -344,7 +344,6 @@ describe.runIf(hasClaude())('shipped hook script with real Claude', () => {
     }
     expect(settings.hooks.Stop?.[0]?.hooks[0]?.command).toContain('icode-activity-hook.cmd')
   })
-
 })
 
 describe('shipped hook script transport', () => {
