@@ -19,9 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   connection open until the ingress closes it. A Windows named pipe can no
   longer drop an event as an `empty-payload`. The ingress still accepts the
   old end-of-stream framing.
-- Supervisor control-plane disconnects are logged as non-fatal diagnostics
-  instead of `Error:` messages; a client that closes before sending a request
-  is reported as exactly that.
+- Zero-byte connections to the activity ingress and the supervisor control
+  plane are ignored instead of logged as errors. Windows named pipes are
+  world-open, so security software and stray probes can open one and close it
+  without sending a request; the shipped clients never do.
 - Documented the `ELECTRON_RUN_AS_NODE` startup trap and the WAL caveat when
   checking `user_version` with an external tool.
 

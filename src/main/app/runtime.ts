@@ -232,12 +232,13 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     socketPath: activitySocketPath,
     ingest: (event) => activity.ingest(event),
     onRejected: (reason, detail) => {
-      // An empty frame means a client connected and closed without sending a
-      // byte. The hook now frames with a newline so this should not happen on
-      // a healthy transport, but an interrupted client can still produce one.
-      const hint = reason === 'empty-payload' ? ' [client sent no bytes]' : ''
+      // A zero-byte connection cannot be the shipped hook: it either sends a
+      // frame or exits before connecting. Windows named pipes are world-open,
+      // and security software probes them, so this is routine noise rather
+      // than a dropped event.
+      if (reason === 'empty-payload') return
       process.stderr.write(
-        `[icode] activity payload dropped (${reason})${detail ? `: ${detail}` : ''}${hint}\n`
+        `[icode] activity payload dropped (${reason})${detail ? `: ${detail}` : ''}\n`
       )
     }
   })
@@ -932,11 +933,12 @@ export async function startAppRuntime(): Promise<AppRuntime> {
       )
     },
     onRejected: (reason, detail) => {
-      const message =
-        reason === 'empty-payload'
-          ? 'a control client closed the connection before sending a request'
-          : `a control request was rejected (${reason})${detail ? `: ${detail}` : ''}`
-      process.stderr.write(`[icode] supervisor: ${message}\n`)
+      // A zero-byte control connection is an external pipe probe or a client
+      // that was interrupted before it wrote; neither is a supervisor failure.
+      if (reason === 'empty-payload') return
+      process.stderr.write(
+        `[icode] supervisor: a control request was rejected (${reason})${detail ? `: ${detail}` : ''}\n`
+      )
     }
   })
   await supervisorService.start().catch((error) => {
