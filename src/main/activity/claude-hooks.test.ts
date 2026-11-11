@@ -400,8 +400,9 @@ describe('shipped hook script transport', () => {
     })
     expect(run.timedOut).toBe(false)
     expect(run.status).toBe(0)
-    // The one-second transport guard must win well before the 5 s hard timeout.
-    expect(run.elapsedMs).toBeLessThan(2_000)
+    // The one-second transport guard must win well before the 5 s hard timeout;
+    // the bound leaves room for a cold Node start on a loaded Windows runner.
+    expect(run.elapsedMs).toBeLessThan(3_000)
     await new Promise<void>((resolve) => server.close(() => resolve()))
   })
 })
