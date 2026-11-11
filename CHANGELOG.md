@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-11-12
+
+### Fixed
+
+- The Windows installer now recognizes a partial install by its Chromium
+  resource files (`chrome_100_percent.pak` and `chrome_200_percent.pak`), so a
+  cancelled first install whose executable is already gone is still cleaned
+  up. This is the residue an interrupted install leaves when it stops after
+  unpacking the framework assets.
+
 ## [0.8.1] - 2026-11-12
 
 ### Fixed
