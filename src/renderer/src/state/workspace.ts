@@ -24,12 +24,6 @@ export type Notice = {
   }
 }
 
-export type RemovalPrompt = {
-  repoId: string
-  repoName: string
-  sessions: SessionSummary[]
-}
-
 export type SessionCleanupPrompt = {
   sessionId: string
   title: string
@@ -56,7 +50,8 @@ export type WorkspaceState = {
   activeSessionId: string | null
   pending: Record<string, PendingAction>
   notice: Notice | null
-  removal: RemovalPrompt | null
+  /** Repos removed optimistically; late session events for them are ignored. */
+  removingRepoIds: string[]
   branches: OwnedBranchSummary[]
   sessionCleanup: SessionCleanupPrompt | null
   branchCleanup: BranchCleanupPrompt | null
@@ -83,7 +78,15 @@ export type WorkspaceAction =
   | { type: 'pendingSet'; sessionId: string; action: PendingAction }
   | { type: 'pendingClear'; sessionId: string }
   | { type: 'notice'; notice: Notice | null }
-  | { type: 'removalPrompt'; prompt: RemovalPrompt | null }
+  | { type: 'repoRemoving'; repoId: string }
+  | {
+      type: 'repoRemovalRollback'
+      repoId: string
+      repos: RepositorySummary[]
+      sessions: SessionSummary[]
+      activeRepoId: string | null
+      activeSessionId: string | null
+    }
   | { type: 'branchesLoaded'; branches: OwnedBranchSummary[] }
   | { type: 'sessionCleanup'; prompt: SessionCleanupPrompt | null }
   | { type: 'branchCleanup'; prompt: BranchCleanupPrompt | null }
@@ -105,7 +108,7 @@ export function createInitialState(
     activeSessionId: selection.sessionId ?? null,
     pending: {},
     notice: null,
-    removal: null,
+    removingRepoIds: [],
     branches: [],
     sessionCleanup: null,
     branchCleanup: null,
@@ -161,32 +164,38 @@ export function workspaceReducer(
     case 'bootFailed':
       return { ...state, boot: 'failed', bootError: action.message }
     case 'reposLoaded': {
+      const repos = action.repos.filter(
+        (repo) => !state.removingRepoIds.includes(repo.id)
+      )
       const activeRepoId =
         state.activeRepoId !== null &&
-        action.repos.some((repo) => repo.id === state.activeRepoId)
+        repos.some((repo) => repo.id === state.activeRepoId)
           ? state.activeRepoId
-          : (action.repos[0]?.id ?? null)
-      return { ...state, repos: action.repos, activeRepoId }
+          : (repos[0]?.id ?? null)
+      return { ...state, repos, activeRepoId }
     }
     case 'sessionsLoaded': {
+      const sessions = action.sessions.filter(
+        (session) => !state.removingRepoIds.includes(session.repoId)
+      )
       const activeSessionId =
         state.activeSessionId !== null &&
-        action.sessions.some((session) => session.id === state.activeSessionId)
+        sessions.some((session) => session.id === state.activeSessionId)
           ? state.activeSessionId
-          : (firstSessionForRepo(action.sessions, state.activeRepoId)?.id ?? null)
+          : (firstSessionForRepo(sessions, state.activeRepoId)?.id ?? null)
       let activeRepoId = state.activeRepoId
-      const activeSession = action.sessions.find((session) => session.id === activeSessionId)
+      const activeSession = sessions.find((session) => session.id === activeSessionId)
       if (activeSession && activeRepoId === null) activeRepoId = activeSession.repoId
       return {
         ...state,
-        sessions: action.sessions,
+        sessions,
         orphans: action.orphans,
         activeSessionId,
         activeRepoId,
-        pending: withoutPending(state.pending, action.sessions),
+        pending: withoutPending(state.pending, sessions),
         sessionCleanup:
           state.sessionCleanup !== null &&
-          action.sessions.some((entry) => entry.id === state.sessionCleanup?.sessionId)
+          sessions.some((entry) => entry.id === state.sessionCleanup?.sessionId)
             ? state.sessionCleanup
             : null
       }
@@ -220,6 +229,7 @@ export function workspaceReducer(
       return { ...state, sessions }
     }
     case 'sessionUpserted': {
+      if (state.removingRepoIds.includes(action.session.repoId)) return state
       const index = state.sessions.findIndex((session) => session.id === action.session.id)
       const sessions =
         index === -1
@@ -261,8 +271,38 @@ export function workspaceReducer(
     }
     case 'notice':
       return { ...state, notice: action.notice }
-    case 'removalPrompt':
-      return { ...state, removal: action.prompt }
+    case 'repoRemoving': {
+      const removingRepoIds = state.removingRepoIds.includes(action.repoId)
+        ? state.removingRepoIds
+        : [...state.removingRepoIds, action.repoId]
+      return {
+        ...state,
+        repos: state.repos.filter((repo) => repo.id !== action.repoId),
+        sessions: state.sessions.filter((session) => session.repoId !== action.repoId),
+        removingRepoIds,
+        activeRepoId: state.activeRepoId === action.repoId ? null : state.activeRepoId,
+        activeSessionId:
+          state.sessions.find(
+            (session) =>
+              session.id === state.activeSessionId && session.repoId === action.repoId
+          ) !== undefined
+            ? null
+            : state.activeSessionId
+      }
+    }
+    case 'repoRemovalRollback': {
+      const removingRepoIds = state.removingRepoIds.filter(
+        (repoId) => repoId !== action.repoId
+      )
+      return {
+        ...state,
+        repos: action.repos,
+        sessions: action.sessions,
+        removingRepoIds,
+        activeRepoId: action.activeRepoId,
+        activeSessionId: action.activeSessionId
+      }
+    }
     case 'branchesLoaded':
       return { ...state, branches: action.branches }
     case 'sessionCleanup':

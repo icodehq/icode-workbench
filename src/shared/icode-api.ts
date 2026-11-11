@@ -28,6 +28,12 @@ import type {
 } from './schemas/ipc'
 import type { clearActivityUnreadInputSchema } from './schemas/activity'
 import type {
+  DiscardRepoRemovalSnapshotsResult,
+  ListRepoRemovalJobsResult,
+  RepoRemovalJobIdInput,
+  RetryRepoRemovalJobResult
+} from './schemas/repo-removal'
+import type {
   CloneProgressEventPayload,
   cloneCancelInputSchema,
   cloneStartInputSchema,
@@ -267,6 +273,14 @@ export type IcodeProductApi = {
     remove: (
       input: z.infer<typeof removeRepositoryInputSchema>
     ) => Promise<IpcResult<RemoveRepositoryResult>>
+    /** Active and attention-needing cleanup jobs, newest state first. */
+    listRemovalJobs: () => Promise<IpcResult<ListRepoRemovalJobsResult>>
+    retryRemoval: (input: RepoRemovalJobIdInput) => Promise<IpcResult<RetryRepoRemovalJobResult>>
+    discardRemovalSnapshots: (
+      input: RepoRemovalJobIdInput
+    ) => Promise<IpcResult<DiscardRepoRemovalSnapshotsResult>>
+    /** Push-only: reload the job list; the payload is never state. */
+    onRemovalEvent: (listener: () => void) => () => void
   }
   sessions: {
     list: (input: ListSessionsInput) => Promise<IpcResult<SessionListView>>

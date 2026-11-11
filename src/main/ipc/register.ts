@@ -50,6 +50,9 @@ export const HANDLED_CHANNELS: readonly string[] = [
   IPC_CHANNELS.reposRetryPreparation,
   IPC_CHANNELS.reposPickFolder,
   IPC_CHANNELS.reposRemove,
+  IPC_CHANNELS.reposRemovalJobsList,
+  IPC_CHANNELS.reposRemovalJobRetry,
+  IPC_CHANNELS.reposRemovalJobDiscardSnapshots,
   IPC_CHANNELS.sessionsList,
   IPC_CHANNELS.sessionsGet,
   IPC_CHANNELS.sessionsCreate,
@@ -273,12 +276,11 @@ export function createAppDispatcher(
         })
       }
     },
-    reposRemove: async (input) =>
-      runtime.removals.remove(input.repoId, {
-        ...(input.acknowledgeDependentSessions === undefined
-          ? {}
-          : { acknowledgeDependentSessions: input.acknowledgeDependentSessions })
-      }),
+    reposRemove: async (input) => runtime.removals.start(input.repoId),
+    reposRemovalJobsList: async () => ({ jobs: runtime.removals.listJobs() }),
+    reposRemovalJobRetry: async (input) => runtime.removals.retry(input.jobId),
+    reposRemovalJobDiscardSnapshots: async (input) =>
+      runtime.removals.discardSnapshots(input.jobId),
     sessionsList: (input) => runtime.sessions.list(input.repoId),
     sessionsGet: (input) =>
       runtime.sessions.get(input.sessionId),
@@ -673,6 +675,10 @@ export function registerAppIpc(
     broadcast(IPC_CHANNELS.reposEvent, { type: 'repos-changed' })
   })
 
+  const unsubscribeRemovals = runtime.onRemovalChange(() => {
+    broadcast(IPC_CHANNELS.reposRemovalEvent, { type: 'removal-changed' })
+  })
+
   const unsubscribeGitStatus = runtime.gitStatusWatcher.subscribe((event) => {
     broadcast(IPC_CHANNELS.gitStatusEvent, event)
   })
@@ -704,6 +710,7 @@ export function registerAppIpc(
     unsubscribeFilesChanged()
     unsubscribeGitStatus()
     unsubscribeRepos()
+    unsubscribeRemovals()
     unsubscribeTasks()
     unsubscribe()
     for (const channel of handlers) ipcMain.removeHandler(channel)

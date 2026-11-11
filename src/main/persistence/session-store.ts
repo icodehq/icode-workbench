@@ -80,6 +80,30 @@ export class SessionStore {
     return rows.map(sessionFromRow)
   }
 
+  /**
+   * Sessions whose repository still appears in the workspace.
+   *
+   * Removal tombstones a repo before its row is deleted; its sessions must not
+   * be listed or reconciled during that window. The removal worker uses
+   * `listForRepo` instead, because it needs exactly those rows.
+   */
+  listVisible(): StoredSession[] {
+    const rows = this.db.raw
+      .prepare(
+        `SELECT s.id, s.workspace_id, s.harness, s.title, s.role, s.created_at, s.last_active_at,
+                s.last_observed_state, s.last_observed_exit_code, s.last_observed_error_json,
+                s.last_observed_incarnation_id, s.last_observed_at, s.sleeping_at,
+                s.resume_token
+         FROM sessions s
+         JOIN workspaces w ON w.id = s.workspace_id
+         JOIN repos r ON r.id = w.repo_id
+         WHERE r.removing_at IS NULL
+         ORDER BY s.created_at ASC, s.id ASC`
+      )
+      .all() as SessionRow[]
+    return rows.map(sessionFromRow)
+  }
+
   listForRepo(repoId: string): StoredSession[] {
     const rows = this.db.raw
       .prepare(

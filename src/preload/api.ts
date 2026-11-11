@@ -79,7 +79,13 @@ export function createIcodeApi(
       initialize: (input) => call(IPC_CHANNELS.reposInitialize, input),
       retryPreparation: (input) => call(IPC_CHANNELS.reposRetryPreparation, input),
       pickFolder: (input) => call(IPC_CHANNELS.reposPickFolder, input),
-      remove: (input) => call(IPC_CHANNELS.reposRemove, input)
+      remove: (input) => call(IPC_CHANNELS.reposRemove, input),
+      listRemovalJobs: () => call(IPC_CHANNELS.reposRemovalJobsList),
+      retryRemoval: (input) => call(IPC_CHANNELS.reposRemovalJobRetry, input),
+      discardRemovalSnapshots: (input) =>
+        call(IPC_CHANNELS.reposRemovalJobDiscardSnapshots, input),
+      onRemovalEvent: (listener) =>
+        subscribe(IPC_CHANNELS.reposRemovalEvent, () => listener())
     },
     sessions: {
       list: (input) => call(IPC_CHANNELS.sessionsList, input),

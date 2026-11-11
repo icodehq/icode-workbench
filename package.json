@@ -48,6 +48,7 @@
     "smoke:wsl-host-baselines": "node tests/wsl/smoke-baselines.cjs",
     "test": "vitest run --config config/vitest.config.mts",
     "smoke:ui": "node tests/compat/ui-smoke.cjs",
+    "smoke:removal": "node tests/compat/removal-smoke.cjs",
     "smoke:claude": "node tests/compat/claude-tui-smoke.cjs",
     "smoke:worktree": "node tests/compat/worktree-isolation-smoke.cjs",
     "test:watch": "vitest --config config/vitest.config.mts",

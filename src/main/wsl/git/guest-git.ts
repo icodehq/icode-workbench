@@ -56,6 +56,8 @@ export type GuestGitRequest = {
   stdin?: Buffer | string
   timeoutMs?: number
   signal?: AbortSignal
+  /** Per-call `GIT_*` additions, e.g. `GIT_INDEX_FILE`. */
+  env?: Readonly<Record<string, string>>
 }
 
 /**
@@ -100,6 +102,24 @@ export type GuestGitDeps = {
  * `.git/index.lock`).
  */
 export const GUEST_GIT_ENV = ['GIT_TERMINAL_PROMPT=0', 'GIT_OPTIONAL_LOCKS=0'] as const
+
+const GIT_ENV_KEY = /^GIT_[A-Z0-9_]+$/
+
+/**
+ * Per-call environment additions are a narrow capability, not a general env
+ * override: only `GIT_*` keys, no NULs, and no way to replace PATH or HOME.
+ */
+function gitEnvAssignments(env: Readonly<Record<string, string>> | undefined): string[] {
+  if (env === undefined) return []
+  const assignments: string[] = []
+  for (const [key, value] of Object.entries(env)) {
+    if (!GIT_ENV_KEY.test(key) || value.includes('\u0000') || value.length > 4096) {
+      throw new Error('Invalid Git environment override.')
+    }
+    assignments.push(`${key}=${value}`)
+  }
+  return assignments
+}
 
 /**
  * Marks where the login-shell fallback's payload begins and ends.
@@ -178,6 +198,7 @@ export async function runGuestGit(
         `PATH=${environment.path}`,
         `HOME=${environment.home}`,
         ...GUEST_GIT_ENV,
+        ...gitEnvAssignments(request.env),
         environment.gitPath,
         '-C',
         request.cwd,
@@ -234,7 +255,16 @@ async function runInLoginShell(
   request: GuestGitRequest,
   timeoutMs: number
 ): Promise<GuestGitResult> {
-  const invocation = ['git', '-C', request.cwd, ...request.args].map(quoteForShell).join(' ')
+  const invocation = [
+    'env',
+    ...gitEnvAssignments(request.env),
+    'git',
+    '-C',
+    request.cwd,
+    ...request.args
+  ]
+    .map(quoteForShell)
+    .join(' ')
   const result = await runner.runBytes({
     scope: 'guest',
     distro: request.distro,

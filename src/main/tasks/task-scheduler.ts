@@ -141,7 +141,16 @@ export class TaskScheduler {
       consecutiveFailures: 0,
       lastNote: null
     }
-    this.deps.tasks.insertSchedule(schedule)
+    if (!this.deps.tasks.insertSchedule(schedule)) {
+      return {
+        ok: false,
+        error: makeAppError(
+          'REPOSITORY_REMOVING',
+          'This project is still being cleaned up. Try again in a moment.',
+          { messageKey: 'errors.REPOSITORY_REMOVING', context: { repoId: input.repoId } }
+        )
+      }
+    }
     this.deps.onChange()
     return { ok: true, value: schedule }
   }

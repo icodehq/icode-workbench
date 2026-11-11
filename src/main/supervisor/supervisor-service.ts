@@ -189,6 +189,16 @@ export class SupervisorService {
         context: { repoId }
       })
     }
+    if (repository.removingAt !== undefined && repository.removingAt !== null) {
+      throw makeAppError(
+        'REPOSITORY_REMOVING',
+        'This project is still being cleaned up. Try again in a moment.',
+        {
+          messageKey: 'errors.REPOSITORY_REMOVING',
+          context: { repoId }
+        }
+      )
+    }
 
     const binding = this.deps.store.findByRepo(repoId)
     if (binding) {

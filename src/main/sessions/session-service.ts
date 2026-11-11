@@ -62,6 +62,17 @@ import { withLaunchArgs } from '../harness/launch-command'
 import type { WorkspaceTrustService } from '../harness/trust/workspace-trust'
 
 
+function repositoryRemovingError(repoId: string): AppError {
+  return makeAppError(
+    'REPOSITORY_REMOVING',
+    'This project is still being cleaned up. Try again in a moment.',
+    {
+      messageKey: 'errors.REPOSITORY_REMOVING',
+      context: { repoId }
+    }
+  )
+}
+
 export type SessionServiceDeps = {
   database: Database
   repositories: RepositoryStore
@@ -197,6 +208,14 @@ export class SessionService {
     this.currentIncarnations.clear()
   }
 
+  /** Drops in-memory grants for sessions whose project is being removed. */
+  forgetSessions(sessionIds: readonly string[]): void {
+    for (const sessionId of sessionIds) {
+      this.freshCheckouts.delete(sessionId)
+      this.currentIncarnations.delete(sessionId)
+    }
+  }
+
   subscribe(listener: Listener): () => void {
     this.listeners.add(listener)
     return () => this.listeners.delete(listener)
@@ -323,7 +342,7 @@ export class SessionService {
   }
 
   async reconcile(): Promise<SessionListView> {
-    const rows = this.deps.sessions.listAll()
+    const rows = this.deps.sessions.listVisible()
     let hostSessions: SessionInfo[] | null = null
     let hostError: AppError | null = null
     /** One result per host, so each session is judged by its own host. */
@@ -441,6 +460,7 @@ export class SessionService {
   private async repairWorktreeStates(bySessionId: Map<string, SessionInfo>): Promise<void> {
     const records = this.deps.worktrees.listAll()
     for (const record of records) {
+      if (this.deps.repositories.isRemoving(record.repoId)) continue
       const host = bySessionId.get(record.sessionId)
       const hostActive = host !== undefined && (host.status === 'live' || host.status === 'starting')
       if (record.state === 'created' && hostActive) {
@@ -523,6 +543,9 @@ export class SessionService {
           context: { repoId: input.repoId }
         })
       )
+    }
+    if (repository.removingAt !== undefined && repository.removingAt !== null) {
+      throw new SessionServiceError(repositoryRemovingError(repository.id))
     }
     const workspace = this.deps.repositories.workspaceForRepo(repository.id)
     if (!workspace) {
@@ -703,6 +726,12 @@ export class SessionService {
     // Persist intent before touching Git: a crash may leave an unstarted
     // worktree, but never a running PTY whose checkout is unrecorded.
     this.deps.database.transaction(() => {
+      // Authoritative tombstone check: it shares the write transaction with the
+      // insert, so a removal that commits after this read either includes the
+      // new session in its manifest or sees it here and refuses.
+      if (this.deps.repositories.isRemoving(repository.id)) {
+        throw new SessionServiceError(repositoryRemovingError(repository.id))
+      }
       this.deps.sessions.insert({
         id: sessionId,
         workspaceId: workspace.id,
@@ -1024,11 +1053,29 @@ export class SessionService {
     // Exit truth arrives as a host event; do not invent an exit code here.
   }
 
+  /**
+   * Stops a session and confirms the owning host no longer reports it.
+   *
+   * Repository removal uses this before deleting the session row: a live PTY
+   * must never outlive its metadata. The host target is resolved from the row,
+   * so a Path A WSL shell is confirmed on the local host that actually owns it.
+   * A bounded timeout keeps an unresponsive host from blocking the worker
+   * forever; the caller records that as `waiting_host` and retries.
+   */
+  async stopAndWait(sessionId: string, timeoutMs = 5000): Promise<void> {
+    const row = this.requireRow(sessionId)
+    const target = this.targetForSession(row)
+    const hostTarget = this.hostTargetFor(row.harness, target)
+    await this.stop(sessionId)
+    await this.waitForStop(sessionId, hostTarget, timeoutMs)
+  }
+
   async restart(
     sessionId: string,
     options: { resume?: boolean } = {}
   ): Promise<SessionSummary> {
     const row = this.requireRow(sessionId)
+    this.assertRepoNotRemoving(row)
     // A restart re-validates the checkout and may replace the PTY; the create-time
     // grant must not hide a worktree that changed since.
     this.freshCheckouts.delete(sessionId)
@@ -1206,6 +1253,7 @@ export class SessionService {
   /** Wake a slept session with the harness resume command for its worktree. */
   async wake(sessionId: string): Promise<SessionSummary> {
     const row = this.requireRow(sessionId)
+    this.assertRepoNotRemoving(row)
     if (row.sleepingAt === null) {
       throw new SessionServiceError(
         makeAppError('INVALID_ARGUMENT', 'This session is not sleeping.', {
@@ -1624,6 +1672,19 @@ export class SessionService {
    * names its repository — so the answer is always persisted data, never a guess
    * about the path.
    */
+  /**
+   * A session may still have a row during removal cleanup; restart/wake must
+   * not create a new PTY for a project that is being unregistered.
+   */
+  private assertRepoNotRemoving(row: StoredSession): void {
+    const workspace = this.deps.repositories.findWorkspaceById(row.workspaceId)
+    if (!workspace) return
+    const repository = this.deps.repositories.findById(workspace.repoId)
+    if (repository?.removingAt !== undefined && repository.removingAt !== null) {
+      throw new SessionServiceError(repositoryRemovingError(repository.id))
+    }
+  }
+
   private targetForSession(row: StoredSession): ExecutionTarget {
     const workspace = this.deps.repositories.findWorkspaceById(row.workspaceId)
     if (!workspace) {

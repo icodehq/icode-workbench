@@ -276,7 +276,20 @@ export class HostSupervisor {
 
   private spawnHost(): Promise<void> {
     return new Promise((resolve, reject) => {
-      mkdirSync(this.directory, { recursive: true, mode: 0o700 })
+      try {
+        mkdirSync(this.directory, { recursive: true, mode: 0o700 })
+      } catch (error) {
+        reject(
+          new HostRequestError(
+            'HOST_CONNECT_FAILED',
+            `Could not prepare the terminal host directory: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+            this.logPath
+          )
+        )
+        return
+      }
       if (!existsSync(this.hostEntryPath)) {
         reject(
           new HostRequestError(
@@ -287,19 +300,33 @@ export class HostSupervisor {
         )
         return
       }
-      const child = spawn(process.execPath, [this.hostEntryPath], {
-        cwd: this.directory,
-        detached: true,
-        stdio: 'ignore',
-        windowsHide: true,
-        env: {
-          ...process.env,
-          ELECTRON_RUN_AS_NODE: '1',
-          ICODE_HOST_DIR: this.directory,
-          ICODE_HOST_SOCKET: this.socketPath,
-          ...this.extraEnv
-        }
-      })
+      let child: ReturnType<typeof spawn>
+      try {
+        child = spawn(process.execPath, [this.hostEntryPath], {
+          cwd: this.directory,
+          detached: true,
+          stdio: 'ignore',
+          windowsHide: true,
+          env: {
+            ...process.env,
+            ELECTRON_RUN_AS_NODE: '1',
+            ICODE_HOST_DIR: this.directory,
+            ICODE_HOST_SOCKET: this.socketPath,
+            ...this.extraEnv
+          }
+        })
+      } catch (error) {
+        reject(
+          new HostRequestError(
+            'HOST_CONNECT_FAILED',
+            `Could not start terminal host: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+            this.logPath
+          )
+        )
+        return
+      }
       let settled = false
       child.once('error', (error) => {
         if (settled) return

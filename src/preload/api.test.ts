@@ -78,7 +78,10 @@ describe('preload API surface', () => {
     await api.repos.inspect({ path: '/tmp/repo', target: { kind: 'local' } })
     await api.repos.initialize({ path: '/tmp/repo', target: { kind: 'local' } })
     await api.repos.retryPreparation({ repoId })
-    await api.repos.remove({ repoId, acknowledgeDependentSessions: true })
+    await api.repos.remove({ repoId })
+    await api.repos.listRemovalJobs()
+    await api.repos.retryRemoval({ jobId: 'job-1' })
+    await api.repos.discardRemovalSnapshots({ jobId: 'job-1' })
 
     expect(invoke.mock.calls.map((call) => call[0])).toEqual([
       IPC_CHANNELS.reposList,
@@ -86,7 +89,10 @@ describe('preload API surface', () => {
       IPC_CHANNELS.reposInspect,
       IPC_CHANNELS.reposInitialize,
       IPC_CHANNELS.reposRetryPreparation,
-      IPC_CHANNELS.reposRemove
+      IPC_CHANNELS.reposRemove,
+      IPC_CHANNELS.reposRemovalJobsList,
+      IPC_CHANNELS.reposRemovalJobRetry,
+      IPC_CHANNELS.reposRemovalJobDiscardSnapshots
     ])
     expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.reposAdd, { path: '/tmp/repo' })
   })

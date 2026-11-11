@@ -15,7 +15,10 @@ function services(overrides: Partial<DispatcherServices> = {}): DispatcherServic
     reposInitialize: vi.fn(async () => ({})),
     reposRetryPreparation: vi.fn(async () => ({})),
     reposPickFolder: vi.fn(async () => ({ status: 'cancelled' })),
-    reposRemove: vi.fn(async () => ({ status: 'removed' })),
+    reposRemove: vi.fn(async () => ({ status: 'removing', jobId: 'job-1' })),
+    reposRemovalJobsList: vi.fn(async () => ({ jobs: [] })),
+    reposRemovalJobRetry: vi.fn(async () => ({ status: 'retrying' })),
+    reposRemovalJobDiscardSnapshots: vi.fn(async () => ({ discarded: 0 })),
     sessionsList: vi.fn(async () => ({ sessions: [], orphans: [] })),
     sessionsGet: vi.fn(async () => ({})),
     sessionsCreate: vi.fn(async () => ({})),
@@ -405,18 +408,15 @@ describe('dispatcher results', () => {
     expect(result.error.detail).toContain('boom')
   })
 
-  it('returns a structured result for repository removal confirmation', async () => {
+  it('returns the durable removal job id immediately', async () => {
     const dispatch = createDispatcher(
       services({
-        reposRemove: async () => ({
-          status: 'confirmation_required',
-          sessions: []
-        })
+        reposRemove: async () => ({ status: 'removing', jobId: 'job-1' })
       })
     )
     expect(await dispatch(IPC_CHANNELS.reposRemove, { repoId })).toEqual({
       ok: true,
-      value: { status: 'confirmation_required', sessions: [] }
+      value: { status: 'removing', jobId: 'job-1' }
     })
   })
 })

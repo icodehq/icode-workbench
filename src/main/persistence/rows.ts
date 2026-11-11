@@ -83,6 +83,8 @@ export type RepoRow = {
   wsl_distro_id?: unknown
   /** Absent only for rows read through a pre-v6 column list. */
   preparation_json?: unknown
+  /** Absent only for rows read through a pre-v17 column list. */
+  removing_at?: unknown
 }
 
 export type WorkspaceRow = {
@@ -115,7 +117,11 @@ export function repoFromRow(row: RepoRow): RepositoryRecord {
         ? row.git_common_dir
         : null,
     executionTarget: executionTargetFromRow(row),
-    preparation: preparationFromRow(row.preparation_json)
+    preparation: preparationFromRow(row.preparation_json),
+    removingAt:
+      row.removing_at === undefined || row.removing_at === null
+        ? null
+        : requireInteger(row.removing_at, 'repos.removing_at')
   }
 }
 

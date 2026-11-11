@@ -40,6 +40,12 @@ export type GitExecRequest = {
   stdin?: Buffer | string
   timeoutMs: number
   signal?: AbortSignal
+  /**
+   * Per-call environment additions, e.g. `GIT_INDEX_FILE` for a snapshot that
+   * must not touch the user's index. The guest executor restricts keys to
+   * `GIT_*`; existing executor defaults always win for PATH/HOME.
+   */
+  env?: Readonly<Record<string, string>>
 }
 
 /** Receives stdout as it arrives; the executor does not accumulate it. */
@@ -225,7 +231,7 @@ export function createLocalGitExecutor(
     GIT_OPTIONAL_LOCKS: '0'
   }
   return {
-    exec({ cwd, args, stdin, timeoutMs, signal }) {
+    exec({ cwd, args, stdin, timeoutMs, signal, env: requestEnv }) {
       return new Promise<GuestGitResult>((resolve, reject) => {
         const child = execFile(
           'git',
@@ -233,7 +239,7 @@ export function createLocalGitExecutor(
           {
             timeout: timeoutMs,
             maxBuffer: 64 * 1024 * 1024,
-            env,
+            env: requestEnv ? { ...env, ...requestEnv } : env,
             ...(signal ? { signal } : {})
           },
           (error, stdout, stderr) => {
@@ -268,10 +274,10 @@ export function createLocalGitExecutor(
         }
       })
     },
-    stream({ cwd, args, timeoutMs, signal }, handlers) {
+    stream({ cwd, args, timeoutMs, signal, env: requestEnv }, handlers) {
       return new Promise<GuestGitResult>((resolve, reject) => {
         const child = spawn('git', ['-C', cwd, ...args], {
-          env,
+          env: requestEnv ? { ...env, ...requestEnv } : env,
           stdio: ['ignore', 'pipe', 'pipe'],
           windowsHide: true,
           ...(signal ? { signal } : {})
@@ -332,14 +338,15 @@ export function createGuestGitExecutor(
 ): GitExecutor {
   const read = createGuestBoundedRead(runner, distro)
   return {
-    exec({ cwd, args, stdin, timeoutMs, signal }) {
+    exec({ cwd, args, stdin, timeoutMs, signal, env: requestEnv }) {
       return runGuestGit(runner, {
         distro,
         cwd,
         args,
         ...(stdin !== undefined ? { stdin } : {}),
         timeoutMs,
-        ...(signal ? { signal } : {})
+        ...(signal ? { signal } : {}),
+        ...(requestEnv !== undefined ? { env: requestEnv } : {})
       })
     },
     read(request) {

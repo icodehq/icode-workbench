@@ -22,6 +22,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Clone, fetch, push, and pull authentication failures name the environment to
   fix (the system Git credential helper/SSH agent, or the selected WSL distro),
   and credential-bearing URLs are redacted from every Git error detail.
+- **Instant project removal.** Removing a project unregisters it immediately
+  and runs the remaining cleanup as a durable background job. The job stops
+  sessions, aborts active merges, saves uncommitted worktree changes to
+  recovery refs, removes iCode-created worktrees, retains branches, and deletes
+  the project's tasks, schedules, supervisor bindings, and assistant audit
+  rows. A status-bar cleanup indicator shows progress, retries failures, and
+  offers Discard snapshots; the primary checkout and remote repository are
+  never touched.
 
 ### Changed
 
@@ -37,6 +45,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Opening a project now follows its contents: when a project has both direct
   sessions and tasks it opens Sessions, a task-only project opens Tasks, and a
   project with neither opens Sessions instead of an empty Tasks view.
+- Terminal host startup failures, such as an unusable host directory, are
+  reported as an unreachable host rather than an internal session error, so
+  project cleanup waits and retries instead of failing.
 - Continuing or aborting a merge from the Source Control operation banner now
   uses the merge service, so the target fast-forwards, the merge record lands
   in the correct state, and dependent tasks unblock.

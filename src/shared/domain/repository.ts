@@ -79,6 +79,8 @@ export type RepositoryRecord = {
   executionTarget: ExecutionTarget
   /** Null for an ordinary registered repository with a baseline commit. */
   preparation?: RepositoryPreparation | null
+  /** Set while a durable repository-removal job owns the row. */
+  removingAt?: number | null
 }
 
 /**

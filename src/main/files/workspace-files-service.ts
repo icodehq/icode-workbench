@@ -1,6 +1,6 @@
 import type { RepositoryStore } from '../persistence/repository-store'
 import type { WorktreeStore } from '../persistence/worktree-store'
-import { dirname, join } from 'node:path'
+import { dirname, join, posix, win32 } from 'node:path'
 import {
   normalizeRelativePath,
   parentPath,
@@ -419,6 +419,55 @@ export class WorkspaceFilesService {
         await this.trashState.remove(id, operation.opId).catch(() => undefined)
       }
     }
+  }
+
+  /**
+   * Removes the app-managed Trash directories for sessions whose repository is
+   * being removed, together with their metadata.
+   *
+   * `git worktree remove` deletes the checkout but not this sibling directory
+   * (`<worktreeRoot>/<repoId>/.icode-files-trash/<sessionId>`), so removal must
+   * clean it explicitly. The caller passes the original worktree path because
+   * the session/worktree rows may already be gone by the time cleanup runs.
+   */
+  async discardTrashForSessions(
+    entries: ReadonlyArray<{
+      sessionId: string
+      worktreePath: string
+      target: import('../../shared/domain/repository').ExecutionTarget
+    }>
+  ): Promise<void> {
+    for (const entry of entries) {
+      const api =
+        entry.target.kind === 'wsl' || process.platform !== 'win32' ? posix : win32
+      const trashRoot = api.join(
+        api.dirname(entry.worktreePath),
+        '.icode-files-trash',
+        entry.sessionId
+      )
+      const fs = await this.deps.gitWorktrees.hostFsFor(entry.target)
+      await fs.removeTree(trashRoot)
+      await this.trashState.removeSession(entry.sessionId)
+      this.disposeSession(entry.sessionId, entry.worktreePath, entry.target)
+    }
+  }
+
+  /** Drops in-memory per-session backends and search controllers. */
+  disposeSessions(sessionIds: readonly string[]): void {
+    for (const sessionId of sessionIds) {
+      this.searchControllers.get(sessionId)?.abort()
+      this.searchControllers.delete(sessionId)
+    }
+  }
+
+  private disposeSession(
+    sessionId: string,
+    worktreePath: string,
+    target: import('../../shared/domain/repository').ExecutionTarget
+  ): void {
+    this.searchControllers.get(sessionId)?.abort()
+    this.searchControllers.delete(sessionId)
+    this.backends.delete(this.backendKey(worktreePath, target))
   }
 
   async listTrash(
@@ -889,15 +938,21 @@ export class WorkspaceFilesService {
     return { status: 'ok', worktreePath: record.path, target, backend: this.backendFor(record.path, target) }
   }
 
+  private backendKey(
+    worktreePath: string,
+    target: import('../../shared/domain/repository').ExecutionTarget
+  ): string {
+    return target.kind === 'local'
+      ? `local:${worktreePath}`
+      : `wsl:${target.distro}\u0000${target.distroId ?? ''}\u0000${worktreePath}`
+  }
+
   private backendFor(
     worktreePath: string,
     target: import('../../shared/domain/repository').ExecutionTarget
   ): FileBackend {
     if (this.deps.backendFor) return this.deps.backendFor(worktreePath, target)
-    const key =
-      target.kind === 'local'
-        ? `local:${worktreePath}`
-        : `wsl:${target.distro}\u0000${target.distroId ?? ''}\u0000${worktreePath}`
+    const key = this.backendKey(worktreePath, target)
     const existing = this.backends.get(key)
     if (existing) return existing
     const backend =

@@ -24,6 +24,7 @@ import {
   terminalResizeInputSchema,
   terminalWriteInputSchema
 } from '../../shared/schemas/ipc'
+import { repoRemovalJobIdInputSchema } from '../../shared/schemas/repo-removal'
 import {
   filesListInputSchema,
   filesReadInputSchema,
@@ -118,7 +119,10 @@ export type DispatcherServices = {
     source?: 'wsl' | 'windows'
     purpose?: 'repository' | 'clone-parent'
   }) => Promise<unknown>
-  reposRemove: (input: { repoId: string; acknowledgeDependentSessions?: boolean }) => Promise<unknown>
+  reposRemove: (input: { repoId: string }) => Promise<unknown>
+  reposRemovalJobsList: () => Promise<unknown>
+  reposRemovalJobRetry: (input: { jobId: string }) => Promise<unknown>
+  reposRemovalJobDiscardSnapshots: (input: { jobId: string }) => Promise<unknown>
   sessionsList: (input: { repoId?: string }) => Promise<unknown>
   sessionsGet: (input: { sessionId: string }) => Promise<unknown>
   sessionsCreate: (input: z.infer<typeof createSessionInputSchema>) => Promise<unknown>
@@ -373,6 +377,22 @@ export function createDispatcher(services: DispatcherServices): Dispatcher {
         const input = parse(removeRepositoryInputSchema, rawInput)
         if ('code' in input) return { ok: false, error: input }
         return run(() => services.reposRemove(input))
+      }
+
+      case IPC_CHANNELS.reposRemovalJobsList: {
+        return run(() => services.reposRemovalJobsList())
+      }
+
+      case IPC_CHANNELS.reposRemovalJobRetry: {
+        const input = parse(repoRemovalJobIdInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.reposRemovalJobRetry(input))
+      }
+
+      case IPC_CHANNELS.reposRemovalJobDiscardSnapshots: {
+        const input = parse(repoRemovalJobIdInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.reposRemovalJobDiscardSnapshots(input))
       }
 
       case IPC_CHANNELS.sessionsList: {

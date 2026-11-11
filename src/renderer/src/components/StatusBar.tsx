@@ -1,6 +1,8 @@
 import { useEffect } from 'react'
 import { AlertCircle, AlertTriangle, ArrowDown, ArrowUp, CheckCircle2, GitBranch, Info, RefreshCw, Server, TerminalSquare, X } from 'lucide-react'
 import type { RuntimeInfo, TaskRecordPayload } from '../../../shared/icode-api'
+import type { RepoRemovalJobSummary } from '../../../shared/schemas/repo-removal'
+import CleanupIndicator from './CleanupIndicator'
 import { hostLabel, hostStatus } from '../state/host-status'
 import type { Notice, WorkspaceState } from '../state/workspace'
 import { useScmStatusSummary } from '../scm/scm-status-store'
@@ -19,6 +21,9 @@ type Props = {
   onRetryHost: () => void
   notice: Notice | null
   onDismissNotice: () => void
+  cleanupJobs: RepoRemovalJobSummary[]
+  onRetryRemoval: (jobId: string) => void
+  onDiscardRemovalSnapshots: (jobId: string) => void
   onFocusSourceControl?: () => void
 }
 
@@ -38,6 +43,9 @@ export default function StatusBar({
   onRetryHost,
   notice,
   onDismissNotice,
+  cleanupJobs,
+  onRetryRemoval,
+  onDiscardRemovalSnapshots,
   onFocusSourceControl
 }: Props): React.JSX.Element {
   const t = useT()
@@ -180,6 +188,11 @@ export default function StatusBar({
           {t('status.liveShort')}
         </span>
       </span>
+      <CleanupIndicator
+        jobs={cleanupJobs}
+        onRetry={onRetryRemoval}
+        onDiscard={onDiscardRemovalSnapshots}
+      />
       {notice ? (
         <span
           className={`inline-flex min-w-0 max-w-[180px] shrink items-center gap-1 rounded px-1.5 py-0.5 text-[10px] min-[900px]:max-w-[440px] ${noticeTone}`}

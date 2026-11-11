@@ -291,19 +291,43 @@ describe('harness detection and notices', () => {
     expect(state.notice).toBeNull()
   })
 
-  it('contains repository-removal confirmation details', () => {
+  it('optimistically removes a repository and ignores late session events', () => {
     let state = loaded()
+    expect(state.activeRepoId).toBe('repo_a')
+    expect(state.activeSessionId).toBe('ses_one')
+    const snapshot = {
+      repos: state.repos,
+      sessions: state.sessions,
+      activeRepoId: state.activeRepoId,
+      activeSessionId: state.activeSessionId
+    }
+
+    state = workspaceReducer(state, { type: 'repoRemoving', repoId: 'repo_a' })
+    expect(state.repos.some((entry) => entry.id === 'repo_a')).toBe(false)
+    expect(state.sessions.some((entry) => entry.repoId === 'repo_a')).toBe(false)
+    expect(state.removingRepoIds).toContain('repo_a')
+    expect(state.activeRepoId).toBeNull()
+    expect(state.activeSessionId).toBeNull()
+
+    const late = sessions.find((entry) => entry.id === 'ses_one')!
     state = workspaceReducer(state, {
-      type: 'removalPrompt',
-      prompt: {
-        repoId: 'repo_a',
-        repoName: 'alpha',
-        sessions: sessions.filter((entry) => entry.repoId === 'repo_a')
-      }
+      type: 'sessionsLoaded',
+      sessions: [...state.sessions, late],
+      orphans: []
     })
-    expect(state.removal?.sessions).toHaveLength(2)
-    state = workspaceReducer(state, { type: 'removalPrompt', prompt: null })
-    expect(state.removal).toBeNull()
+    expect(state.sessions.some((entry) => entry.id === late.id)).toBe(false)
+    state = workspaceReducer(state, {
+      type: 'sessionUpserted',
+      session: late
+    })
+    expect(state.sessions.some((entry) => entry.id === late.id)).toBe(false)
+
+    state = workspaceReducer(state, { type: 'repoRemovalRollback', repoId: 'repo_a', ...snapshot })
+    expect(state.repos.some((entry) => entry.id === 'repo_a')).toBe(true)
+    expect(state.sessions.filter((entry) => entry.repoId === 'repo_a')).toHaveLength(2)
+    expect(state.activeRepoId).toBe('repo_a')
+    expect(state.activeSessionId).toBe('ses_one')
+    expect(state.removingRepoIds).not.toContain('repo_a')
   })
 
   it('tracks boot failure without discarding loaded data', () => {

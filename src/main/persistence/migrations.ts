@@ -757,5 +757,53 @@ export const MIGRATIONS: readonly Migration[] = [
       `CREATE INDEX worktree_branches_task_idx ON worktree_branches (task_id)
          WHERE task_id IS NOT NULL`
     ]
+  },
+  {
+    version: 17,
+    name: 'repository-removal',
+    /**
+     * Removing a project is now a durable background job.
+     *
+     * `repos.removing_at` is a tombstone: the project disappears from lists as
+     * soon as the removal starts, but the row (and its FK cascades) remains
+     * available until sessions and merges are settled. `repo_removal_jobs`
+     * deliberately has no FK so the manifest survives the row deletion.
+     *
+     * Task rows are normally archived, never deleted. Repository removal is the
+     * one deliberate exception: a task cannot outlive the project it belongs to,
+     * and the FK-less task/schedule/audit tables would otherwise be impossible
+     * to clean. The removal job store documents and performs that purge.
+     */
+    statements: [
+      `ALTER TABLE repos ADD COLUMN removing_at INTEGER`,
+      `CREATE TABLE repo_removal_jobs (
+         id TEXT PRIMARY KEY NOT NULL,
+         repo_id TEXT NOT NULL,
+         repo_name TEXT NOT NULL,
+         repo_path TEXT NOT NULL,
+         target_json TEXT NOT NULL,
+         status TEXT NOT NULL CHECK (
+           status IN ('queued', 'running', 'waiting_host', 'failed', 'completed')
+         ),
+         stage TEXT NOT NULL CHECK (
+           stage IN ('abort_merges', 'stop_sessions', 'snapshot_worktrees',
+                     'remove_worktrees', 'prune_worktrees', 'remove_repository',
+                     'cleanup', 'done')
+         ),
+         manifest_json TEXT NOT NULL,
+         attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+         next_attempt_at INTEGER,
+         last_error_json TEXT,
+         created_at INTEGER NOT NULL,
+         updated_at INTEGER NOT NULL,
+         completed_at INTEGER,
+         CHECK (length(id) > 0 AND length(repo_id) > 0
+                AND length(repo_name) > 0 AND length(repo_path) > 0)
+       ) STRICT`,
+      `CREATE UNIQUE INDEX repo_removal_jobs_repo_idx
+         ON repo_removal_jobs (repo_id)`,
+      `CREATE INDEX repo_removal_jobs_status_next_idx
+         ON repo_removal_jobs (status, next_attempt_at)`
+    ]
   }
 ]

@@ -243,6 +243,13 @@ export type TaskPatch = {
 export class TaskStore {
   constructor(private readonly db: Database) {}
 
+  private isRepoRemoving(repoId: string): boolean {
+    const row = this.db.raw
+      .prepare('SELECT removing_at FROM repos WHERE id = ?')
+      .get(repoId) as { removing_at?: unknown } | undefined
+    return row !== undefined && row.removing_at !== null && row.removing_at !== undefined
+  }
+
   /**
    * Inserts a queued task.
    *
@@ -251,6 +258,7 @@ export class TaskStore {
    * error message.
    */
   insert(draft: NewTaskRow, now: number): TaskRecord | null {
+    if (this.isRepoRemoving(draft.repoId)) return null
     const result = this.db.raw
       .prepare(
         `INSERT INTO tasks (
@@ -1070,12 +1078,17 @@ export class TaskStore {
     return row ? scheduleFromRow(row) : null
   }
 
-  insertSchedule(schedule: TaskSchedule): void {
-    this.db.raw
+  /**
+   * Returns false when the repository is tombstoned (or missing), so a schedule
+   * cannot be recreated during removal.
+   */
+  insertSchedule(schedule: TaskSchedule): boolean {
+    const result = this.db.raw
       .prepare(
         `INSERT INTO task_schedules (id, repo_id, title, prompt, harness, shape_json, overlap,
            enabled, created_at, updated_at, next_run_at, last_run_at, consecutive_failures, last_note)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+          WHERE EXISTS (SELECT 1 FROM repos WHERE id = ? AND removing_at IS NULL)`
       )
       .run(
         schedule.id,
@@ -1091,8 +1104,10 @@ export class TaskStore {
         schedule.nextRunAt,
         schedule.lastRunAt,
         schedule.consecutiveFailures,
-        schedule.lastNote
+        schedule.lastNote,
+        schedule.repoId
       )
+    return Number(result.changes) === 1
   }
 
   updateSchedule(
@@ -1185,10 +1200,15 @@ export class TaskStore {
     const result = this.db.raw
       .prepare(
         `INSERT INTO task_occurrences (id, schedule_id, occurrence_at, task_id, status, note, created_at, updated_at)
-         VALUES (?, ?, ?, NULL, 'reserved', ?, ?, ?)
+         SELECT ?, ?, ?, NULL, 'reserved', ?, ?, ?
+          WHERE EXISTS (
+            SELECT 1 FROM task_schedules s
+            JOIN repos r ON r.id = s.repo_id
+            WHERE s.id = ? AND r.removing_at IS NULL
+          )
          ON CONFLICT (schedule_id, occurrence_at) DO NOTHING`
       )
-      .run(draft.id, draft.scheduleId, draft.occurrenceAt, draft.note, now, now)
+      .run(draft.id, draft.scheduleId, draft.occurrenceAt, draft.note, now, now, draft.scheduleId)
     return Number(result.changes) === 1
   }
 

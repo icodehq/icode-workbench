@@ -80,7 +80,10 @@ export const APP_ERROR_CODES = [
   'WSL_HOST_PROTOCOL_MISMATCH',
   // A pre-W1 WSL row names its distro only by name; the recorded repository and
   // the proven registration cannot be shown to be the same installation.
-  'WSL_LEGACY_REGISTRATION_UNRESOLVED'
+  'WSL_LEGACY_REGISTRATION_UNRESOLVED',
+  // The repository is tombstoned by a durable removal job and cannot accept new
+  // sessions, tasks, merges, or a duplicate registration.
+  'REPOSITORY_REMOVING'
 ] as const
 
 export type AppErrorCode = (typeof APP_ERROR_CODES)[number]

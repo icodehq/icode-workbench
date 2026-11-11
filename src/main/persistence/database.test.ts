@@ -54,6 +54,8 @@ describe('database initialization', () => {
       // v16: durable merge claims and audit trail.
       'merge_records',
       'providers',
+      // v17: durable repository-removal manifests.
+      'repo_removal_jobs',
       // v4: durable work lives beside sessions, not inside them.
       'repos',
       'session_worktrees',
@@ -583,6 +585,9 @@ describe('migrations', () => {
       'merge_records_target_idx',
       // v13: provider lookup per harness.
       'providers_harness_idx',
+      // v17: one durable removal job per repository and its due-work lookup.
+      'repo_removal_jobs_repo_idx',
+      'repo_removal_jobs_status_next_idx',
       // v3: one uniqueness rule per execution target, plus the host-kind lookup
       // index. The partial unique indexes are what allow the same path string on
       // two targets while still refusing a duplicate within one.

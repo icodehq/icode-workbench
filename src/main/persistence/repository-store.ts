@@ -14,7 +14,7 @@ export type RepositoryWithWorkspace = {
 }
 
 const REPO_COLUMNS = `id, path, display_name, added_at, last_opened_at, current_branch, availability,
-  git_common_dir, host_kind, wsl_distro, wsl_distro_id, preparation_json`
+  git_common_dir, host_kind, wsl_distro, wsl_distro_id, preparation_json, removing_at`
 const WORKSPACE_COLUMNS = `id, repo_id, path, kind, created_at`
 
 /**
@@ -46,7 +46,23 @@ export class RepositoryStore {
 
   list(): RepositoryRecord[] {
     const rows = this.db.raw
-      .prepare(`SELECT ${REPO_COLUMNS} FROM repos ORDER BY added_at DESC, id ASC`)
+      .prepare(
+        `SELECT ${REPO_COLUMNS} FROM repos
+          WHERE removing_at IS NULL
+          ORDER BY added_at DESC, id ASC`
+      )
+      .all() as RepoRow[]
+    return rows.map(repoFromRow)
+  }
+
+  /** Tombstoned rows, for startup self-heal and cleanup. */
+  listRemoving(): RepositoryRecord[] {
+    const rows = this.db.raw
+      .prepare(
+        `SELECT ${REPO_COLUMNS} FROM repos
+          WHERE removing_at IS NOT NULL
+          ORDER BY added_at ASC, id ASC`
+      )
       .all() as RepoRow[]
     return rows.map(repoFromRow)
   }
@@ -142,7 +158,7 @@ export class RepositoryStore {
     this.db.raw
       .prepare(
         `INSERT INTO repos (${REPO_COLUMNS})
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         repo.id,
@@ -158,7 +174,8 @@ export class RepositoryStore {
         repo.executionTarget.kind === 'wsl' ? repo.executionTarget.distroId : null,
         repo.preparation === undefined || repo.preparation === null
           ? null
-          : JSON.stringify(repo.preparation)
+          : JSON.stringify(repo.preparation),
+        repo.removingAt ?? null
       )
   }
 
@@ -208,6 +225,29 @@ export class RepositoryStore {
 
   touchLastOpened(id: RepoId, at: number): void {
     this.db.raw.prepare('UPDATE repos SET last_opened_at = ? WHERE id = ?').run(at, id)
+  }
+
+  /**
+   * Claims the repo for a removal job. Returns false when another caller won
+   * the race; the caller then reuses the existing job.
+   */
+  markRemoving(id: RepoId, at: number): boolean {
+    const result = this.db.raw
+      .prepare('UPDATE repos SET removing_at = ? WHERE id = ? AND removing_at IS NULL')
+      .run(at, id)
+    return Number(result.changes) > 0
+  }
+
+  isRemoving(id: RepoId): boolean {
+    const row = this.db.raw
+      .prepare('SELECT removing_at FROM repos WHERE id = ?')
+      .get(id) as { removing_at?: unknown } | undefined
+    return row !== undefined && row.removing_at !== null && row.removing_at !== undefined
+  }
+
+  /** Used by the startup self-heal when a tombstone has lost its job row. */
+  clearRemoving(id: RepoId): void {
+    this.db.raw.prepare('UPDATE repos SET removing_at = NULL WHERE id = ?').run(id)
   }
 
   delete(id: RepoId): number {

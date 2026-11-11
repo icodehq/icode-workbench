@@ -357,10 +357,22 @@ export class GitWorktreeService {
    */
   async gitResultFor(
     target: ExecutionTarget = LOCAL_TARGET
-  ): Promise<(cwd: string, args: string[], timeoutMs?: number) => Promise<GuestGitResult>> {
+  ): Promise<
+    (
+      cwd: string,
+      args: string[],
+      timeoutMs?: number,
+      options?: { env?: Readonly<Record<string, string>> }
+    ) => Promise<GuestGitResult>
+  > {
     const executor = await this.executorFor(target)
-    return (cwd, args, timeoutMs = READ_TIMEOUT_MS) =>
-      executor.exec({ cwd, args, timeoutMs })
+    return (cwd, args, timeoutMs = READ_TIMEOUT_MS, options = {}) =>
+      executor.exec({
+        cwd,
+        args,
+        timeoutMs,
+        ...(options.env !== undefined ? { env: options.env } : {})
+      })
   }
 
   /** Refuses paths outside the managed root so a corrupted row cannot target arbitrary directories. */

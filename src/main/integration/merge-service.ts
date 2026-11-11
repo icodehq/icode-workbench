@@ -138,6 +138,18 @@ export class MergeService {
       now: this.deps.now()
     })
     if (claim.kind !== 'claimed') {
+      if (claim.kind === 'repo-removing') {
+        throw new SessionServiceError(
+          makeAppError(
+            'REPOSITORY_REMOVING',
+            'This project is still being cleaned up. Try again in a moment.',
+            {
+              messageKey: 'errors.REPOSITORY_REMOVING',
+              context: { repoId: repository.id }
+            }
+          )
+        )
+      }
       throw claim.kind === 'session-busy'
         ? fail('MERGE_IN_PROGRESS', 'A merge is already active for this session.')
         : fail('MERGE_TARGET_BUSY', 'Another merge is already active for that target branch.')
@@ -268,6 +280,9 @@ export class MergeService {
     for (const record of this.deps.merges.listActive()) {
       const worktree = this.deps.worktrees.findBySession(record.sessionId)
       const repository = worktree ? this.deps.repositories.findById(worktree.repoId) : null
+      // A tombstoned repository is owned by the removal worker; reconciling its
+      // merge here would race the abort/stage path.
+      if (repository?.removingAt != null) continue
       if (!worktree || !repository) {
         this.deps.merges.markInterrupted(record.id, this.deps.now())
         interrupted += 1
