@@ -34,6 +34,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Opening a project now follows its contents: when a project has both direct
+  sessions and tasks it opens Sessions, a task-only project opens Tasks, and a
+  project with neither opens Sessions instead of an empty Tasks view.
 - Continuing or aborting a merge from the Source Control operation banner now
   uses the merge service, so the target fast-forwards, the merge record lands
   in the correct state, and dependent tasks unblock.

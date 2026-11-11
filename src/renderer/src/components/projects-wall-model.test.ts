@@ -194,6 +194,9 @@ describe('project directory model', () => {
     expect(taskOnly.load).toEqual({ live: 0, running: 1, queued: 0, total: 1 })
     expect(taskOnly.needs.waiting).toBe(0)
     expect(taskOnly.openMode).toBe('tasks')
+
+    const empty = projectStats(repo('empty'), [], [])
+    expect(empty.openMode).toBe('sessions')
   })
 
   it('orders cross-project attention by kind, then oldest first', () => {
