@@ -18,6 +18,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 
 const verifier = require('../wsl/verify-artifacts.cjs')
+const { dockerDnsArgs } = require('../docker-dns.cjs')
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..')
 const BUILD_SCRIPT = path.join(REPO_ROOT, 'config', 'scripts', 'wsl', 'build-node-pty.sh')
@@ -115,6 +116,7 @@ function buildNodePty(arch, outDir) {
     [
       'run',
       '--rm',
+      ...dockerDnsArgs(),
       '--platform',
       dockerPlatform(arch),
       '-v',
