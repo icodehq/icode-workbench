@@ -22,6 +22,7 @@ Var PreviousInstallLocation
 !endif
 Var DefaultInstallLocation
 Var InstalledDir
+Var LooksLikeInstall
 
 ; A directory page can leave a trailing separator, which would make it compare
 ; unequal to the registry value and turn the cleanup into "delete the directory
@@ -34,14 +35,28 @@ Var InstalledDir
   ${EndIf}
 !macroend
 
+; Does DIR still look like an iCode install?
+;
+; A cancelled first install can stop after unpacking only the Chromium
+; resources: chrome_100_percent.pak and chrome_200_percent.pak are exactly what
+; was left behind on the machine that reported this. Checking for the
+; executable alone would refuse to clean that directory.
+!macro iCodeSetLooksLikeInstall DIR
+  StrCpy $LooksLikeInstall "0"
+  ${If} ${FileExists} "${DIR}\${APP_EXECUTABLE_FILENAME}"
+  ${OrIf} ${FileExists} "${DIR}\resources\app.asar"
+  ${OrIf} ${FileExists} "${DIR}\resources.pak"
+  ${OrIf} ${FileExists} "${DIR}\icudtl.dat"
+  ${OrIf} ${FileExists} "${DIR}\chrome_100_percent.pak"
+  ${OrIf} ${FileExists} "${DIR}\chrome_200_percent.pak"
+    StrCpy $LooksLikeInstall "1"
+  ${EndIf}
+!macroend
+
 !macro iCodeDetectDefaultInstall
   StrCpy $DefaultInstallLocation "$LOCALAPPDATA\Programs\${APP_FILENAME}"
-  ; Only treat the default directory as ours when it still holds iCode files.
-  ; The names cover an interrupted install that never wrote the executable.
-  ${IfNot} ${FileExists} "$DefaultInstallLocation\${APP_EXECUTABLE_FILENAME}"
-  ${AndIfNot} ${FileExists} "$DefaultInstallLocation\resources.pak"
-  ${AndIfNot} ${FileExists} "$DefaultInstallLocation\icudtl.dat"
-  ${AndIfNot} ${FileExists} "$DefaultInstallLocation\resources\app.asar"
+  !insertmacro iCodeSetLooksLikeInstall "$DefaultInstallLocation"
+  ${If} $LooksLikeInstall != "1"
     StrCpy $DefaultInstallLocation ""
   ${EndIf}
 !macroend
@@ -66,8 +81,10 @@ Var InstalledDir
   ; left here was locked or skipped by that uninstaller.
   ${If} $PreviousInstallLocation != ""
   ${AndIf} $PreviousInstallLocation != $InstalledDir
-  ${AndIf} ${FileExists} "$PreviousInstallLocation\${APP_EXECUTABLE_FILENAME}"
-    RMDir /r /REBOOTOK "$PreviousInstallLocation"
+    !insertmacro iCodeSetLooksLikeInstall "$PreviousInstallLocation"
+    ${If} $LooksLikeInstall == "1"
+      RMDir /r /REBOOTOK "$PreviousInstallLocation"
+    ${EndIf}
   ${EndIf}
 
   ; An interrupted first install has no registry entry at all.
