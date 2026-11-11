@@ -370,6 +370,7 @@ describe('shipped hook script transport', () => {
     expect(run.status).toBe(0)
     expect(run.stdout).toBe('')
     expect(ingress.events.map((event) => event.event)).toContain('Stop')
+    expect(ingress.rejected).toEqual([])
     await ingress.server.stop()
   })
 
