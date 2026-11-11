@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Repository settings** (project menu → **Repository settings…**) lists the
+  remotes Git stores for a checkout, recognizes GitHub and GitLab URLs, redacts
+  embedded credentials, and offers Fetch, Edit, and Remove. **Push to…** now
+  offers **Add remote…** and **Manage remotes…** when a repository has no
+  remote. Git remains the source of truth; no remote is stored in SQLite.
+- **Add project** can **Clone from URL** into a local or WSL target with
+  streamed progress and cancellation. An interrupted or failed clone removes
+  only the destination it created, a distinct fetch/push URL is shown
+  read-only, and an empty remote continues through the existing unborn-repository
+  setup so the first commit is still an explicit step.
+- Clone, fetch, push, and pull authentication failures name the environment to
+  fix (the system Git credential helper/SSH agent, or the selected WSL distro),
+  and credential-bearing URLs are redacted from every Git error detail.
+
 ### Changed
 
 - Merge and Push now live in Source Control. A contextual

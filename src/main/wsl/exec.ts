@@ -15,7 +15,7 @@
  * UTF-16LE, which turns a readable error into an unparseable one.
  */
 
-import { execFile } from 'node:child_process'
+import { execFile, spawn, type ChildProcess } from 'node:child_process'
 import { constants as fsConstants, accessSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -345,9 +345,96 @@ const defaultByteLauncher: WslByteLauncher = (spec) =>
     }
   })
 
+export type WslStreamLauncher = (spec: {
+  program: string
+  args: readonly string[]
+  cwd: string
+  env: NodeJS.ProcessEnv
+}) => ChildProcess
+
+export type WslStreamHandlers = {
+  onStdout?(chunk: Buffer): void
+  onStderr?(chunk: Buffer): void
+}
+
+/**
+ * What a streamed guest process produced.
+ *
+ * `cancelled` and `timedOut` are reported separately from the exit code: a
+ * killed process can carry any code, and the caller's intent is the answer it
+ * needs.
+ */
+export type WslStreamResult = {
+  code: number | null
+  signal: NodeJS.Signals | null
+  timedOut: boolean
+  cancelled: boolean
+  spawnFailure?: 'wsl_missing'
+}
+
+/**
+ * Streams a guest command's output as it arrives.
+ *
+ * The buffered runners use `execFile`, which waits for the complete output. A
+ * clone needs progress while it runs and a process tree that can be cancelled,
+ * so this path owns `wsl.exe` directly. It is the same argv construction and
+ * environment; only the output handling differs.
+ */
+const defaultStreamLauncher: WslStreamLauncher = (spec) =>
+  spawn(spec.program, [...spec.args], {
+    cwd: spec.cwd,
+    env: spec.env,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
+    // A POSIX shell often starts the real work as a child. Its own process
+    // group is what lets cancellation reach that child and close the pipes.
+    detached: process.platform !== 'win32'
+  })
+
+/** Signals the process group on POSIX, falling back to the process itself. */
+function signalStreamTree(child: ChildProcess, signal: NodeJS.Signals): void {
+  if (process.platform !== 'win32' && child.pid !== undefined) {
+    try {
+      process.kill(-child.pid, signal)
+      return
+    } catch {
+      // The child was not spawned detached; fall through.
+    }
+  }
+  try {
+    child.kill(signal)
+  } catch {
+    // Already gone.
+  }
+}
+
+/** SIGTERM, then SIGKILL for a process that ignores it; taskkill for a tree on Windows. */
+function terminateStreamChild(child: ChildProcess, onKillScheduled?: () => void): void {
+  if (process.platform === 'win32' && child.pid !== undefined) {
+    const taskkill = join(
+      process.env.SystemRoot ?? 'C:\\Windows',
+      'System32',
+      'taskkill.exe'
+    )
+    execFile(taskkill, ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true }, (error) => {
+      if (error) {
+        try {
+          child.kill()
+        } catch {
+          // Already gone.
+        }
+      }
+    })
+    return
+  }
+  signalStreamTree(child, 'SIGTERM')
+  onKillScheduled?.()
+}
+
 export type WslCommandRunnerOptions = {
   launcher?: WslProcessLauncher
   byteLauncher?: WslByteLauncher
+  streamLauncher?: WslStreamLauncher
   env?: NodeJS.ProcessEnv
   platform?: NodeJS.Platform
   program?: string
@@ -372,6 +459,7 @@ function diagnosticToken(value: string): string {
 export class WslCommandRunner {
   private readonly launcher: WslProcessLauncher
   private readonly byteLauncher: WslByteLauncher
+  private readonly streamLauncher: WslStreamLauncher
   private readonly env: NodeJS.ProcessEnv
   private readonly program: string
   private readonly timeoutScale: number
@@ -381,6 +469,7 @@ export class WslCommandRunner {
   constructor(options: WslCommandRunnerOptions = {}) {
     this.launcher = options.launcher ?? defaultLauncher
     this.byteLauncher = options.byteLauncher ?? defaultByteLauncher
+    this.streamLauncher = options.streamLauncher ?? defaultStreamLauncher
     this.env = options.env ?? process.env
     this.program =
       options.program ?? resolveWslExecutablePath(this.env, options.platform ?? process.platform)
@@ -500,6 +589,160 @@ export class WslCommandRunner {
       stdout: result.stdout,
       stderr: result.stderr
     }
+  }
+
+  /**
+   * Runs a guest command and streams its output.
+   *
+   * The caller gets raw chunks, never decoded text: Git progress is text, but
+   * this transport is also suitable for byte payloads, and decoding belongs to
+   * whoever knows what the payload is. Cancellation and timeout kill the whole
+   * process tree; on Windows `wsl.exe` may leave a guest process behind if only
+   * the interop process is signalled.
+   */
+  async runStream(
+    request: WslGuestCommand,
+    handlers: WslStreamHandlers = {}
+  ): Promise<WslStreamResult> {
+    if (request.signal?.aborted) {
+      return { code: null, signal: null, timedOut: false, cancelled: true }
+    }
+    if (request.argv.length === 0) {
+      throw new Error('wsl.exec: argv must name a program')
+    }
+    const args = this.buildArgs(request)
+    const startedAt = this.debugSpawns ? Date.now() : 0
+
+    let child: ChildProcess
+    try {
+      child = this.streamLauncher({
+        program: this.program,
+        args,
+        cwd: resolveWslInteropCwd(this.env),
+        env: { ...this.env, WSL_UTF8: '1' }
+      })
+    } catch (error) {
+      if (
+        typeof error === 'object' &&
+        error !== null &&
+        (error as { code?: unknown }).code === 'ENOENT'
+      ) {
+        this.logSpawnLine(request, 'wsl_missing', startedAt)
+        return {
+          code: null,
+          signal: null,
+          timedOut: false,
+          cancelled: false,
+          spawnFailure: 'wsl_missing'
+        }
+      }
+      this.logSpawnLine(request, 'error', startedAt)
+      throw error
+    }
+
+    return new Promise<WslStreamResult>((resolve, reject) => {
+      let settled = false
+      let timedOut = false
+      let cancelled = false
+      let killTimer: NodeJS.Timeout | null = null
+
+      const cleanup = (): void => {
+        clearTimeout(timer)
+        if (killTimer !== null) clearTimeout(killTimer)
+        request.signal?.removeEventListener('abort', onAbort)
+      }
+      const finish = (result: WslStreamResult): void => {
+        if (settled) return
+        settled = true
+        cleanup()
+        this.logSpawnLine(
+          request,
+          result.spawnFailure === 'wsl_missing'
+            ? 'wsl_missing'
+            : result.cancelled
+              ? 'cancelled'
+              : result.timedOut
+                ? 'timed_out'
+                : result.code === 0
+                  ? 'ok'
+                  : `exit_${result.code === null ? 'null' : String(result.code)}`,
+          startedAt
+        )
+        resolve(result)
+      }
+      const fail = (error: unknown): void => {
+        if (settled) return
+        settled = true
+        cleanup()
+        this.logSpawnLine(request, 'error', startedAt)
+        reject(error)
+      }
+      const terminate = (): void => {
+        terminateStreamChild(child, () => {
+          if (killTimer !== null) return
+          killTimer = setTimeout(() => {
+            if (settled) return
+            signalStreamTree(child, 'SIGKILL')
+          }, 2_000)
+          killTimer.unref?.()
+        })
+      }
+      const onAbort = (): void => {
+        cancelled = true
+        terminate()
+      }
+
+      const timer = setTimeout(() => {
+        timedOut = true
+        terminate()
+      }, this.budget(request.timeoutMs ?? WSL_DEFAULT_TIMEOUT_MS))
+      timer.unref?.()
+
+      if (request.signal?.aborted) {
+        onAbort()
+      } else {
+        request.signal?.addEventListener('abort', onAbort, { once: true })
+      }
+
+      child.stdout?.on('data', (chunk: Buffer) => {
+        try {
+          handlers.onStdout?.(chunk)
+        } catch (error) {
+          // A consumer that stops reading must not leave the process running.
+          terminate()
+          fail(error)
+        }
+      })
+      child.stderr?.on('data', (chunk: Buffer) => {
+        try {
+          handlers.onStderr?.(chunk)
+        } catch (error) {
+          terminate()
+          fail(error)
+        }
+      })
+      child.once('error', (error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') {
+          finish({
+            code: null,
+            signal: null,
+            timedOut: false,
+            cancelled: false,
+            spawnFailure: 'wsl_missing'
+          })
+          return
+        }
+        fail(error)
+      })
+      child.once('close', (code, signal) => {
+        finish({
+          code,
+          signal: signal ?? null,
+          timedOut,
+          cancelled
+        })
+      })
+    })
   }
 
   /**

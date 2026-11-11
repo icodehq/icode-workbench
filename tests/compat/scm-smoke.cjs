@@ -525,6 +525,32 @@ async function run() {
       `document.querySelector('[data-testid="scm-push-branch"]')?.value ?? null`
     )
     assert(pushBranch && pushBranch.length > 0, 'push branch default missing')
+
+    // Repository settings is reachable from the picker and returns to it.
+    assert(
+      await cdp.evaluate(
+        `Boolean(document.querySelector('[data-testid="scm-push-manage-remotes"]'))`
+      ),
+      'manage-remotes shortcut missing'
+    )
+    await click('[data-testid="scm-push-manage-remotes"]')
+    await waitForSelector('[data-testid="repository-settings-dialog"]', 10000)
+    await waitForSelector('[data-testid="remote-row-origin"]', 10000)
+    const remoteUrl = await cdp.evaluate(
+      `document.querySelector('[data-testid="remote-row-origin"]')?.innerText ?? null`
+    )
+    assert(
+      typeof remoteUrl === 'string' && remoteUrl.includes('origin'),
+      'origin remote not listed'
+    )
+    await click('[data-testid="repository-settings-close"]')
+    await waitForSelector('[data-testid="scm-push-popover"]', 10000)
+    await waitFor(
+      `document.querySelector('[data-testid="scm-push-remote"]')?.value === 'origin'`,
+      'push remote after repository settings',
+      10000
+    )
+
     await cdp.evaluate(
       `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))`
     )

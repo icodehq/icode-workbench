@@ -10,6 +10,7 @@ import type { ExecutionTarget } from '../../shared/domain/repository'
 import type { AppError } from '../../shared/domain/errors'
 import type { MergeOutcome, MergeRecord } from '../../shared/domain/merge'
 import { makeAppError } from '../../shared/domain/errors'
+import { classifyRemoteFailure } from '../git/remote-failure'
 import { SessionServiceError } from '../sessions/session-errors'
 import { samePathResolved } from '../worktrees/worktree-status'
 
@@ -475,7 +476,14 @@ export class MergeService {
         ])
         pushedAt = now
       } catch (error) {
-        pushError = classifyPushFailure(error)
+        pushError = classifyRemoteFailure({
+          error,
+          operation: 'push',
+          target,
+          fallback: 'The target branch could not be pushed.',
+          // Merge keeps its historical non-auth code for persisted records.
+          nonAuthCode: 'INTERNAL'
+        })
       }
     }
     this.deps.database.transaction(() => {
@@ -542,16 +550,6 @@ async function conflictFiles(
     .split('\n')
     .map((line) => line.trim())
     .filter((line) => line.length > 0)
-}
-
-function classifyPushFailure(error: unknown): AppError {
-  const message = error instanceof Error ? error.message : String(error)
-  if (/auth|credential|permission denied|terminal prompts disabled/i.test(message)) {
-    return makeAppError('GIT_AUTH_FAILED', 'The target branch could not be pushed.', {
-      detail: message
-    })
-  }
-  return makeAppError('INTERNAL', 'The target branch could not be pushed.', { detail: message })
 }
 
 function toAppError(error: unknown): AppError {

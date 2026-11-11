@@ -15,6 +15,8 @@ type Props = {
   headOid: string | null
   onClose: () => void
   onSubmit: (remote: string, branch: string) => Promise<{ ok: boolean; message?: string }>
+  onAddRemote: () => void
+  onManageRemotes: () => void
 }
 
 export default function ScmPushPopover({
@@ -26,7 +28,9 @@ export default function ScmPushPopover({
   localBranch,
   headOid,
   onClose,
-  onSubmit
+  onSubmit,
+  onAddRemote,
+  onManageRemotes
 }: Props): React.JSX.Element {
   const t = useT()
   const defaults = pushDefaults({ upstream, localBranch, headOid, remotes })
@@ -141,6 +145,26 @@ export default function ScmPushPopover({
             {blockedReason}
           </p>
         )}
+        {remotes !== null && !remotesLoading && remotes.length === 0 ? (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            <button
+              type="button"
+              className="inline-flex h-7 items-center rounded-md border border-border px-2 text-[10.5px] hover:bg-muted"
+              onClick={onAddRemote}
+              data-testid="scm-push-add-remote"
+            >
+              {t('push.addRemote')}
+            </button>
+            <button
+              type="button"
+              className="inline-flex h-7 items-center rounded-md border border-border px-2 text-[10.5px] hover:bg-muted"
+              onClick={onManageRemotes}
+              data-testid="scm-push-manage-remotes"
+            >
+              {t('push.manageRemotes')}
+            </button>
+          </div>
+        ) : null}
         {error !== null ? (
           <p
             className="mt-2 rounded border border-destructive/40 bg-destructive/10 px-2 py-1 text-[10px] text-destructive"
@@ -150,25 +174,39 @@ export default function ScmPushPopover({
           </p>
         ) : null}
 
-        <div className="mt-3 flex justify-end gap-2">
-          <button
-            type="button"
-            className="inline-flex h-7 items-center rounded-md border border-border px-2.5 text-[10.5px] hover:bg-muted disabled:opacity-40"
-            onClick={onClose}
-            disabled={busy}
-          >
-            {t('common.cancel')}
-          </button>
-          <button
-            type="button"
-            className="inline-flex h-7 items-center gap-1.5 rounded-md bg-accent px-2.5 text-[10.5px] font-medium text-accent-ink hover:opacity-90 disabled:opacity-40"
-            onClick={() => void submit()}
-            disabled={busy || blockedReason !== null}
-            data-testid="scm-push-submit"
-          >
-            {busy ? <Loader2 size={11} className="animate-spin" /> : null}
-            {t('push.submit')}
-          </button>
+        <div className="mt-3 flex items-center justify-between gap-2">
+          {remotes !== null && !remotesLoading && remotes.length > 0 ? (
+            <button
+              type="button"
+              className="text-[10px] text-muted-foreground underline hover:text-foreground"
+              onClick={onManageRemotes}
+              data-testid="scm-push-manage-remotes"
+            >
+              {t('push.manageRemotes')}
+            </button>
+          ) : (
+            <span />
+          )}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className="inline-flex h-7 items-center rounded-md border border-border px-2.5 text-[10.5px] hover:bg-muted disabled:opacity-40"
+              onClick={onClose}
+              disabled={busy}
+            >
+              {t('common.cancel')}
+            </button>
+            <button
+              type="button"
+              className="inline-flex h-7 items-center gap-1.5 rounded-md bg-accent px-2.5 text-[10.5px] font-medium text-accent-ink hover:opacity-90 disabled:opacity-40"
+              onClick={() => void submit()}
+              disabled={busy || blockedReason !== null}
+              data-testid="scm-push-submit"
+            >
+              {busy ? <Loader2 size={11} className="animate-spin" /> : null}
+              {t('push.submit')}
+            </button>
+          </div>
         </div>
       </div>
     </AnchoredPopover>

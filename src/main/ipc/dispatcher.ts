@@ -60,6 +60,15 @@ import {
 } from '../../shared/schemas/workspace'
 import { clearActivityUnreadInputSchema } from '../../shared/schemas/activity'
 import {
+  cloneCancelInputSchema,
+  cloneStartInputSchema,
+  remoteAddInputSchema,
+  remoteFetchInputSchema,
+  remoteListInputSchema,
+  remoteRemoveInputSchema,
+  remoteSetUrlInputSchema
+} from '../../shared/schemas/remotes'
+import {
   aiCancelCommitMessageInputSchema,
   aiCommitMessageInputSchema
 } from '../../shared/schemas/ai'
@@ -107,6 +116,7 @@ export type DispatcherServices = {
   reposPickFolder: (input: {
     target: ExecutionTarget
     source?: 'wsl' | 'windows'
+    purpose?: 'repository' | 'clone-parent'
   }) => Promise<unknown>
   reposRemove: (input: { repoId: string; acknowledgeDependentSessions?: boolean }) => Promise<unknown>
   sessionsList: (input: { repoId?: string }) => Promise<unknown>
@@ -121,6 +131,13 @@ export type DispatcherServices = {
   sessionsRecoverWorktree: (input: { sessionId: string }) => Promise<unknown>
   branchesList: (input: { repoId: string }) => Promise<unknown>
   branchesRefs: (input: { repoId: string }) => Promise<unknown>
+  remotesList: (input: { repoId: string }) => Promise<unknown>
+  remotesAdd: (input: { repoId: string; name: string; url: string }) => Promise<unknown>
+  remotesSetUrl: (input: { repoId: string; name: string; url: string }) => Promise<unknown>
+  remotesRemove: (input: { repoId: string; name: string }) => Promise<unknown>
+  remotesFetch: (input: { repoId: string; name: string; prune?: boolean }) => Promise<unknown>
+  cloneStart: (input: z.infer<typeof cloneStartInputSchema>) => Promise<unknown>
+  cloneCancel: (input: { requestId: string }) => Promise<unknown>
   mergeStart: (input: z.infer<typeof mergeStartInputSchema>) => Promise<unknown>
   mergeContinue: (input: { sessionId: string }) => Promise<unknown>
   mergeAbort: (input: { sessionId: string }) => Promise<unknown>
@@ -434,6 +451,48 @@ export function createDispatcher(services: DispatcherServices): Dispatcher {
         const input = parse(removeBranchInputSchema, rawInput)
         if ('code' in input) return { ok: false, error: input }
         return run(() => services.branchesRemove(input))
+      }
+
+      case IPC_CHANNELS.remotesList: {
+        const input = parse(remoteListInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.remotesList(input))
+      }
+
+      case IPC_CHANNELS.remotesAdd: {
+        const input = parse(remoteAddInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.remotesAdd(input))
+      }
+
+      case IPC_CHANNELS.remotesSetUrl: {
+        const input = parse(remoteSetUrlInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.remotesSetUrl(input))
+      }
+
+      case IPC_CHANNELS.remotesRemove: {
+        const input = parse(remoteRemoveInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.remotesRemove(input))
+      }
+
+      case IPC_CHANNELS.remotesFetch: {
+        const input = parse(remoteFetchInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.remotesFetch(input))
+      }
+
+      case IPC_CHANNELS.cloneStart: {
+        const input = parse(cloneStartInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.cloneStart(input))
+      }
+
+      case IPC_CHANNELS.cloneCancel: {
+        const input = parse(cloneCancelInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.cloneCancel(input))
       }
 
       case IPC_CHANNELS.mergeStart: {

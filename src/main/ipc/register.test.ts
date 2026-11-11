@@ -36,7 +36,8 @@ describe('IPC channel registration', () => {
       IPC_CHANNELS.viewCommand,
       IPC_CHANNELS.windowMaximizedEvent,
       IPC_CHANNELS.windowBeforeClose,
-      IPC_CHANNELS.gitStatusEvent
+      IPC_CHANNELS.gitStatusEvent,
+      IPC_CHANNELS.cloneProgress
     ])
     /**
      * Handled at the app entry point instead of here.

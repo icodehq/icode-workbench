@@ -185,7 +185,8 @@ async function setup(options: { resolveTargetFails?: boolean } = {}): Promise<Fi
           },
           ensureParentDirectory: async () => undefined,
           isEmptyDirectory: async () => false,
-          removeDirectory: async () => undefined
+          removeDirectory: async () => undefined,
+          removeTree: async () => undefined
         }
       }
     }

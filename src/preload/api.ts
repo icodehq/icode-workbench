@@ -98,6 +98,23 @@ export function createIcodeApi(
       refs: (input) => call(IPC_CHANNELS.branchesRefs, input),
       remove: (input) => call(IPC_CHANNELS.branchesRemove, input)
     },
+    remotes: {
+      list: (input) => call(IPC_CHANNELS.remotesList, input),
+      add: (input) => call(IPC_CHANNELS.remotesAdd, input),
+      setUrl: (input) => call(IPC_CHANNELS.remotesSetUrl, input),
+      remove: (input) => call(IPC_CHANNELS.remotesRemove, input),
+      fetch: (input) => call(IPC_CHANNELS.remotesFetch, input)
+    },
+    clone: {
+      start: (input) => call(IPC_CHANNELS.cloneStart, input),
+      cancel: (input) => call(IPC_CHANNELS.cloneCancel, input),
+      onProgress: (listener) =>
+        subscribe(IPC_CHANNELS.cloneProgress, (payload) =>
+          listener(
+            payload as import('../shared/schemas/remotes').CloneProgressEventPayload
+          )
+        )
+    },
     merge: {
       start: (input) => call(IPC_CHANNELS.mergeStart, input),
       continueMerge: (input) => call(IPC_CHANNELS.mergeContinue, input),
@@ -246,6 +263,8 @@ export function createIcodeApi(
   Object.freeze(api.assistant)
   Object.freeze(api.harness)
   Object.freeze(api.branches)
+  Object.freeze(api.remotes)
+  Object.freeze(api.clone)
   Object.freeze(api.files)
   Object.freeze(api.git)
   Object.freeze(api.activity)

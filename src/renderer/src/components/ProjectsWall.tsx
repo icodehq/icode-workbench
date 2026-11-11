@@ -11,6 +11,7 @@ import {
   Plus,
   RotateCcw,
   Search,
+  Settings2,
   Trash2
 } from 'lucide-react'
 import type { TaskRecordPayload } from '../../../shared/icode-api'
@@ -19,6 +20,7 @@ import type { Notice } from '../state/workspace'
 import type { ProjectMode } from '../router/routes'
 import { repositoryPreparationView } from '../lib/repository-preparation'
 import ContextMenu, { type ContextMenuItem, type MenuAnchor } from './ContextMenu'
+import RepositorySettingsDialog from './RepositorySettingsDialog'
 import {
   attentionEntries,
   filterAndSortProjects,
@@ -382,6 +384,7 @@ function projectMenuItems(
     onOpen: () => void
     onTogglePin: () => void
     onCopyPath: () => void
+    onRepositorySettings: () => void
     onRetry: () => void
     onRemove: () => void
   },
@@ -406,6 +409,13 @@ function projectMenuItems(
       label: t('projects.menu.copyPath'),
       icon: <Copy size={12} />,
       onSelect: handlers.onCopyPath
+    },
+    {
+      id: 'repository-settings',
+      label: t('projects.menu.repositorySettings'),
+      icon: <Settings2 size={12} />,
+      testId: `repository-settings-${stats.repo.id}`,
+      onSelect: handlers.onRepositorySettings
     }
   ]
   if (preparation?.kind === 'failed') {
@@ -448,6 +458,7 @@ export default function ProjectsWall({
   const [pinnedIds, setPinnedIds] = useState<string[]>(() => readPinnedProjectIds())
   const [now, setNow] = useState(() => Date.now())
   const [menu, setMenu] = useState<ProjectMenuRequest | null>(null)
+  const [settingsRepo, setSettingsRepo] = useState<RepositorySummary | null>(null)
   const directoryRef = useRef<HTMLDivElement | null>(null)
   const closeMenu = useCallback(() => setMenu(null), [])
 
@@ -720,6 +731,10 @@ export default function ProjectsWall({
             onTogglePin: () =>
               setPinnedIds((current) => togglePinnedProject(current, menuStats.repo.id)),
             onCopyPath: () => void copyProjectPath(menuStats.repo.path),
+            onRepositorySettings: () => {
+              setSettingsRepo(menuStats.repo)
+              closeMenu()
+            },
             onRetry: () => onRetryPreparation(menuStats.repo.id),
             onRemove: () => onRemoveRepository(menuStats.repo.id)
           }, t)}
@@ -733,6 +748,13 @@ export default function ProjectsWall({
           returnFocus={menu.returnFocus}
           opener={menu.opener}
           onClose={closeMenu}
+        />
+      ) : null}
+      {settingsRepo !== null ? (
+        <RepositorySettingsDialog
+          repoId={settingsRepo.id}
+          repoName={settingsRepo.displayName}
+          onClose={() => setSettingsRepo(null)}
         />
       ) : null}
     </div>

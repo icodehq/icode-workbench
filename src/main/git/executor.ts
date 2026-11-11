@@ -14,7 +14,7 @@
  */
 
 import { execFile, spawn } from 'node:child_process'
-import { mkdirSync, readdirSync, rmdirSync, statSync } from 'node:fs'
+import { mkdirSync, readdirSync, rmdirSync, rmSync, statSync } from 'node:fs'
 import { dirname } from 'node:path'
 import type { ExecutionTarget } from '../../shared/domain/repository'
 import type { WslCommandRunner } from '../wsl/exec'
@@ -85,6 +85,14 @@ export type HostFileSystem = {
   isEmptyDirectory(path: string): Promise<boolean>
   /** Removes an empty directory only. */
   removeDirectory(path: string): Promise<void>
+  /**
+   * Removes a directory tree recursively.
+   *
+   * Only for a path this process created and is cleaning up itself (an
+   * interrupted clone), never for user data. The clone service scopes the path
+   * before calling it.
+   */
+  removeTree(path: string): Promise<void>
 }
 
 export function createLocalHostFileSystem(): HostFileSystem {
@@ -116,6 +124,9 @@ export function createLocalHostFileSystem(): HostFileSystem {
     },
     async removeDirectory(path) {
       rmdirSync(path)
+    },
+    async removeTree(path) {
+      rmSync(path, { recursive: true, force: true, maxRetries: 2 })
     }
   }
 }
@@ -187,6 +198,18 @@ export function createGuestHostFileSystem(
       })
       if ('status' in result || result.code !== 0) {
         throw new GitUnavailableError('Could not remove the empty worktree directory.', path)
+      }
+    },
+    async removeTree(path) {
+      // Constant script, argv only. `rm -rf` is idempotent, so one retry is safe.
+      const result = await runIdempotentGuest(runner, {
+        scope: 'guest',
+        distro,
+        argv: ['sh', '-c', 'rm -rf -- "$1"', 'icode-rm-tree', path],
+        timeoutMs: 30_000
+      })
+      if ('status' in result || isTransportFailure(result) || result.code !== 0) {
+        throw new GitUnavailableError('Could not remove the partial clone directory.', path)
       }
     }
   }

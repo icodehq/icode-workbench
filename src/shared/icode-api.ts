@@ -28,6 +28,17 @@ import type {
 } from './schemas/ipc'
 import type { clearActivityUnreadInputSchema } from './schemas/activity'
 import type {
+  CloneProgressEventPayload,
+  cloneCancelInputSchema,
+  cloneStartInputSchema,
+  RemoteSummaryPayload,
+  remoteAddInputSchema,
+  remoteFetchInputSchema,
+  remoteListInputSchema,
+  remoteRemoveInputSchema,
+  remoteSetUrlInputSchema
+} from './schemas/remotes'
+import type {
   AssistantConversationPayload,
   AssistantEventPayload,
   AssistantMessagePayload,
@@ -287,6 +298,44 @@ export type IcodeProductApi = {
       input: z.infer<typeof listBranchRefsInputSchema>
     ) => Promise<IpcResult<BranchRefSummary[]>>
     remove: (input: z.infer<typeof removeBranchInputSchema>) => Promise<IpcResult<RemoveBranchResult>>
+  }
+  /**
+   * Git remotes for one registered repository.
+   *
+   * Raw URLs never cross this boundary: `list` returns redacted display values,
+   * and `setUrl` requires the new value to be typed again.
+   */
+  remotes: {
+    list: (
+      input: z.infer<typeof remoteListInputSchema>
+    ) => Promise<IpcResult<RemoteSummaryPayload[]>>
+    add: (
+      input: z.infer<typeof remoteAddInputSchema>
+    ) => Promise<IpcResult<{ status: 'ok'; name: string }>>
+    setUrl: (
+      input: z.infer<typeof remoteSetUrlInputSchema>
+    ) => Promise<IpcResult<{ status: 'ok'; name: string }>>
+    remove: (
+      input: z.infer<typeof remoteRemoveInputSchema>
+    ) => Promise<IpcResult<{ status: 'ok'; name: string }>>
+    fetch: (
+      input: z.infer<typeof remoteFetchInputSchema>
+    ) => Promise<IpcResult<{ status: 'ok'; name: string }>>
+  }
+  /**
+   * Clone a remote into a new project folder.
+   *
+   * `start` validates and returns immediately; progress arrives on
+   * `onProgress` and is correlated by `requestId`.
+   */
+  clone: {
+    start: (
+      input: z.infer<typeof cloneStartInputSchema>
+    ) => Promise<IpcResult<{ requestId: string }>>
+    cancel: (
+      input: z.infer<typeof cloneCancelInputSchema>
+    ) => Promise<IpcResult<{ cancelled: boolean }>>
+    onProgress: (listener: (event: CloneProgressEventPayload) => void) => () => void
   }
   merge: {
     start: (

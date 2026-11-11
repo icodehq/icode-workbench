@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   AlertTriangle,
   Check,
+  Download,
+  ExternalLink,
   FolderGit2,
   FolderOpen,
   HardDrive,
@@ -17,13 +19,37 @@ import type {
   WslDistroListPayload,
   WslDistroSummary
 } from '../../../shared/schemas/ipc'
+import {
+  type ClonePhasePayload
+} from '../../../shared/schemas/remotes'
 import { callApi, isAbsolutePathLike } from '../lib/api'
+import { isAbsolutePathLike as isAbsolutePathLikeShared } from '../../../shared/domain/paths'
 import { detectedPlatform } from '../lib/platform'
 import { makeAppError } from '../../../shared/domain/errors'
-import { useT } from '../i18n/use-i18n'
+import { useLocale, useT } from '../i18n/use-i18n'
 import type { Translator } from '../i18n/i18n-store'
+import { localizeAppError } from '../../../shared/i18n'
+import type { MessageKey } from '../../../shared/i18n/messages'
+import {
+  containsRedactionPlaceholder,
+  isCloneableRemoteInput,
+  parseRemoteUrl
+} from '../../../shared/domain/remote-url'
+import { isValidCloneName, joinCloneDestination } from '../../../shared/domain/clone'
+import RemoteProviderBadge from './RemoteProviderBadge'
 
 type Dirs = { kind: 'local' } | { kind: 'wsl'; distro: WslDistroSummary | null }
+
+const CLONE_PHASE_KEYS: Record<ClonePhasePayload, MessageKey> = {
+  starting: 'addRepo.clone.phase.starting',
+  enumerating: 'addRepo.clone.phase.enumerating',
+  counting: 'addRepo.clone.phase.counting',
+  compressing: 'addRepo.clone.phase.compressing',
+  receiving: 'addRepo.clone.phase.receiving',
+  resolving: 'addRepo.clone.phase.resolving',
+  'checking-out': 'addRepo.clone.phase.checking-out',
+  done: 'addRepo.clone.phase.done'
+}
 
 type Props = {
   onClose: () => void
@@ -63,7 +89,9 @@ export default function AddRepositoryDialog({
   platform
 }: Props): React.JSX.Element {
   const t = useT()
+  const locale = useLocale()
   const isWindows = (platform ?? detectedPlatform()) === 'win32'
+  const [mode, setMode] = useState<'open' | 'clone'>('open')
   const [choice, setChoice] = useState<Dirs>({ kind: 'local' })
   const [path, setPath] = useState('')
   const [busy, setBusy] = useState(false)
@@ -90,6 +118,39 @@ export default function AddRepositoryDialog({
    * use while the source remains useful for explaining where the project lives.
    */
   const [pickedFrom, setPickedFrom] = useState<string | null>(null)
+
+  /**
+   * Clone mode. The form is deliberately separate from the open-folder form:
+   * a clone has a URL, an existing parent folder and a new directory name, and
+   * shares only the execution target with the open flow.
+   */
+  const [cloneUrl, setCloneUrl] = useState('')
+  const [cloneParent, setCloneParent] = useState('')
+  const [cloneParentFrom, setCloneParentFrom] = useState<string | null>(null)
+  const [cloneName, setCloneName] = useState('')
+  const [cloneNameEdited, setCloneNameEdited] = useState(false)
+  const [clonePicking, setClonePicking] = useState(false)
+  const [cloneBusy, setCloneBusy] = useState(false)
+  const [cloneCancelling, setCloneCancelling] = useState(false)
+  const [cloneProgress, setCloneProgress] = useState<{
+    phase: ClonePhasePayload
+    percent: number | null
+    detail: string
+  } | null>(null)
+  const [cloneNotice, setCloneNotice] = useState<AppError | null>(null)
+  const [cloneCleanupFailedPath, setCloneCleanupFailedPath] = useState<string | null>(null)
+  const activeCloneRef = useRef<string | null>(null)
+  const cloneTargetRef = useRef<ExecutionTarget | null>(null)
+  /**
+   * The event subscription is installed once; these refs keep the callbacks it
+   * invokes current without tearing the subscription down on every render.
+   */
+  const onInitializeRef = useRef(onInitialize)
+  const onCloseRef = useRef(onClose)
+  useEffect(() => {
+    onInitializeRef.current = onInitialize
+    onCloseRef.current = onClose
+  }, [onInitialize, onClose])
 
   /**
    * A path belongs to exactly one filesystem.
@@ -121,7 +182,96 @@ export default function AddRepositoryDialog({
     setPickedFrom(null)
     setIdentityName('')
     setIdentityEmail('')
+    // The parent belongs to the previous environment; the URL and name do not.
+    setCloneParent('')
+    setCloneParentFrom(null)
+    setCloneNotice(null)
+    setCloneCleanupFailedPath(null)
+    setCloneProgress(null)
   }, [targetKey])
+
+  useEffect(() => {
+    const off = window.icode.clone.onProgress((event) => {
+      if (activeCloneRef.current !== event.requestId) return
+      if (event.type === 'progress') {
+        setCloneProgress({
+          phase: event.phase,
+          percent: event.percent,
+          detail: event.detail
+        })
+        return
+      }
+
+      activeCloneRef.current = null
+      setCloneCancelling(false)
+      setCloneCleanupFailedPath(null)
+
+      if (event.type === 'cancelled') {
+        setCloneBusy(false)
+        setCloneProgress(null)
+        setCloneCleanupFailedPath(event.cleanup === 'failed' ? event.destination : null)
+        setCloneNotice(
+          makeAppError('INVALID_ARGUMENT', '', {
+            messageKey:
+              event.cleanup === 'failed'
+                ? 'addRepo.clone.cancelledKept'
+                : 'addRepo.clone.cancelled',
+            messageParams: { path: event.destination }
+          })
+        )
+        return
+      }
+
+      if (event.type === 'failed') {
+        setCloneBusy(false)
+        setCloneProgress(null)
+        setCloneNotice(event.error)
+        setCloneCleanupFailedPath(event.cleanup === 'failed' ? event.destination : null)
+        return
+      }
+
+      // Done. Register through the same flow the open-folder form uses, so a
+      // normal checkout, an unborn repository and a Gitless folder all end in
+      // one place. An empty remote hands control back to the adoption panel.
+      setCloneProgress({ phase: 'done', percent: 100, detail: '' })
+      const cloneTarget = cloneTargetRef.current
+      if (cloneTarget === null) return
+      void (async () => {
+        const failure = await onInitializeRef.current({
+          path: event.destination,
+          target: cloneTarget
+        })
+        setCloneBusy(false)
+        if (failure === null) {
+          onCloseRef.current()
+          return
+        }
+        if (event.unborn || failure.code === 'GIT_IDENTITY_MISSING') {
+          const inspected = await callApi(
+            window.icode.repos.inspect({ path: event.destination, target: cloneTarget })
+          )
+          setMode('open')
+          setPath(event.destination)
+          setSource('browse')
+          setInspection(inspected.ok ? inspected.value : null)
+          setPickedFrom(null)
+          setIdentityName('')
+          setIdentityEmail('')
+          setError(failure)
+          setCloneNotice(
+            makeAppError('INVALID_ARGUMENT', '', {
+              messageKey: 'addRepo.clone.emptyRepository'
+            })
+          )
+          setCloneProgress(null)
+          return
+        }
+        setCloneNotice(failure)
+        setCloneProgress(null)
+      })()
+    })
+    return off
+  }, [])
   /**
    * Discovery is asked once per dialog, and only when WSL is chosen.
    *
@@ -218,6 +368,114 @@ export default function AddRepositoryDialog({
             ? t('addRepo.submit.gitless')
             : t('addRepo.submit.choose')
 
+  const cloneUrlTrimmed = cloneUrl.trim()
+  const cloneParentTrimmed = cloneParent.trim()
+  const cloneNameTrimmed = cloneName.trim()
+  const clonePreview = parseRemoteUrl(cloneUrlTrimmed)
+  const cloneUrlValid =
+    cloneUrlTrimmed.length > 0 &&
+    isCloneableRemoteInput(cloneUrlTrimmed) &&
+    !containsRedactionPlaceholder(cloneUrlTrimmed)
+  const cloneParentValid =
+    cloneParentTrimmed.length > 0 && isAbsolutePathLikeShared(cloneParentTrimmed)
+  const cloneNameValid = isValidCloneName(cloneNameTrimmed)
+  const cloneDestination =
+    target !== null && cloneParentValid && cloneNameTrimmed.length > 0
+      ? joinCloneDestination(cloneParentTrimmed, cloneNameTrimmed, target)
+      : null
+  const cloneReady =
+    !busy &&
+    !cloneBusy &&
+    target !== null &&
+    cloneUrlValid &&
+    cloneParentValid &&
+    cloneNameValid
+  const cloneNoticeLocalized =
+    cloneNotice === null ? null : localizeAppError(cloneNotice, locale)
+
+  const selectMode = (next: 'open' | 'clone'): void => {
+    if (busy || cloneBusy || mode === next) return
+    setMode(next)
+    setError(null)
+    setInspection(null)
+    setCloneNotice(null)
+    setCloneCleanupFailedPath(null)
+    setCloneProgress(null)
+  }
+
+  const browseCloneParent = async (): Promise<void> => {
+    if (clonePicking || cloneBusy || busy || target === null) return
+    setClonePicking(true)
+    setCloneNotice(null)
+    try {
+      const result = await callApi(
+        window.icode.repos.pickFolder({
+          target,
+          purpose: 'clone-parent',
+          ...(choice.kind === 'wsl' ? { source: 'windows' as const } : {})
+        })
+      )
+      if (!result.ok) {
+        setCloneNotice(result.error)
+        return
+      }
+      if (result.value.status === 'cancelled') return
+      if (result.value.status === 'unavailable') {
+        setCloneNotice(
+          makeAppError('INVALID_ARGUMENT', t('addRepo.pickFailed'), {
+            detail: result.value.detail,
+            messageKey: 'addRepo.pickFailed'
+          })
+        )
+        return
+      }
+      setCloneParent(result.value.path)
+      setCloneParentFrom(result.value.translatedFrom ?? null)
+    } finally {
+      setClonePicking(false)
+    }
+  }
+
+  const startClone = async (): Promise<void> => {
+    if (!cloneReady || target === null) {
+      setCloneNotice(
+        makeAppError('INVALID_ARGUMENT', '', { messageKey: 'addRepo.clone.nothing' })
+      )
+      return
+    }
+    const requestId = crypto.randomUUID()
+    activeCloneRef.current = requestId
+    cloneTargetRef.current = target
+    setCloneBusy(true)
+    setCloneCancelling(false)
+    setCloneNotice(null)
+    setCloneCleanupFailedPath(null)
+    setCloneProgress({ phase: 'starting', percent: null, detail: '' })
+    const result = await callApi(
+      window.icode.clone.start({
+        requestId,
+        url: cloneUrlTrimmed,
+        target,
+        parentPath: cloneParentTrimmed,
+        name: cloneNameTrimmed
+      })
+    )
+    if (!result.ok) {
+      activeCloneRef.current = null
+      setCloneBusy(false)
+      setCloneProgress(null)
+      setCloneNotice(result.error)
+    }
+  }
+
+  const cancelClone = async (): Promise<void> => {
+    const requestId = activeCloneRef.current
+    if (requestId === null || cloneCancelling) return
+    setCloneCancelling(true)
+    const result = await callApi(window.icode.clone.cancel({ requestId }))
+    if (!result.ok || !result.value.cancelled) setCloneCancelling(false)
+  }
+
   /**
    * Opens one platform folder dialog for the chosen target.
    *
@@ -272,6 +530,10 @@ export default function AddRepositoryDialog({
 
   const submit = async (event: React.FormEvent): Promise<void> => {
     event.preventDefault()
+    if (mode === 'clone') {
+      await startClone()
+      return
+    }
     if (inFlight.current || target === null || !pathLooksRight) return
     inFlight.current = true
     setBusy(true)
@@ -400,15 +662,49 @@ export default function AddRepositoryDialog({
           </div>
           <button
             type="button"
-            className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
             onClick={onClose}
             aria-label={t('common.close')}
+            disabled={busy || cloneBusy}
           >
             <X size={14} />
           </button>
         </div>
 
-        <fieldset className="mt-4" disabled={busy}>
+        <div
+          className="mt-4 grid grid-cols-2 gap-1 rounded-md border border-border bg-muted/40 p-1"
+          role="tablist"
+          aria-label={t('addRepo.title')}
+        >
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mode === 'open'}
+            className={`rounded px-2 py-1.5 text-[11px] font-medium ${
+              mode === 'open' ? 'bg-accent text-accent-ink' : 'text-muted-foreground hover:bg-muted'
+            } disabled:opacity-50`}
+            onClick={() => selectMode('open')}
+            disabled={busy || cloneBusy}
+            data-testid="add-repo-mode-open"
+          >
+            {t('addRepo.mode.open')}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mode === 'clone'}
+            className={`rounded px-2 py-1.5 text-[11px] font-medium ${
+              mode === 'clone' ? 'bg-accent text-accent-ink' : 'text-muted-foreground hover:bg-muted'
+            } disabled:opacity-50`}
+            onClick={() => selectMode('clone')}
+            disabled={busy || cloneBusy}
+            data-testid="add-repo-mode-clone"
+          >
+            {t('addRepo.mode.clone')}
+          </button>
+        </div>
+
+        <fieldset className="mt-4" disabled={busy || cloneBusy}>
           <legend className="text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
             {t('addRepo.environment')}
           </legend>
@@ -532,6 +828,8 @@ export default function AddRepositoryDialog({
           </div>
         ) : null}
 
+        {mode === 'open' ? (
+          <>
         <div className="mt-4">
           <span className="block text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
             {t('addRepo.projectFolder')}
@@ -743,6 +1041,171 @@ export default function AddRepositoryDialog({
             )}
           </section>
         ) : null}
+          </>
+        ) : (
+          <section className="mt-4" data-testid="add-repo-clone">
+            <label className="block text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
+              {t('addRepo.clone.url')}
+              <div className="mt-1.5 flex items-center gap-2">
+                <input
+                  className="min-w-0 flex-1 rounded-md border border-border bg-background px-3 py-2.5 font-mono text-[12px] text-foreground outline-none focus:border-accent disabled:opacity-60"
+                  value={cloneUrl}
+                  onChange={(event) => {
+                    const next = event.target.value
+                    setCloneUrl(next)
+                    setCloneNotice(null)
+                    const parsed = parseRemoteUrl(next)
+                    if (!cloneNameEdited && parsed?.suggestedName !== null && parsed?.suggestedName !== undefined) {
+                      setCloneName(parsed.suggestedName)
+                    }
+                  }}
+                  placeholder={t('addRepo.clone.urlPlaceholder')}
+                  spellCheck={false}
+                  disabled={cloneBusy}
+                  data-testid="add-repo-clone-url"
+                />
+                {clonePreview !== null ? (
+                  <RemoteProviderBadge provider={clonePreview.provider} />
+                ) : null}
+                {clonePreview?.webUrl !== null && clonePreview?.webUrl !== undefined ? (
+                  <button
+                    type="button"
+                    className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                    title={t('remotes.openInBrowser')}
+                    aria-label={t('remotes.openInBrowser')}
+                    onClick={() =>
+                      void window.icode.window.openExternal({ url: clonePreview.webUrl! })
+                    }
+                    data-testid="add-repo-clone-open-browser"
+                  >
+                    <ExternalLink size={12} />
+                  </button>
+                ) : null}
+              </div>
+            </label>
+            {clonePreview?.hasCredentials === true ? (
+              <p className="mt-1.5 text-[10px] text-signal">
+                {t('addRepo.clone.credentialsWarning')}
+              </p>
+            ) : null}
+
+            <div className="mt-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
+                  {t('addRepo.clone.parent')}
+                </span>
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10.5px] text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+                  onClick={() => void browseCloneParent()}
+                  disabled={cloneBusy || clonePicking || busy || target === null}
+                  data-testid="add-repo-clone-browse"
+                >
+                  {clonePicking ? (
+                    <Loader2 size={11} className="animate-spin" />
+                  ) : (
+                    <FolderOpen size={11} />
+                  )}
+                  {clonePicking ? t('addRepo.choosing') : t('addRepo.clone.browse')}
+                </button>
+              </div>
+              <input
+                className="mt-1.5 w-full rounded-md border border-border bg-background px-3 py-2.5 font-mono text-[12px] text-foreground outline-none focus:border-accent disabled:opacity-60"
+                value={cloneParent}
+                onChange={(event) => {
+                  setCloneParent(event.target.value)
+                  setCloneParentFrom(null)
+                  setCloneNotice(null)
+                }}
+                placeholder={t('addRepo.clone.parentPlaceholder')}
+                spellCheck={false}
+                disabled={cloneBusy}
+                data-testid="add-repo-clone-parent"
+              />
+              {cloneParentFrom !== null && cloneParentFrom !== cloneParent ? (
+                <p className="mt-1 break-all font-mono text-[9.5px] text-muted-foreground">
+                  {t('addRepo.from', { path: cloneParentFrom })}
+                </p>
+              ) : null}
+            </div>
+
+            <label className="mt-3 block text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
+              {t('addRepo.clone.name')}
+              <input
+                className="mt-1.5 w-full rounded-md border border-border bg-background px-3 py-2.5 font-mono text-[12px] text-foreground outline-none focus:border-accent disabled:opacity-60"
+                value={cloneName}
+                onChange={(event) => {
+                  setCloneName(event.target.value)
+                  setCloneNameEdited(true)
+                  setCloneNotice(null)
+                }}
+                placeholder={t('addRepo.clone.namePlaceholder')}
+                spellCheck={false}
+                disabled={cloneBusy}
+                data-testid="add-repo-clone-name"
+              />
+            </label>
+
+            {cloneDestination !== null ? (
+              <p
+                className="mt-2 break-all font-mono text-[10px] text-muted-foreground"
+                data-testid="add-repo-clone-destination"
+              >
+                {t('addRepo.clone.destination', { path: cloneDestination })}
+              </p>
+            ) : null}
+
+            {cloneProgress !== null ? (
+              <div
+                className="mt-3 rounded-md border border-border bg-background px-3 py-2"
+                data-testid="add-repo-clone-progress"
+              >
+                <div className="flex items-center gap-2 text-[11px]">
+                  <Loader2 size={12} className={cloneBusy ? 'animate-spin' : ''} />
+                  <span>
+                    {t(CLONE_PHASE_KEYS[cloneProgress.phase])}
+                    {cloneProgress.percent !== null
+                      ? ` · ${String(cloneProgress.percent)}%`
+                      : '…'}
+                  </span>
+                </div>
+                {cloneProgress.percent !== null ? (
+                  <div className="mt-1.5 h-1 overflow-hidden rounded bg-muted">
+                    <div
+                      className="h-full bg-accent transition-[width]"
+                      style={{ width: `${String(cloneProgress.percent)}%` }}
+                    />
+                  </div>
+                ) : null}
+                {cloneProgress.detail.length > 0 ? (
+                  <p className="mt-1 break-all font-mono text-[9px] text-muted-foreground">
+                    {cloneProgress.detail}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+
+            {cloneNoticeLocalized !== null ? (
+              <div
+                className="mt-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-[11px] text-destructive"
+                role="alert"
+                data-testid="add-repo-clone-notice"
+              >
+                <span className="font-medium">{cloneNoticeLocalized.message}</span>
+                {cloneNoticeLocalized.detail ? (
+                  <span className="mt-0.5 block break-all font-mono text-[9px] opacity-80">
+                    {cloneNoticeLocalized.detail}
+                  </span>
+                ) : null}
+                {cloneCleanupFailedPath !== null ? (
+                  <span className="mt-0.5 block text-[10px]">
+                    {t('addRepo.clone.cleanupFailed', { path: cloneCleanupFailedPath })}
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
+          </section>
+        )}
 
         {error ? (
           <div
@@ -759,12 +1222,24 @@ export default function AddRepositoryDialog({
           </div>
         ) : null}
 
-        <div className="mt-5 flex justify-end gap-2">
+        <div className="mt-5 flex items-center justify-end gap-2">
+          {mode === 'clone' && cloneBusy ? (
+            <button
+              type="button"
+              className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border px-3 text-[12px] hover:bg-muted disabled:opacity-50"
+              onClick={() => void cancelClone()}
+              disabled={cloneCancelling}
+              data-testid="add-repo-clone-cancel"
+            >
+              {cloneCancelling ? <Loader2 size={12} className="animate-spin" /> : null}
+              {cloneCancelling ? t('addRepo.clone.cancelling') : t('addRepo.clone.cancel')}
+            </button>
+          ) : null}
           <button
             type="button"
             className="rounded-md border border-border h-9 px-3 text-[12px] hover:bg-muted disabled:opacity-50"
             onClick={onClose}
-            disabled={busy}
+            disabled={busy || cloneBusy}
             data-testid="add-repo-cancel"
           >
             {t('addRepo.cancel')}
@@ -772,11 +1247,25 @@ export default function AddRepositoryDialog({
           <button
             type="submit"
             className="inline-flex items-center gap-1.5 rounded-md bg-accent h-9 px-3.5 text-[12.5px] font-medium text-accent-ink hover:opacity-90 disabled:opacity-50"
-            disabled={!canSubmit}
+            disabled={mode === 'clone' ? !cloneReady : !canSubmit}
             data-testid="add-repo-submit"
           >
-            {busy ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
-            {submitLabel}
+            {mode === 'clone' ? (
+              cloneBusy ? (
+                <Loader2 size={12} className="animate-spin" />
+              ) : (
+                <Download size={12} />
+              )
+            ) : busy ? (
+              <Loader2 size={12} className="animate-spin" />
+            ) : (
+              <Check size={12} />
+            )}
+            {mode === 'clone'
+              ? cloneBusy
+                ? t('addRepo.clone.starting')
+                : t('addRepo.clone.start')
+              : submitLabel}
           </button>
         </div>
       </form>

@@ -205,12 +205,14 @@ export async function watchTargetDetails(ctx: GitWorkspaceContext, sessionId: st
           const result = await stream(
             worktreePath,
             [...STATUS_V2_ARGS],
-            (chunk) => {
-              if (!parser.push(chunk)) {
-                // The parser has what it needs; stop the Git process instead of
-                // waiting for output the UI is not going to show.
-                limitHit = true
-                limitController.abort()
+            {
+              onStdout: (chunk) => {
+                if (!parser.push(chunk)) {
+                  // The parser has what it needs; stop the Git process instead of
+                  // waiting for output the UI is not going to show.
+                  limitHit = true
+                  limitController.abort()
+                }
               }
             },
             { signal: limitController.signal }

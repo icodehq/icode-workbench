@@ -29,6 +29,13 @@ function services(overrides: Partial<DispatcherServices> = {}): DispatcherServic
     branchesList: vi.fn(async () => []),
     branchesRefs: vi.fn(async () => []),
     branchesRemove: vi.fn(async () => ({ status: 'removed' })),
+    remotesList: vi.fn(async () => []),
+    remotesAdd: vi.fn(async () => ({ status: 'ok', name: 'origin' })),
+    remotesSetUrl: vi.fn(async () => ({ status: 'ok', name: 'origin' })),
+    remotesRemove: vi.fn(async () => ({ status: 'ok', name: 'origin' })),
+    remotesFetch: vi.fn(async () => ({ status: 'ok', name: 'origin' })),
+    cloneStart: vi.fn(async () => ({ requestId: 'clone-1' })),
+    cloneCancel: vi.fn(async () => ({ cancelled: true })),
     mergeStart: vi.fn(async () => ({ status: 'merged', record: {} })),
     mergeContinue: vi.fn(async () => ({ status: 'merged', record: {} })),
     mergeAbort: vi.fn(async () => ({})),
@@ -556,6 +563,79 @@ describe('execution-target aware IPC', () => {
     expect(test).toHaveBeenCalledWith({ providerId })
 
     expect(await dispatch(IPC_CHANNELS.providersUpdate, { id: 'bad' })).toMatchObject({
+      ok: false,
+      error: { code: 'INVALID_ARGUMENT' }
+    })
+  })
+})
+
+describe('remote and clone IPC', () => {
+  it('validates and routes remote mutations', async () => {
+    const service = services()
+    const dispatch = createDispatcher(service)
+    const id = newRepoId()
+
+    expect(await dispatch(IPC_CHANNELS.remotesList, { repoId: id })).toMatchObject({ ok: true })
+    expect(await dispatch(IPC_CHANNELS.remotesAdd, {
+      repoId: id,
+      name: 'origin',
+      url: 'https://github.com/o/r.git'
+    })).toMatchObject({ ok: true })
+    expect(await dispatch(IPC_CHANNELS.remotesSetUrl, {
+      repoId: id,
+      name: 'origin',
+      url: 'https://github.com/o/r2.git'
+    })).toMatchObject({ ok: true })
+    expect(await dispatch(IPC_CHANNELS.remotesRemove, { repoId: id, name: 'origin' })).toMatchObject({
+      ok: true
+    })
+    expect(await dispatch(IPC_CHANNELS.remotesFetch, {
+      repoId: id,
+      name: 'origin',
+      prune: true
+    })).toMatchObject({ ok: true })
+    expect(service.remotesFetch).toHaveBeenCalledWith({
+      repoId: id,
+      name: 'origin',
+      prune: true
+    })
+
+    expect(await dispatch(IPC_CHANNELS.remotesAdd, {
+      repoId: id,
+      name: 'origin',
+      url: 'ext::sh -c calc'
+    })).toMatchObject({ ok: false, error: { code: 'INVALID_ARGUMENT' } })
+    expect(await dispatch(IPC_CHANNELS.remotesList, { repoId: 'bad' })).toMatchObject({
+      ok: false,
+      error: { code: 'INVALID_ARGUMENT' }
+    })
+  })
+
+  it('validates clone start and routes cancellation', async () => {
+    const service = services()
+    const dispatch = createDispatcher(service)
+    const input = {
+      requestId: 'clone-1',
+      url: 'https://github.com/o/r.git',
+      target: { kind: 'local' as const },
+      parentPath: '/projects',
+      name: 'repo'
+    }
+    expect(await dispatch(IPC_CHANNELS.cloneStart, input)).toMatchObject({ ok: true })
+    expect(service.cloneStart).toHaveBeenCalledWith(input)
+    expect(await dispatch(IPC_CHANNELS.cloneCancel, { requestId: 'clone-1' })).toMatchObject({
+      ok: true
+    })
+
+    expect(await dispatch(IPC_CHANNELS.cloneStart, { ...input, requestId: 'bad id' })).toMatchObject({
+      ok: false,
+      error: { code: 'INVALID_ARGUMENT' }
+    })
+    expect(await dispatch(IPC_CHANNELS.cloneStart, { ...input, parentPath: 'relative' })).toMatchObject({
+      ok: false,
+      error: { code: 'INVALID_ARGUMENT' }
+    })
+    expect(await dispatch(IPC_CHANNELS.cloneStart, { ...input, url: 'ext::sh -c calc' })).toMatchObject({
       ok: false,
       error: { code: 'INVALID_ARGUMENT' }
     })

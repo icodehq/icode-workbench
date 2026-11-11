@@ -29,6 +29,7 @@ import type { MenuAnchor } from './context-menu-position'
 import ScmHistoryView from './ScmHistoryView'
 import ScmMergePopover from './ScmMergePopover'
 import ScmPushPopover from './ScmPushPopover'
+import RepositorySettingsDialog from './RepositorySettingsDialog'
 import type { LineComment } from './UnifiedDiffView'
 import WorkingTreeView from './WorkingTreeView'
 import { useT, useTp } from '../i18n/use-i18n'
@@ -138,6 +139,12 @@ export default function ChangesPanel({
     anchor: MenuAnchor | null
     nonce: number
   } | null>(null)
+  const [remoteSettings, setRemoteSettings] = useState<{
+    add: boolean
+    returnToPush: boolean
+    anchor: MenuAnchor | null
+    nonce: number
+  } | null>(null)
   const primaryButtonRef = useRef<HTMLButtonElement | null>(null)
   const menuButtonRef = useRef<HTMLButtonElement | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -229,6 +236,31 @@ export default function ChangesPanel({
   const openPushPopover = (anchor: MenuAnchor | null): void => {
     void loadRemotes()
     setPushPopover({ anchor, nonce: Date.now() })
+  }
+
+  /**
+   * Repository settings is a modal, so the anchored picker is closed first.
+   * When it was opened from Push to…, closing settings returns to the picker
+   * with a freshly loaded remote list.
+   */
+  const openRemoteSettings = (add: boolean): void => {
+    const anchor = pushPopover?.anchor ?? anchorFor(menuButtonRef.current)
+    setRemoteSettings({
+      add,
+      returnToPush: pushPopover !== null,
+      anchor,
+      nonce: Date.now()
+    })
+    setPushPopover(null)
+  }
+
+  const closeRemoteSettings = (): void => {
+    const settings = remoteSettings
+    setRemoteSettings(null)
+    void loadRemotes()
+    if (settings?.returnToPush === true) {
+      setPushPopover({ anchor: settings.anchor, nonce: Date.now() })
+    }
   }
 
   useEffect(() => {
@@ -1172,6 +1204,17 @@ export default function ChangesPanel({
           headOid={snapshot?.headOid ?? null}
           onClose={() => setPushPopover(null)}
           onSubmit={pushTo}
+          onAddRemote={() => openRemoteSettings(true)}
+          onManageRemotes={() => openRemoteSettings(false)}
+        />
+      ) : null}
+
+      {remoteSettings !== null ? (
+        <RepositorySettingsDialog
+          key={remoteSettings.nonce}
+          repoId={repoId}
+          initialAdd={remoteSettings.add}
+          onClose={closeRemoteSettings}
         />
       ) : null}
 

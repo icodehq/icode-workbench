@@ -53,6 +53,7 @@ describe('app error codes', () => {
       'GIT_NON_FAST_FORWARD',
       'GIT_BRANCH_IN_USE',
       'GIT_STALE_STATUS',
+      'GIT_REMOTE_FAILED',
       'START_REF_NOT_FOUND',
       'BRANCH_EXISTS',
       'CHAIN_BRANCH_CONFLICT',

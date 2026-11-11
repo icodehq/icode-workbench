@@ -23,6 +23,8 @@ import { WorkspaceFilesService } from '../files/workspace-files-service'
 import { WorkspaceFilesWatcherService } from '../files/workspace-files-watcher'
 import { GitWorkspaceService } from '../git/git-workspace-service'
 import { BranchService } from '../git/branch-service'
+import { RemoteService } from '../git/remote-service'
+import { CloneService } from '../git/clone-service'
 import { CommitMessageService } from '../ai/commit-message-service'
 import { MergeStore } from '../persistence/merge-store'
 import { MergeService } from '../integration/merge-service'
@@ -89,6 +91,10 @@ export type AppRuntime = {
   gitWorkspace: GitWorkspaceService
   /** Local branch refs, name validation, and chain-branch creation. */
   branchRefs: BranchService
+  /** Git remotes for a registered repository: list, add, edit, remove, fetch. */
+  remotes: RemoteService
+  /** Streaming clone into a new project folder. */
+  clone: CloneService
   /** Local merge into a target branch, with durable claims and conflicts. */
   merges: MergeService
   /** One-shot AI commit-message drafts from the staged index. */
@@ -672,6 +678,15 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     worktrees,
     gitWorktrees
   })
+  const remotes = new RemoteService({
+    repositories: persistence.repositories,
+    gitWorktrees
+  })
+  const clone = new CloneService({
+    gitWorktrees,
+    projectFolders,
+    runner: wslRunner
+  })
   const commitMessages = new CommitMessageService({
     sessions,
     gitWorkspace,
@@ -1059,6 +1074,8 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     files,
     gitWorkspace,
     branchRefs,
+    remotes,
+    clone,
     merges: mergeService,
     commitMessages,
     gitStatusWatcher,
@@ -1087,6 +1104,8 @@ export async function startAppRuntime(): Promise<AppRuntime> {
       shutdownPromise = (async () => {
         if (taskArchiveTimer !== null) clearInterval(taskArchiveTimer)
         taskArchiveTimer = null
+        // Stop in-flight clones and remove their partial destinations.
+        clone.cancelAll()
         assistantNotifier?.stop()
         assistantService.stop()
         taskScheduler.stop()

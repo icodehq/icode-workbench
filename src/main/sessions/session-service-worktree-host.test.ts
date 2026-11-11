@@ -63,7 +63,8 @@ function setup(options: { guestExists: boolean; resolveFails?: boolean; target?:
           exists: async () => options.guestExists,
           ensureParentDirectory: async () => undefined,
           isEmptyDirectory: async () => false,
-          removeDirectory: async () => undefined
+          removeDirectory: async () => undefined,
+          removeTree: async () => undefined
         }
       }
     }

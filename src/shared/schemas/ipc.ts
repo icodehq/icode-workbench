@@ -57,6 +57,14 @@ export const IPC_CHANNELS = {
   branchesList: 'icode:branches:list',
   branchesRefs: 'icode:branches:refs',
   branchesRemove: 'icode:branches:remove',
+  remotesList: 'icode:remotes:list',
+  remotesAdd: 'icode:remotes:add',
+  remotesSetUrl: 'icode:remotes:set-url',
+  remotesRemove: 'icode:remotes:remove',
+  remotesFetch: 'icode:remotes:fetch',
+  cloneStart: 'icode:clone:start',
+  cloneCancel: 'icode:clone:cancel',
+  cloneProgress: 'icode:clone:progress',
   mergeStart: 'icode:merge:start',
   mergeContinue: 'icode:merge:continue',
   mergeAbort: 'icode:merge:abort',
@@ -240,7 +248,12 @@ export const pickRepositoryFolderInputSchema = z.strictObject({
    * `\\wsl.localhost\<distro>\mnt\<drive>`; the selected spelling is translated
    * by the project-folder service, never recorded as a Linux path verbatim.
    */
-  source: z.enum(['wsl', 'windows']).optional()
+  source: z.enum(['wsl', 'windows']).optional(),
+  /**
+   * What the folder is for. A clone destination is an existing *parent* folder,
+   * so its dialog says so instead of asking for a repository.
+   */
+  purpose: z.enum(['repository', 'clone-parent']).optional()
 })
 
 export const pickRepositoryFolderResultSchema = z.discriminatedUnion('status', [
