@@ -14,7 +14,12 @@
 
 !include LogicLib.nsh
 
+; Only the installer reads the previous registry entry; the uninstaller build
+; has no customInit, and an unused Var is a warning (which electron-builder
+; treats as an error).
+!ifndef BUILD_UNINSTALLER
 Var PreviousInstallLocation
+!endif
 Var DefaultInstallLocation
 Var InstalledDir
 
