@@ -22,7 +22,7 @@
 </p>
 
 <p align="center">
-  <img src=".github/assets/projects-wall.png" alt="El muro de proyectos de iCode Workbench con sesiones activas, elementos que requieren atención y actividad reciente en tres proyectos WSL" width="960" />
+  <img src=".github/assets/workbench-shell.png" alt="El workbench de iCode con la barra lateral de proyectos y tareas, pestañas de sesión, terminal en vivo e inspector de cambios" width="960" />
 </p>
 
 ## ¿Por qué iCode Workbench?
@@ -35,6 +35,7 @@
   entre proyectos.
 - **Revisión donde trabajó el agente.** Diffs de tareas, Source Control y Monaco en el
   mismo checkout de la sesión.
+- **Todo el trabajo en una barra lateral.** Proyectos, sesiones directas, elementos fijados y la cola de tareas entre proyectos siempre visibles; Mira, Ajustes y Programaciones se abren en pestañas.
 
 ## Compatibilidad actual
 

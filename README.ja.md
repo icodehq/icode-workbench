@@ -22,7 +22,7 @@
 </p>
 
 <p align="center">
-  <img src=".github/assets/projects-wall.png" alt="iCode Workbench のプロジェクト一覧。3 つの WSL プロジェクトの実行中セッション、対応が必要な項目、最終アクティビティを表示" width="960" />
+  <img src=".github/assets/workbench-shell.png" alt="iCode Workbench のワークベンチ。プロジェクトとタスクのサイドバー、セッションタブ、ライブターミナル、Changes インスペクターを表示" width="960" />
 </p>
 
 ## iCode Workbench を選ぶ理由
@@ -34,6 +34,7 @@
 - **プロジェクトをまたぐ Mira。** キュー、ブロッカー、横断的なアクションを 1 つの会話で。
 - **エージェントが作業した場所でレビュー。** タスクの diff、Source Control、Monaco が
   同じセッションチェックアウトにあります。
+- **1 つのサイドバーですべてを把握。** プロジェクト、ダイレクトセッション、ピン、横断タスクキューが常に表示され、Mira・設定・スケジュールはタブで開きます。
 
 ## 現在の対応
 

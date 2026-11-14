@@ -22,7 +22,7 @@
 </p>
 
 <p align="center">
-  <img src=".github/assets/projects-wall.png" alt="Le mur de projets d’iCode Workbench avec les sessions actives, les éléments à traiter et l’activité récente de trois projets WSL" width="960" />
+  <img src=".github/assets/workbench-shell.png" alt="Le workbench iCode avec la barre latérale des projets et des tâches, les onglets de session, le terminal en direct et l’inspecteur Changes" width="960" />
 </p>
 
 ## Pourquoi iCode Workbench ?
@@ -35,6 +35,7 @@
   actions inter-projets.
 - **Relire là où l’agent a travaillé.** Diffs de tâches, Source Control et Monaco dans le
   même checkout de session.
+- **Tout le travail dans une barre latérale.** Projets, sessions directes, éléments épinglés et file de tâches inter-projets toujours visibles ; Mira, Réglages et Planifications s’ouvrent en onglets.
 
 ## Prise en charge actuelle
 

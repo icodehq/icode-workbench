@@ -22,7 +22,7 @@
 </p>
 
 <p align="center">
-  <img src=".github/assets/projects-wall.png" alt="Die Projektübersicht von iCode Workbench mit laufenden Sitzungen, offenen Punkten und letzter Aktivität in drei WSL-Projekten" width="960" />
+  <img src=".github/assets/workbench-shell.png" alt="Die iCode-Workbench mit Projekt- und Aufgaben-Seitenleiste, Sitzungs-Tabs, Live-Terminal und Changes-Inspektor" width="960" />
 </p>
 
 ## Warum iCode Workbench?
@@ -35,6 +35,7 @@
   projektübergreifende Aktionen.
 - **Prüfen, wo der Agent gearbeitet hat.** Task-Diffs, Source Control und Monaco im
   selben Session-Checkout.
+- **Alle Arbeit in einer Seitenleiste.** Projekte, direkte Sitzungen, angeheftete Elemente und die projektübergreifende Aufgabenwarteschlange bleiben sichtbar; Mira, Einstellungen und Zeitpläne öffnen als Tabs.
 
 ## Aktuell unterstützt
 

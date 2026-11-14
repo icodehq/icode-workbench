@@ -22,7 +22,7 @@
 </p>
 
 <p align="center">
-  <img src=".github/assets/projects-wall.png" alt="iCode Workbench 프로젝트 월: 세 개의 WSL 프로젝트에서 실행 중인 세션, 주의가 필요한 항목, 최근 활동" width="960" />
+  <img src=".github/assets/workbench-shell.png" alt="iCode Workbench 워크벤치: 프로젝트 및 작업 사이드바, 세션 탭, 라이브 터미널, Changes 인스펙터" width="960" />
 </p>
 
 ## iCode Workbench를 선택하는 이유
@@ -34,6 +34,7 @@
 - **프로젝트를 넘나드는 Mira.** 대기열, 블로커, 프로젝트 간 작업을 하나의 대화에서.
 - **에이전트가 작업한 곳에서 리뷰.** 작업 diff, Source Control, Monaco가 같은
   세션 체크아웃에 있습니다.
+- **하나의 사이드바에서 모든 작업을 파악합니다.** 프로젝트, 직접 세션, 고정 항목, 프로젝트 간 작업 대기열이 항상 보이고 Mira·설정·일정은 탭으로 열립니다.
 
 ## 현재 지원
 

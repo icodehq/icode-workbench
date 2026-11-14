@@ -21,7 +21,7 @@
 </p>
 
 <p align="center">
-  <img src=".github/assets/projects-wall.png" alt="iCode Workbench 项目墙，显示三个 WSL 项目的运行中会话、需要处理的事项和最近活动" width="960" />
+  <img src=".github/assets/workbench-shell.png" alt="iCode Workbench 工作台：项目与任务侧边栏、会话标签页、实时终端和变更检查器" width="960" />
 </p>
 
 ## 为什么选择 iCode Workbench？
@@ -33,6 +33,7 @@
 - **跨项目的 Mira。** 一个对话覆盖任务队列、阻塞事项和跨项目操作。
 - **在智能体工作的地方审查。** 任务 diff、源代码管理和 Monaco 编辑器都在同一个
   session checkout 中。
+- **一个侧边栏掌握全部工作。** 项目、直连会话、置顶项和跨项目任务队列始终可见；Mira、设置和计划以标签页打开。
 
 ## 当前支持
 
