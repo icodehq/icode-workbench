@@ -11,7 +11,6 @@ import {
   GitCommitHorizontal,
   GitMerge,
   History,
-  LayoutGrid,
   ListTodo,
   Minus,
   Moon,
@@ -74,7 +73,6 @@ type Props = {
   onQueueTask: () => void
   activeRepoId?: string | null
   onOpenAssistant?: () => void
-  onProjects: () => void
   onSchedules: () => void
   onSettings: () => void
   /** Focuses the active session's Source Control tab. */
@@ -143,7 +141,6 @@ export default function CommandPalette({
   onQueueTask,
   activeRepoId,
   onOpenAssistant,
-  onProjects,
   onSchedules,
   onSettings,
   onSourceControl,
@@ -251,14 +248,6 @@ export default function CommandPalette({
         run: () => onOpenAssistant?.()
       },
       {
-        id: 'projects',
-        kind: 'action',
-        label: t('palette.action.projects'),
-        hint: t('palette.allProjects'),
-        icon: LayoutGrid,
-        run: onProjects
-      },
-      {
         id: 'source-control',
         kind: 'action',
         label: t('palette.action.sourceControl'),
@@ -321,7 +310,6 @@ export default function CommandPalette({
     fileSession,
     onNewSession,
     onOpenAssistant,
-    onProjects,
     onQueueTask,
     onSchedules,
     onSettings,

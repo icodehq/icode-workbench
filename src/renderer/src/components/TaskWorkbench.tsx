@@ -4,9 +4,9 @@ import {
   Files,
   GitBranch,
   ListTodo,
+  MoreHorizontal,
   Square,
-  TerminalSquare,
-  Workflow
+  TerminalSquare
 } from 'lucide-react'
 import type { TaskRecordPayload } from '../../../shared/icode-api'
 import type { AppError } from '../../../shared/domain/errors'
@@ -19,7 +19,6 @@ import ChangesPanel from './ChangesPanel'
 import FilesPanel from './FilesPanel'
 import { StatePanel } from './SessionWorkspace'
 import type { ScmMergeRequest } from '../scm/scm-merge'
-import TaskChainGraph from './TaskChainGraph'
 import TaskOverview from './TaskOverview'
 import { useT } from '../i18n/use-i18n'
 import { sessionStateLabel, stateDotClass } from './status'
@@ -28,8 +27,18 @@ import {
   taskStatusLabel
 } from './task-status'
 import TerminalPane from './TerminalPane'
+import ContextMenu, { type ContextMenuItem } from './ContextMenu'
 
-type Tab = 'overview' | 'terminal' | 'changes' | 'files' | 'graph'
+type Tab = 'overview' | 'terminal' | 'changes' | 'files'
+
+export type TaskAction =
+  | 'approve'
+  | 'reject'
+  | 'cancel'
+  | 'retry'
+  | 'resume'
+  | 'archive'
+  | 'unarchive'
 
 type Props = {
   task: TaskRecordPayload
@@ -54,6 +63,11 @@ type Props = {
   drafts: WorkbenchDraftStore
   onReload: () => Promise<void>
   onChanged: () => void
+  viewRequest?: { tab: 'terminal' | 'changes' | 'files'; nonce: number } | null
+  onViewRequestHandled?: () => void
+  onTaskAction?: (action: TaskAction) => void
+  /** Focus mode drops the task header and shows the terminal. */
+  focusActive?: boolean
 }
 
 function formatDuration(milliseconds: number): string {
@@ -73,8 +87,8 @@ function EmptyView({ children }: { children: React.ReactNode }): React.JSX.Eleme
 }
 
 /**
- * The project task workbench: a task list on the left (owned by
- * ProjectTasksView) and this full-height pane on the right.
+ * The task workbench: the queue lives in the sidebar and this pane fills the
+ * main surface.
  *
  * Overview, Terminal, Changes and Files are the same task, not a drawer plus a
  * separate session screen. The session tabs reuse the real terminal, review and
@@ -100,7 +114,11 @@ export default function TaskWorkbench({
   onSendToAgent,
   drafts,
   onReload,
-  onChanged
+  onChanged,
+  viewRequest = null,
+  onViewRequestHandled,
+  onTaskAction,
+  focusActive = false
 }: Props): React.JSX.Element {
   const [tab, setTab] = useState<Tab>('overview')
   const [mergeRequest, setMergeRequest] = useState<ScmMergeRequest | null>(null)
@@ -111,10 +129,12 @@ export default function TaskWorkbench({
     line: number
     nonce: number
   } | null>(null)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [menuAnchor, setMenuAnchor] = useState<{ top: number; bottom: number; left: number; right: number } | null>(null)
 
   useEffect(() => {
-    // Graph and Overview do not need a session; the execution tabs do.
-    if (session === null && tab !== 'overview' && tab !== 'graph') setTab('overview')
+    // Overview does not need a session; the execution tabs do.
+    if (session === null && tab !== 'overview') setTab('overview')
   }, [session, tab])
 
   /**
@@ -132,6 +152,20 @@ export default function TaskWorkbench({
       return next
     })
   }
+
+  useEffect(() => {
+    if (!viewRequest) return
+    if (session === null) {
+      onViewRequestHandled?.()
+      return
+    }
+    selectTab(viewRequest.tab)
+    onViewRequestHandled?.()
+  }, [viewRequest?.nonce])
+
+  useEffect(() => {
+    if (focusActive && session !== null) selectTab('terminal')
+  }, [focusActive, session?.id])
 
   useEffect(() => {
     if (!openRequest) return
@@ -176,9 +210,75 @@ export default function TaskWorkbench({
     </button>
   )
 
+  const menuItems: ContextMenuItem[] = []
+  if (onTaskAction !== undefined) {
+    if (task.canApprove) {
+      menuItems.push({
+        id: 'approve',
+        label: t('tasks.row.approve'),
+        testId: 'task-workbench-action-approve',
+        onSelect: () => onTaskAction('approve')
+      })
+      menuItems.push({
+        id: 'reject',
+        label: t('tasks.row.reject'),
+        testId: 'task-workbench-action-reject',
+        onSelect: () => onTaskAction('reject')
+      })
+    }
+    if (task.canResume) {
+      menuItems.push({
+        id: 'resume',
+        label: t('tasks.row.continue'),
+        testId: 'task-workbench-action-resume',
+        onSelect: () => onTaskAction('resume')
+      })
+    }
+    if (task.canRetry) {
+      menuItems.push({
+        id: 'retry',
+        label: t('tasks.row.retry'),
+        testId: 'task-workbench-action-retry',
+        onSelect: () => onTaskAction('retry')
+      })
+    }
+    if (
+      !task.canApprove &&
+      (task.status === 'queued' || task.status === 'running' || task.status === 'dispatching' || task.status === 'waiting')
+    ) {
+      menuItems.push({
+        id: 'cancel',
+        label: t('tasks.row.cancel'),
+        danger: true,
+        separatorBefore: menuItems.length > 0,
+        testId: 'task-workbench-action-cancel',
+        onSelect: () => onTaskAction('cancel')
+      })
+    }
+    if (task.canArchive) {
+      menuItems.push({
+        id: 'archive',
+        label: t('tasks.row.archive'),
+        separatorBefore: menuItems.length > 0,
+        testId: 'task-workbench-action-archive',
+        onSelect: () => onTaskAction('archive')
+      })
+    }
+    if (task.canUnarchive) {
+      menuItems.push({
+        id: 'unarchive',
+        label: t('tasks.row.restore'),
+        separatorBefore: menuItems.length > 0,
+        testId: 'task-workbench-action-unarchive',
+        onSelect: () => onTaskAction('unarchive')
+      })
+    }
+  }
+
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col" data-testid="task-workbench">
-      <header className="shrink-0 bg-background">
+      {focusActive ? null : (
+      <header className="icode-titlebar window-chrome-safe shrink-0 bg-background">
         <div className="flex flex-wrap items-start gap-3 px-4 pb-2.5 pt-3">
           <div className="min-w-0 flex-1">
             <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
@@ -190,6 +290,8 @@ export default function TaskWorkbench({
               </h1>
               <span
                 className={`inline-flex h-[21px] shrink-0 items-center gap-1.5 rounded-full border px-2 text-[10.5px] font-medium ${taskPillClass(task)}`}
+                data-testid="task-workbench-status"
+                data-status={task.status}
               >
                 <span className="h-1.5 w-1.5 rounded-full bg-current" />
                 {taskStatusLabel(task)}
@@ -264,6 +366,24 @@ export default function TaskWorkbench({
               <Square size={10} />
               {t('task.stop')}
             </button>
+            {menuItems.length > 0 ? (
+              <button
+                type="button"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-muted hover:text-foreground"
+                onClick={(event) => {
+                  const rect = event.currentTarget.getBoundingClientRect()
+                  setMenuAnchor({ top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right })
+                  setMenuOpen(true)
+                }}
+                aria-haspopup="menu"
+                aria-expanded={menuOpen}
+                aria-label={t('task.actions')}
+                title={t('task.actions')}
+                data-testid="task-workbench-actions"
+              >
+                <MoreHorizontal size={13} />
+              </button>
+            ) : null}
           </div>
         </div>
 
@@ -276,9 +396,9 @@ export default function TaskWorkbench({
           {tabButton('terminal', t('task.tab.terminal'), <TerminalSquare size={14} />, session === null)}
           {tabButton('changes', t('task.tab.sourceControl'), <FileDiff size={14} />, session === null)}
           {tabButton('files', t('task.tab.files'), <Files size={14} />, session === null)}
-          {tabButton('graph', t('task.tab.graph'), <Workflow size={14} />)}
         </div>
       </header>
+      )}
 
       {visited.has('overview') ? (
         <div
@@ -311,19 +431,6 @@ export default function TaskWorkbench({
                     })
                   }
             }
-          />
-        </div>
-      ) : null}
-
-      {visited.has('graph') ? (
-        <div
-          className={`min-h-0 flex-1 ${tab === 'graph' ? 'flex flex-col' : 'hidden'}`}
-          data-testid="task-graph-view"
-        >
-          <TaskChainGraph
-            tasks={projectTasks}
-            rootTaskId={task.id}
-            onSelectTask={onSelectTask}
           />
         </div>
       ) : null}
@@ -412,6 +519,18 @@ export default function TaskWorkbench({
       ) : null}
       {tab === 'files' && session === null ? (
         <EmptyView>{t('task.empty.files')}</EmptyView>
+      ) : null}
+
+      {menuOpen && menuAnchor !== null ? (
+        <ContextMenu
+          items={menuItems}
+          ariaLabel={t('task.actions')}
+          testId="task-workbench-menu"
+          width={220}
+          anchor={menuAnchor}
+          align="end"
+          onClose={() => setMenuOpen(false)}
+        />
       ) : null}
 
     </section>

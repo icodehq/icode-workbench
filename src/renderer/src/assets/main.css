@@ -37,6 +37,8 @@
   --color-menu-hover: var(--icode-menu-hover);
   --color-muted: var(--icode-raised);
   --color-muted-foreground: var(--icode-ink-2);
+  --color-sel: var(--icode-sel);
+  --color-hover: var(--icode-hover);
   --color-border: var(--icode-line);
   --color-line: var(--icode-line);
   --color-line-strong: var(--icode-line-strong);
@@ -62,8 +64,11 @@
 }
 
 @theme {
-  --font-sans: 'IBM Plex Sans', ui-sans-serif, system-ui, 'Segoe UI', sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Consolas, monospace;
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    sans-serif;
+  --font-mono:
+    ui-monospace, 'SF Mono', 'Cascadia Code', 'JetBrains Mono', Menlo, monospace;
   --radius-md: 6px;
   --radius-lg: 10px;
 }
@@ -73,8 +78,17 @@
   -webkit-app-region: drag;
 }
 
-.icode-titlebar :is(button, input, a, [role='button']) {
+.icode-titlebar :is(button, input, select, textarea, a, [role='button'], [role='tab']) {
   -webkit-app-region: no-drag;
+}
+
+/* Reserve the top-right control strip when the platform uses custom chrome. */
+[data-window-platform='win'] .window-chrome-safe {
+  padding-right: 138px;
+}
+
+[data-terminal-focus='true'] .window-chrome-safe {
+  padding-right: 0;
 }
 
 /* ---------------------------------------------------------------- dark ---- */
@@ -82,14 +96,14 @@
   color-scheme: dark;
 
   /* Surfaces, lowest to highest. */
-  --icode-canvas: #0A0E14;
-  --icode-panel: #0F1520;
-  --icode-raised: #141C29;
-  --icode-overlay: #1E2A3C;
+  --icode-canvas: #212121;
+  --icode-panel: #2A2A2C;
+  --icode-raised: #303032;
+  --icode-overlay: #333335;
 
   /* Hairline that separates two surfaces, and the border of a control. */
-  --icode-line: #243146;
-  --icode-line-strong: #34445E;
+  --icode-line: #3A3A3D;
+  --icode-line-strong: #4A4A4E;
 
   /*
    * Terminal scrollbar thumb. Kept separate from `--icode-line-strong`: a control
@@ -97,39 +111,40 @@
    * needs 3:1 against the surface it sits on. Defined here per appearance so it
    * still resolves while the terminal colours come from xterm itself.
    */
-  --icode-terminal-scrollbar: #2C3B52;
+  --icode-terminal-scrollbar: #4A4A4E;
 
-  /* Text, most to least prominent. */
-  --icode-ink-1: #E6EDF7;
-  --icode-ink-2: #9FB0C7;
-  --icode-ink-3: #7B8BA3;
+  /* Text, most to least prominent. Ink 3 is raised above the study value to
+   * clear 4.5:1 on both canvas and panel. */
+  --icode-ink-1: #E6E6E8;
+  --icode-ink-2: #A0A0A6;
+  --icode-ink-3: #94949B;
 
   /* Interaction. */
-  --icode-sel: #1A2434;
-  --icode-hover: #141C29;
-  --icode-focus: #58A6FF;
+  --icode-sel: #34363F;
+  --icode-hover: #2F2F31;
+  --icode-focus: #7D8CFF;
 
   /* A human is needed: agent waiting, or an unread completion. */
   --icode-signal: #D29922;
-  --icode-signal-weak: rgba(210, 153, 34, 0.14);
-  --icode-signal-line: rgba(210, 153, 34, 0.42);
+  --icode-signal-weak: rgba(210, 153, 34, 0.13);
+  --icode-signal-line: rgba(210, 153, 34, 0.4);
   --icode-signal-ink: #1B1404;
   --icode-info: #58A6FF;
   --icode-info-weak: rgba(88, 166, 255, 0.12);
 
-  /* iCode brand; the primary action accent below is the same hue. */
+  /* iCode brand stays green; the primary action accent is indigo. */
   --icode-brand: #3FB950;
-  --icode-accent: #3FB950;
-  --icode-accent-ink: #07110A;
+  --icode-accent: #7D8CFF;
+  --icode-accent-ink: #0B0C12;
 
   /* Failure. */
   --icode-danger: #F85149;
 
   /* Diff. */
-  --icode-add: #56D364;
-  --icode-add-weak: rgba(46, 160, 67, 0.13);
-  --icode-remove: #FF7B72;
-  --icode-remove-weak: rgba(248, 81, 73, 0.13);
+  --icode-add: #3FB950;
+  --icode-add-weak: rgba(63, 185, 80, 0.13);
+  --icode-remove: #F85149;
+  --icode-remove-weak: rgba(248, 81, 73, 0.12);
 
   /*
    * Neutral lifecycle fallbacks. The shell uses add/info/signal for live,
@@ -138,95 +153,95 @@
   --icode-state-live: var(--icode-ink-2);
   --icode-state-working: var(--icode-ink-2);
   --icode-state-idle: var(--icode-ink-3);
-  --icode-rail-off: #3A4048;
+  --icode-rail-off: #4A4A4E;
 
   /*
-   * Selection is a blue tint because focus is blue; it must not be confused
-   * with signal, which means a human is needed.
+   * Selection follows the indigo accent; it must not be confused with signal,
+   * which means a human is needed.
    */
-  --icode-selection: rgba(31, 111, 235, 0.28);
+  --icode-selection: rgba(125, 140, 255, 0.24);
 
   --icode-shadow-overlay: 0 18px 48px rgba(0, 0, 0, 0.55);
-  --icode-focus-ring: rgba(88, 166, 255, 0.32);
+  --icode-focus-ring: rgba(125, 140, 255, 0.32);
 
   /* Floating menu material: translucent over the canvas with a solid fallback. */
-  --icode-floating-bg: rgba(30, 42, 60, 0.88);
+  --icode-floating-bg: rgba(51, 51, 53, 0.9);
   --icode-floating-highlight: rgba(255, 255, 255, 0.055);
   --icode-floating-shadow:
     0 18px 48px rgba(0, 0, 0, 0.55),
     0 2px 8px rgba(0, 0, 0, 0.32);
-  --icode-menu-hover: rgba(230, 237, 247, 0.07);
+  --icode-menu-hover: rgba(230, 230, 232, 0.07);
 
   /* History graph lanes; fixed hues so lane identity stays stable per theme. */
-  --icode-lane-1: #58A6FF;
+  --icode-lane-1: #7D8CFF;
   --icode-lane-2: #3FB950;
   --icode-lane-3: #D29922;
-  --icode-lane-4: #BC8CFF;
-  --icode-lane-5: #39C5CF;
-  --icode-lane-6: #FF7B72;
+  --icode-lane-4: #C678DD;
+  --icode-lane-5: #56B6C2;
+  --icode-lane-6: #F85149;
 }
 
 /* --------------------------------------------------------------- light ---- */
 :root[data-theme='light'] {
   color-scheme: light;
 
-  --icode-canvas: #F6F8FA;
-  --icode-panel: #FFFFFF;
-  --icode-raised: #F0F3F7;
+  --icode-canvas: #FAFAFA;
+  --icode-panel: #F0F0F1;
+  --icode-raised: #E8E8EA;
   --icode-overlay: #FFFFFF;
 
-  --icode-line: #D0D7DE;
-  --icode-line-strong: #B6C0CC;
-  --icode-terminal-scrollbar: #556170;
+  --icode-line: #D6D6D9;
+  --icode-line-strong: #BDBDC1;
+  --icode-terminal-scrollbar: #B0B0B6;
 
-  --icode-ink-1: #1F2328;
-  --icode-ink-2: #57606A;
-  --icode-ink-3: #5E6873;
+  --icode-ink-1: #383A42;
+  --icode-ink-2: #696C77;
+  --icode-ink-3: #666970;
 
-  --icode-sel: #E6EBF2;
-  --icode-hover: #F0F3F7;
-  --icode-focus: #0969DA;
+  --icode-sel: #E4E6EB;
+  --icode-hover: #EDEDEE;
+  --icode-focus: #2F62D8;
 
   --icode-signal: #8A5A00;
-  --icode-signal-weak: rgba(138, 90, 0, 0.1);
-  --icode-signal-line: rgba(138, 90, 0, 0.34);
+  --icode-signal-weak: rgba(152, 104, 1, 0.1);
+  --icode-signal-line: rgba(152, 104, 1, 0.36);
   --icode-signal-ink: #FFFFFF;
-  --icode-info: #0969DA;
-  --icode-info-weak: rgba(9, 105, 218, 0.09);
+  --icode-info: #2F62D8;
+  --icode-info-weak: rgba(47, 98, 216, 0.09);
 
-  --icode-brand: #166A2D;
-  --icode-accent: #166A2D;
+  --icode-brand: #50A14F;
+  --icode-accent: #2F62D8;
   --icode-accent-ink: #FFFFFF;
-  --icode-danger: #CF222E;
+  --icode-danger: #E45649;
 
-  --icode-add: #116329;
-  --icode-add-weak: rgba(26, 127, 55, 0.08);
-  --icode-remove: #A40E26;
-  --icode-remove-weak: rgba(207, 34, 46, 0.08);
+  --icode-add: #50A14F;
+  --icode-add-weak: rgba(80, 161, 79, 0.11);
+  --icode-remove: #E45649;
+  --icode-remove-weak: rgba(228, 86, 73, 0.09);
 
   --icode-state-live: var(--icode-ink-2);
   --icode-state-working: var(--icode-ink-2);
   --icode-state-idle: var(--icode-ink-3);
   --icode-rail-off: #B9B3A8;
 
-  --icode-selection: rgba(9, 105, 218, 0.16);
+  --icode-selection: rgba(47, 98, 216, 0.16);
 
   --icode-shadow-overlay: 0 18px 48px rgba(31, 35, 40, 0.22);
-  --icode-focus-ring: rgba(9, 105, 218, 0.24);
+  --icode-focus-ring: rgba(47, 98, 216, 0.24);
 
-  --icode-floating-bg: rgba(255, 255, 255, 0.9);
+  --icode-floating-bg: rgba(255, 255, 255, 0.92);
   --icode-floating-highlight: rgba(255, 255, 255, 0.9);
   --icode-floating-shadow:
     0 18px 48px rgba(31, 35, 40, 0.18),
     0 2px 8px rgba(31, 35, 40, 0.08);
-  --icode-menu-hover: rgba(31, 35, 40, 0.06);
+  --icode-menu-hover: rgba(56, 58, 66, 0.06);
 
-  --icode-lane-1: #0969DA;
-  --icode-lane-2: #166A2D;
+  --icode-lane-1: #2F62D8;
+  --icode-lane-2: #50A14F;
   --icode-lane-3: #8A5A00;
   --icode-lane-4: #8250DF;
   --icode-lane-5: #1B7C83;
-  --icode-lane-6: #CF222E;
+  --icode-lane-6: #E45649;
 }
 
 /*
@@ -243,7 +258,7 @@
 @media (prefers-color-scheme: light) {
   :root:not([data-theme]) {
     color-scheme: light;
-    --icode-canvas: #F6F8FA;
+    --icode-canvas: #FAFAFA;
   }
 }
 
@@ -259,8 +274,8 @@ body {
   background: var(--icode-canvas);
   color: var(--icode-ink-1);
   font-family:
-    'IBM Plex Sans', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
-    'Segoe UI', sans-serif;
+    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    sans-serif;
   font-size: 13px;
   line-height: 1.45;
   /* The prototype sets tabular figures on the root so counts never shift width. */
@@ -313,7 +328,7 @@ select option {
   color: var(--icode-ink-1);
 }
 
-/* iCode focus treatment: a 2px focus-blue ring with a 1px offset. */
+/* iCode focus treatment: a 2px indigo ring with a 1px offset. */
 *:focus-visible {
   outline: 2px solid var(--icode-focus);
   outline-offset: 1px;

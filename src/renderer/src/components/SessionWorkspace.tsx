@@ -85,6 +85,12 @@ type Props = {
   /** Shows a labelled restore control only while the Sessions column is hidden. */
   sessionsListHidden?: boolean
   onShowSessionsList?: () => void
+  /** Split mode hides the internal Files/Changes panes for an external inspector. */
+  layout?: 'tabs' | 'split'
+  /** Focus mode drops the session header so only the terminal remains. */
+  hideHeader?: boolean
+  /** Split panes hide the branch so the session title keeps its room. */
+  showBranch?: boolean
 }
 
 function worktreeStatusLabel(status: WorktreeSummary['status']): string {
@@ -316,7 +322,10 @@ export default function SessionWorkspace({
   viewRequest,
   onViewRequestHandled,
   sessionsListHidden = false,
-  onShowSessionsList
+  onShowSessionsList,
+  layout = 'tabs',
+  hideHeader = false,
+  showBranch = true
 }: Props): React.JSX.Element {
   const t = useT()
   const locale = useLocale()
@@ -335,10 +344,11 @@ export default function SessionWorkspace({
   }, [session.id])
 
   useEffect(() => {
+    if (layout === 'split') return
     if (!viewRequest) return
     setView(viewRequest.view)
     onViewRequestHandled()
-  }, [viewRequest, onViewRequestHandled])
+  }, [layout, viewRequest, onViewRequestHandled])
   const [viewSessionId, setViewSessionId] = useState(session.id)
   if (viewSessionId !== session.id) {
     setViewSessionId(session.id)
@@ -370,7 +380,13 @@ export default function SessionWorkspace({
 
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <header className="shrink-0 border-b border-border bg-background" data-testid="session-header">
+      {hideHeader ? null : (
+      <header
+        className={`icode-titlebar shrink-0 border-b border-border bg-background ${
+          layout === 'tabs' ? 'window-chrome-safe' : ''
+        }`}
+        data-testid="session-header"
+      >
         <div className="flex h-12 items-center gap-2 px-3">
           <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
             <h1
@@ -419,7 +435,9 @@ export default function SessionWorkspace({
             {knownActivity === null ? null : <span className="h-3 w-px shrink-0 bg-border" />}
             {worktree ? (
               <span
-                className={`inline-flex min-w-0 max-w-[176px] shrink items-center ${WORKTREE_STATUS_TONE[worktree.status]}`}
+                className={`inline-flex min-w-0 max-w-[176px] shrink items-center ${WORKTREE_STATUS_TONE[worktree.status]} ${
+                  showBranch ? '' : 'hidden'
+                }`}
                 title={`${worktreeStatusLabel(worktree.status)} · ${worktree.path}`}
                 data-testid="session-worktree"
                 data-worktree-status={worktree.status}
@@ -473,6 +491,7 @@ export default function SessionWorkspace({
             </span>
           </div>
 
+          {layout === 'tabs' ? (
           <div
             className="flex shrink-0 items-center gap-0.5 rounded-md border border-border bg-muted/30 p-0.5"
             role="tablist"
@@ -530,8 +549,9 @@ export default function SessionWorkspace({
               <span className="hidden xl:inline">{t('session.viewFiles')}</span>
             </button>
           </div>
+          ) : null}
 
-          {sessionsListHidden && onShowSessionsList !== undefined ? (
+          {layout === 'tabs' && sessionsListHidden && onShowSessionsList !== undefined ? (
             <button
               type="button"
               className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -565,8 +585,9 @@ export default function SessionWorkspace({
           />
         </div>
       </header>
+      )}
 
-      <div className={`relative min-h-0 flex-1 bg-background ${view === 'terminal' ? '' : 'hidden'}`}>
+      <div className={`relative min-h-0 flex-1 bg-background ${layout === 'split' || view === 'terminal' ? '' : 'hidden'}`}>
         {panes.map((candidate) => (
           <TerminalPane
             key={`${candidate.id}:${candidate.incarnationId ?? 'pending'}`}
@@ -592,6 +613,8 @@ export default function SessionWorkspace({
         ) : null}
       </div>
 
+      {layout === 'tabs' ? (
+        <>
       <div
         className={`flex min-h-0 flex-1 ${view === 'files' ? '' : 'hidden'}`}
         data-testid="files-view"
@@ -637,6 +660,9 @@ export default function SessionWorkspace({
           onHistoryPathHandled={() => setHistoryRequest(null)}
         />
       </div>
+
+        </>
+      ) : null}
 
       {detailsOpen ? (
         <SessionDetailsDrawer

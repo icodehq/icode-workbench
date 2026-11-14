@@ -13,7 +13,7 @@ import { shortcutLabel } from '../lib/platform'
 import { useT } from '../i18n/use-i18n'
 import { translate, getLocale } from '../i18n/i18n-store'
 import { formatDateTime } from '../../../shared/i18n'
-import type { MonacoApi } from '../editor/monaco'
+import { monacoThemeForDocument, type MonacoApi } from '../editor/monaco'
 import { lineDiff, quickDiffCounts, type LineChange } from '../editor/line-diff'
 import { quickChangeForLine, quickDiffPatch } from '../editor/quick-diff-actions'
 import {
@@ -99,13 +99,6 @@ type QuickPeekState = {
   phase: 'idle' | 'checking' | 'ready' | 'error'
   reason?: string
   gitPatch?: string
-}
-
-function themeFromDocument(): 'vs' | 'vs-dark' {
-  const theme = document.documentElement.dataset.theme
-  if (theme === 'light') return 'vs'
-  if (theme === 'dark') return 'vs-dark'
-  return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'vs-dark' : 'vs'
 }
 
 /**
@@ -201,7 +194,7 @@ export default function CodeEditor({
         }
         const editor = monaco.editor.create(container.current, {
           model,
-          theme: themeFromDocument(),
+          theme: monacoThemeForDocument(),
           automaticLayout: true,
           fontFamily: "'JetBrains Mono', ui-monospace, 'SFMono-Regular', Consolas, monospace",
           fontSize: 12,
@@ -529,7 +522,7 @@ export default function CodeEditor({
     if (monacoState !== 'ready') return
     const observer = new MutationObserver(() => {
       const current = handle.current
-      if (current !== null) current.monaco.editor.setTheme(themeFromDocument())
+      if (current !== null) current.monaco.editor.setTheme(monacoThemeForDocument())
     })
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
     return () => observer.disconnect()

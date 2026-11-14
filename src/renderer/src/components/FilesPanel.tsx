@@ -3300,7 +3300,7 @@ export default function FilesPanel({
 
   return (
     <div
-      className="flex min-h-0 flex-1"
+      className="flex h-full min-h-0 flex-1"
       data-testid="files-panel"
       data-live-mode={liveState}
       data-busy={transferBusy ? 'true' : 'false'}

@@ -1,22 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { SessionSummary } from '../../shared/schemas/ipc'
-import AppRail from './components/AppRail'
-import GlobalTopBar from './components/GlobalTopBar'
+import type { TaskRecordPayload } from '../../shared/icode-api'
+import AppTabStrip from './components/AppTabStrip'
+import WindowChrome from './components/shell/WindowChrome'
+import WorkspaceSidebar from './components/shell/WorkspaceSidebar'
 import type { ActivityEntry } from './components/NotificationsDrawer'
-import ProjectHeader, { type ProjectStat } from './components/ProjectHeader'
-import {
-  projectHeaderStats,
-  projectStats as computeProjectStats
-} from './components/projects-wall-model'
 import SchedulesView from './components/SchedulesView'
-import ProjectsPage from './pages/ProjectsPage'
-import SessionsPage from './pages/SessionsPage'
+import WorkspaceWelcome from './components/shell/WorkspaceWelcome'
+import SessionsSurface from './components/sessions/SessionsSurface'
 import SettingsPage from './pages/SettingsPage'
-import TasksPage from './pages/TasksPage'
+import TasksSurface from './components/tasks/TasksSurface'
+import TaskComposerDialog from './components/tasks/TaskComposerDialog'
+import type { TaskAction } from './components/TaskWorkbench'
 import AssistantPage from './pages/AssistantPage'
 import type { AssistantTaskAction } from './components/AssistantCardView'
-import StatusBar from './components/StatusBar'
+import NoticeToast from './components/shell/NoticeToast'
+import SidebarStatus from './components/shell/SidebarStatus'
 import AppLayout from './layouts/AppLayout'
 import GlobalOverlays from './layouts/GlobalOverlays'
 import AppRoutes from './router/AppRoutes'
@@ -34,7 +34,7 @@ import { useTaskQueue } from './state/use-task-queue'
 import { useAssistant } from './state/use-assistant'
 import { useThemePreference } from './theme/use-theme'
 import { useLocale } from './i18n/use-i18n'
-import { translate, translatePlural } from './i18n/i18n-store'
+import { translate } from './i18n/i18n-store'
 import { activeRepo, activeSession } from './state/workspace'
 import { hostStatus } from './state/host-status'
 import type { Surface } from './router/routes'
@@ -48,23 +48,6 @@ import { pruneTreeStates } from './files/tree-state'
 import { filesClipboardStore } from './files/files-clipboard'
 
 const NEEDS_ORDER = { Approval: 0, Answer: 1, Retry: 2, Blocked: 3, Review: 4 } as const
-const SESSIONS_LIST_KEY = 'icode.sessionsListOpen'
-
-/**
- * The session list is useful for switching between several terminals, but at
- * the default window width its fixed 326px leaves the terminal cramped. Respect
- * an explicit preference; otherwise start collapsed on narrow windows.
- */
-function initialSessionsListOpen(): boolean {
-  try {
-    const stored = window.localStorage.getItem(SESSIONS_LIST_KEY)
-    if (stored !== null) return stored === 'true'
-  } catch {
-    // A disabled storage backend must not block the workspace.
-  }
-  return window.innerWidth >= 1100
-}
-
 export default function App(): React.JSX.Element {
   const workspace = useWorkspace()
   const { state } = workspace
@@ -77,17 +60,17 @@ export default function App(): React.JSX.Element {
 
   const {
     displaySurface,
+    activeTab,
+    auxTabs,
     taskSession,
-    taskSessionTask,
-    taskSessionLive,
-    focusTaskId,
-    focusComposerNonce,
-    taskSelectionByRepo,
+    selectedTaskId,
+    taskSessionIds,
     projectDirectSessions,
     projectSession,
     quickOpenSession,
     focusableSessionId,
     viewRequest,
+    taskViewRequest,
     openRequest,
     assistantTarget,
     commands
@@ -127,6 +110,58 @@ export default function App(): React.JSX.Element {
     [assistant.reload, tasks.reload, workspace]
   )
 
+  const runTaskWorkbenchAction = useCallback(
+    async (task: TaskRecordPayload, action: TaskAction): Promise<void> => {
+      const request = (() => {
+        switch (action) {
+          case 'approve':
+            return window.icode.tasks.approve({ taskId: task.id })
+          case 'reject':
+            return window.icode.tasks.reject({ taskId: task.id })
+          case 'cancel':
+            return window.icode.tasks.cancel({ taskId: task.id })
+          case 'retry':
+            return window.icode.tasks.retry({ taskId: task.id })
+          case 'resume':
+            return window.icode.tasks.resume({ taskId: task.id })
+          case 'archive':
+            return window.icode.tasks.archive({ taskId: task.id })
+          case 'unarchive':
+            return window.icode.tasks.unarchive({ taskId: task.id })
+        }
+      })()
+      const result = await request
+      if (!result.ok) {
+        workspace.notify(errorNotice(result.error))
+        return
+      }
+      const updated = result.value
+      const message =
+        action === 'approve'
+          ? translate('tasks.notice.approved', { title: task.title })
+          : action === 'reject'
+            ? translate('tasks.notice.rejected', { title: task.title })
+            : action === 'cancel'
+              ? translate('tasks.notice.cancelled', { title: task.title })
+              : action === 'retry'
+                ? translate('tasks.notice.retrying', { count: updated.attempt })
+                : action === 'resume'
+                  ? translate('tasks.notice.continuing', { count: updated.attempt })
+                  : action === 'archive'
+                    ? translate('tasks.notice.archived', { title: task.title })
+                    : translate('tasks.notice.restored', { title: task.title })
+      workspace.notify({
+        tone: action === 'reject' || action === 'archive' ? 'info' : 'success',
+        message
+      })
+      await tasks.reload()
+      if (action === 'retry' || action === 'resume') {
+        commands.openTask(updated)
+      }
+    },
+    [commands, tasks.reload, workspace]
+  )
+
   // Tabs belong to live sessions only. Keeping a removed session's dirty text
   // would make the close guard ask about a session the user can no longer see.
   // Include the sessions currently on screen so a transient list refresh cannot
@@ -146,7 +181,7 @@ export default function App(): React.JSX.Element {
     if (clipboard !== null && !ids.has(clipboard.sessionId)) filesClipboardStore.clear()
   }, [projectSession, state.activeSessionId, state.boot, state.sessions, taskSession, tasks.tasks])
 
-  const [sessionsListOpen, setSessionsListOpen] = useState<boolean>(initialSessionsListOpen)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
   const [terminalFocus, setTerminalFocus] = useState(false)
   const [addOpen, setAddOpen] = useState(false)
   const [quickOpenOpen, setQuickOpenOpen] = useState(false)
@@ -155,6 +190,14 @@ export default function App(): React.JSX.Element {
   const [markingActivity, setMarkingActivity] = useState(false)
   const [refreshToken, setRefreshToken] = useState(0)
   const [newSessionOpen, setNewSessionOpen] = useState(false)
+  const [taskComposer, setTaskComposer] = useState<{
+    repoId: string
+    afterTaskId: string | null
+  } | null>(null)
+  const composerRepo =
+    taskComposer === null
+      ? null
+      : (state.repos.find((entry) => entry.id === taskComposer.repoId) ?? null)
   const [pendingCreate, setPendingCreate] = useState<PendingCreate | null>(null)
   const createInFlight = useRef(false)
   const submitCreateRef = useRef<(request: CreateSessionRequest) => Promise<boolean>>(
@@ -179,27 +222,23 @@ export default function App(): React.JSX.Element {
   const repo = activeRepo(state)
   const active = activeSession(state)
   const hostUnreachable = hostStatus(state) === 'unreachable'
-  const projectStats = useMemo(() => {
-    const byRepo: Record<string, ProjectStat> = {}
-    for (const entry of state.repos) {
-      byRepo[entry.id] = projectHeaderStats(
-        computeProjectStats(entry, state.sessions, tasks.tasks)
-      )
-    }
-    return byRepo
-  }, [state.repos, state.sessions, tasks.tasks])
 
-  const supervisorProposals = useMemo(
-    () =>
-      repo === null
-        ? 0
-        : tasks.tasks.filter(
-            (task) =>
-              task.repoId === repo.id && task.approval === 'pending' && task.status === 'queued'
-          ).length,
-    [repo, tasks.tasks]
+  // A project selection is not persisted across launches; with registered
+  // projects the shell stays on the sessions surface instead of the welcome.
+  useEffect(() => {
+    if (state.repos.length === 0 || repo !== null) return
+    const first = state.repos[0]
+    if (first !== undefined) workspace.selectRepo(first.id)
+  }, [repo, state.repos, workspace])
+
+  const sidebarSessions = useMemo(
+    () => state.sessions.filter((session) => !taskSessionIds.has(session.id)),
+    [state.sessions, taskSessionIds]
   )
-
+  const activeTaskId = displaySurface === 'tasks' ? selectedTaskId : null
+  const taskSlotCount = tasks.tasks.filter((task) =>
+    ['dispatching', 'running', 'waiting'].includes(task.status)
+  ).length
   const needsTasks = useMemo(
     () =>
       tasks.tasks
@@ -255,14 +294,6 @@ export default function App(): React.JSX.Element {
 
   const focusActive = terminalFocus && focusableSessionId !== null
 
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(SESSIONS_LIST_KEY, String(sessionsListOpen))
-    } catch {
-      // The preference is a convenience; storage failure is not fatal.
-    }
-  }, [sessionsListOpen])
-
   // A different session or surface is a different navigation context; never
   // leave the app in a chrome-less mode where the exit control belongs to a
   // terminal the user can no longer see.
@@ -274,7 +305,7 @@ export default function App(): React.JSX.Element {
     () =>
       window.icode.onViewCommand((command) => {
         if (command === 'sessions') {
-          setSessionsListOpen((current) => !current)
+          setSidebarOpen((current) => !current)
           return
         }
         if (focusableSessionId !== null) setTerminalFocus((current) => !current)
@@ -347,16 +378,22 @@ export default function App(): React.JSX.Element {
     void tasks.reload(true)
   }, [tasks, workspace])
 
-  const openQueueTask = useCallback((): void => {
-    if (state.repos.length === 0) {
-      setAddOpen(true)
-      return
-    }
-    const target = repo ?? state.repos[0]
-    if (!target) return
-    if (target.id !== state.activeRepoId) workspace.selectRepo(target.id)
-    commands.openTaskComposer()
-  }, [commands.openTaskComposer, repo, state.activeRepoId, state.repos, workspace])
+  const openQueueTask = useCallback(
+    (repoId?: string, afterTaskId: string | null = null): void => {
+      if (state.repos.length === 0) {
+        setAddOpen(true)
+        return
+      }
+      const target =
+        (repoId === undefined ? null : state.repos.find((entry) => entry.id === repoId)) ??
+        repo ??
+        state.repos[0]
+      if (!target) return
+      if (target.id !== state.activeRepoId) workspace.selectRepo(target.id)
+      setTaskComposer({ repoId: target.id, afterTaskId })
+    },
+    [repo, state.activeRepoId, state.repos, workspace]
+  )
 
   const openNewSession = (): void => {
     if (hostUnreachable) {
@@ -420,10 +457,10 @@ export default function App(): React.JSX.Element {
   const addRepository = useCallback(
     async (input: Parameters<typeof workspace.addRepository>[0]): Promise<Awaited<ReturnType<typeof workspace.addRepository>>> => {
       const failure = await workspace.addRepository(input)
-      if (failure === null) commands.showProjects()
+      if (failure === null) commands.showSessions()
       return failure
     },
-    [commands.showProjects, workspace]
+    [commands.showSessions, workspace]
   )
 
   const initializeRepository = useCallback(
@@ -431,10 +468,10 @@ export default function App(): React.JSX.Element {
       input: Parameters<typeof workspace.initializeRepository>[0]
     ): Promise<Awaited<ReturnType<typeof workspace.initializeRepository>>> => {
       const failure = await workspace.initializeRepository(input)
-      if (failure === null) commands.showProjects()
+      if (failure === null) commands.showSessions()
       return failure
     },
-    [commands.showProjects, workspace]
+    [commands.showSessions, workspace]
   )
 
   const confirmRemoval = async (): Promise<void> => {
@@ -458,43 +495,23 @@ export default function App(): React.JSX.Element {
       : null
 
   const pages: Record<Surface, ReactNode> = {
-    projects: (
-      <ProjectsPage
-        repos={state.repos}
-        sessions={state.sessions}
-        tasks={tasks.tasks}
-        maxConcurrent={tasks.maxConcurrent}
-        onOpenProject={commands.openProject}
-        onOpenTask={commands.openTask}
-        onOpenSession={commands.openDirectSession}
-        onAddRepository={() => setAddOpen(true)}
-        onRemoveRepository={(repoId) => void workspace.removeRepository(repoId)}
-        onRetryPreparation={(repoId) => void workspace.retryPreparation(repoId)}
-        notify={workspace.notify}
-      />
-    ),
+    projects: <WorkspaceWelcome onAddRepository={() => setAddOpen(true)} />,
     sessions: (
-      <SessionsPage
+      <SessionsSurface
         repo={repo}
         sessions={projectDirectSessions}
         activeSession={projectSession}
         pendingCreate={pendingCreateView}
         pending={state.pending}
-        branches={state.branches}
-        orphans={state.orphans}
-        sessionsListOpen={sessionsListOpen}
         focusActive={focusActive}
-        onSelectSession={commands.openDirectSession}
-        onNewSession={openNewSession}
-        onRemoveBranch={(branch) => void workspace.requestRemoveBranch(branch)}
-        onCollapseSessions={() => setSessionsListOpen(false)}
-        onShowSessionsList={() => setSessionsListOpen(true)}
         paneSessions={paneSessions}
         refreshToken={refreshToken}
         openRequest={openRequest}
         viewRequest={viewRequest}
         drafts={drafts}
         sendToAgent={sendToAgent}
+        onSelectSession={commands.openDirectSession}
+        onNewSession={openNewSession}
         onRestartSession={(sessionId) => void workspace.restartSession(sessionId)}
         onSleepSession={(sessionId) => void workspace.sleepSession(sessionId)}
         onWakeSession={(sessionId) => void workspace.wakeSession(sessionId)}
@@ -504,46 +521,37 @@ export default function App(): React.JSX.Element {
         onError={workspace.reportError}
         notify={workspace.notify}
         onClearOpenRequest={commands.clearOpenRequest}
-        onRequestOpenInFiles={commands.requestOpenInFiles}
         onClearViewRequest={commands.clearViewRequest}
       />
     ),
     tasks: (
-      <TasksPage
+      <TasksSurface
         repo={repo}
         tasks={tasks.tasks}
         archivedTasks={tasks.archivedTasks}
         sessions={state.sessions}
+        selectedTaskId={selectedTaskId}
         loading={tasks.loading}
-        focusTaskId={focusTaskId}
-        focusComposerNonce={focusComposerNonce}
-        rememberedTaskId={repo === null ? null : taskSelectionByRepo[repo.id] ?? null}
-        taskSession={taskSession}
-        taskSessionTask={taskSessionTask}
-        taskSessionLive={taskSessionLive}
-        pending={state.pending}
-        paneSessions={paneSessions}
+        focusActive={focusActive}
         refreshToken={refreshToken}
         openRequest={openRequest}
-        viewRequest={viewRequest}
+        taskViewRequest={taskViewRequest}
         drafts={drafts}
-        sendToAgent={sendToAgent}
-        onBackToTasks={commands.backToTasks}
-        onReload={() => tasks.reload()}
-        onTaskSelected={commands.rememberTaskSelection}
-        onOpenSession={commands.openTaskSession}
+        notify={workspace.notify}
+        onOpenRequestHandled={commands.clearOpenRequest}
+        onTaskViewRequestHandled={commands.clearTaskViewRequest}
+        onQueueTask={() => openQueueTask()}
+        onQueueFollowUp={(task) => openQueueTask(task.repoId, task.id)}
+        onSelectTask={(task) => commands.openTask(task)}
+        onOpenSession={(sessionId) => commands.openTaskSession(sessionId, 'terminal')}
         onStopSession={(sessionId) => void workspace.stopSession(sessionId)}
         onRestartSession={(sessionId) => void workspace.restartSession(sessionId)}
-        onSleepSession={(sessionId) => void workspace.sleepSession(sessionId)}
-        onWakeSession={(sessionId) => void workspace.wakeSession(sessionId)}
         onRecheckSession={(sessionId) => void workspace.recheckSession(sessionId)}
-        onRemoveSession={(sessionId) => void workspace.requestRemoveSession(sessionId)}
-        onRecoverWorktree={(sessionId) => void workspace.recoverWorktree(sessionId)}
         onError={workspace.reportError}
-        notify={workspace.notify}
-        onClearOpenRequest={commands.clearOpenRequest}
-        onRequestOpenInFiles={commands.requestOpenInFiles}
-        onClearViewRequest={commands.clearViewRequest}
+        onSendToAgent={sendToAgent}
+        onReload={() => tasks.reload()}
+        onChanged={() => void tasks.reload()}
+        onTaskAction={(task, action) => void runTaskWorkbenchAction(task, action)}
       />
     ),
     assistant: (
@@ -590,68 +598,110 @@ export default function App(): React.JSX.Element {
     )
   }
 
-  const projectLabel =
-    (displaySurface === 'sessions' || displaySurface === 'tasks') && repo !== null
-      ? `${repo.displayName} · ${repo.currentBranch ?? translate('app.noBranch')}`
-      : displaySurface === 'projects'
-        ? translate('app.allProjectsLabel', {
-            repos: translatePlural('app.repoCount', state.repos.length)
-          })
-        : displaySurface === 'schedules'
-          ? translate('app.schedulesTitle')
-          : displaySurface === 'assistant'
-            ? translate('app.assistantAllProjects', { name: assistant.personaName })
-            : translate('settings.title')
-
   return (
+    <>
     <AppLayout
       focusActive={focusActive}
-      topBar={
-        <GlobalTopBar
-          needsTasks={needsTasks}
-          hostUnreachable={hostUnreachable}
-          onSearch={() => {
-            setQuickOpenOpen(false)
-            setPaletteOpen(true)
-          }}
-          onNewSession={openNewSession}
-          onQueueTask={openQueueTask}
-          onSchedules={commands.showSchedules}
-          onOpenNotifications={() => setNotificationsOpen(true)}
-          onProjects={commands.showProjects}
-          themePreference={theme.preference}
-          resolvedTheme={theme.resolved}
-          onSetTheme={theme.setPreference}
-          platform={workspace.runtime?.platform ?? null}
-        />
-      }
-      rail={
-        <AppRail
-          surface={displaySurface}
+      platform={workspace.runtime?.platform ?? null}
+      sidebarOpen={sidebarOpen}
+      onOpenSidebar={() => setSidebarOpen(true)}
+      onCloseSidebar={() => setSidebarOpen(false)}
+      sidebar={
+        <WorkspaceSidebar
+          repos={state.repos}
+          sessions={sidebarSessions}
+          tasks={tasks.tasks}
+          archivedTasks={tasks.archivedTasks}
+          activeRepoId={state.activeRepoId}
+          activeSessionId={state.activeSessionId}
+          activeTaskId={activeTaskId}
+          branches={state.branches}
+          orphans={state.orphans}
           assistantName={assistant.personaName}
           assistantUnread={assistant.unread}
           assistantStatus={assistant.status}
-          onProjects={commands.showProjects}
-          onSchedules={commands.showSchedules}
-          onAssistant={() => commands.showAssistant()}
-          onSettings={commands.showSettings}
-        />
-      }
-      statusBar={
-        <StatusBar
-          state={state}
-          tasks={tasks.tasks}
-          maxConcurrent={tasks.maxConcurrent}
-          runtime={workspace.runtime}
-          projectLabel={projectLabel}
-          refreshing={state.refreshing}
+          hostUnreachable={hostUnreachable}
+          platform={workspace.runtime?.platform ?? null}
+          onOpenProject={(repoId, mode) => {
+            commands.openProject(repoId, mode)
+            setSidebarOpen(false)
+          }}
+          onOpenSession={(sessionId) => {
+            commands.openDirectSession(sessionId)
+            setSidebarOpen(false)
+          }}
+          onOpenTask={(task) => {
+            commands.openTask(task)
+            setSidebarOpen(false)
+          }}
+          onNewSession={() => {
+            openNewSession()
+            setSidebarOpen(false)
+          }}
+          onNewSessionInRepo={(repoId) => {
+            workspace.selectRepo(repoId)
+            openNewSession()
+            setSidebarOpen(false)
+          }}
+          onQueueTask={() => {
+            openQueueTask()
+            setSidebarOpen(false)
+          }}
+          onQueueTaskInRepo={(repoId) => {
+            openQueueTask(repoId)
+            setSidebarOpen(false)
+          }}
+          onAddProject={() => {
+            setAddOpen(true)
+            setSidebarOpen(false)
+          }}
+          onOpenSchedules={() => {
+            commands.showSchedules()
+            setSidebarOpen(false)
+          }}
+          onOpenAssistant={() => {
+            commands.showAssistant()
+            setSidebarOpen(false)
+          }}
+          onOpenSettings={() => {
+            commands.showSettings()
+            setSidebarOpen(false)
+          }}
+          onOpenSearch={() => {
+            setQuickOpenOpen(false)
+            setPaletteOpen(true)
+          }}
+          onOpenNotifications={() => setNotificationsOpen(true)}
           onRefresh={refreshEverything}
-          onRetryHost={refreshEverything}
-          notice={state.notice}
-          onDismissNotice={workspace.dismissNotice}
-          onFocusSourceControl={() => commands.requestView('changes')}
+          onRetryPreparation={(repoId) => void workspace.retryPreparation(repoId)}
+          onRemoveRepository={(repoId) => void workspace.removeRepository(repoId)}
+          onRemoveBranch={(branch) => void workspace.requestRemoveBranch(branch)}
+          onNotify={workspace.notify}
+          footerStatus={
+            <SidebarStatus
+              state={state}
+              taskSlotCount={taskSlotCount}
+              maxConcurrent={tasks.maxConcurrent}
+              runtime={workspace.runtime}
+              refreshing={state.refreshing}
+              onRefresh={refreshEverything}
+              onRetryHost={refreshEverything}
+            />
+          }
         />
       }
+      appTabs={
+        <AppTabStrip
+          activeTab={activeTab}
+          auxTabs={auxTabs}
+          assistantName={assistant.personaName}
+          assistantUnread={assistant.unread}
+          platform={workspace.runtime?.platform ?? null}
+          onActivate={(tab) => commands.openAppTab(tab)}
+          onClose={(tab) => commands.closeAppTab(tab)}
+        />
+      }
+      windowChrome={<WindowChrome platform={workspace.runtime?.platform ?? null} />}
       overlays={
         <GlobalOverlays
           notifications={{
@@ -686,7 +736,6 @@ export default function App(): React.JSX.Element {
             onQueueTask: openQueueTask,
             activeRepoId: repo?.id ?? null,
             onOpenAssistant: () => commands.showAssistant(),
-            onProjects: commands.showProjects,
             onSchedules: commands.showSchedules,
             onSettings: commands.showSettings,
             onSourceControl: () => commands.requestView('changes'),
@@ -785,25 +834,6 @@ export default function App(): React.JSX.Element {
         />
       }
     >
-      {!focusActive &&
-      (displaySurface === 'sessions' || displaySurface === 'tasks') &&
-      repo !== null ? (
-        <ProjectHeader
-          repos={state.repos}
-          repo={repo}
-          mode={displaySurface === 'tasks' ? 'tasks' : 'sessions'}
-          stats={projectStats}
-          onBack={commands.showProjects}
-          onSwitch={commands.switchProject}
-          onMode={commands.changeMode}
-          onRetryPreparation={(repoId) => void workspace.retryPreparation(repoId)}
-          assistantName={assistant.personaName}
-          assistantUnread={assistant.unread}
-          assistantStatus={assistant.status}
-          pendingProposals={supervisorProposals}
-          onOpenAssistant={() => commands.showAssistant({ repoId: repo.id })}
-        />
-      ) : null}
       <AppRoutes
         boot={state.boot}
         bootError={state.bootError}
@@ -812,5 +842,20 @@ export default function App(): React.JSX.Element {
         pages={pages}
       />
     </AppLayout>
+    <NoticeToast notice={state.notice} onDismiss={workspace.dismissNotice} />
+    {taskComposer !== null && composerRepo !== null ? (
+      <TaskComposerDialog
+        repo={composerRepo}
+        tasks={tasks.tasks}
+        notify={workspace.notify}
+        initialAfterTaskId={taskComposer.afterTaskId}
+        onClose={() => setTaskComposer(null)}
+        onCreated={(task) => {
+          setTaskComposer(null)
+          void tasks.reload().then(() => commands.openTask(task))
+        }}
+      />
+    ) : null}
+    </>
   )
 }

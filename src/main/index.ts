@@ -82,7 +82,7 @@ function installRuntimeInfoHandler(localeService?: LocaleService): void {
  * These two values mirror `--icode-canvas` in `src/renderer/src/assets/main.css`
  * (iCode canvas and paper); keep them in step if the canvas changes.
  */
-const WINDOW_BACKGROUND = { dark: '#0A0E14', light: '#F6F8FA' } as const
+const WINDOW_BACKGROUND = { dark: '#212121', light: '#FAFAFA' } as const
 
 function windowBackground(useDark: boolean): string {
   return useDark ? WINDOW_BACKGROUND.dark : WINDOW_BACKGROUND.light

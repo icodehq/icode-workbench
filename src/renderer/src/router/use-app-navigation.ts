@@ -3,6 +3,12 @@ import type { TaskRecordPayload } from '../../../shared/icode-api'
 import type { SessionSummary } from '../../../shared/schemas/ipc'
 import type { TaskQueue } from '../state/use-task-queue'
 import { activeRepo, activeSession, type WorkspaceState } from '../state/workspace'
+import type { AppTab, AuxAppTab } from '../components/shell/app-tabs'
+import {
+  closeAuxTab as removeAuxTab,
+  nextActiveAfterClose,
+  openAuxTab
+} from '../components/shell/app-tabs'
 import type { AssistantTarget, ProjectMode, Surface } from './routes'
 
 export type ViewName = 'terminal' | 'changes' | 'files'
@@ -23,6 +29,11 @@ export type OpenFileRequest = {
   nonce: number
 }
 
+export type TaskViewRequest = {
+  tab: 'terminal' | 'changes' | 'files'
+  nonce: number
+}
+
 type NavigationWorkspace = {
   state: WorkspaceState
   selectRepo: (repoId: string) => void
@@ -37,12 +48,15 @@ type UseAppNavigationInput = {
 export type AppNavigation = {
   // Route state
   displaySurface: Surface
+  activeTab: AppTab
+  auxTabs: AuxAppTab[]
   taskSession: TaskSessionRoute | null
   taskSessionTask: TaskRecordPayload | null
   taskSessionLive: SessionSummary | null
   focusTaskId: string | null
   focusComposerNonce: number
   taskSelectionByRepo: Record<string, string>
+  selectedTaskId: string | null
 
   // Route-context projections
   taskSessionIds: Set<string>
@@ -53,16 +67,18 @@ export type AppNavigation = {
 
   // Route-dependent requests
   viewRequest: ViewRequest | null
+  taskViewRequest: TaskViewRequest | null
   openRequest: OpenFileRequest | null
   assistantTarget: (AssistantTarget & { nonce: number }) | null
 
   commands: {
-    showProjects: () => void
     showSchedules: () => void
     showSettings: () => void
     showAssistant: (target?: AssistantTarget) => void
     clearAssistantTarget: () => void
     showSessions: () => void
+    openAppTab: (tab: AppTab) => void
+    closeAppTab: (tab: AuxAppTab) => void
     backToTasks: () => void
     openProject: (repoId: string, mode?: ProjectMode) => void
     switchProject: (repoId: string) => void
@@ -71,11 +87,11 @@ export type AppNavigation = {
     openTask: (task: TaskRecordPayload) => void
     openTaskSession: (sessionId: string, view?: ViewName) => void
     openTaskComposer: () => void
-    rememberTaskSelection: (taskId: string) => void
     requestView: (view: ViewName) => void
     requestOpenInFiles: (path: string, line: number) => void
     clearOpenRequest: () => void
     clearViewRequest: () => void
+    clearTaskViewRequest: () => void
     openFileFromPalette: (path: string, line: number) => void
   }
 }
@@ -92,12 +108,14 @@ export function useAppNavigation({
   tasks
 }: UseAppNavigationInput): AppNavigation {
   const { state } = workspace
-  const [surface, setSurface] = useState<Surface>('projects')
+  const [surface, setSurface] = useState<Surface>('sessions')
+  const [auxTabs, setAuxTabs] = useState<AuxAppTab[]>([])
   const [taskSession, setTaskSession] = useState<TaskSessionRoute | null>(null)
   const [focusTaskId, setFocusTaskId] = useState<string | null>(null)
   const [focusComposerNonce, setFocusComposerNonce] = useState(0)
   const [taskSelectionByRepo, setTaskSelectionByRepo] = useState<Record<string, string>>({})
   const [viewRequest, setViewRequest] = useState<ViewRequest | null>(null)
+  const [taskViewRequest, setTaskViewRequest] = useState<TaskViewRequest | null>(null)
   const [openRequest, setOpenRequest] = useState<OpenFileRequest | null>(null)
   const [assistantTarget, setAssistantTarget] = useState<
     (AssistantTarget & { nonce: number }) | null
@@ -139,25 +157,35 @@ export function useAppNavigation({
   // can change under a removed repository, so this is derived on every render.
   const displaySurface: Surface =
     (surface === 'sessions' || surface === 'tasks') && repo === null ? 'projects' : surface
-  const focusableSessionId =
-    displaySurface === 'sessions'
-      ? projectSession?.id ?? null
-      : displaySurface === 'tasks'
-        ? taskSessionLive?.id ?? null
-        : null
-
+  const activeTab: AppTab =
+    displaySurface === 'assistant'
+      ? 'mira'
+      : displaySurface === 'settings'
+        ? 'settings'
+        : displaySurface === 'schedules'
+          ? 'schedules'
+          : 'sessions'
+  const selectedId = focusTaskId ?? (repo === null ? null : taskSelectionByRepo[repo.id] ?? null)
   const selectedWorkbenchTask =
     displaySurface !== 'tasks' || repo === null
       ? null
-      : (tasks.tasks.find(
-          (task) =>
-            task.repoId === repo.id &&
-            task.id === (focusTaskId ?? taskSelectionByRepo[repo.id] ?? null)
-        ) ?? null)
+      : ([...tasks.tasks, ...tasks.archivedTasks].find(
+          (task) => task.repoId === repo.id && task.id === selectedId
+        ) ??
+          tasks.tasks.find((task) => task.repoId === repo.id) ??
+          null)
+  const selectedTaskId = selectedWorkbenchTask?.id ?? null
   const taskWorkbenchSession =
     selectedWorkbenchTask?.sessionId === null || selectedWorkbenchTask?.sessionId === undefined
       ? null
       : (state.sessions.find((session) => session.id === selectedWorkbenchTask.sessionId) ?? null)
+
+  const focusableSessionId =
+    displaySurface === 'sessions'
+      ? projectSession?.id ?? null
+      : displaySurface === 'tasks'
+        ? taskWorkbenchSession?.id ?? null
+        : null
 
   const quickOpenSession =
     taskSession !== null
@@ -168,8 +196,25 @@ export function useAppNavigation({
           ? taskWorkbenchSession
           : null
 
+  // Remember the task that was actually shown so re-opening project tasks
+  // restores it instead of falling back to the first row.
   useEffect(() => {
-    if ((surface === 'sessions' || surface === 'tasks') && repo === null) setSurface('projects')
+    if (displaySurface !== 'tasks' || repo === null || selectedTaskId === null) return
+    setTaskSelectionByRepo((current) =>
+      current[repo.id] === selectedTaskId
+        ? current
+        : { ...current, [repo.id]: selectedTaskId }
+    )
+  }, [displaySurface, repo, selectedTaskId])
+
+  useEffect(() => {
+    if (repo === null) {
+      if (surface === 'sessions' || surface === 'tasks') setSurface('projects')
+      return
+    }
+    // Repositories load asynchronously; the welcome surface is only for an
+    // empty workspace and must yield once a project exists.
+    if (surface === 'projects') setSurface('sessions')
   }, [repo, surface])
 
   useEffect(() => {
@@ -197,24 +242,22 @@ export function useAppNavigation({
     setFocusTaskId(null)
   }, [])
 
-  const showProjects = useCallback((): void => {
-    clearProjectView()
-    setSurface('projects')
-  }, [clearProjectView])
-
   const showSchedules = useCallback((): void => {
     clearProjectView()
+    setAuxTabs((current) => openAuxTab(current, 'schedules'))
     setSurface('schedules')
   }, [clearProjectView])
 
   const showSettings = useCallback((): void => {
     clearProjectView()
+    setAuxTabs((current) => openAuxTab(current, 'settings'))
     setSurface('settings')
   }, [clearProjectView])
 
   const showAssistant = useCallback(
     (target?: AssistantTarget): void => {
       clearProjectView()
+      setAuxTabs((current) => openAuxTab(current, 'mira'))
       setSurface('assistant')
       setAssistantTarget(target === undefined ? null : { ...target, nonce: Date.now() })
     },
@@ -230,6 +273,38 @@ export function useAppNavigation({
     setTaskSession(null)
     setViewRequest(null)
   }, [])
+
+  const openAppTab = useCallback(
+    (tab: AppTab): void => {
+      if (tab === 'sessions') {
+        if (repo === null) {
+          setSurface('projects')
+          return
+        }
+        const selectedId = focusTaskId ?? taskSelectionByRepo[repo.id] ?? null
+        const selectedTask =
+          selectedId === null
+            ? null
+            : tasks.tasks.find(
+                (task) => task.id === selectedId && task.repoId === repo.id
+              ) ?? null
+        setSurface(selectedTask !== null ? 'tasks' : 'sessions')
+        return
+      }
+      setAuxTabs((current) => openAuxTab(current, tab))
+      setSurface(tab === 'mira' ? 'assistant' : tab)
+    },
+    [focusTaskId, repo, taskSelectionByRepo, tasks.tasks]
+  )
+
+  const closeAppTab = useCallback(
+    (tab: AuxAppTab): void => {
+      const next = nextActiveAfterClose(auxTabs, tab, activeTab)
+      setAuxTabs((current) => removeAuxTab(current, tab))
+      if (activeTab === tab) openAppTab(next)
+    },
+    [activeTab, auxTabs, openAppTab]
+  )
 
   const backToTasks = useCallback((): void => {
     setTaskSession(null)
@@ -292,6 +367,7 @@ export function useAppNavigation({
         setTaskSession({ taskId: owningTask.id, sessionId })
         setFocusTaskId(owningTask.id)
         setViewRequest(null)
+        setTaskViewRequest({ tab: 'terminal', nonce: Date.now() })
         return
       }
       workspace.selectSession(sessionId)
@@ -309,6 +385,7 @@ export function useAppNavigation({
       setTaskSession(null)
       setFocusTaskId(task.id)
       setViewRequest(null)
+      setTaskViewRequest(null)
     },
     [workspace]
   )
@@ -327,7 +404,8 @@ export function useAppNavigation({
       setSurface('tasks')
       setTaskSession({ taskId: owningTask.id, sessionId })
       setFocusTaskId(owningTask.id)
-      setViewRequest(view ? { view, nonce: Date.now() } : null)
+      setViewRequest(null)
+      setTaskViewRequest({ tab: view ?? 'terminal', nonce: Date.now() })
     },
     [tasks.tasks, workspace]
   )
@@ -340,19 +418,16 @@ export function useAppNavigation({
     setFocusComposerNonce((current) => current + 1)
   }, [])
 
-  const rememberTaskSelection = useCallback(
-    (taskId: string): void => {
-      if (repo === null) return
-      setTaskSelectionByRepo((current) =>
-        current[repo.id] === taskId ? current : { ...current, [repo.id]: taskId }
-      )
+  const requestView = useCallback(
+    (view: ViewName): void => {
+      if (displaySurface === 'tasks' && selectedWorkbenchTask !== null) {
+        setTaskViewRequest({ tab: view, nonce: Date.now() })
+        return
+      }
+      setViewRequest({ view, nonce: Date.now() })
     },
-    [repo]
+    [displaySurface, selectedWorkbenchTask]
   )
-
-  const requestView = useCallback((view: ViewName): void => {
-    setViewRequest({ view, nonce: Date.now() })
-  }, [])
 
   const requestOpenInFiles = useCallback((path: string, line: number): void => {
     setOpenRequest({ path, line, nonce: Date.now() })
@@ -366,25 +441,32 @@ export function useAppNavigation({
     setViewRequest(null)
   }, [])
 
+  const clearTaskViewRequest = useCallback((): void => {
+    setTaskViewRequest(null)
+  }, [])
+
   const openFileFromPalette = useCallback(
     (path: string, line: number): void => {
       if (quickOpenSession === null) return
       requestOpenInFiles(path, line)
-      if (displaySurface === 'sessions' || taskSession !== null) {
+      if (displaySurface === 'tasks' && selectedWorkbenchTask !== null) {
+        setTaskViewRequest({ tab: 'files', nonce: Date.now() })
+      } else if (displaySurface === 'sessions' || taskSession !== null) {
         setViewRequest({ view: 'files', nonce: Date.now() })
       }
     },
-    [displaySurface, quickOpenSession, requestOpenInFiles, taskSession]
+    [displaySurface, quickOpenSession, requestOpenInFiles, selectedWorkbenchTask, taskSession]
   )
 
   const commands = useMemo(
     () => ({
-      showProjects,
       showSchedules,
       showSettings,
       showAssistant,
       clearAssistantTarget,
       showSessions,
+      openAppTab,
+      closeAppTab,
       backToTasks,
       openProject,
       switchProject,
@@ -393,11 +475,11 @@ export function useAppNavigation({
       openTask,
       openTaskSession,
       openTaskComposer,
-      rememberTaskSelection,
       requestView,
       requestOpenInFiles,
       clearOpenRequest,
       clearViewRequest,
+      clearTaskViewRequest,
       openFileFromPalette
     }),
     [
@@ -405,16 +487,17 @@ export function useAppNavigation({
       changeMode,
       clearOpenRequest,
       clearViewRequest,
+      clearTaskViewRequest,
       openDirectSession,
       openFileFromPalette,
       openProject,
+      openAppTab,
+      closeAppTab,
       openTask,
       openTaskComposer,
       openTaskSession,
-      rememberTaskSelection,
       requestOpenInFiles,
       requestView,
-      showProjects,
       showSchedules,
       showSessions,
       showSettings,
@@ -426,18 +509,22 @@ export function useAppNavigation({
 
   return {
     displaySurface,
+    activeTab,
+    auxTabs,
     taskSession,
     taskSessionTask,
     taskSessionLive,
     focusTaskId,
     focusComposerNonce,
     taskSelectionByRepo,
+    selectedTaskId,
     taskSessionIds,
     projectDirectSessions,
     projectSession,
     quickOpenSession,
     focusableSessionId,
     viewRequest,
+    taskViewRequest,
     openRequest,
     assistantTarget,
     commands

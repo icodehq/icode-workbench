@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type * as MonacoTypes from 'monaco-editor'
-import type { MonacoApi } from '../editor/monaco'
+import { monacoThemeForDocument, type MonacoApi } from '../editor/monaco'
 import { useT } from '../i18n/use-i18n'
 
 type Props = {
@@ -16,13 +16,6 @@ type Handle = {
   original: MonacoTypes.editor.ITextModel
   modified: MonacoTypes.editor.ITextModel
   monaco: MonacoApi
-}
-
-function themeFromDocument(): 'vs' | 'vs-dark' {
-  const theme = document.documentElement.dataset.theme
-  if (theme === 'light') return 'vs'
-  if (theme === 'dark') return 'vs-dark'
-  return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'vs-dark' : 'vs'
 }
 
 /**
@@ -67,7 +60,7 @@ export default function MonacoDiffView({
           )
         )
         const editor = monaco.editor.createDiffEditor(container.current, {
-          theme: themeFromDocument(),
+          theme: monacoThemeForDocument(),
           readOnly: true,
           automaticLayout: true,
           renderSideBySide: true,
@@ -105,7 +98,7 @@ export default function MonacoDiffView({
     if (state !== 'ready') return
     const observer = new MutationObserver(() => {
       const current = handle.current
-      if (current !== null) current.monaco.editor.setTheme(themeFromDocument())
+      if (current !== null) current.monaco.editor.setTheme(monacoThemeForDocument())
     })
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
     return () => observer.disconnect()

@@ -9,61 +9,60 @@ import { rememberTerminalSize } from '../terminal/terminal-size'
 import { useT } from '../i18n/use-i18n'
 
 /**
- * Terminal palettes, one per application appearance.
+ * Terminal palette.
  *
- * The terminal is deliberately dark in both appearances, matching the iCode
- * prototype: ANSI output and the prompt keep a stable palette while the shell
- * switches. The light face uses the prototype's lighter terminal ground; the
- * application surface around it remains paper.
+ * The terminal keeps a dark, neutral ground in both appearances, matching the
+ * product’s “terminal stays dark” rule. The shell around it follows the
+ * Workbench palette; ANSI output keeps a stable afterglow palette.
  */
 export const TERMINAL_THEMES: Record<'light' | 'dark', ITheme> = {
   light: {
-    background: '#101722',
-    foreground: '#D7E2F0',
-    cursor: '#3FB950',
-    cursorAccent: '#101722',
-    selectionBackground: 'rgba(88, 166, 255, 0.26)',
-    selectionInactiveBackground: 'rgba(88, 166, 255, 0.14)',
-    black: '#101722',
-    red: '#FF7B72',
+    background: '#212121',
+    foreground: '#E6E6E8',
+    cursor: '#7D8CFF',
+    cursorAccent: '#212121',
+    selectionBackground: 'rgba(125, 140, 255, 0.28)',
+    selectionInactiveBackground: 'rgba(125, 140, 255, 0.14)',
+    black: '#212121',
+    red: '#F85149',
     green: '#3FB950',
     yellow: '#D29922',
-    blue: '#79C0FF',
-    magenta: '#D2A8FF',
-    cyan: '#56D4DD',
-    white: '#D7E2F0',
-    brightBlack: '#8B9BB0',
-    brightRed: '#FFA198',
+    blue: '#7D8CFF',
+    magenta: '#C678DD',
+    cyan: '#56B6C2',
+    white: '#E6E6E8',
+    brightBlack: '#94949B',
+    brightRed: '#FF7B72',
     brightGreen: '#56D364',
     brightYellow: '#E3B341',
-    brightBlue: '#A5D6FF',
+    brightBlue: '#A5C8FF',
     brightMagenta: '#E2C5FF',
     brightCyan: '#76E3EA',
-    brightWhite: '#F0F6FC'
+    brightWhite: '#F5F5F7'
   },
   dark: {
-    background: '#070B10',
-    foreground: '#C9D1D9',
-    cursor: '#56D364',
-    cursorAccent: '#070B10',
-    selectionBackground: 'rgba(31, 111, 235, 0.28)',
-    selectionInactiveBackground: 'rgba(31, 111, 235, 0.14)',
-    black: '#0A0E14',
-    red: '#FF7B72',
-    green: '#56D364',
+    background: '#212121',
+    foreground: '#E6E6E8',
+    cursor: '#7D8CFF',
+    cursorAccent: '#212121',
+    selectionBackground: 'rgba(125, 140, 255, 0.28)',
+    selectionInactiveBackground: 'rgba(125, 140, 255, 0.14)',
+    black: '#212121',
+    red: '#F85149',
+    green: '#3FB950',
     yellow: '#D29922',
-    blue: '#79C0FF',
-    magenta: '#D2A8FF',
-    cyan: '#56D4DD',
-    white: '#C9D1D9',
-    brightBlack: '#8B949E',
-    brightRed: '#FFA198',
-    brightGreen: '#7EE787',
+    blue: '#7D8CFF',
+    magenta: '#C678DD',
+    cyan: '#56B6C2',
+    white: '#E6E6E8',
+    brightBlack: '#94949B',
+    brightRed: '#FF7B72',
+    brightGreen: '#56D364',
     brightYellow: '#E3B341',
-    brightBlue: '#A5D6FF',
+    brightBlue: '#A5C8FF',
     brightMagenta: '#E2C5FF',
     brightCyan: '#76E3EA',
-    brightWhite: '#F0F6FC'
+    brightWhite: '#F5F5F7'
   }
 }
 

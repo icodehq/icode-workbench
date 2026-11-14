@@ -123,10 +123,10 @@ export function taskStatusTone(task: TaskRecordPayload): string {
     case 'failed':
       return 'text-destructive'
     case 'completed':
-      return task.reviewDecision === 'pending' ? 'text-signal' : 'text-add'
+      return task.reviewDecision === 'pending' ? 'text-info' : 'text-add'
     case 'running':
     case 'dispatching':
-      return 'text-info'
+      return 'text-add'
     case 'cancelled':
       return 'text-muted-foreground'
   }
@@ -145,11 +145,11 @@ export function taskPillClass(task: TaskRecordPayload): string {
       return 'border-destructive/50 bg-destructive/10 text-destructive'
     case 'completed':
       return task.reviewDecision === 'pending'
-        ? 'border-signal-line bg-signal-weak text-signal'
+        ? 'border-info/50 bg-info-weak text-info'
         : 'border-add/50 bg-add-weak text-add'
     case 'running':
     case 'dispatching':
-      return 'border-info/50 bg-info-weak text-info'
+      return 'border-add/50 bg-add-weak text-add'
     default:
       return 'border-border text-muted-foreground'
   }

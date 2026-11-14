@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type * as MonacoTypes from 'monaco-editor'
-import type { MonacoApi } from '../editor/monaco'
+import { monacoThemeForDocument, type MonacoApi } from '../editor/monaco'
 import { useT } from '../i18n/use-i18n'
 
 type Props = {
@@ -18,13 +18,6 @@ type Handle = {
   editor: MonacoTypes.editor.IStandaloneCodeEditor
   model: MonacoTypes.editor.ITextModel
   monaco: MonacoApi
-}
-
-function themeFromDocument(): 'vs' | 'vs-dark' {
-  const theme = document.documentElement.dataset.theme
-  if (theme === 'light') return 'vs'
-  if (theme === 'dark') return 'vs-dark'
-  return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'vs-dark' : 'vs'
 }
 
 /**
@@ -69,7 +62,7 @@ export default function MonacoTextPane({
         )
         const editor = monaco.editor.create(container.current, {
           model,
-          theme: themeFromDocument(),
+          theme: monacoThemeForDocument(),
           readOnly,
           automaticLayout: true,
           minimap: { enabled: false },
@@ -125,7 +118,7 @@ export default function MonacoTextPane({
     if (state !== 'ready') return
     const observer = new MutationObserver(() => {
       const current = handle.current
-      if (current !== null) current.monaco.editor.setTheme(themeFromDocument())
+      if (current !== null) current.monaco.editor.setTheme(monacoThemeForDocument())
     })
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
     return () => observer.disconnect()

@@ -4,7 +4,6 @@ import type { TaskRecordPayload } from '../../../shared/icode-api'
 import type { SessionSummary } from '../../../shared/schemas/ipc'
 import type { AssistantMessagePayload } from '../../../shared/schemas/assistant'
 import type { AssistantTarget } from '../router/routes'
-import type { NeedsYouEntry } from './GlobalTopBar'
 import {
   activityDotClass,
   activityLabel,
@@ -16,6 +15,11 @@ import { useT, useTp } from '../i18n/use-i18n'
 
 export type ActivityEntry = {
   session: SessionSummary
+  repoName: string
+}
+
+export type NeedsYouEntry = {
+  task: TaskRecordPayload
   repoName: string
 }
 
