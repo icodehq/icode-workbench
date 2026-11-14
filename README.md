@@ -105,7 +105,7 @@ every repository.
   and quiet hours keep it from becoming noise.
 
 <p align="center">
-  <a href=".github/assets/mira.png"><img src=".github/assets/mira.png" alt="Mira open as an auxiliary tab beside Sessions, with the project and task sidebar visible" width="100%" /></a>
+  <a href=".github/assets/workbench-mira.png"><img src=".github/assets/workbench-mira.png" alt="Mira open as an auxiliary tab beside Sessions, with the project and task sidebar visible" width="100%" /></a>
 </p>
 
 *Mira opens beside the pinned Sessions tab. The sidebar keeps projects, sessions
@@ -149,7 +149,7 @@ unmerged commits, and missing worktrees; a clean removal deletes the checkout
 and keeps the branch.
 
 <p align="center">
-  <a href=".github/assets/session-split.png"><img src=".github/assets/session-split.png" alt="Two direct sessions side by side in the iCode split view, each with its own terminal and branch" width="100%" /></a>
+  <a href=".github/assets/workbench-session-split.png"><img src=".github/assets/workbench-session-split.png" alt="Two direct sessions side by side in the iCode split view, each with its own terminal and branch" width="100%" /></a>
 </p>
 
 *Two direct sessions side by side. The divider is resizable and each pane keeps
@@ -165,7 +165,7 @@ serialized snapshot with scrollback and alternate-screen state, and flow control
 keeps a slow UI from blocking the agent's process.
 
 <p align="center">
-  <a href=".github/assets/session-terminal.png"><img src=".github/assets/session-terminal.png" alt="A direct session with its tab strip, branch header and a live shell showing recent commits" width="100%" /></a>
+  <a href=".github/assets/workbench-session-terminal.png"><img src=".github/assets/workbench-session-terminal.png" alt="A direct session with its tab strip, branch header and a live shell showing recent commits" width="100%" /></a>
 </p>
 
 *A real PTY in the session worktree; the detached host keeps it alive. The tab
@@ -212,21 +212,21 @@ Schedules create ordinary queued tasks on a cadence — once, daily, weekdays,
 weekly, or every few hours — with queue-or-skip overlap handling and run-now.
 
 <p align="center">
-  <a href=".github/assets/tasks.png"><img src=".github/assets/tasks.png" alt="The task workbench showing a review-pending task with its session, changes against the baseline, and a review recommendation" width="100%" /></a>
+  <a href=".github/assets/workbench-tasks.png"><img src=".github/assets/workbench-tasks.png" alt="The task workbench showing a review-pending task with its session, changes against the baseline, and a review recommendation" width="100%" /></a>
 </p>
 
 *Task workbench: the instruction, the session, changes against the task
 baseline, and a review decision. The sidebar stays on the project and its queue.*
 
 <p align="center">
-  <a href=".github/assets/schedules.png"><img src=".github/assets/schedules.png" alt="The Schedules tab with an enabled daily audit and a paused six-hour refresh" width="100%" /></a>
+  <a href=".github/assets/workbench-schedules.png"><img src=".github/assets/workbench-schedules.png" alt="The Schedules tab with an enabled daily audit and a paused six-hour refresh" width="100%" /></a>
 </p>
 
 *Recurring tasks with queue-or-skip overlap handling. Schedules open as an
 auxiliary tab and create ordinary queued tasks.*
 
 <p align="center">
-  <a href=".github/assets/task-composer.png"><img src=".github/assets/task-composer.png" alt="The task composer with a harness picker, prompt, blockers, start-from branch and chain branch" width="100%" /></a>
+  <a href=".github/assets/workbench-task-composer.png"><img src=".github/assets/workbench-task-composer.png" alt="The task composer with a harness picker, prompt, blockers, start-from branch and chain branch" width="100%" /></a>
 </p>
 
 *Queue unattended work with a harness, optional blockers, a start point and a
@@ -248,7 +248,7 @@ excluded from attention counts, Mira’s context and notifications, but remain
 queryable as history. There is deliberately no hard-delete action.
 
 <p align="center">
-  <a href=".github/assets/task-history.png"><img src=".github/assets/task-history.png" alt="The sidebar Tasks history with an archived task open in the workbench and a Restore action" width="100%" /></a>
+  <a href=".github/assets/workbench-task-history.png"><img src=".github/assets/workbench-task-history.png" alt="The sidebar Tasks history with an archived task open in the workbench and a Restore action" width="100%" /></a>
 </p>
 
 *History keeps finished work out of the working list while preserving the task,
@@ -268,14 +268,14 @@ actions. Draft a commit message with the installed harness in one-shot mode; the
 result only fills the draft.
 
 <p align="center">
-  <a href=".github/assets/task-review.png"><img src=".github/assets/task-review.png" alt="Source Control in the task workbench showing an untracked rate-limit source file with a unified diff" width="100%" /></a>
+  <a href=".github/assets/workbench-task-review.png"><img src=".github/assets/workbench-task-review.png" alt="Source Control in the task workbench showing an untracked rate-limit source file with a unified diff" width="100%" /></a>
 </p>
 
 *Review, stage, and commit in the task's worktree. The full-width Changes tab
 keeps the file list and diff readable.*
 
 <p align="center">
-  <a href=".github/assets/history.png"><img src=".github/assets/history.png" alt="Source Control history in the task workbench with a commit selected" width="100%" /></a>
+  <a href=".github/assets/workbench-history.png"><img src=".github/assets/workbench-history.png" alt="Source Control history in the task workbench with a commit selected" width="100%" /></a>
 </p>
 
 *Commit history, scoped to the task's session and its chain branch.*
@@ -290,7 +290,7 @@ external changes with reload/keep, and keep unsaved buffers across an ordinary
 restart through hot exit.
 
 <p align="center">
-  <a href=".github/assets/files-editor.png"><img src=".github/assets/files-editor.png" alt="The Files panel with a worktree explorer and Monaco editor open on a TypeScript component" width="100%" /></a>
+  <a href=".github/assets/workbench-files-editor.png"><img src=".github/assets/workbench-files-editor.png" alt="The Files panel with a worktree explorer and Monaco editor open on a TypeScript component" width="100%" /></a>
 </p>
 
 *Files and Monaco in the task's worktree. The explorer and editor keep their
@@ -342,7 +342,7 @@ sandboxed behind a typed preload and validated IPC.
   Windows and Linux.
 
 <p align="center">
-  <a href=".github/assets/mira-settings.png"><img src=".github/assets/mira-settings.png" alt="The Settings tab with appearance, language, Mira, host, and Source Control sections" width="100%" /></a>
+  <a href=".github/assets/workbench-settings.png"><img src=".github/assets/workbench-settings.png" alt="The Settings tab with appearance, language, Mira, host, and Source Control sections" width="100%" /></a>
 </p>
 
 *Settings open as an auxiliary tab. Appearance, language, Mira, host and
