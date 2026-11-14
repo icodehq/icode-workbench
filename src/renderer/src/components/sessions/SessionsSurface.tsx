@@ -100,9 +100,9 @@ export default function SessionsSurface({
   } | null>(null)
 
   useEffect(() => {
-    // Below 1120px the inspector yields room to the terminal; below 900px it
+    // Below 1280px the inspector yields room to the terminal; below 900px it
     // opens as an overlay instead of taking layout width.
-    const collapseMedia = window.matchMedia('(max-width: 1119px)')
+    const collapseMedia = window.matchMedia('(max-width: 1279px)')
     const collapse = (): void => {
       if (collapseMedia.matches) {
         if (inspectorExpandedRef.current) autoCollapsedInspectorRef.current = true

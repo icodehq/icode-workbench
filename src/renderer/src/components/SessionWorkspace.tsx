@@ -435,8 +435,8 @@ export default function SessionWorkspace({
             {knownActivity === null ? null : <span className="h-3 w-px shrink-0 bg-border" />}
             {worktree ? (
               <span
-                className={`inline-flex min-w-0 max-w-[176px] shrink items-center ${WORKTREE_STATUS_TONE[worktree.status]} ${
-                  showBranch ? '' : 'hidden'
+                className={`min-w-0 max-w-[176px] shrink items-center ${WORKTREE_STATUS_TONE[worktree.status]} ${
+                  showBranch ? 'inline-flex' : 'hidden'
                 }`}
                 title={`${worktreeStatusLabel(worktree.status)} · ${worktree.path}`}
                 data-testid="session-worktree"

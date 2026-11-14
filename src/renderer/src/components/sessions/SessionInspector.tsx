@@ -93,7 +93,7 @@ export default function SessionInspector({
           ? 'w-9'
           : overlay
             ? 'w-[360px] max-w-[85vw] shadow-2xl'
-            : 'w-[520px] max-w-[calc(100vw-420px)]'
+            : 'w-[640px] max-w-[calc(100vw-420px)]'
       }`}
       aria-label={t('session.inspector')}
       data-testid="session-inspector"
