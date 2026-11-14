@@ -9,6 +9,7 @@ import type { ActivityEntry } from './components/NotificationsDrawer'
 import SchedulesView from './components/SchedulesView'
 import WorkspaceWelcome from './components/shell/WorkspaceWelcome'
 import SessionsSurface from './components/sessions/SessionsSurface'
+import { TerminalProvider } from './terminal/terminal-provider'
 import SettingsPage from './pages/SettingsPage'
 import TasksSurface from './components/tasks/TasksSurface'
 import TaskComposerDialog from './components/tasks/TaskComposerDialog'
@@ -599,6 +600,7 @@ export default function App(): React.JSX.Element {
   }
 
   return (
+    <TerminalProvider sessions={state.sessions}>
     <>
     <AppLayout
       focusActive={focusActive}
@@ -863,5 +865,6 @@ export default function App(): React.JSX.Element {
       />
     ) : null}
     </>
+    </TerminalProvider>
   )
 }
