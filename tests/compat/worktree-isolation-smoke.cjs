@@ -325,7 +325,7 @@ async function launch(label) {
   cdp = await connect(port)
   cdp.port = port
   await waitFor(
-    `Boolean(document.querySelector('[data-testid="app-rail"]')) && (Boolean(document.querySelector('[data-testid="empty-workspace"]')) || Boolean(document.querySelector('[data-testid="projects-wall"]'))) && !document.body.innerText.includes('Loading repositories')`,
+    `Boolean(document.querySelector('[data-testid="workspace-sidebar"]')) && (Boolean(document.querySelector('[data-testid="empty-workspace"]')) || Boolean(document.querySelector('[data-testid^="project-row-"]'))) && !document.body.innerText.includes('Loading repositories')`,
     'workspace boot',
     30000
   )
@@ -389,7 +389,13 @@ async function createShellSession(title) {
   const opening = await cdp.evaluate(
     `Boolean(document.querySelector('[data-testid="empty-new-session"]'))`
   )
-  await click(opening ? '[data-testid="empty-new-session"]' : '[data-testid="new-session-open"]')
+  if (opening) {
+    await click('[data-testid="empty-new-session"]')
+  } else {
+    await click('[data-testid="sidebar-new-menu"]')
+    await waitFor(`Boolean(document.querySelector('[data-testid="new-session-open"]'))`, 'new session menu', 10000)
+    await click('[data-testid="new-session-open"]')
+  }
   await waitFor(`Boolean(document.querySelector('[data-testid="harness-option-shell"]'))`, 'new session dialog')
   await click('[data-testid="harness-option-shell"]')
   await setInput('[data-testid="session-title-input"]', title)
@@ -417,19 +423,13 @@ async function terminalReady(sessionId) {
 
 
 async function openProjectSessions() {
-  if (await cdp.evaluate(`Boolean(document.querySelector('[data-testid="project-sessions-list"]'))`)) return
-  if (!(await cdp.evaluate(`Boolean(document.querySelector('[data-testid="projects-wall"]'))`))) {
-    await click('[data-testid="rail-projects"]')
-    await waitFor(`Boolean(document.querySelector('[data-testid="projects-wall"]'))`, 'projects wall', 20000)
-  }
+  if (await cdp.evaluate(`Boolean(document.querySelector('[data-testid="sessions-surface"]'))`)) return
   const repoTestId = await cdp.evaluate(
     `document.querySelector('[data-testid^="project-row-"]')?.getAttribute('data-testid') ?? null`
   )
   assert(repoTestId, 'No project lane after relaunch')
-  await click(`[data-testid="${repoTestId.replace('project-row-', 'open-project-')}"]`)
-  await waitFor(`Boolean(document.querySelector('[data-testid="project-header"]'))`, 'project header', 20000)
-  await click('[data-testid="project-mode-sessions"]')
-  await waitFor(`Boolean(document.querySelector('[data-testid="project-sessions-list"]'))`, 'project sessions', 20000)
+  await click(`[data-testid="${repoTestId}"]`)
+  await waitFor(`Boolean(document.querySelector('[data-testid="sessions-surface"]'))`, 'sessions surface', 20000)
 }
 
 async function main() {
@@ -676,6 +676,16 @@ async function main() {
     assert(!existsSync(state.bEntry.path), 'Clean worktree directory remains')
     const branches = execFileSync('git', ['-C', REPO_DIR, 'branch', '--list'], { encoding: 'utf8' })
     assert(branches.includes(state.bEntry.branch), 'Removal deleted the retained branch')
+    // Retained branches live in the project maintenance dialog now, not in
+    // the project header.
+    const repoId = await cdp.evaluate(
+      `document.querySelector('[data-testid^="project-row-"]')?.getAttribute('data-testid')?.replace('project-row-', '') ?? null`
+    )
+    assert(repoId, 'The project row is missing before opening maintenance')
+    await click(`[data-testid="sidebar-project-menu-${repoId}"]`)
+    await waitFor(`Boolean(document.querySelector('[data-testid="project-maintenance-open"]'))`, 'maintenance menu item', 10000)
+    await click('[data-testid="project-maintenance-open"]')
+    await waitFor(`Boolean(document.querySelector('[data-testid="project-maintenance-dialog"]'))`, 'maintenance dialog', 10000)
     await waitFor(
       `Array.from(document.querySelectorAll('[data-testid^="retained-branch-"]')).length >= 1`,
       'retained branch list'

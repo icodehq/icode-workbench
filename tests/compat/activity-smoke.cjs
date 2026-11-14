@@ -314,7 +314,7 @@ async function launch() {
   cdp = await connect(port)
   cdp.port = port
   await waitFor(
-    `Boolean(document.querySelector('[data-testid="repo-select"]')) && !document.body.innerText.includes('Loading repositories')`,
+    `Boolean(document.querySelector('[data-testid="workspace-sidebar"]')) && !document.body.innerText.includes('Loading repositories')`,
     'workspace boot',
     30000
   )
@@ -368,7 +368,13 @@ async function createShellSession(title) {
   const opening = await cdp.evaluate(
     `Boolean(document.querySelector('[data-testid="empty-new-session"]'))`
   )
-  await click(opening ? '[data-testid="empty-new-session"]' : '[data-testid="new-session-open"]')
+  if (opening) {
+    await click('[data-testid="empty-new-session"]')
+  } else {
+    await click('[data-testid="sidebar-new-menu"]')
+    await waitFor(`Boolean(document.querySelector('[data-testid="new-session-open"]'))`, 'new session menu', 10000)
+    await click('[data-testid="new-session-open"]')
+  }
   await waitFor(`Boolean(document.querySelector('[data-testid="harness-option-shell"]'))`, 'new session dialog')
   await click('[data-testid="harness-option-shell"]')
   await setInput('[data-testid="session-title-input"]', title)

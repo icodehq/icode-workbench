@@ -200,11 +200,11 @@ async function stop(child, executable) {
 async function openMira(cdp) {
   await waitFor(
     cdp,
-    `Boolean(document.querySelector('[data-testid="app-rail"]'))`,
-    'app rail'
+    `Boolean(document.querySelector('[data-testid="workspace-sidebar"]'))`,
+    'workspace sidebar'
   )
   await cdp.evaluate(
-    `document.querySelector('[data-testid="rail-assistant"]').click()`
+    `document.querySelector('[data-testid="sidebar-mira"]').click()`
   )
   await waitFor(
     cdp,
@@ -238,22 +238,13 @@ async function main() {
     await openMira(cdp)
 
     const order = await cdp.evaluate(`(() => {
-      const wanted = new Set(['rail-projects', 'rail-schedules', 'rail-assistant', 'rail-settings', 'rail-divider']);
-      return Array.from(document.querySelectorAll('[data-testid="app-rail"] [data-testid]'))
-        .map((element) => element.dataset.testid)
-        .filter((id) => wanted.has(id));
+      return Array.from(document.querySelectorAll('[data-testid="app-tabs"] [role="tab"]'))
+        .map((element) => element.dataset.testid);
     })()`)
     assert(
       JSON.stringify(order) ===
-        JSON.stringify([
-          'rail-projects',
-          'rail-schedules',
-          'rail-divider',
-          'rail-assistant',
-          'rail-divider',
-          'rail-settings'
-        ]),
-      `unexpected rail order: ${JSON.stringify(order)}`
+        JSON.stringify(['app-tab-sessions', 'app-tab-mira']),
+      `unexpected app tab order: ${JSON.stringify(order)}`
     )
 
     const welcome = await cdp.evaluate(
@@ -340,14 +331,14 @@ async function main() {
     assert(rendered.link === 'https://example.com', 'markdown link did not render')
     await cdp.screenshot(path.join(ARTIFACT_DIR, 'assistant-markdown.png'))
 
-    await cdp.evaluate(`document.querySelector('[data-testid="rail-projects"]').click()`)
+    await cdp.evaluate(`document.querySelector('[data-testid="app-tab-sessions"]').click()`)
     await waitFor(
       cdp,
-      `Boolean(document.querySelector('[data-testid="projects-wall"]')) || Boolean(document.querySelector('[data-testid="empty-workspace"]'))`,
+      `Boolean(document.querySelector('[data-testid="empty-workspace"]')) || Boolean(document.querySelector('[data-testid^="project-row-"]'))`,
       'workspace after leaving Mira'
     )
 
-    await cdp.evaluate(`document.querySelector('[data-testid="rail-settings"]').click()`)
+    await cdp.evaluate(`document.querySelector('[data-testid="sidebar-settings"]').click()`)
     await waitFor(
       cdp,
       `Boolean(document.querySelector('[data-testid="settings-view"]'))`,

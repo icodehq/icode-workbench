@@ -216,26 +216,18 @@ async function click(selector) {
 async function openProjectSessions() {
   if (
     await cdp.evaluate(
-      `Boolean(document.querySelector('[data-testid="project-sessions-list"]'))`
+      `Boolean(document.querySelector('[data-testid="sessions-surface"]'))`
     )
   ) {
     return
-  }
-  if (
-    !(await cdp.evaluate(`Boolean(document.querySelector('[data-testid="projects-wall"]'))`))
-  ) {
-    await click('[data-testid="rail-projects"]')
-    await waitForSelector('[data-testid="projects-wall"]', 20000)
   }
   await waitForSelector('[data-testid^="project-row-"]', 20000)
   const repoId = await cdp.evaluate(
     `document.querySelector('[data-testid^="project-row-"]')?.getAttribute('data-testid')?.replace('project-row-', '') ?? null`
   )
   assert(repoId, 'Could not identify the registered repository')
-  await click(`[data-testid="open-project-${repoId}"]`)
-  await waitForSelector('[data-testid="project-header"]', 20000)
-  await click('[data-testid="project-mode-sessions"]')
-  await waitForSelector('[data-testid="project-sessions-list"]', 20000)
+  await click(`[data-testid="project-row-${repoId}"]`)
+  await waitForSelector('[data-testid="sessions-surface"]', 20000)
 }
 
 async function setInput(selector, value) {
@@ -263,7 +255,7 @@ async function notice() {
 async function sessions() {
   // Scope to the session list. `data-session-id` also exists on the status-bar
   // git summary and the Changes panel, which are not session rows.
-  return cdp.evaluate(`Array.from(document.querySelectorAll('[data-testid="project-sessions-list"] [data-session-id]')).map((element) => ({
+  return cdp.evaluate(`Array.from(document.querySelectorAll('[data-testid^="sidebar-project-group-"] [data-session-id]')).map((element) => ({
     id: element.dataset.sessionId,
     state: element.dataset.sessionState,
     incarnation: element.dataset.sessionIncarnation,
@@ -651,7 +643,7 @@ async function launch(label, environment) {
   }
   // The app shell is the stable boot anchor. The old top-bar repo `<select>`
   // (`repo-select`) was replaced by the project switcher in the redesign.
-  await waitForSelector('[data-testid="app-rail"]', 30000)
+  await waitForSelector('[data-testid="workspace-sidebar"]', 30000)
   await waitFor(
     `!document.body.innerText.includes('Loading repositories')`,
     'workspace boot',
@@ -690,6 +682,8 @@ async function quitApp() {
 }
 
 async function createSessionFromUi(title, harness) {
+  await click('[data-testid="sidebar-new-menu"]')
+  await waitForSelector('[data-testid="new-session-open"]', 10000)
   await click('[data-testid="new-session-open"]')
   await waitForSelector(`[data-testid="harness-option-${harness}"]`, 20000)
   await click(`[data-testid="harness-option-${harness}"]`)
@@ -1107,10 +1101,10 @@ async function main() {
       'relaunch',
       PACKAGED ? {} : { ICODE_HOST_DIR: HOST_DIR, ICODE_HOST_SOCKET: SOCKET }
     )
-    // A relaunch opens on the projects wall; the sessions live under the project.
+    // A relaunch opens on Sessions; the sessions live under the project.
     await openProjectSessions()
     await waitFor(
-      `document.querySelectorAll('[data-testid="project-sessions-list"] [data-session-id]').length === 2`,
+      `document.querySelectorAll('[data-testid^="sidebar-project-group-"] [data-session-id]').length === 2`,
       'persisted sessions',
       30000
     )

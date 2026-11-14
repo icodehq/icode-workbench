@@ -232,17 +232,9 @@ async function sessionByTitle(title) {
 
 async function openProjectSessions() {
   if (
-    await cdp.evaluate(
-      `Boolean(document.querySelector('[data-testid="project-sessions-list"]'))`
-    )
+    await cdp.evaluate(`Boolean(document.querySelector('[data-testid="sessions-surface"]'))`)
   ) {
     return
-  }
-  if (
-    !(await cdp.evaluate(`Boolean(document.querySelector('[data-testid="projects-wall"]'))`))
-  ) {
-    await click('[data-testid="rail-projects"]')
-    await waitForSelector('[data-testid="projects-wall"]', 20000)
   }
   await waitForSelector('[data-testid^="project-row-"]', 20000)
   if (repoId === null) {
@@ -251,26 +243,18 @@ async function openProjectSessions() {
     )
   }
   assert(repoId, 'Could not identify the registered repository lane')
-  await click(`[data-testid="open-project-${repoId}"]`)
-  await waitForSelector('[data-testid="project-header"]', 20000)
-  await click('[data-testid="project-mode-sessions"]')
-  await waitForSelector('[data-testid="project-sessions-list"]', 20000)
+  await click(`[data-testid="project-row-${repoId}"]`)
+  await waitForSelector('[data-testid="sessions-surface"]', 20000)
 }
 
-async function openProjectsWall() {
-  if (
-    await cdp.evaluate(`Boolean(document.querySelector('[data-testid="projects-wall"]'))`)
-  ) {
-    return
-  }
-  await click('[data-testid="rail-projects"]')
-  await waitForSelector('[data-testid="projects-wall"]', 20000)
+async function openProjectMenu(repoId) {
+  await waitForSelector('[data-testid^="project-row-"]', 20000)
+  await click(`[data-testid="sidebar-project-menu-${repoId}"]`)
+  await waitForSelector('[data-testid="sidebar-project-menu"]', 20000)
 }
 
-async function removeRepositoryFromWall(repoId) {
-  await openProjectsWall()
-  await click(`[data-testid="project-menu-${repoId}"]`)
-  await waitForSelector(`[data-testid="repository-remove-${repoId}"]`, 20000)
+async function removeRepositoryFromSidebar(repoId) {
+  await openProjectMenu(repoId)
   await click(`[data-testid="repository-remove-${repoId}"]`)
 }
 
@@ -404,10 +388,10 @@ async function launch(label, environment, port) {
   })
   cdp = await connect(port)
   cdp.port = port
-  await waitForSelector('[data-testid="app-rail"]', 30000)
+  await waitForSelector('[data-testid="workspace-sidebar"]', 30000)
   await waitFor(
-    `Boolean(document.querySelector('[data-testid="projects-wall"]')) || Boolean(document.querySelector('[data-testid="empty-workspace"]'))`,
-    'workspace wall',
+    `Boolean(document.querySelector('[data-testid^="project-row-"]')) || Boolean(document.querySelector('[data-testid="empty-workspace"]'))`,
+    'workspace shell',
     30000
   )
   await waitFor(
@@ -499,28 +483,14 @@ async function main() {
       `document.querySelector('[data-testid^="project-row-"]')?.getAttribute('data-testid')?.replace('project-row-', '') ?? null`
     )
     assert(repoId, 'Registered repository row is missing')
-    await waitForSelector('[data-testid="project-search"]')
-    await waitForSelector('[data-testid^="project-filter-"]')
-    await screenshot('02a-project-directory')
+    await waitForSelector('[data-testid="sidebar-project-rows"]')
+    await screenshot('02a-project-sidebar')
 
-    await setInput('[data-testid="project-search"]', 'no-such-project')
-    await waitForSelector('[data-testid="project-directory-empty"]', 5000)
-    await setInput('[data-testid="project-search"]', '')
-    await waitForSelector('[data-testid^="project-row-"]', 5000)
-
+    await click(`[data-testid="sidebar-project-menu-${repoId}"]`)
+    await waitForSelector(`[data-testid="pin-project-${repoId}"]`, 10000)
     await click(`[data-testid="pin-project-${repoId}"]`)
-    await waitFor(
-      `document.querySelector('[data-testid="pin-project-${repoId}"]')?.getAttribute('aria-pressed') === 'true'`,
-      'project pin',
-      5000
-    )
-    await click('[data-testid="project-filter-pinned"]')
-    await waitFor(
-      `document.querySelectorAll('[data-testid^="project-row-"]').length === 1`,
-      'pinned directory filter',
-      5000
-    )
-    await click('[data-testid="project-filter-all"]')
+    await waitForSelector('[data-testid="sidebar-pinned"]', 5000)
+    await screenshot('02b-pinned-project')
 
     await click('[data-testid="global-search"]')
     await waitForSelector('[data-testid="command-palette"]')
@@ -547,7 +517,7 @@ async function main() {
 
     await openProjectSessions()
     const text = await bodyText()
-    assert(text.includes('No direct sessions yet'), 'Repository workspace did not load')
+    assert(text.includes('No direct sessions in'), 'Repository workspace did not load')
     await screenshot('02-repository-registered')
     return { notice: await notice() }
   })
@@ -561,7 +531,8 @@ async function main() {
     })
     await sleep(300)
     const info = await cdp.evaluate(`(() => {
-      const topbar = document.querySelector('[data-testid="app-topbar"]');
+      const brand = document.querySelector('[data-testid="sidebar-brand"]');
+      const titlebar = brand?.closest('.icode-titlebar');
       const controls = [...document.querySelectorAll('button[data-testid^="window-"]')];
       const clipped = controls.filter((button) => {
         const rect = button.getBoundingClientRect();
@@ -569,16 +540,16 @@ async function main() {
       });
       return {
         viewport: { width: innerWidth, height: innerHeight },
-        topbarHeight: Math.round(topbar.getBoundingClientRect().height),
+        titlebarHeight: titlebar ? Math.round(titlebar.getBoundingClientRect().height) : 0,
         controls: controls.length,
         clipped: clipped.map((button) => button.getAttribute('data-testid')),
-        drag: getComputedStyle(topbar).getPropertyValue('-webkit-app-region').trim(),
+        drag: titlebar ? getComputedStyle(titlebar).getPropertyValue('-webkit-app-region').trim() : 'missing',
         closeDrag: getComputedStyle(document.querySelector('[data-testid="window-close"]')).getPropertyValue('-webkit-app-region').trim()
       };
     })()`)
     assert(info.controls === 3, `Expected three window controls, got ${String(info.controls)}`)
     assert(info.clipped.length === 0, `Window controls overflow at 760x480: ${JSON.stringify(info)}`)
-    assert(info.drag === 'drag', `Top bar is not a drag region: ${JSON.stringify(info)}`)
+    assert(info.drag === 'drag', `Sidebar titlebar is not a drag region: ${JSON.stringify(info)}`)
     assert(info.closeDrag === 'no-drag', `Close button is not a no-drag target: ${JSON.stringify(info)}`)
     await cdp.send('Emulation.clearDeviceMetricsOverride')
     await sleep(300)
@@ -707,27 +678,32 @@ async function main() {
       const rect = document.querySelector('[data-testid^="terminal-"]')?.getBoundingClientRect();
       return rect ? { width: Math.round(rect.width), height: Math.round(rect.height) } : null;
     })()`)
+    // Measure with the inspector open; a narrow CI display may have started it collapsed.
+    await cdp.evaluate(`(() => {
+      document.querySelector('[data-testid="inspector-expand"]')?.click();
+      return true;
+    })()`)
+    await sleep(300)
     const normal = await terminalRect()
     assert(normal, 'Terminal pane was not measurable')
 
-    await click('[data-testid="sessions-list-collapse"]')
-    await waitFor(
-      `!document.querySelector('[data-testid="project-sessions-list"]')`,
-      'the sessions list to collapse',
-      10_000
-    )
+    await click('[data-testid="inspector-collapse"]')
+    await waitForSelector('[data-testid="inspector-expand"]', 10_000)
     const withoutList = await terminalRect()
     assert(
       withoutList && withoutList.width > normal.width + 250,
-      `Collapsing Sessions did not widen the terminal (${normal?.width} -> ${withoutList?.width})`
+      `Collapsing the inspector did not widen the terminal (${normal?.width} -> ${withoutList?.width})`
     )
 
     await pressF11()
     await waitFor(
       `!document.querySelector('[data-testid="global-search"]') &&
-       !document.querySelector('[data-testid="app-rail"]') &&
-       !document.querySelector('[data-testid="project-header"]') &&
-       !document.querySelector('[data-testid="statusbar"]')`,
+       !document.querySelector('[data-testid="workspace-sidebar"]') &&
+       !document.querySelector('[data-testid="app-tabs"]') &&
+       !document.querySelector('[data-testid="window-controls"]') &&
+       !document.querySelector('[data-testid="session-tabs"]') &&
+       !document.querySelector('[data-testid="session-inspector"]') &&
+       !document.querySelector('[data-testid="session-header"]')`,
       'focus mode to hide the surrounding chrome',
       10_000
     )
@@ -743,16 +719,17 @@ async function main() {
     await pressF11()
     await waitFor(
       `Boolean(document.querySelector('[data-testid="global-search"]')) &&
-       Boolean(document.querySelector('[data-testid="app-rail"]'))`,
+       Boolean(document.querySelector('[data-testid="workspace-sidebar"]')) &&
+       Boolean(document.querySelector('[data-testid="sessions-surface"]'))`,
       'F11 to leave focus mode',
       10_000
     )
     // Clear any partial line a function key may have left in the shell.
     await typeInSession(firstSession.id, '\u0003')
 
-    // Restore the list for the remaining multi-session steps.
-    await click('[data-testid="show-sessions-list"]')
-    await waitForSelector('[data-testid="project-sessions-list"]', 10_000)
+    // Restore the inspector for the remaining multi-session steps.
+    await click('[data-testid="inspector-expand"]')
+    await waitForSelector('[data-testid="inspector-collapse"]', 10_000)
     return { normal, withoutList, focused }
   })
 
@@ -826,6 +803,8 @@ async function main() {
   let secondSession = null
 
   await step('create a second session and keep both PTYs alive while switching', async () => {
+    await click('[data-testid="sidebar-new-menu"]')
+    await waitForSelector('[data-testid="new-session-open"]', 10000)
     await click('[data-testid="new-session-open"]')
     await waitForSelector('[data-testid="new-session-repo"]')
     await click('[data-testid="harness-option-shell"]')
@@ -894,6 +873,40 @@ async function main() {
     const inactive = allPanes.find((pane) => pane.active === 'false')
     assert(inactive && inactive.phase === 'live', 'Inactive PTY is no longer live')
     await screenshot('06-two-sessions-first-reattached')
+
+    await rightClick(`[data-testid="session-tab-${firstSession.id}"]`)
+    await waitForSelector('[data-testid="session-tab-menu"]', 10000)
+    const tabMenuText = await cdp.evaluate(
+      `document.querySelector('[data-testid="session-tab-menu"]').innerText`
+    )
+    assert(
+      tabMenuText.includes('Close other tabs') && tabMenuText.includes('Split right'),
+      `Session tab menu is incomplete: ${tabMenuText}`
+    )
+    await cdp.evaluate(
+      `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`
+    )
+    await waitFor(
+      `!document.querySelector('[data-testid="session-tab-menu"]')`,
+      'session tab menu to close',
+      5000
+    )
+
+    await click('[data-testid="session-split-toggle"]')
+    await waitForSelector('[data-testid="session-split-divider"]', 10000)
+    assert(
+      await cdp.evaluate(
+        `document.querySelectorAll('[data-testid="session-header"]').length === 2`
+      ),
+      'Split view did not show both sessions'
+    )
+    await screenshot('06b-session-split')
+    await click('[data-testid="session-split-toggle"]')
+    await waitFor(
+      `!document.querySelector('[data-testid="session-split-divider"]')`,
+      'split view to close',
+      5000
+    )
     return { firstPid: Number(pidNow[1]), activePanes: allPanes }
   })
 
@@ -944,7 +957,7 @@ async function main() {
   })
 
   await step('block repository removal while a PTY is live', async () => {
-    await removeRepositoryFromWall(repoId)
+    await removeRepositoryFromSidebar(repoId)
     await waitForNotice('live sessions', 20000)
     const feedback = await notice()
     assert(feedback.tone === 'error', 'Blocked removal was not reported as an error')
@@ -1049,7 +1062,7 @@ async function main() {
     const text = await bodyText()
     assert(text.toLowerCase().includes('unreachable'), 'No unreachable Host explanation in the UI')
 
-    await removeRepositoryFromWall(repoId)
+    await removeRepositoryFromSidebar(repoId)
     await waitForNotice('Could not verify live sessions', 30000)
     const feedback = await notice()
     const repoStillRegistered = await cdp.evaluate(
@@ -1061,6 +1074,8 @@ async function main() {
 
     // New session is prohibited while the Host is unreachable. Queue task
     // remains available because it does not need a live PTY to be created.
+    await click('[data-testid="sidebar-new-menu"]')
+    await waitForSelector('[data-testid="new-session-open"]', 10000)
     const createDisabled = await cdp.evaluate(`(() => {
       const button = document.querySelector('[data-testid="new-session-open"]')
       return button ? { disabled: button.disabled, title: button.title } : null
@@ -1071,7 +1086,7 @@ async function main() {
       `New session did not explain the Host refusal: ${JSON.stringify(createDisabled)}`
     )
     const queueVisible = await cdp.evaluate(
-      `Boolean(document.querySelector('[data-testid="queue-task-from-menu"]')) || Boolean(document.querySelector('[data-testid="new-menu"]'))`
+      `Boolean(document.querySelector('[data-testid="queue-task-open"]'))`
     )
     assert(queueVisible, 'Queue task disappeared with the Host outage')
     await screenshot('13-session-creation-disabled')
@@ -1132,6 +1147,8 @@ async function main() {
       'no available Harnesses',
       30000
     )
+    await click('[data-testid="sidebar-new-menu"]')
+    await waitForSelector('[data-testid="new-session-open"]', 10000)
     await click('[data-testid="new-session-open"]')
     await waitFor(
       `document.querySelectorAll('[data-harness-state]').length === 4`,
@@ -1173,11 +1190,11 @@ async function main() {
       'reachable Host status',
       30000
     )
-    await openProjectsWall()
+    await waitForSelector('[data-testid^="project-row-"]', 20000)
     await rightClick(`[data-testid="project-row-${repoId}"]`)
-    await waitForSelector(`[data-testid="project-menu-popover-${repoId}"]`, 10000)
+    await waitForSelector('[data-testid="sidebar-project-menu"]', 10000)
     const rightClickMenuText = await cdp.evaluate(
-      `document.querySelector('[data-testid="project-menu-popover-${repoId}"]').innerText`
+      `document.querySelector('[data-testid="sidebar-project-menu"]').innerText`
     )
     assert(
       rightClickMenuText.includes('Remove repository'),
@@ -1185,14 +1202,14 @@ async function main() {
     )
     assert(rightClickMenuText.includes('Copy path'), 'Right-click menu is missing Copy path')
     assert(
-      await cdp.evaluate(`Boolean(document.querySelector('[data-testid="projects-wall"]'))`),
+      await cdp.evaluate(`Boolean(document.querySelector('[data-testid="sessions-surface"]'))`),
       'Right-click opened the project instead of its menu'
     )
     await cdp.evaluate(
       `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`
     )
     await waitFor(
-      `!document.querySelector('[data-testid="project-menu-popover-${repoId}"]')`,
+      `!document.querySelector('[data-testid="sidebar-project-menu"]')`,
       'right-click menu to close',
       5000
     )
@@ -1202,7 +1219,7 @@ async function main() {
       5000
     )
 
-    await removeRepositoryFromWall(repoId)
+    await removeRepositoryFromSidebar(repoId)
     await waitForSelector('[data-testid="confirm-remove-repo"]', 20000)
     const dialogText = await cdp.evaluate(
       `document.querySelector('[role="dialog"]').innerText`

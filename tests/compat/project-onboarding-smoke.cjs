@@ -140,7 +140,7 @@ async function launch() {
   appProcess.stdout.pipe(logStream)
   appProcess.stderr.pipe(logStream)
   cdp = await connect(PORT)
-  await waitForSelector('[data-testid="app-rail"]', 30_000)
+  await waitForSelector('[data-testid="workspace-sidebar"]', 30_000)
   await waitFor(
     `Boolean(document.querySelector('[data-testid="empty-workspace"]'))`,
     'the empty workspace',
@@ -186,7 +186,7 @@ async function main() {
     const decision = await waitFor(
       `(() => {
         if (document.querySelector('[data-testid="add-repo-adoption"]')) return 'adoption';
-        if (document.querySelector('[data-testid="projects-wall"]')) return 'wall';
+        if (document.querySelector('[data-testid="sessions-surface"]') || document.querySelector('[data-testid^="project-row-"]')) return 'sessions';
         return '';
       })()`,
       'the initialization decision',
@@ -212,7 +212,7 @@ async function main() {
         await setValue('[data-testid="add-repo-identity-email"]', 'onboarding@smoke.test')
         await click('[data-testid="add-repo-submit"]')
       }
-      await waitForSelector('[data-testid="projects-wall"]', 30_000)
+      await waitForSelector('[data-testid="sessions-surface"]', 30_000)
     }
 
     addReturnedMs = Date.now() - startedAt
@@ -252,7 +252,7 @@ async function main() {
   })
 
   await step('offer child repositories when the selected folder is only a container', async () => {
-    await click('[data-testid="add-project"]')
+    await click('[data-testid="sidebar-add-project"]')
     await waitForSelector('[data-testid="add-repo-form"]')
     await setValue('[data-testid="add-repo-input"]', PARENT)
     await click('[data-testid="add-repo-submit"]')
@@ -263,7 +263,7 @@ async function main() {
     )
     await screenshot('02-child-repositories')
     await click('[data-testid="add-repo-candidate-0"]')
-    await waitForSelector('[data-testid="projects-wall"]', 30_000)
+    await waitForSelector('[data-testid="sessions-surface"]', 30_000)
     await waitFor(
       `document.querySelectorAll('[data-testid^="project-row-"]').length === 2`,
       'two registered projects',

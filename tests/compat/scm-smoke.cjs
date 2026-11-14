@@ -217,10 +217,10 @@ async function launch() {
   appProcess.on('exit', (code, signal) => log(`app exited code=${code} signal=${signal}`))
   cdp = await connect(port)
   cdp.port = port
-  await waitForSelector('[data-testid="app-rail"]', 30000)
+  await waitForSelector('[data-testid="workspace-sidebar"]', 30000)
   await waitFor(
-    `Boolean(document.querySelector('[data-testid="projects-wall"]')) || Boolean(document.querySelector('[data-testid="empty-workspace"]'))`,
-    'workspace wall',
+    `Boolean(document.querySelector('[data-testid^="project-row-"]')) || Boolean(document.querySelector('[data-testid="empty-workspace"]'))`,
+    'workspace shell',
     30000
   )
 }
@@ -263,14 +263,10 @@ async function openChanges() {
 }
 
 async function reopenSession() {
-  if (!(await cdp.evaluate(`Boolean(document.querySelector('[data-testid="projects-wall"]'))`))) {
-    await click('[data-testid="rail-projects"]')
-    await waitForSelector('[data-testid="projects-wall"]', 15000)
+  if (!(await cdp.evaluate(`Boolean(document.querySelector('[data-testid="sessions-surface"]'))`))) {
+    await click(`[data-testid="project-row-${repoId}"]`)
+    await waitForSelector('[data-testid="sessions-surface"]', 20000)
   }
-  await click(`[data-testid="open-project-${repoId}"]`)
-  await waitForSelector('[data-testid="project-header"]', 20000)
-  await click('[data-testid="project-mode-sessions"]')
-  await waitForSelector('[data-testid="project-sessions-list"]', 20000)
   await click(`[data-testid="session-item-${sessionId}"]`)
   await waitForSelector('[data-testid="session-title"]', 20000)
 }
@@ -325,12 +321,14 @@ async function run() {
     await waitForSelector('[data-testid="add-repo-form"]', 15000)
     await setValue('[data-testid="add-repo-input"]', REPO_DIR)
     await click('[data-testid="add-repo-submit"]')
-    await waitForSelector('[data-testid="projects-wall"]', 20000)
+    await waitForSelector('[data-testid="sessions-surface"]', 20000)
     repoId = await cdp.evaluate(
       `document.querySelector('[data-testid^="project-row-"]')?.getAttribute('data-testid')?.replace('project-row-', '') ?? null`
     )
     assert(repoId, 'Repository was not registered')
 
+    await click('[data-testid="sidebar-new-menu"]')
+    await waitForSelector('[data-testid="new-session-open"]', 10000)
     await click('[data-testid="new-session-open"]')
     await waitForSelector('[data-testid="harness-option-shell"]', 20000)
     await click('[data-testid="harness-option-shell"]')
@@ -418,7 +416,7 @@ async function run() {
     assert(offState.label.includes('Nothing staged'), `smart commit off should show Nothing staged: ${JSON.stringify(offState)}`)
     assert(offState.disabled === true, 'Nothing staged must be disabled while smart commit is off')
 
-    await click('[data-testid="rail-settings"]')
+    await click('[data-testid="sidebar-settings"]')
     await waitForSelector('[data-testid="scm-setting-smart-commit"]', 10000)
     await setValue('[data-testid="scm-setting-smart-commit"]', 'all')
     await waitFor(
@@ -828,10 +826,10 @@ async function run() {
   })
 
   await step('Ctrl+Shift+G focuses Source Control', async () => {
-    await click('[data-testid="view-terminal"]')
+    await click('[data-testid="view-files"]')
     await waitFor(
       `document.querySelector('[data-testid="view-changes"]')?.getAttribute('aria-selected') === 'false'`,
-      'terminal tab active',
+      'Changes tab inactive',
       5000
     )
     await cdp.evaluate(
@@ -845,7 +843,7 @@ async function run() {
   })
 
   await step('the command palette reaches Source Control', async () => {
-    await click('[data-testid="view-terminal"]')
+    await click('[data-testid="view-files"]')
     await cdp.evaluate(
       `window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true, cancelable: true }))`
     )
@@ -1480,7 +1478,7 @@ async function run() {
   })
 
   await step('honors protected branches from Settings', async () => {
-    await click('[data-testid="rail-settings"]')
+    await click('[data-testid="sidebar-settings"]')
     await waitForSelector('[data-testid="scm-setting-branch-protection"]', 15000)
     await setValue('[data-testid="scm-setting-branch-protection"]', '*')
     await cdp.evaluate(`(() => {
@@ -1501,7 +1499,7 @@ async function run() {
     await click('[data-testid="git-commit"]')
     await waitForNotice('protected by Settings', 15000)
 
-    await click('[data-testid="rail-settings"]')
+    await click('[data-testid="sidebar-settings"]')
     await waitForSelector('[data-testid="scm-setting-branch-protection"]', 10000)
     await setValue('[data-testid="scm-setting-branch-protection"]', '')
     await cdp.evaluate(`(() => {

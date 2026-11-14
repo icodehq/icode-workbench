@@ -250,10 +250,10 @@ async function launch() {
   appProcess.on('exit', (code, signal) => log(`app exited code=${code} signal=${signal}`))
   cdp = await connect(port)
   cdp.port = port
-  await waitForSelector('[data-testid="app-rail"]', 30000)
+  await waitForSelector('[data-testid="workspace-sidebar"]', 30000)
   await waitFor(
-    `Boolean(document.querySelector('[data-testid="projects-wall"]')) || Boolean(document.querySelector('[data-testid="empty-workspace"]'))`,
-    'workspace wall',
+    `Boolean(document.querySelector('[data-testid^="project-row-"]')) || Boolean(document.querySelector('[data-testid="empty-workspace"]'))`,
+    'workspace shell',
     30000
   )
 }
@@ -286,21 +286,23 @@ async function quit() {
 }
 
 async function openSessionWorkspace() {
-  if (await cdp.evaluate(`Boolean(document.querySelector('[data-testid="project-sessions-list"]'))`)) return
-  if (!(await cdp.evaluate(`Boolean(document.querySelector('[data-testid="projects-wall"]'))`))) {
-    await click('[data-testid="rail-projects"]')
-    await waitForSelector('[data-testid="projects-wall"]', 20000)
-  }
+  if (await cdp.evaluate(`Boolean(document.querySelector('[data-testid="sessions-surface"]'))`)) return
+  await waitForSelector('[data-testid^="project-row-"]', 20000)
   if (repoId === null) {
     repoId = await cdp.evaluate(
       `document.querySelector('[data-testid^="project-row-"]')?.getAttribute('data-testid')?.replace('project-row-', '') ?? null`
     )
   }
   assert(repoId, 'No repository lane')
-  await click(`[data-testid="open-project-${repoId}"]`)
-  await waitForSelector('[data-testid="project-header"]', 20000)
-  await click('[data-testid="project-mode-sessions"]')
-  await waitForSelector('[data-testid="project-sessions-list"]', 20000)
+  await click(`[data-testid="project-row-${repoId}"]`)
+  await waitForSelector('[data-testid="sessions-surface"]', 20000)
+}
+
+async function openProjectTasks() {
+  await click(`[data-testid="sidebar-project-menu-${repoId}"]`)
+  await waitForSelector(`[data-testid="sidebar-project-${repoId}-tasks"]`, 10000)
+  await click(`[data-testid="sidebar-project-${repoId}-tasks"]`)
+  await waitForSelector('[data-testid="tasks-surface"]', 20000)
 }
 
 async function openChanges() {
@@ -335,7 +337,7 @@ async function run() {
     await waitForSelector('[data-testid="add-repo-form"]', 15000)
     await setValue('[data-testid="add-repo-input"]', REPO_DIR)
     await click('[data-testid="add-repo-submit"]')
-    await waitForSelector('[data-testid="projects-wall"]', 20000)
+    await waitForSelector('[data-testid="sessions-surface"]', 20000)
     repoId = await cdp.evaluate(
       `document.querySelector('[data-testid^="project-row-"]')?.getAttribute('data-testid')?.replace('project-row-', '') ?? null`
     )
@@ -344,6 +346,8 @@ async function run() {
   })
 
   await step('create a live Shell session and open Session details', async () => {
+    await click('[data-testid="sidebar-new-menu"]')
+    await waitForSelector('[data-testid="new-session-open"]', 10000)
     await click('[data-testid="new-session-open"]')
     await waitForSelector('[data-testid="harness-option-shell"]', 20000)
     await click('[data-testid="harness-option-shell"]')
@@ -581,7 +585,7 @@ async function run() {
     await setValue('[data-testid="line-comment-input"]', 'Keep this note')
     await click('[data-testid="line-comment-add"]')
     await waitForSelector('[data-testid^="line-comment-new-"]', 10000)
-    await click('[data-testid="view-terminal"]')
+    await click('[data-testid="view-files"]')
     await sleep(300)
     await click('[data-testid="view-changes"]')
     await waitForSelector('[data-testid="git-commit-message"]', 15000)
@@ -621,7 +625,7 @@ async function run() {
   })
 
   await step('commit all tracked changes with sign-off from the SCM menu', async () => {
-    await click('[data-testid="rail-settings"]')
+    await click('[data-testid="sidebar-settings"]')
     await waitForSelector('[data-testid="settings-view"]', 15000)
     await waitForSelector('[data-testid="scm-setting-always-signoff"]', 10000)
     await click('[data-testid="scm-setting-always-signoff"]')
@@ -635,8 +639,6 @@ async function run() {
     )
     assert(stored?.alwaysSignOff === true, 'sign-off setting was not persisted')
 
-    await click('[data-testid="rail-projects"]')
-    await waitForSelector('[data-testid="projects-wall"]', 15000)
     await openSessionWorkspace()
     await click(`[data-testid="session-item-${sessionId}"]`)
     await waitForSelector('[data-testid="session-title"]', 20000)
@@ -676,7 +678,7 @@ async function run() {
     )
     assert(status.trim() === '', `the worktree is not clean after Commit all: ${status}`)
 
-    await click('[data-testid="rail-settings"]')
+    await click('[data-testid="sidebar-settings"]')
     await waitForSelector('[data-testid="scm-setting-always-signoff"]', 10000)
     await click('[data-testid="scm-setting-always-signoff"]')
     await waitFor(
@@ -692,7 +694,9 @@ async function run() {
   })
 
   await step('create, edit and delete a schedule through the drawer', async () => {
-    await click('[data-testid="rail-schedules"]')
+    await click('[data-testid="sidebar-new-menu"]')
+    await waitForSelector('[data-testid="schedules-open"]', 10000)
+    await click('[data-testid="schedules-open"]')
     await waitForSelector('[data-testid="schedules-view"]', 15000)
     await click('[data-testid="schedule-new"]')
     await waitForSelector('[data-testid="schedule-editor"]', 10000)
@@ -751,7 +755,7 @@ async function run() {
   })
 
   await step('show Source Control defaults in Settings and persist a change', async () => {
-    await click('[data-testid="rail-settings"]')
+    await click('[data-testid="sidebar-settings"]')
     await waitForSelector('[data-testid="settings-view"]', 15000)
     await waitForSelector('[data-testid="provider-select-claude"]', 10000)
     const providerCard = await cdp.evaluate(`(() => {
@@ -800,14 +804,14 @@ async function run() {
       5000
     )
 
-    await click('[data-testid="rail-projects"]')
-    await waitForSelector('[data-testid="projects-wall"]', 15000)
+    await openSessionWorkspace()
     return { smartCommit: card.smartCommit, untracked: card.untracked }
   })
 
   await step('keep TaskWorkbench panes and unsaved Files text across tab switches', async () => {
-    await click('[data-testid="new-menu"]')
-    await click('[data-testid="queue-task-from-menu"]')
+    await click('[data-testid="sidebar-new-menu"]')
+    await waitForSelector('[data-testid="queue-task-open"]', 10000)
+    await click('[data-testid="queue-task-open"]')
     await waitForSelector('[data-testid="task-composer"]', 15000)
     await waitFor(
       `Array.from(document.querySelectorAll('[data-testid="task-harness"] option')).some((option) => option.value === 'shell' && !option.disabled)`,
@@ -859,9 +863,9 @@ async function run() {
     )
     await screenshot('10-task-continuity')
 
-    await click('[data-testid="project-mode-sessions"]')
-    await waitForSelector('[data-testid="project-sessions-list"]', 15000)
-    await click('[data-testid="project-mode-tasks"]')
+    await openSessionWorkspace()
+    await waitForSelector('[data-testid="sessions-surface"]', 15000)
+    await openProjectTasks()
     await waitForSelector('[data-testid="task-workbench"]', 15000)
     await waitFor(
       `document.querySelector('[data-testid="task-workbench"] h1')?.innerText === 'Task continuity smoke'`,
@@ -869,28 +873,44 @@ async function run() {
       10000
     )
 
-    // Dependency flow: a dependent stays queued until its blocker completes,
-    // then a gated blocker holds its dependent until the result is accepted.
-    // This is the only path that drives the DAG UI through the real renderer.
+    // Dependency flow: dependents share a merge-gated chain branch. A normal
+    // blocker releases its dependent once completed and merged onto the chain;
+    // a gated blocker also waits for the result to be accepted. This is the
+    // only path that drives the DAG UI through the real renderer.
     const continuityTaskId = await cdp.evaluate(
-      `document.querySelector('[data-testid^="task-row-"]')?.getAttribute('data-testid')?.replace('task-row-', '') ?? null`
+      `document.querySelector('button[data-testid^="sidebar-task-"]')?.getAttribute('data-testid')?.replace('sidebar-task-', '') ?? null`
     )
     assert(continuityTaskId, 'continuity task row was not found')
-    await click(`[data-testid="task-cancel-${continuityTaskId}"]`)
+    await click(`[data-testid="sidebar-task-${continuityTaskId}"]`)
     await waitFor(
-      `!document.querySelector('[data-testid="task-cancel-${continuityTaskId}"]')`,
+      `document.querySelector('[data-testid="task-workbench"] h1')?.innerText === 'Task continuity smoke'`,
+      'continuity task selected',
+      10000
+    )
+    await click('[data-testid="task-workbench-actions"]')
+    await waitForSelector('[data-testid="task-workbench-action-cancel"]', 10000)
+    await click('[data-testid="task-workbench-action-cancel"]')
+    await waitFor(
+      `document.querySelector('[data-testid="task-workbench-status"]')?.dataset.status === 'cancelled'`,
       'continuity task cancelled',
       15000
     )
 
-    async function queueSmokeTask(prompt, afterId = null, hold = false) {
+    async function queueSmokeTask(prompt, afterId = null, hold = false, chainBranch = null) {
       const open = await cdp.evaluate(
         `Boolean(document.querySelector('[data-testid="task-composer"]'))`
       )
-      if (!open) await click('[data-testid="task-composer-toggle"]')
+      if (!open) {
+        await click('[data-testid="sidebar-new-menu"]')
+        await waitForSelector('[data-testid="queue-task-open"]', 10000)
+        await click('[data-testid="queue-task-open"]')
+      }
       await waitForSelector('[data-testid="task-composer"]', 10000)
       await setValue('[data-testid="task-harness"]', 'shell')
       await setValue('[data-testid="task-prompt"]', prompt)
+      if (chainBranch !== null) {
+        await setValue('[data-testid="task-chain-branch"]', chainBranch)
+      }
       if (afterId) {
         await setValue('[data-testid="task-after"]', afterId)
         await click('[data-testid="task-after-add"]')
@@ -910,7 +930,7 @@ async function run() {
         notice: document.querySelector('[data-testid="notice"]')?.innerText ?? null,
         composer: Boolean(document.querySelector('[data-testid="task-composer"]')),
         createDisabled: document.querySelector('[data-testid="task-create"]')?.disabled ?? null,
-        rows: Array.from(document.querySelectorAll('[data-testid^="task-row-"]')).map((el) => el.innerText.replace(/\\n/g, ' '))
+        rows: Array.from(document.querySelectorAll('button[data-testid^="sidebar-task-"]')).map((el) => el.innerText.replace(/\\n/g, ' '))
       }))()`)
       console.log('[feature-smoke] task create diagnostic', JSON.stringify(diagnostic))
       if (diagnostic.heading !== prompt) {
@@ -923,12 +943,41 @@ async function run() {
         15000
       )
       return cdp.evaluate(`(() => {
-        const row = Array.from(document.querySelectorAll('[data-testid^="task-row-"]')).find((el) => el.innerText.includes(${JSON.stringify(prompt)}))
-        return row?.getAttribute('data-testid')?.replace('task-row-', '') ?? null
+        const row = Array.from(document.querySelectorAll('button[data-testid^="sidebar-task-"]')).find((el) => el.innerText.includes(${JSON.stringify(prompt)}))
+        return row?.getAttribute('data-testid')?.replace('sidebar-task-', '') ?? null
       })()`)
     }
 
-    const blockerId = await queueSmokeTask('sleep 10; exit 0')
+    async function waitForTaskStatus(taskId, status, timeoutMs) {
+      await waitFor(
+        `(async () => {
+          const result = await window.icode.tasks.list({ repoId: ${JSON.stringify(repoId)} });
+          return result.ok && result.value.some((task) => task.id === ${JSON.stringify(taskId)} && task.status === ${JSON.stringify(status)});
+        })()`,
+        `task ${taskId} ${status}`,
+        timeoutMs
+      )
+    }
+
+    async function mergeTaskIntoChain(taskId) {
+      const row = await cdp.evaluate(`(async () => {
+        const result = await window.icode.tasks.list({ repoId: ${JSON.stringify(repoId)} });
+        if (!result.ok) return null;
+        const task = result.value.find((entry) => entry.id === ${JSON.stringify(taskId)});
+        return task ? { sessionId: task.sessionId, chainBranch: task.chainBranch } : null;
+      })()`)
+      assert(row && row.sessionId && row.chainBranch, `task ${taskId} has no chain session`)
+      const merged = await cdp.evaluate(`(async () => window.icode.merge.start({
+        sessionId: ${JSON.stringify(row.sessionId)},
+        targetBranch: ${JSON.stringify(row.chainBranch)}
+      }))()`)
+      assert(
+        merged.ok && merged.value.status === 'merged',
+        `chain merge for ${taskId} failed: ${JSON.stringify(merged)}`
+      )
+    }
+
+    const blockerId = await queueSmokeTask('sleep 10; exit 0', null, false, 'icode/chain/smoke-deps')
     assert(blockerId, 'blocker task row was not found')
     const dependentId = await queueSmokeTask('dependent smoke', blockerId)
     assert(dependentId, 'dependent task row was not found')
@@ -941,19 +990,31 @@ async function run() {
       `document.querySelector('[data-testid="task-dependencies-list"]')?.innerText ?? ''`
     )
     assert(dependencyText.includes('sleep 10; exit 0'), 'dependent did not list its blocker')
+    // Merge-gated chains: the completed blocker must land on the shared
+    // branch before its dependent may start.
+    await waitForTaskStatus(blockerId, 'completed', 40000)
+    await mergeTaskIntoChain(blockerId)
     await waitFor(
       `document.querySelector('[data-testid="task-tab-terminal"]') && !document.querySelector('[data-testid="task-tab-terminal"]').disabled`,
-      'dependent started after the blocker completed',
+      'dependent started after the blocker completed and merged',
       35000
     )
-    await click(`[data-testid="task-cancel-${dependentId}"]`)
+    await click(`[data-testid="sidebar-task-${dependentId}"]`)
     await waitFor(
-      `!document.querySelector('[data-testid="task-cancel-${dependentId}"]')`,
+      `document.querySelector('[data-testid="task-workbench"] h1')?.innerText === 'dependent smoke'`,
+      'dependent task selected',
+      10000
+    )
+    await click('[data-testid="task-workbench-actions"]')
+    await waitForSelector('[data-testid="task-workbench-action-cancel"]', 10000)
+    await click('[data-testid="task-workbench-action-cancel"]')
+    await waitFor(
+      `document.querySelector('[data-testid="task-workbench-status"]')?.dataset.status === 'cancelled'`,
       'dependent task cancelled',
       15000
     )
 
-    const gatedBlockerId = await queueSmokeTask('sleep 8; exit 0', null, true)
+    const gatedBlockerId = await queueSmokeTask('sleep 8; exit 0', null, true, 'icode/chain/smoke-gated')
     assert(gatedBlockerId, 'gated blocker row was not found')
     const gatedDependentId = await queueSmokeTask('gated dependent', gatedBlockerId)
     assert(gatedDependentId, 'gated dependent row was not found')
@@ -981,7 +1042,9 @@ async function run() {
       15000
     )
     await click('[data-testid="task-review-accept"]')
-    await click(`[data-testid="task-open-detail-${gatedDependentId}"]`)
+    await waitForTaskStatus(gatedBlockerId, 'completed', 30000)
+    await mergeTaskIntoChain(gatedBlockerId)
+    await click(`[data-testid="sidebar-task-${gatedDependentId}"]`)
     await waitFor(
       `document.querySelector('[data-testid="task-workbench"] h1')?.innerText === 'gated dependent'`,
       'gated dependent selected again',
@@ -996,8 +1059,8 @@ async function run() {
     // Phase A Files: session-scoped tabs, live external refresh, conflict-safe
     // save and the unsaved-change guards. This runs on the same direct session
     // whose worktree the earlier Git steps used.
-    await click('[data-testid="project-mode-sessions"]')
-    await waitForSelector('[data-testid="project-sessions-list"]', 15000)
+    await openSessionWorkspace()
+    await waitForSelector('[data-testid="sessions-surface"]', 15000)
     await click(`[data-testid="session-item-${sessionId}"]`)
     await waitForSelector('[data-testid="session-title"]', 20000)
     await click('[data-testid="view-files"]')
@@ -1125,9 +1188,9 @@ async function run() {
       'Save All from Close All did not write the dirty buffer'
     )
 
-    await click('[data-testid="theme-menu-button"]')
-    await waitForSelector('[data-testid="theme-menu"]', 10000)
-    await click('[data-testid="theme-option-dark"]')
+    await click('[data-testid="sidebar-settings"]')
+    await waitForSelector('[data-testid="settings-theme-dark"]', 15000)
+    await click('[data-testid="settings-theme-dark"]')
     await sleep(250)
     await ctrlK()
     await waitForSelector('[data-testid="command-palette"]', 10000)
@@ -1494,7 +1557,7 @@ async function run() {
     await click('[data-testid="files-search-clear"]')
 
     log('phase-c: apply settings, excludes, .gitignore, sort and nesting')
-    await click('[data-testid="rail-settings"]')
+    await click('[data-testid="sidebar-settings"]')
     await waitForSelector('[data-testid="files-setting-exclude"]', 15000)
     await setValue(
       '[data-testid="files-setting-exclude"]',
@@ -1516,8 +1579,6 @@ async function run() {
       10000
     )
 
-    await click('[data-testid="rail-projects"]')
-    await waitForSelector('[data-testid="projects-wall"]', 20000)
     await openSessionWorkspace()
     await click(`[data-testid="session-item-${sessionId}"]`)
     await waitForSelector('[data-testid="session-title"]', 20000)
@@ -1671,9 +1732,9 @@ async function run() {
     await sleep(800)
     await cdp.evaluate('location.reload()')
     await sleep(1200)
-    await waitForSelector('[data-testid="app-rail"]', 30000)
+    await waitForSelector('[data-testid="workspace-sidebar"]', 30000)
     await waitFor(
-      `Boolean(document.querySelector('[data-testid="projects-wall"]')) || Boolean(document.querySelector('[data-testid="empty-workspace"]')) || Boolean(document.querySelector('[data-testid="project-sessions-list"]'))`,
+      `Boolean(document.querySelector('[data-testid^="project-row-"]')) || Boolean(document.querySelector('[data-testid="empty-workspace"]')) || Boolean(document.querySelector('[data-testid="sessions-surface"]'))`,
       'workspace after reload',
       30000
     )
