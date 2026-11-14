@@ -194,11 +194,74 @@ export class ProjectFolderService {
     return this.resolveLocationForTarget(input.path, target)
   }
 
+  /**
+   * The folder a clone will be created in.
+   *
+   * It must already exist and must not be a filesystem root or the user's home:
+   * both are almost certainly a mistake, and the clone would otherwise create a
+   * project directly in them.
+   */
+  async resolveCloneParent(input: {
+    path: string
+    target: ExecutionTarget
+  }): Promise<string> {
+    const target = await this.deps.validateTarget(input.target)
+    const location = await this.resolveLocationForTarget(input.path, target)
+    if ((await this.protectedReason(location.path, target)) !== null) {
+      throw new ProjectFolderError(
+        makeAppError(
+          'INVALID_ARGUMENT',
+          'Choose a destination folder, not a filesystem root or home directory.',
+          {
+            detail: location.path,
+            messageKey: 'addRepo.clone.parentRoot'
+          }
+        )
+      )
+    }
+    return location.path
+  }
+
+  /**
+   * Translates a Windows source path for a WSL clone.
+   *
+   * Guest Git cannot read `D:\…`; `wslpath` is the authority, so the same
+   * automount rules apply here as to a project path. URLs and POSIX paths pass
+   * through unchanged.
+   */
+  async resolveCloneSource(input: {
+    path: string
+    target: ExecutionTarget
+  }): Promise<string> {
+    const target = await this.deps.validateTarget(input.target)
+    const trimmed = input.path.trim()
+    if (target.kind === 'local') return trimmed
+    if (/^file:\/\//iu.test(trimmed)) {
+      // A `file:///D:/…` URL is a Windows path in URL clothing. Guest Git can
+      // read it only after `wslpath` translates the drive path.
+      try {
+        const url = new URL(trimmed)
+        const pathname = decodeURIComponent(url.pathname)
+        if (/^\/[A-Za-z]:\//u.test(pathname)) {
+          const windows = pathname.slice(1).replace(/\//gu, '\\')
+          const translated = await this.translateWindowsPath(windows, target)
+          return `file://${translated}`
+        }
+      } catch {
+        return trimmed
+      }
+      return trimmed
+    }
+    if (/^[A-Za-z]:[\\/]/u.test(trimmed) || trimmed.startsWith('\\\\')) {
+      return this.translateWindowsPath(trimmed, target)
+    }
+    return trimmed
+  }
+
   async inspect(input: {
     path: string
     target: ExecutionTarget
-  }): Promise<ProjectFolderInspection> {
-    const target = await this.deps.validateTarget(input.target)
+  }): Promise<ProjectFolderInspection> {    const target = await this.deps.validateTarget(input.target)
     const location = await this.resolveLocationForTarget(input.path, target)
     const git = await this.deps.gitWorktrees.gitResultFor(target)
     const inspection = await this.inspectAt(location.path, target, git)

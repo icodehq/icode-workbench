@@ -1,4 +1,5 @@
 import type { GitStatusEntry } from '../../shared/domain/git-workspace'
+import { redactRemoteUrlCredentials } from '../../shared/domain/remote-url'
 import { STATUS_V2_ARGS, type ParsedRepositoryStatus } from './status-reader'
 
 /** A commit message is one line of intent; blank messages are refused. */
@@ -77,7 +78,10 @@ export function parseNumstatZ(output: string): ParsedNumstat[] {
 }
 
 export function detailOf(error: unknown, fallback: string): string {
-  if (error instanceof Error && error.message.trim().length > 0) return error.message
+  // Git echoes the remote URL in transport errors; it may embed a token.
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return redactRemoteUrlCredentials(error.message)
+  }
   return fallback
 }
 

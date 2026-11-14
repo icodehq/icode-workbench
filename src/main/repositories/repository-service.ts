@@ -148,6 +148,7 @@ export class RepositoryService {
       existing = this.adoptLegacyWslRow(root, commonDir, executionTarget)
     }
     if (existing) {
+      this.assertNotRemoving(existing)
       this.ensureWorkspace(existing)
       if (commonDir !== null && existing.gitCommonDir !== commonDir) {
         this.deps.repositories.updateCommonDir(existing.id, commonDir)
@@ -220,6 +221,7 @@ export class RepositoryService {
       this.deps.repositories.findByPath(root, executionTarget) ??
       this.deps.repositories.findByCommonDir(commonDir, executionTarget)
     if (existing) {
+      this.assertNotRemoving(existing)
       this.ensureWorkspace(existing)
       return {
         repository: existing,
@@ -476,6 +478,24 @@ export class RepositoryService {
     }
     this.deps.repositories.adoptRegistrationId(legacy.id, target.distroId!)
     return this.deps.repositories.findById(legacy.id)
+  }
+
+  /**
+   * A tombstoned row already belongs to a removal job. Re-registering the same
+   * path (or a linked worktree of it) must wait until that job releases it.
+   */
+  private assertNotRemoving(repository: RepositoryRecord): void {
+    if (repository.removingAt === undefined || repository.removingAt === null) return
+    throw new RepositoryPathError(
+      makeAppError(
+        'REPOSITORY_REMOVING',
+        'This project is still being cleaned up. Try again in a moment.',
+        {
+          messageKey: 'errors.REPOSITORY_REMOVING',
+          context: { path: repository.path }
+        }
+      )
+    )
   }
 
   private ensureWorkspace(repository: RepositoryRecord): void {

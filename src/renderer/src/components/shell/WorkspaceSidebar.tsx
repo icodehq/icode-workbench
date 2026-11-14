@@ -13,6 +13,7 @@ import {
   RefreshCw,
   Search,
   Settings,
+  Settings2,
   TerminalSquare
 } from 'lucide-react'
 import type { TaskRecordPayload } from '../../../../shared/icode-api'
@@ -25,6 +26,7 @@ import type {
 import type { Notice } from '../../state/workspace'
 import ContextMenu, { type ContextMenuItem, type MenuAnchor } from '../ContextMenu'
 import ProjectMaintenanceDialog from '../sessions/ProjectMaintenanceDialog'
+import RepositorySettingsDialog from '../RepositorySettingsDialog'
 import AssistantAvatar from '../AssistantAvatar'
 import { repositoryPreparationView } from '../../lib/repository-preparation'
 import { shortcutLabel } from '../../lib/platform'
@@ -156,6 +158,7 @@ export default function WorkspaceSidebar({
   const [tasksHistory, setTasksHistory] = useState(false)
   const [collapsedRepos, setCollapsedRepos] = useState<Set<string>>(() => new Set())
   const [maintenanceRepo, setMaintenanceRepo] = useState<RepositorySummary | null>(null)
+  const [settingsRepo, setSettingsRepo] = useState<RepositorySummary | null>(null)
   const [projectMenu, setProjectMenu] = useState<ProjectMenuRequest | null>(null)
   const [newMenu, setNewMenu] = useState<{
     anchor: MenuAnchor
@@ -280,6 +283,13 @@ export default function WorkspaceSidebar({
             () => undefined
           )
         }
+      },
+      {
+        id: 'repository-settings',
+        label: t('projects.menu.repositorySettings'),
+        icon: <Settings2 size={12} />,
+        testId: `repository-settings-${repo.id}`,
+        onSelect: () => setSettingsRepo(repo)
       },
       ...(preparation?.kind === 'failed'
         ? [
@@ -988,6 +998,13 @@ export default function WorkspaceSidebar({
           orphans={orphans}
           onRemoveBranch={onRemoveBranch}
           onClose={() => setMaintenanceRepo(null)}
+        />
+      ) : null}
+      {settingsRepo !== null ? (
+        <RepositorySettingsDialog
+          repoId={settingsRepo.id}
+          repoName={settingsRepo.displayName}
+          onClose={() => setSettingsRepo(null)}
         />
       ) : null}
     </aside>

@@ -23,6 +23,10 @@ permissions:
 
 env:
   CI: 'true'
+  # Hosted runners occasionally lose the Docker embedded resolver, so the
+  # pinned build container cannot reach archive.ubuntu.com. The build scripts
+  # translate this into `docker run --dns ...`; local builds leave it unset.
+  ICODE_DOCKER_DNS: '8.8.8.8,1.1.1.1'
 
 jobs:
   unit-linux:

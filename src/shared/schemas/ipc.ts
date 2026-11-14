@@ -34,6 +34,10 @@ export const IPC_CHANNELS = {
   reposRetryPreparation: 'icode:repos:retry-preparation',
   reposPickFolder: 'icode:repos:pick-folder',
   reposRemove: 'icode:repos:remove',
+  reposRemovalJobsList: 'icode:repos:removal-jobs',
+  reposRemovalJobRetry: 'icode:repos:removal-job-retry',
+  reposRemovalJobDiscardSnapshots: 'icode:repos:removal-job-discard-snapshots',
+  reposRemovalEvent: 'icode:repos:removal-event',
   reposEvent: 'icode:repos:event',
   viewCommand: 'icode:view:command',
   windowMinimize: 'icode:window:minimize',
@@ -57,6 +61,14 @@ export const IPC_CHANNELS = {
   branchesList: 'icode:branches:list',
   branchesRefs: 'icode:branches:refs',
   branchesRemove: 'icode:branches:remove',
+  remotesList: 'icode:remotes:list',
+  remotesAdd: 'icode:remotes:add',
+  remotesSetUrl: 'icode:remotes:set-url',
+  remotesRemove: 'icode:remotes:remove',
+  remotesFetch: 'icode:remotes:fetch',
+  cloneStart: 'icode:clone:start',
+  cloneCancel: 'icode:clone:cancel',
+  cloneProgress: 'icode:clone:progress',
   mergeStart: 'icode:merge:start',
   mergeContinue: 'icode:merge:continue',
   mergeAbort: 'icode:merge:abort',
@@ -240,7 +252,12 @@ export const pickRepositoryFolderInputSchema = z.strictObject({
    * `\\wsl.localhost\<distro>\mnt\<drive>`; the selected spelling is translated
    * by the project-folder service, never recorded as a Linux path verbatim.
    */
-  source: z.enum(['wsl', 'windows']).optional()
+  source: z.enum(['wsl', 'windows']).optional(),
+  /**
+   * What the folder is for. A clone destination is an existing *parent* folder,
+   * so its dialog says so instead of asking for a repository.
+   */
+  purpose: z.enum(['repository', 'clone-parent']).optional()
 })
 
 export const pickRepositoryFolderResultSchema = z.discriminatedUnion('status', [
@@ -265,9 +282,7 @@ export const pickRepositoryFolderResultSchema = z.discriminatedUnion('status', [
 ])
 
 export const removeRepositoryInputSchema = z.strictObject({
-  repoId: repoIdSchema,
-  /** Required before stored session rows are cascaded. */
-  acknowledgeDependentSessions: z.boolean().optional()
+  repoId: repoIdSchema
 })
 
 export const listSessionsInputSchema = z.strictObject({
@@ -639,30 +654,10 @@ export const sessionListViewSchema = z.strictObject({
   orphans: z.array(orphanedHostSessionSchema)
 })
 
-export const removeRepositoryResultSchema = z.discriminatedUnion('status', [
-  z.strictObject({ status: z.literal('removed') }),
-  z.strictObject({
-    status: z.literal('confirmation_required'),
-    sessions: z.array(sessionSummarySchema)
-  }),
-  z.strictObject({
-    status: z.literal('blocked_live_sessions'),
-    sessions: z.array(sessionSummarySchema)
-  }),
-  z.strictObject({
-    status: z.literal('host_unavailable'),
-    error: appErrorSchema
-  }),
-  z.strictObject({
-    status: z.literal('blocked_worktree_changes'),
-    blockers: z.array(
-      z.strictObject({
-        session: sessionSummarySchema,
-        blocker: worktreeBlockerSchema
-      })
-    )
-  })
-])
+export const removeRepositoryResultSchema = z.strictObject({
+  status: z.literal('removing'),
+  jobId: z.string().min(1).max(128)
+})
 
 export const terminalAttachPayloadSchema = z.strictObject({
   sessionId: sessionIdSchema,

@@ -1,5 +1,7 @@
 import { RefreshCw, Server, TerminalSquare } from 'lucide-react'
 import type { RuntimeInfo } from '../../../../shared/icode-api'
+import type { RepoRemovalJobSummary } from '../../../../shared/schemas/repo-removal'
+import CleanupIndicator from '../CleanupIndicator'
 import type { WorkspaceState } from '../../state/workspace'
 import { hostStatus } from '../../state/host-status'
 import { useT, useTp } from '../../i18n/use-i18n'
@@ -12,6 +14,9 @@ type Props = {
   refreshing: boolean
   onRefresh: () => void
   onRetryHost: () => void
+  cleanupJobs: RepoRemovalJobSummary[]
+  onRetryRemoval: (jobId: string) => void
+  onDiscardRemovalSnapshots: (jobId: string) => void
 }
 
 /** Compact global truth for the sidebar footer. */
@@ -22,7 +27,10 @@ export default function SidebarStatus({
   runtime,
   refreshing,
   onRefresh,
-  onRetryHost
+  onRetryHost,
+  cleanupJobs,
+  onRetryRemoval,
+  onDiscardRemovalSnapshots
 }: Props): React.JSX.Element {
   const t = useT()
   const tp = useTp()
@@ -71,6 +79,11 @@ export default function SidebarStatus({
           <TerminalSquare size={10} />
           {liveSessions}
         </span>
+        <CleanupIndicator
+          jobs={cleanupJobs}
+          onRetry={onRetryRemoval}
+          onDiscard={onDiscardRemovalSnapshots}
+        />
         <button
           type="button"
           className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"

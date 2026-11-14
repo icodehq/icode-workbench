@@ -53,6 +53,7 @@ describe('app error codes', () => {
       'GIT_NON_FAST_FORWARD',
       'GIT_BRANCH_IN_USE',
       'GIT_STALE_STATUS',
+      'GIT_REMOTE_FAILED',
       'START_REF_NOT_FOUND',
       'BRANCH_EXISTS',
       'CHAIN_BRANCH_CONFLICT',
@@ -69,7 +70,8 @@ describe('app error codes', () => {
       'WSL_HOST_UNVERIFIABLE',
       'WSL_HOST_STOP_FAILED',
       'WSL_HOST_PROTOCOL_MISMATCH',
-      'WSL_LEGACY_REGISTRATION_UNRESOLVED'
+      'WSL_LEGACY_REGISTRATION_UNRESOLVED',
+      'REPOSITORY_REMOVING'
     ])
     expect(HOST_FAILURE_CODES).toHaveLength(8)
     expect(HOST_FAILURE_CODES).toContain('STALE_INCARNATION')

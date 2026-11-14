@@ -31,6 +31,7 @@ import {
   type PendingCreate
 } from './state/pending-create'
 import { useTaskQueue } from './state/use-task-queue'
+import { useRemovalJobs } from './state/use-removal-jobs'
 import { useAssistant } from './state/use-assistant'
 import { useThemePreference } from './theme/use-theme'
 import { useLocale } from './i18n/use-i18n'
@@ -203,7 +204,6 @@ export default function App(): React.JSX.Element {
   const submitCreateRef = useRef<(request: CreateSessionRequest) => Promise<boolean>>(
     async () => false
   )
-  const [removalBusy, setRemovalBusy] = useState(false)
   const [cleanupBusy, setCleanupBusy] = useState(false)
   /** Line notes and commit messages survive panel and task switches. */
   const drafts = useMemo(() => new WorkbenchDraftStore(), [])
@@ -378,6 +378,11 @@ export default function App(): React.JSX.Element {
     void tasks.reload(true)
   }, [tasks, workspace])
 
+  const cleanup = useRemovalJobs({
+    notify: workspace.notify,
+    onChanged: refreshEverything
+  })
+
   const openQueueTask = useCallback(
     (repoId?: string, afterTaskId: string | null = null): void => {
       if (state.repos.length === 0) {
@@ -473,14 +478,6 @@ export default function App(): React.JSX.Element {
     },
     [commands.showSessions, workspace]
   )
-
-  const confirmRemoval = async (): Promise<void> => {
-    const prompt = state.removal
-    if (!prompt) return
-    setRemovalBusy(true)
-    await workspace.confirmRemoval()
-    setRemovalBusy(false)
-  }
 
   const paneSessions = useSessionPanes(state.sessions)
   /**
@@ -674,7 +671,9 @@ export default function App(): React.JSX.Element {
           onOpenNotifications={() => setNotificationsOpen(true)}
           onRefresh={refreshEverything}
           onRetryPreparation={(repoId) => void workspace.retryPreparation(repoId)}
-          onRemoveRepository={(repoId) => void workspace.removeRepository(repoId)}
+          onRemoveRepository={(repoId) => {
+            void workspace.removeRepository(repoId).then(() => tasks.reload(true))
+          }}
           onRemoveBranch={(branch) => void workspace.requestRemoveBranch(branch)}
           onNotify={workspace.notify}
           footerStatus={
@@ -686,6 +685,9 @@ export default function App(): React.JSX.Element {
               refreshing={state.refreshing}
               onRefresh={refreshEverything}
               onRetryHost={refreshEverything}
+              cleanupJobs={cleanup.jobs}
+              onRetryRemoval={(jobId) => void cleanup.retry(jobId)}
+              onDiscardRemovalSnapshots={(jobId) => void cleanup.discard(jobId)}
             />
           }
         />
@@ -781,16 +783,6 @@ export default function App(): React.JSX.Element {
                   onClose: () => setNewSessionOpen(false),
                   onCreate: submitCreate,
                   onRefreshHarnesses: workspace.refreshHarnesses
-                }
-              : null
-          }
-          removal={
-            state.removal
-              ? {
-                  prompt: state.removal,
-                  busy: removalBusy,
-                  onCancel: workspace.dismissRemoval,
-                  onConfirm: () => void confirmRemoval()
                 }
               : null
           }

@@ -216,7 +216,10 @@ export function projectStats(
     },
     setupFailed,
     lastActivityAt: stamps.length > 0 ? Math.max(...stamps) : null,
-    openMode: directSessions.length > 0 ? 'sessions' : 'tasks'
+    // Sessions win when both exist; a task-only project opens tasks; an empty
+    // project falls back to sessions so it can be started there.
+    openMode:
+      directSessions.length > 0 ? 'sessions' : repoTasks.length > 0 ? 'tasks' : 'sessions'
   }
 }
 

@@ -38,6 +38,7 @@ import {
   STATUS_ARGS,
   detailOf,
 } from './git-helpers'
+import { authFailureDetail } from './remote-failure'
 
 /**
  * Git answers with the same shape as files for anything about the checkout
@@ -617,7 +618,7 @@ export class GitWorkspaceService {
   ): Promise<GitOutcome<{ branch: string; upstream: string }>> {
     const resolved = await this.resolve(sessionId)
     if (resolved.status !== 'ok') return resolved
-    const { git, worktreePath } = resolved
+    const { git, worktreePath, target } = resolved
 
     const branch = await git(worktreePath, ['rev-parse', '--abbrev-ref', 'HEAD']).catch(() => null)
     if (branch === null || branch === 'HEAD') {
@@ -655,7 +656,13 @@ export class GitWorkspaceService {
       return {
         status: 'unavailable',
         reason: 'git-failed',
-        detail: detailOf(error, `Git could not ${verb}. Check network access and credentials in the terminal.`)
+        detail:
+          authFailureDetail({
+            error,
+            operation: verb === 'force-push' ? 'push' : verb,
+            target
+          }) ??
+          detailOf(error, `Git could not ${verb}. Check network access and credentials in the terminal.`)
       }
     }
     return { status: 'ok', branch, upstream }

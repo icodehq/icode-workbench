@@ -65,6 +65,11 @@ module.exports = {
     ]
   },
   nsis: {
+    /**
+     * Cleans up a previous install directory that the registry no longer names:
+     * a canceled install, or an install that moved. See the file's comments.
+     */
+    include: 'installer.nsh',
     /** Per-user install: no elevation and no administrator rights. */
     perMachine: false,
     /** Assisted UI: the user can change the install location. */

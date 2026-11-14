@@ -1,11 +1,13 @@
-import { existsSync, mkdirSync, readdirSync, rmdirSync, statSync } from 'node:fs'
-import { dirname, posix, win32 } from 'node:path'
+import { readdirSync, rmdirSync } from 'node:fs'
+import { posix, win32 } from 'node:path'
 import type { ExecutionTarget } from '../../shared/domain/repository'
 import {
   createLocalGitExecutor,
+  createLocalHostFileSystem,
   GitUnavailableError,
   type GitExecutor,
-  type GitExecutorRouter
+  type GitExecutorRouter,
+  type HostFileSystem
 } from '../git/executor'
 import { makeAppError, type AppError } from '../../shared/domain/errors'
 import type {
@@ -138,11 +140,7 @@ export class GitWorktreeService {
             // Local keeps the pre-W6 root and filesystem exactly.
             worktreeRoot: this.deps.worktreeRoot,
             script: undefined,
-            fs: {
-              isDirectory: async (value: string) => this.isDirectory(value),
-              exists: async (value: string) => this.exists(value),
-              ensureParentDirectory: async (value: string) => this.ensureParentDirectory(value)
-            }
+            fs: createLocalHostFileSystem()
           }
         : await this.deps.router.resolve(target)
 
@@ -206,17 +204,12 @@ export class GitWorktreeService {
    * one implementation — the router's — so a guest path can never reach a local
    * `statSync`.
    */
-  async hostFsFor(
-    target: ExecutionTarget = LOCAL_TARGET
-  ): Promise<{ isDirectory(path: string): Promise<boolean>; exists(path: string): Promise<boolean> }> {
+  async hostFsFor(target: ExecutionTarget = LOCAL_TARGET): Promise<HostFileSystem> {
     const resolved =
       target.kind === 'local' || !this.deps.router
-        ? {
-            isDirectory: async (value: string) => this.isDirectory(value),
-            exists: async (value: string) => this.exists(value)
-          }
+        ? createLocalHostFileSystem()
         : await this.deps.router.resolve(target).then((entry) => entry.fs)
-    return { isDirectory: resolved.isDirectory, exists: resolved.exists }
+    return resolved
   }
 
   /**
@@ -282,7 +275,7 @@ export class GitWorktreeService {
   }
 
   /**
-   * Streams read-only Git output for one target.
+   * Streams Git output for one target.
    *
    * Returns null when the target's executor cannot stream (the guest path today,
    * because `wsl.exe` buffers the guest process). Callers must have a buffered
@@ -294,7 +287,10 @@ export class GitWorktreeService {
     | ((
         cwd: string,
         args: string[],
-        onStdout: (chunk: Buffer) => void,
+        handlers: {
+          onStdout?(chunk: Buffer): void
+          onStderr?(chunk: Buffer): void
+        },
         options?: { timeoutMs?: number; signal?: AbortSignal }
       ) => Promise<GuestGitResult>)
     | null
@@ -302,7 +298,7 @@ export class GitWorktreeService {
     const executor = await this.executorFor(target)
     const stream = executor.stream
     if (!stream) return null
-    return (cwd, args, onStdout, options = {}) =>
+    return (cwd, args, handlers, options = {}) =>
       stream(
         {
           cwd,
@@ -310,7 +306,10 @@ export class GitWorktreeService {
           timeoutMs: options.timeoutMs ?? READ_TIMEOUT_MS,
           ...(options.signal ? { signal: options.signal } : {})
         },
-        { onStdout }
+        {
+          onStdout: handlers.onStdout ?? (() => undefined),
+          ...(handlers.onStderr ? { onStderr: handlers.onStderr } : {})
+        }
       )
   }
 
@@ -358,10 +357,22 @@ export class GitWorktreeService {
    */
   async gitResultFor(
     target: ExecutionTarget = LOCAL_TARGET
-  ): Promise<(cwd: string, args: string[], timeoutMs?: number) => Promise<GuestGitResult>> {
+  ): Promise<
+    (
+      cwd: string,
+      args: string[],
+      timeoutMs?: number,
+      options?: { env?: Readonly<Record<string, string>> }
+    ) => Promise<GuestGitResult>
+  > {
     const executor = await this.executorFor(target)
-    return (cwd, args, timeoutMs = READ_TIMEOUT_MS) =>
-      executor.exec({ cwd, args, timeoutMs })
+    return (cwd, args, timeoutMs = READ_TIMEOUT_MS, options = {}) =>
+      executor.exec({
+        cwd,
+        args,
+        timeoutMs,
+        ...(options.env !== undefined ? { env: options.env } : {})
+      })
   }
 
   /** Refuses paths outside the managed root so a corrupted row cannot target arbitrary directories. */
@@ -373,10 +384,6 @@ export class GitWorktreeService {
         })
       )
     }
-  }
-
-  private ensureParentDirectory(path: string): void {
-    mkdirSync(dirname(path), { recursive: true, mode: 0o700 })
   }
 
   async inspectRepository(
@@ -992,27 +999,6 @@ export class GitWorktreeService {
       // "We could not ask" is not "there is no commit".
       if (error instanceof GitUnavailableError) throw error
       return true
-    }
-  }
-
-  private isDirectory(path: string): boolean {
-    try {
-      return statSync(path).isDirectory()
-    } catch {
-      return false
-    }
-  }
-
-  /**
-   * Existence is not directory-ness. Operation markers such as `MERGE_HEAD`
-   * are files in the common Git directory; asking `isDirectory` here made every
-   * local merge/rebase look finished.
-   */
-  private exists(path: string): boolean {
-    try {
-      return existsSync(path)
-    } catch {
-      return false
     }
   }
 

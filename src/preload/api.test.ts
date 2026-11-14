@@ -43,6 +43,7 @@ describe('preload API surface', () => {
         'ai',
         'assistant',
         'branches',
+        'clone',
         'files',
         'getRuntimeInfo',
         'git',
@@ -54,6 +55,7 @@ describe('preload API surface', () => {
         'onTaskEvent',
         'onViewCommand',
         'providers',
+        'remotes',
         'repos',
         'schedules',
         'sessions',
@@ -76,7 +78,10 @@ describe('preload API surface', () => {
     await api.repos.inspect({ path: '/tmp/repo', target: { kind: 'local' } })
     await api.repos.initialize({ path: '/tmp/repo', target: { kind: 'local' } })
     await api.repos.retryPreparation({ repoId })
-    await api.repos.remove({ repoId, acknowledgeDependentSessions: true })
+    await api.repos.remove({ repoId })
+    await api.repos.listRemovalJobs()
+    await api.repos.retryRemoval({ jobId: 'job-1' })
+    await api.repos.discardRemovalSnapshots({ jobId: 'job-1' })
 
     expect(invoke.mock.calls.map((call) => call[0])).toEqual([
       IPC_CHANNELS.reposList,
@@ -84,7 +89,10 @@ describe('preload API surface', () => {
       IPC_CHANNELS.reposInspect,
       IPC_CHANNELS.reposInitialize,
       IPC_CHANNELS.reposRetryPreparation,
-      IPC_CHANNELS.reposRemove
+      IPC_CHANNELS.reposRemove,
+      IPC_CHANNELS.reposRemovalJobsList,
+      IPC_CHANNELS.reposRemovalJobRetry,
+      IPC_CHANNELS.reposRemovalJobDiscardSnapshots
     ])
     expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.reposAdd, { path: '/tmp/repo' })
   })
@@ -359,8 +367,62 @@ describe('wsl distro discovery', () => {
   })
 })
 
-describe('task retry and continue', () => {
-  it('routes each intent to its own channel', async () => {
+describe('remote and clone operations', () => {
+  it('routes each remote intent to its own channel', async () => {
+    const { api, invoke } = setup()
+    await api.remotes.list({ repoId })
+    await api.remotes.add({ repoId, name: 'origin', url: 'https://github.com/o/r.git' })
+    await api.remotes.setUrl({ repoId, name: 'origin', url: 'https://github.com/o/r2.git' })
+    await api.remotes.remove({ repoId, name: 'origin' })
+    await api.remotes.fetch({ repoId, name: 'origin', prune: true })
+    expect(invoke.mock.calls.map((call) => call[0])).toEqual([
+      IPC_CHANNELS.remotesList,
+      IPC_CHANNELS.remotesAdd,
+      IPC_CHANNELS.remotesSetUrl,
+      IPC_CHANNELS.remotesRemove,
+      IPC_CHANNELS.remotesFetch
+    ])
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.remotesFetch, {
+      repoId,
+      name: 'origin',
+      prune: true
+    })
+  })
+
+  it('routes clone start/cancel and subscribes to progress', async () => {
+    const { api, invoke, subscribe, emit, unsubscribe } = setup()
+    const input = {
+      requestId: 'clone-1',
+      url: 'https://github.com/o/r.git',
+      target: { kind: 'local' as const },
+      parentPath: '/projects',
+      name: 'repo'
+    }
+    await api.clone.start(input)
+    await api.clone.cancel({ requestId: 'clone-1' })
+    const listener = vi.fn()
+    const off = api.clone.onProgress(listener)
+
+    expect(invoke.mock.calls.map((call) => call[0])).toEqual([
+      IPC_CHANNELS.cloneStart,
+      IPC_CHANNELS.cloneCancel
+    ])
+    expect(subscribe).toHaveBeenCalledWith(IPC_CHANNELS.cloneProgress, expect.any(Function))
+    const event = {
+      type: 'progress' as const,
+      requestId: 'clone-1',
+      phase: 'receiving' as const,
+      percent: 50,
+      detail: ''
+    }
+    emit(event)
+    expect(listener).toHaveBeenCalledWith(event)
+    off()
+    expect(unsubscribe).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('task retry and continue', () => {  it('routes each intent to its own channel', async () => {
     const { api, invoke } = setup()
     await api.tasks.retry({ taskId: 'task_1' })
     await api.tasks.resume({ taskId: 'task_1' })

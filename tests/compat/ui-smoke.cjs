@@ -13,6 +13,7 @@ const {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   writeFileSync
 } = require('node:fs')
 const { tmpdir } = require('node:os')
@@ -77,6 +78,30 @@ async function step(name, work) {
     RUN.failures.push(`${name}: ${error instanceof Error ? error.message : String(error)}`)
     throw error
   }
+}
+
+
+async function waitForRemovalRef(timeoutMs = 30000) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const refs = execFileSync('git', ['-C', REPO_DIR, 'for-each-ref', 'refs/icode/removed'], {
+      stdio: 'pipe'
+    })
+      .toString('utf8')
+      .trim()
+    if (refs.length > 0) return refs
+    await sleep(100)
+  }
+  throw new Error('No recovery snapshot ref appeared under refs/icode/removed')
+}
+
+async function waitForPathGone(path, timeoutMs = 30000) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (!existsSync(path)) return
+    await sleep(100)
+  }
+  throw new Error(`Path still exists after removal: ${path}`)
 }
 
 async function screenshot(name) {
@@ -956,25 +981,6 @@ async function main() {
     return { before: before.incarnation, after: after.incarnation }
   })
 
-  await step('block repository removal while a PTY is live', async () => {
-    await removeRepositoryFromSidebar(repoId)
-    await waitForNotice('live sessions', 20000)
-    const feedback = await notice()
-    assert(feedback.tone === 'error', 'Blocked removal was not reported as an error')
-    const repoStillRegistered = await cdp.evaluate(
-      `Boolean(document.querySelector('[data-testid="project-row-${repoId}"]'))`
-    )
-    assert(repoStillRegistered, 'Repository disappeared after a blocked removal')
-    await openProjectSessions()
-    const afterBlocked = await sessions()
-    assert(
-      afterBlocked.length === 2,
-      `Sessions were deleted by a blocked removal (count=${afterBlocked.length}, body=${(await bodyText()).slice(0, 240)})`
-    )
-    await screenshot('10-removal-blocked')
-    return feedback
-  })
-
   await step('relaunch iCode and reattach to the surviving incarnations', async () => {
     const meta = hostMeta()
     assert(meta && pidAlive(meta.pid), 'Detached terminal host is not running before relaunch')
@@ -1027,7 +1033,7 @@ async function main() {
     }
   })
 
-  await step('present an unreachable Host truthfully and refuse unverified removal', async () => {
+  await step('present an unreachable Host truthfully', async () => {
     await quitApp()
     port = nextPort++
     await launch(
@@ -1062,13 +1068,6 @@ async function main() {
     const text = await bodyText()
     assert(text.toLowerCase().includes('unreachable'), 'No unreachable Host explanation in the UI')
 
-    await removeRepositoryFromSidebar(repoId)
-    await waitForNotice('Could not verify live sessions', 30000)
-    const feedback = await notice()
-    const repoStillRegistered = await cdp.evaluate(
-      `Boolean(document.querySelector('[data-testid="project-row-${repoId}"]'))`
-    )
-    assert(repoStillRegistered, 'Repository was removed without host verification')
     await screenshot('12-host-unreachable')
     await openProjectSessions()
 
@@ -1090,7 +1089,7 @@ async function main() {
     )
     assert(queueVisible, 'Queue task disappeared with the Host outage')
     await screenshot('13-session-creation-disabled')
-    return { state, feedback, createDisabled }
+    return { state, createDisabled }
   })
 
   await step('restore Host and stop the surviving sessions', async () => {
@@ -1182,7 +1181,7 @@ async function main() {
     return { detections }
   })
 
-  await step('complete acknowledged repository removal', async () => {
+  await step('remove a repository without a confirmation dialog', async () => {
     port = nextPort++
     await launch('final', { ICODE_HOST_DIR: HOST_DIR, ICODE_HOST_SOCKET: SOCKET }, port)
     await waitFor(
@@ -1219,30 +1218,43 @@ async function main() {
       5000
     )
 
+    const worktreeParent = join(USER_DATA, 'worktrees', repoId)
+    const sessionDir = existsSync(worktreeParent)
+      ? readdirSync(worktreeParent, { withFileTypes: true }).find(
+          (entry) => entry.isDirectory() && entry.name.startsWith('ses_')
+        )
+      : null
+    const dirtyWorktree = sessionDir ? join(worktreeParent, sessionDir.name) : null
+    if (dirtyWorktree && existsSync(dirtyWorktree)) {
+      writeFileSync(join(dirtyWorktree, 'SMOKE_DIRTY.txt'), 'uncommitted\n')
+    }
+
     await removeRepositoryFromSidebar(repoId)
-    await waitForSelector('[data-testid="confirm-remove-repo"]', 20000)
-    const dialogText = await cdp.evaluate(
-      `document.querySelector('[role="dialog"]').innerText`
-    )
-    assert(dialogText.includes('Remove'), 'Removal confirmation is missing')
-    assert(dialogText.includes(firstTitle), 'Confirmation does not list dependent sessions')
-    await screenshot('15-removal-confirmation')
-    await click('[data-testid="confirm-remove-repo"]')
+    // Instant removal: the row disappears optimistically and no modal appears.
     await waitFor(
       `!document.querySelector('[data-testid="project-row-${repoId}"]')`,
       'repository removed from All projects',
       20000
+    )
+    assert(
+      await cdp.evaluate(
+        `!document.querySelector('[data-testid="confirm-remove-repo"]')`
+      ),
+      'Removal still opened a confirmation dialog'
     )
     await waitForSelector('[data-testid="empty-workspace"]', 20000)
     assert(
       (await bodyText()).includes('Add a project'),
       'Empty workspace copy is missing after removal'
     )
-    const finalNotice = await notice()
-    assert(finalNotice && finalNotice.tone === 'success', 'Removal success was not confirmed')
     assert((await sessions()).length === 0, 'Session records survived repository removal')
+    if (dirtyWorktree && existsSync(dirtyWorktree)) {
+      const refs = await waitForRemovalRef()
+      assert(refs.includes('refs/icode/removed/'), 'Dirty work was not snapshotted')
+      await waitForPathGone(dirtyWorktree)
+    }
     await screenshot('16-repository-removed')
-    return { finalNotice }
+    return { removed: true }
   })
 
   await quitApp()

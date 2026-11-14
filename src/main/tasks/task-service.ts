@@ -34,6 +34,17 @@ function fail(code: AppError['code'], message: string, detail?: string): TaskSer
   return { kind: 'app', error: makeAppError(code, message, detail ? { detail } : {}) }
 }
 
+function repositoryRemovingError(repoId: string): AppError {
+  return makeAppError(
+    'REPOSITORY_REMOVING',
+    'This project is still being cleaned up. Try again in a moment.',
+    {
+      messageKey: 'errors.REPOSITORY_REMOVING',
+      context: { repoId }
+    }
+  )
+}
+
 export type TaskOutcome<T> = { ok: true; value: T } | { ok: false; error: AppError }
 
 type MergeFacts = {
@@ -176,6 +187,9 @@ export class TaskService {
     const now = this.deps.now()
     const repository = this.deps.repositories.findById(input.repoId)
     if (!repository) return { ok: false, error: fail('INVALID_ARGUMENT', 'That repository is not registered.').error }
+    if (repository.removingAt !== undefined && repository.removingAt !== null) {
+      return { ok: false, error: repositoryRemovingError(repository.id) }
+    }
     const workspace = this.deps.repositories.workspaceForRepo(input.repoId)
     if (!workspace) {
       return { ok: false, error: fail('INVALID_ARGUMENT', 'That repository has no workspace.').error }
@@ -380,6 +394,9 @@ export class TaskService {
       }
     )
     if (!created) {
+      if (this.deps.repositories.isRemoving(input.repoId)) {
+        return { ok: false, error: repositoryRemovingError(input.repoId) }
+      }
       // Lost a race on the dedupe key: the winner's row is the truth.
       const existing = input.dedupeKey ? this.deps.tasks.findByDedupeKey(input.dedupeKey) : null
       if (existing) return ok(existing)

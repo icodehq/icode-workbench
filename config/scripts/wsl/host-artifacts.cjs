@@ -25,6 +25,7 @@ const os = require('node:os')
 const path = require('node:path')
 
 const verifier = require('./verify-artifacts.cjs')
+const { dockerDnsArgs } = require('../docker-dns.cjs')
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..')
 const DEFAULT_OUT = path.join(REPO_ROOT, 'artifacts', 'wsl-host', 'linux-x64')
@@ -106,6 +107,7 @@ function buildOnce(outDir) {
     [
       'run',
       '--rm',
+      ...dockerDnsArgs(),
       // Fixed mount points: the compile path is recorded in the binary, so a
       // different path would produce different bytes for identical inputs.
       '-v',

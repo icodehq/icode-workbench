@@ -6,7 +6,6 @@ import CommandPalette from '../components/CommandPalette'
 import NewSessionDialog from '../components/NewSessionDialog'
 import NotificationsDrawer from '../components/NotificationsDrawer'
 import QuickOpen from '../components/QuickOpen'
-import RemovalDialog from '../components/RemovalDialog'
 import WorktreeCleanupDialog from '../components/WorktreeCleanupDialog'
 
 type Props = {
@@ -18,7 +17,6 @@ type Props = {
   quickOpen: ComponentProps<typeof QuickOpen> | null
   addRepository: ComponentProps<typeof AddRepositoryDialog> | null
   newSession: ComponentProps<typeof NewSessionDialog> | null
-  removal: ComponentProps<typeof RemovalDialog> | null
   sessionCleanup: ComponentProps<typeof WorktreeCleanupDialog> | null
   branchCleanup: ComponentProps<typeof BranchCleanupDialog> | null
 }
@@ -34,7 +32,6 @@ export default function GlobalOverlays({
   quickOpen,
   addRepository,
   newSession,
-  removal,
   sessionCleanup,
   branchCleanup
 }: Props): React.JSX.Element {
@@ -49,8 +46,6 @@ export default function GlobalOverlays({
       {addRepository !== null ? <AddRepositoryDialog {...addRepository} /> : null}
 
       {newSession !== null ? <NewSessionDialog {...newSession} /> : null}
-
-      {removal !== null ? <RemovalDialog {...removal} /> : null}
 
       {sessionCleanup !== null ? (
         <WorktreeCleanupDialog {...sessionCleanup} />

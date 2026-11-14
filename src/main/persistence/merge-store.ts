@@ -1,5 +1,6 @@
 import type { Database } from './database'
 import type { AppError } from '../../shared/domain/errors'
+import type { RepoId } from '../../shared/domain/ids'
 import { appErrorSchema } from '../../shared/schemas/domain'
 import { ACTIVE_MERGE_STATES, MERGE_STATES, type MergeRecord, type MergeState } from '../../shared/domain/merge'
 
@@ -134,6 +135,7 @@ export type MergeClaimResult =
   | { kind: 'claimed'; record: MergeRecord }
   | { kind: 'session-busy'; record: MergeRecord }
   | { kind: 'target-busy'; record: MergeRecord }
+  | { kind: 'repo-removing' }
 
 /**
  * Durable merge claims and audit trail. The two partial unique indexes in the
@@ -145,6 +147,12 @@ export class MergeStore {
 
   claim(input: MergeClaimInput): MergeClaimResult {
     return this.db.transaction(() => {
+      const repo = this.db.raw
+        .prepare('SELECT removing_at FROM repos WHERE id = ?')
+        .get(input.repoId) as { removing_at?: unknown } | undefined
+      if (repo !== undefined && repo.removing_at !== null && repo.removing_at !== undefined) {
+        return { kind: 'repo-removing' }
+      }
       const sessionActive = this.findActiveForSession(input.sessionId)
       if (sessionActive !== null) return { kind: 'session-busy', record: sessionActive }
       const targetActive = this.findActiveForTarget(input.repoId, input.targetBranch)
@@ -266,6 +274,18 @@ export class MergeStore {
          ORDER BY created_at ASC`
       )
       .all(...ACTIVE_MERGE_STATES) as MergeRow[]
+    return rows.map(fromRow)
+  }
+
+  listActiveForRepo(repoId: RepoId): MergeRecord[] {
+    const placeholders = ACTIVE_MERGE_STATES.map(() => '?').join(', ')
+    const rows = this.db.raw
+      .prepare(
+        `SELECT ${COLUMNS} FROM merge_records
+         WHERE repo_id = ? AND state IN (${placeholders})
+         ORDER BY created_at ASC`
+      )
+      .all(repoId, ...ACTIVE_MERGE_STATES) as MergeRow[]
     return rows.map(fromRow)
   }
 

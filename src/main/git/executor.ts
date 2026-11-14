@@ -14,7 +14,7 @@
  */
 
 import { execFile, spawn } from 'node:child_process'
-import { mkdirSync, readdirSync, rmdirSync, statSync } from 'node:fs'
+import { mkdirSync, readdirSync, rmdirSync, rmSync, statSync } from 'node:fs'
 import { dirname } from 'node:path'
 import type { ExecutionTarget } from '../../shared/domain/repository'
 import type { WslCommandRunner } from '../wsl/exec'
@@ -40,6 +40,12 @@ export type GitExecRequest = {
   stdin?: Buffer | string
   timeoutMs: number
   signal?: AbortSignal
+  /**
+   * Per-call environment additions, e.g. `GIT_INDEX_FILE` for a snapshot that
+   * must not touch the user's index. The guest executor restricts keys to
+   * `GIT_*`; existing executor defaults always win for PATH/HOME.
+   */
+  env?: Readonly<Record<string, string>>
 }
 
 /** Receives stdout as it arrives; the executor does not accumulate it. */
@@ -85,6 +91,14 @@ export type HostFileSystem = {
   isEmptyDirectory(path: string): Promise<boolean>
   /** Removes an empty directory only. */
   removeDirectory(path: string): Promise<void>
+  /**
+   * Removes a directory tree recursively.
+   *
+   * Only for a path this process created and is cleaning up itself (an
+   * interrupted clone), never for user data. The clone service scopes the path
+   * before calling it.
+   */
+  removeTree(path: string): Promise<void>
 }
 
 export function createLocalHostFileSystem(): HostFileSystem {
@@ -116,6 +130,9 @@ export function createLocalHostFileSystem(): HostFileSystem {
     },
     async removeDirectory(path) {
       rmdirSync(path)
+    },
+    async removeTree(path) {
+      rmSync(path, { recursive: true, force: true, maxRetries: 2 })
     }
   }
 }
@@ -188,6 +205,18 @@ export function createGuestHostFileSystem(
       if ('status' in result || result.code !== 0) {
         throw new GitUnavailableError('Could not remove the empty worktree directory.', path)
       }
+    },
+    async removeTree(path) {
+      // Constant script, argv only. `rm -rf` is idempotent, so one retry is safe.
+      const result = await runIdempotentGuest(runner, {
+        scope: 'guest',
+        distro,
+        argv: ['sh', '-c', 'rm -rf -- "$1"', 'icode-rm-tree', path],
+        timeoutMs: 30_000
+      })
+      if ('status' in result || isTransportFailure(result) || result.code !== 0) {
+        throw new GitUnavailableError('Could not remove the partial clone directory.', path)
+      }
     }
   }
 }
@@ -202,7 +231,7 @@ export function createLocalGitExecutor(
     GIT_OPTIONAL_LOCKS: '0'
   }
   return {
-    exec({ cwd, args, stdin, timeoutMs, signal }) {
+    exec({ cwd, args, stdin, timeoutMs, signal, env: requestEnv }) {
       return new Promise<GuestGitResult>((resolve, reject) => {
         const child = execFile(
           'git',
@@ -210,7 +239,7 @@ export function createLocalGitExecutor(
           {
             timeout: timeoutMs,
             maxBuffer: 64 * 1024 * 1024,
-            env,
+            env: requestEnv ? { ...env, ...requestEnv } : env,
             ...(signal ? { signal } : {})
           },
           (error, stdout, stderr) => {
@@ -245,10 +274,10 @@ export function createLocalGitExecutor(
         }
       })
     },
-    stream({ cwd, args, timeoutMs, signal }, handlers) {
+    stream({ cwd, args, timeoutMs, signal, env: requestEnv }, handlers) {
       return new Promise<GuestGitResult>((resolve, reject) => {
         const child = spawn('git', ['-C', cwd, ...args], {
-          env,
+          env: requestEnv ? { ...env, ...requestEnv } : env,
           stdio: ['ignore', 'pipe', 'pipe'],
           windowsHide: true,
           ...(signal ? { signal } : {})
@@ -309,14 +338,15 @@ export function createGuestGitExecutor(
 ): GitExecutor {
   const read = createGuestBoundedRead(runner, distro)
   return {
-    exec({ cwd, args, stdin, timeoutMs, signal }) {
+    exec({ cwd, args, stdin, timeoutMs, signal, env: requestEnv }) {
       return runGuestGit(runner, {
         distro,
         cwd,
         args,
         ...(stdin !== undefined ? { stdin } : {}),
         timeoutMs,
-        ...(signal ? { signal } : {})
+        ...(signal ? { signal } : {}),
+        ...(requestEnv !== undefined ? { env: requestEnv } : {})
       })
     },
     read(request) {

@@ -1,6 +1,7 @@
 import type { GitWorkspaceContext } from '../workspace-context'
 import type { GitOutcome } from '../git-workspace-service'
 import { detailOf } from '../git-helpers'
+import { authFailureDetail } from '../remote-failure'
 
 
 
@@ -36,7 +37,7 @@ export async function pushTo(
   > {
     const resolved = await ctx.resolve(sessionId)
     if (resolved.status !== 'ok') return resolved
-    const { git, worktreePath } = resolved
+    const { git, worktreePath, target } = resolved
     const localBranch = await git(worktreePath, ['rev-parse', '--abbrev-ref', 'HEAD']).catch(
       () => null
     )
@@ -74,10 +75,12 @@ export async function pushTo(
       return {
         status: 'unavailable',
         reason: 'git-failed',
-        detail: detailOf(
-          error,
-          `Git could not push ${localBranch}. Check network access and credentials in the terminal.`
-        )
+        detail:
+          authFailureDetail({ error, operation: 'push', target }) ??
+          detailOf(
+            error,
+            `Git could not push ${localBranch}. Check network access and credentials in the terminal.`
+          )
       }
     }
     return {
@@ -110,7 +113,7 @@ export async function remotes(
 export async function publish(ctx: GitWorkspaceContext, sessionId: string): Promise<GitOutcome<{ branch: string; upstream: string }>> {
     const resolved = await ctx.resolve(sessionId)
     if (resolved.status !== 'ok') return resolved
-    const { git, worktreePath } = resolved
+    const { git, worktreePath, target } = resolved
     const branch = await git(worktreePath, ['rev-parse', '--abbrev-ref', 'HEAD']).catch(() => null)
     if (branch === null || branch === 'HEAD') {
       return {
@@ -134,7 +137,12 @@ export async function publish(ctx: GitWorkspaceContext, sessionId: string): Prom
       return {
         status: 'unavailable',
         reason: 'git-failed',
-        detail: detailOf(error, `Git could not publish ${branch}. Check network access and credentials in the terminal.`)
+        detail:
+          authFailureDetail({ error, operation: 'publish', target }) ??
+          detailOf(
+            error,
+            `Git could not publish ${branch}. Check network access and credentials in the terminal.`
+          )
       }
     }
     return { status: 'ok', branch, upstream: `${remote}/${branch}` }

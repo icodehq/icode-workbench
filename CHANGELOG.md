@@ -7,24 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-
-- Merge and Push now live in Source Control. A contextual
-  **Merge into `<target>`** primary action and anchored **Merge into branch…**
-  / **Push to…** pickers replace the session/task header buttons and their full-screen
-  modals. Push to… also absorbs the separate Push and Publish menu entries and
-  defaults to the configured upstream, or origin plus the local branch when
-  unpublished. Merge still requires a clean worktree.
+## [0.8.2] - 2026-11-12
 
 ### Fixed
 
-- Continuing or aborting a merge from the Source Control operation banner now
-  uses the merge service, so the target fast-forwards, the merge record lands
-  in the correct state, and dependent tasks unblock.
-- Stale conflicted merge records left by the old generic continue/abort path
-  are reconciled at boot and can be aborted without a restart.
+- The Windows installer now recognizes a partial install by its Chromium
+  resource files (`chrome_100_percent.pak` and `chrome_200_percent.pak`), so a
+  cancelled first install whose executable is already gone is still cleaned
+  up. This is the residue an interrupted install leaves when it stops after
+  unpacking the framework assets.
 
-## [0.8.0] - 2026-11-10
+## [0.8.1] - 2026-11-12
+
+### Fixed
+
+- The Windows installer now removes files left in the default per-user install
+  directory by an interrupted install or by a previous install at another
+  location; the uninstaller cleans the same orphaned directory. Only a
+  directory that still carries iCode's own files is touched.
+- Claude activity hooks no longer wait indefinitely when the ingress accepts
+  a connection and then stalls; the hook exits after at most one second.
+- Zero-byte connections to the activity ingress and the supervisor control
+  plane are ignored instead of logged as errors. Windows named pipes are
+  world-open, so security software and stray probes can open one and close it
+  without sending a request; the shipped clients never do.
+- Documented the `ELECTRON_RUN_AS_NODE` startup trap and the WAL caveat when
+  checking `user_version` with an external tool.
+
+## [0.8.0] - 2026-11-11
 
 ### Added
 
@@ -44,6 +54,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Push…** sends the session branch to an explicitly chosen remote and branch,
   setting upstream without merging. Push never satisfies a task dependency;
   only a local merge into the chain branch does.
+- **Repository settings** (project menu → **Repository settings…**) lists the
+  remotes Git stores for a checkout, recognizes GitHub and GitLab URLs, redacts
+  embedded credentials, and offers Fetch, Edit, and Remove. **Push to…** now
+  offers **Add remote…** and **Manage remotes…** when a repository has no
+  remote. Git remains the source of truth; no remote is stored in SQLite.
+- **Add project** can **Clone from URL** into a local or WSL target with
+  streamed progress and cancellation. An interrupted or failed clone removes
+  only the destination it created, a distinct fetch/push URL is shown
+  read-only, and an empty remote continues through the existing unborn-repository
+  setup so the first commit is still an explicit step.
+- Clone, fetch, push, and pull authentication failures name the environment to
+  fix (the system Git credential helper/SSH agent, or the selected WSL distro),
+  and credential-bearing URLs are redacted from every Git error detail.
+- **Instant project removal.** Removing a project unregisters it immediately
+  and runs the remaining cleanup as a durable background job. The job stops
+  sessions, aborts active merges, saves uncommitted worktree changes to
+  recovery refs, removes iCode-created worktrees, retains branches, and deletes
+  the project's tasks, schedules, supervisor bindings, and assistant audit
+  rows. A status-bar cleanup indicator shows progress, retries failures, and
+  offers Discard snapshots; the primary checkout and remote repository are
+  never touched.
+
+### Changed
+
+- Merge and Push now live in Source Control. A contextual
+  **Merge into `<target>`** primary action and anchored **Merge into branch…**
+  / **Push to…** pickers replace the session/task header buttons and their full-screen
+  modals. Push to… also absorbs the separate Push and Publish menu entries and
+  defaults to the configured upstream, or origin plus the local branch when
+  unpublished. Merge still requires a clean worktree.
+
+### Fixed
+
+- Opening a project now follows its contents: when a project has both direct
+  sessions and tasks it opens Sessions, a task-only project opens Tasks, and a
+  project with neither opens Sessions instead of an empty Tasks view.
+- Terminal host startup failures, such as an unusable host directory, are
+  reported as an unreachable host rather than an internal session error, so
+  project cleanup waits and retries instead of failing.
+- Continuing or aborting a merge from the Source Control operation banner now
+  uses the merge service, so the target fast-forwards, the merge record lands
+  in the correct state, and dependent tasks unblock.
+- Stale conflicted merge records left by the old generic continue/abort path
+  are reconciled at boot and can be aborted without a restart.
 
 ## [0.7.0] - 2026-11-10
 

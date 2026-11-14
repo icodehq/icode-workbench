@@ -387,6 +387,23 @@ is `$XDG_CONFIG_HOME/iCode` (default `~/.config/iCode`), with the database at
 `icode.sqlite` and host runtime files under `run/`. Quitting the window leaves
 the host and its PTYs alive.
 
+### Troubleshooting
+
+- **Windows: iCode exits immediately and `--version` prints a Node version.**
+  If iCode is started from an AI terminal or automation tool that exports
+  `ELECTRON_RUN_AS_NODE=1`, Electron runs the executable as plain Node instead
+  of the app: no window appears, the exit code is 0, and there is no iCode log.
+  Clear the variable before launching (`Remove-Item Env:ELECTRON_RUN_AS_NODE`
+  in PowerShell, `set ELECTRON_RUN_AS_NODE=` in cmd), or start iCode from the
+  Start menu. The app cannot log this itself, because Electron never reaches
+  application code in that mode.
+- **Checking the database schema version.** `icode.sqlite` runs in WAL mode; a
+  migration committed by a running app lives in `icode.sqlite-wal` until a clean
+  quit checkpoints it. A tool that reads only the main file, or a copy without
+  its `-wal` and `-shm` companions, can report the previous `user_version` and
+  miss recently added tables. Quit iCode normally before inspecting the profile,
+  or inspect the whole directory.
+
 ## Community & support
 
 - **Issues:** [github.com/icodehq/icode-workbench/issues](https://github.com/icodehq/icode-workbench/issues)

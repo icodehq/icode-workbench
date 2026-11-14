@@ -85,8 +85,6 @@ export function useWorkspace(): {
   /** Retries a failed or interrupted background first commit. */
   retryPreparation: (repoId: string) => Promise<void>
   removeRepository: (repoId: string) => Promise<void>
-  confirmRemoval: () => Promise<void>
-  dismissRemoval: () => void
   createSession: (input: CreateSessionRequest) => Promise<CreateSessionOutcome>
   stopSession: (sessionId: string) => Promise<void>
   restartSession: (sessionId: string) => Promise<void>
@@ -449,111 +447,40 @@ export function useWorkspace(): {
 
   const removeRepository = useCallback(
     async (repoId: string): Promise<void> => {
+      const repo = state.repos.find((entry) => entry.id === repoId)
+      const snapshot = {
+        repos: state.repos,
+        sessions: state.sessions,
+        activeRepoId: state.activeRepoId,
+        activeSessionId: state.activeSessionId
+      }
+      // Optimistic: the project disappears before the IPC returns. The backend
+      // tombstones it and continues cleanup in the background.
+      dispatch({ type: 'repoRemoving', repoId })
       const result = await callApi(window.icode.repos.remove({ repoId }))
       if (!result.ok) {
+        dispatch({ type: 'repoRemovalRollback', repoId, ...snapshot })
         notify(errorNotice(result.error))
         return
       }
-      const outcome = result.value
-      if (outcome.status === 'removed') {
-        dispatch({ type: 'removalPrompt', prompt: null })
-        notify({ tone: 'success', message: translate('workspace.notice.repositoryRemoved') })
-        await Promise.all([refreshRepos(), refreshSessions()])
-        return
-      }
-      if (outcome.status === 'confirmation_required') {
-        const repo = state.repos.find((entry) => entry.id === repoId)
-        dispatch({
-          type: 'removalPrompt',
-          prompt: {
-            repoId,
-            repoName: repo?.displayName ?? repoId,
-            sessions: outcome.sessions
-          }
-        })
-        return
-      }
-      if (outcome.status === 'blocked_live_sessions') {
-        notify({
-          tone: 'error',
-          message: translate('workspace.notice.repositoryStillLive'),
-          detail: outcome.sessions.map((session) => session.title).join(', ')
-        })
-        return
-      }
-      if (outcome.status === 'blocked_worktree_changes') {
-        notify({
-          tone: 'error',
-          message: translate('workspace.notice.worktreesHoldWork'),
-          detail: outcome.blockers
-            .map((entry) => `${entry.session.title}: ${entry.blocker.kind}`)
-            .join(', ')
-        })
-        return
-      }
       notify({
-        tone: 'error',
-        message: translate('workspace.notice.couldNotVerify'),
-        detail: outcome.error.message
+        tone: 'info',
+        message: translate('workspace.notice.removalStarted', {
+          project: repo?.displayName ?? repoId
+        })
       })
+      void Promise.all([refreshRepos(), refreshSessions()])
     },
-    [notify, refreshRepos, refreshSessions, state.repos]
+    [
+      notify,
+      refreshRepos,
+      refreshSessions,
+      state.activeRepoId,
+      state.activeSessionId,
+      state.repos,
+      state.sessions
+    ]
   )
-
-  const confirmRemoval = useCallback(async (): Promise<void> => {
-    const prompt = state.removal
-    if (!prompt) return
-    const result = await callApi(
-      window.icode.repos.remove({
-        repoId: prompt.repoId,
-        acknowledgeDependentSessions: true
-      })
-    )
-    if (!result.ok) {
-      notify(errorNotice(result.error))
-      return
-    }
-    const outcome = result.value
-    if (outcome.status === 'removed') {
-      dispatch({ type: 'removalPrompt', prompt: null })
-      notify({
-        tone: 'success',
-        message: translate('workspace.notice.projectRemoved', { project: prompt.repoName })
-      })
-      await Promise.all([refreshRepos(), refreshSessions()])
-      return
-    }
-    if (outcome.status === 'blocked_live_sessions') {
-      dispatch({ type: 'removalPrompt', prompt: null })
-      notify({
-        tone: 'error',
-        message: translate('workspace.notice.removalLive'),
-        detail: outcome.sessions.map((session) => session.title).join(', ')
-      })
-      return
-    }
-    if (outcome.status === 'blocked_worktree_changes') {
-      dispatch({ type: 'removalPrompt', prompt: null })
-      notify({
-        tone: 'error',
-        message: translate('workspace.notice.removalWorktrees'),
-        detail: outcome.blockers
-          .map((entry) => `${entry.session.title}: ${entry.blocker.kind}`)
-          .join(', ')
-      })
-      return
-    }
-    dispatch({ type: 'removalPrompt', prompt: null })
-    notify({
-      tone: 'error',
-      message: translate('workspace.notice.removalIncomplete'),
-      ...(outcome.status === 'host_unavailable' ? { detail: outcome.error.message } : {})
-    })
-  }, [notify, refreshRepos, refreshSessions, state.removal])
-
-  const dismissRemoval = useCallback(() => {
-    dispatch({ type: 'removalPrompt', prompt: null })
-  }, [])
 
   /** Ordinary removal: blocks on live, dirty, unmerged, missing or inconsistent worktrees. */
   const requestRemoveSession = useCallback(
@@ -957,8 +884,6 @@ export function useWorkspace(): {
     initializeRepository,
     retryPreparation,
     removeRepository,
-    confirmRemoval,
-    dismissRemoval,
     createSession,
     stopSession,
     restartSession,

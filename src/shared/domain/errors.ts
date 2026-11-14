@@ -54,6 +54,8 @@ export const APP_ERROR_CODES = [
   'GIT_NON_FAST_FORWARD',
   'GIT_BRANCH_IN_USE',
   'GIT_STALE_STATUS',
+  // Remote configuration, fetch, clone, push and pull failures that are not auth.
+  'GIT_REMOTE_FAILED',
   // Session-first integration: starting refs, branch naming, dependency chains.
   'START_REF_NOT_FOUND',
   'BRANCH_EXISTS',
@@ -78,7 +80,10 @@ export const APP_ERROR_CODES = [
   'WSL_HOST_PROTOCOL_MISMATCH',
   // A pre-W1 WSL row names its distro only by name; the recorded repository and
   // the proven registration cannot be shown to be the same installation.
-  'WSL_LEGACY_REGISTRATION_UNRESOLVED'
+  'WSL_LEGACY_REGISTRATION_UNRESOLVED',
+  // The repository is tombstoned by a durable removal job and cannot accept new
+  // sessions, tasks, merges, or a duplicate registration.
+  'REPOSITORY_REMOVING'
 ] as const
 
 export type AppErrorCode = (typeof APP_ERROR_CODES)[number]
@@ -120,6 +125,8 @@ const RETRYABLE_CODES: ReadonlySet<AppErrorCode> = new Set<AppErrorCode>([
   'WORKTREE_CREATE_FAILED',
   'GIT_READ_FAILED',
   'GIT_READ_TIMEOUT',
+  // Network and remote-server failures are commonly transient.
+  'GIT_REMOTE_FAILED',
   // Index lock contention is transient: the other Git process usually finishes.
   'GIT_INDEX_LOCKED',
   // The target branch moved while the merge was being prepared; retry.

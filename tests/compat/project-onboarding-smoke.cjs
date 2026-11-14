@@ -23,6 +23,8 @@ const USER_DATA = join(RUN_DIR, 'userdata')
 const FOLDER = join(RUN_DIR, 'plain-project')
 const PARENT = join(RUN_DIR, 'repo-parent')
 const CHILD = join(PARENT, 'child')
+const CLONE_SOURCE = join(RUN_DIR, 'clone-source')
+const CLONE_PARENT = join(RUN_DIR, 'clone-parent')
 const PORT = 25_100 + (process.pid % 400)
 
 const RUN = {
@@ -50,6 +52,16 @@ execFileSync('git', ['-C', CHILD, 'config', 'user.name', 'Child Smoke'])
 execFileSync('git', ['-C', CHILD, 'config', 'user.email', 'child@smoke.test'])
 execFileSync('git', ['-C', CHILD, 'add', 'README.md'])
 execFileSync('git', ['-C', CHILD, 'commit', '-qm', 'child baseline'])
+
+// A real local repository to clone from, and its destination parent.
+mkdirSync(CLONE_SOURCE, { recursive: true })
+mkdirSync(CLONE_PARENT, { recursive: true })
+writeFileSync(join(CLONE_SOURCE, 'README.md'), '# clone source\n')
+execFileSync('git', ['init', '-q', '-b', 'main', CLONE_SOURCE])
+execFileSync('git', ['-C', CLONE_SOURCE, 'config', 'user.name', 'Clone Smoke'])
+execFileSync('git', ['-C', CLONE_SOURCE, 'config', 'user.email', 'clone@smoke.test'])
+execFileSync('git', ['-C', CLONE_SOURCE, 'add', 'README.md'])
+execFileSync('git', ['-C', CLONE_SOURCE, 'commit', '-qm', 'clone baseline'])
 
 function sleep(ms) {
   return new Promise((done) => setTimeout(done, ms))
@@ -276,6 +288,69 @@ async function main() {
     assert(Array.isArray(repos) && repos.includes(CHILD), 'The child repository was not registered')
     assert(!existsSync(join(PARENT, '.git')), 'The parent folder was initialized instead of offered children')
     return { repos }
+  })
+
+  await step('clone a repository from a URL with progress', async () => {
+    await click('[data-testid="add-project"]')
+    await waitForSelector('[data-testid="add-repo-form"]')
+    await click('[data-testid="add-repo-mode-clone"]')
+    await setValue('[data-testid="add-repo-clone-url"]', CLONE_SOURCE)
+    await setValue('[data-testid="add-repo-clone-parent"]', CLONE_PARENT)
+    const suggestedName = await cdp.evaluate(
+      `document.querySelector('[data-testid="add-repo-clone-name"]')?.value ?? null`
+    )
+    assert(suggestedName === 'clone-source', `unexpected clone name: ${suggestedName}`)
+    await screenshot('03-clone-form')
+    await click('[data-testid="add-repo-submit"]')
+    await waitFor(
+      `!document.querySelector('[data-testid="add-repo-form"]')`,
+      'the clone dialog to close',
+      60_000
+    )
+    const destination = join(CLONE_PARENT, 'clone-source')
+    assert(existsSync(join(destination, 'README.md')), 'the clone did not create its checkout')
+    await waitFor(
+      `(async () => {
+        const result = await window.icode.repos.list();
+        return result.ok && result.value.some((repo) => repo.path === ${JSON.stringify(destination)});
+      })()`,
+      'the cloned repository to be registered',
+      30_000
+    )
+  })
+
+  await step('add, fetch and remove a remote from Repository settings', async () => {
+    const repo = await cdp.evaluate(`(async () => {
+      const result = await window.icode.repos.list();
+      return result.ok
+        ? result.value.find((entry) => entry.path === ${JSON.stringify(FOLDER)}) ?? null
+        : null;
+    })()`)
+    assert(repo && typeof repo.id === 'string', 'the plain project is missing')
+    await click(`[data-testid="project-menu-${repo.id}"]`)
+    await click(`[data-testid="repository-settings-${repo.id}"]`)
+    await waitForSelector('[data-testid="repository-settings-dialog"]', 10_000)
+    await waitForSelector('[data-testid="remotes-empty"]', 10_000)
+
+    await click('[data-testid="remote-add"]')
+    await setValue('[data-testid="remote-form-name"]', 'origin')
+    await setValue('[data-testid="remote-form-url"]', CLONE_SOURCE)
+    await click('[data-testid="remote-form-save"]')
+    await waitForSelector('[data-testid="remote-row-origin"]', 15_000)
+
+    await click('[data-testid="remote-fetch-origin"]')
+    await waitForSelector('[data-testid="remotes-notice"]', 15_000)
+
+    await click('[data-testid="remote-remove-origin"]')
+    await waitForSelector('[data-testid="remote-remove-confirm-origin"]', 10_000)
+    await click('[data-testid="remote-remove-commit-origin"]')
+    await waitFor(
+      `!document.querySelector('[data-testid="remote-row-origin"]')`,
+      'the remote to be removed',
+      15_000
+    )
+    await waitForSelector('[data-testid="remotes-empty"]', 10_000)
+    await click('[data-testid="repository-settings-close"]')
   })
 
   RUN.ok = RUN.failures.length === 0

@@ -107,7 +107,8 @@ describe('guest executor', () => {
     const result = await executor.exec({
       cwd: '/home/u/src/atlas',
       args: ['rev-parse', 'HEAD'],
-      timeoutMs: 5_000
+      timeoutMs: 5_000,
+      env: { GIT_INDEX_FILE: '/home/u/.icode/snapshot/index' }
     })
     expect(result.stdout.toString('utf8').trim()).toBe('abc123')
     expect(result.exitCode).toBe(0)
@@ -116,11 +117,33 @@ describe('guest executor', () => {
     expect(args.slice(0, 4)).toEqual(['-d', 'Ubuntu-26.04', '--exec', '/usr/bin/env'])
     expect(args).toContain('PATH=/usr/local/bin:/usr/bin:/bin')
     expect(args).toContain('HOME=/home/u')
+    expect(args).toContain('GIT_INDEX_FILE=/home/u/.icode/snapshot/index')
     expect(args).toContain('/usr/bin/git')
     expect(args.slice(args.indexOf('-C'), args.indexOf('-C') + 2)).toEqual([
       '-C',
       '/home/u/src/atlas'
     ])
+  })
+
+  it('rejects a non-Git environment override', async () => {
+    const runner = new WslCommandRunner({
+      platform: 'win32',
+      byteLauncher: async (spec): Promise<WslByteResult> => {
+        const guest = [...spec.args].slice([...spec.args].indexOf('--exec') + 1)
+        if (isProbe(guest)) {
+          return { code: 0, signal: null, stdout: probeAnswer(), stderr: Buffer.alloc(0), timedOut: false }
+        }
+        return { code: 0, signal: null, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), timedOut: false }
+      }
+    })
+    await expect(
+      createGuestGitExecutor(runner, 'd').exec({
+        cwd: '/x',
+        args: ['status'],
+        timeoutMs: 1_000,
+        env: { PATH: '/evil' }
+      })
+    ).rejects.toThrow('Invalid Git environment override.')
   })
 
   it('preserves a Git exit code and stderr exactly', async () => {

@@ -24,6 +24,7 @@ import { respondToWindowClose } from '../window-close'
 import { localeSetInputSchema } from '../../shared/schemas/locale'
 import type { LocaleService } from '../i18n/locale-service'
 import { getMainLocale } from '../i18n/main-i18n'
+import { localizeAppError } from '../../shared/i18n'
 import { createProviderProbe } from '../providers/provider-probe'
 
 export const WINDOW_CONTROL_CHANNELS: readonly string[] = [
@@ -49,6 +50,9 @@ export const HANDLED_CHANNELS: readonly string[] = [
   IPC_CHANNELS.reposRetryPreparation,
   IPC_CHANNELS.reposPickFolder,
   IPC_CHANNELS.reposRemove,
+  IPC_CHANNELS.reposRemovalJobsList,
+  IPC_CHANNELS.reposRemovalJobRetry,
+  IPC_CHANNELS.reposRemovalJobDiscardSnapshots,
   IPC_CHANNELS.sessionsList,
   IPC_CHANNELS.sessionsGet,
   IPC_CHANNELS.sessionsCreate,
@@ -62,6 +66,13 @@ export const HANDLED_CHANNELS: readonly string[] = [
   IPC_CHANNELS.branchesList,
   IPC_CHANNELS.branchesRefs,
   IPC_CHANNELS.branchesRemove,
+  IPC_CHANNELS.remotesList,
+  IPC_CHANNELS.remotesAdd,
+  IPC_CHANNELS.remotesSetUrl,
+  IPC_CHANNELS.remotesRemove,
+  IPC_CHANNELS.remotesFetch,
+  IPC_CHANNELS.cloneStart,
+  IPC_CHANNELS.cloneCancel,
   IPC_CHANNELS.mergeStart,
   IPC_CHANNELS.mergeContinue,
   IPC_CHANNELS.mergeAbort,
@@ -221,7 +232,10 @@ export function createAppDispatcher(
         localHome: () => app.getPath('home'),
         readGuestHome: (distro) => runtime.readGuestHome(distro)
       })
-      const result = await picker.pick(input.target, { source: input.source })
+      const result = await picker.pick(input.target, {
+        source: input.source,
+        ...(input.purpose === undefined ? {} : { purpose: input.purpose })
+      })
       if (result.status !== 'selected') {
         return pickRepositoryFolderResultSchema.parse(result)
       }
@@ -262,12 +276,11 @@ export function createAppDispatcher(
         })
       }
     },
-    reposRemove: async (input) =>
-      runtime.removals.remove(input.repoId, {
-        ...(input.acknowledgeDependentSessions === undefined
-          ? {}
-          : { acknowledgeDependentSessions: input.acknowledgeDependentSessions })
-      }),
+    reposRemove: async (input) => runtime.removals.start(input.repoId),
+    reposRemovalJobsList: async () => ({ jobs: runtime.removals.listJobs() }),
+    reposRemovalJobRetry: async (input) => runtime.removals.retry(input.jobId),
+    reposRemovalJobDiscardSnapshots: async (input) =>
+      runtime.removals.discardSnapshots(input.jobId),
     sessionsList: (input) => runtime.sessions.list(input.repoId),
     sessionsGet: (input) =>
       runtime.sessions.get(input.sessionId),
@@ -290,6 +303,26 @@ export function createAppDispatcher(
     branchesRefs: (input) => runtime.branchRefs.listRefs(input.repoId as never),
     branchesRemove: (input) =>
       runtime.sessionRemovals.removeBranch(input.repoId, input.branch, input.confirmBranch),
+    remotesList: (input) => runtime.remotes.list(input.repoId as never),
+    remotesAdd: (input) =>
+      runtime.remotes.add(input.repoId as never, { name: input.name, url: input.url }),
+    remotesSetUrl: (input) =>
+      runtime.remotes.setUrl(input.repoId as never, { name: input.name, url: input.url }),
+    remotesRemove: (input) => runtime.remotes.remove(input.repoId as never, input.name),
+    remotesFetch: (input) =>
+      runtime.remotes.fetch(input.repoId as never, {
+        name: input.name,
+        ...(input.prune === undefined ? {} : { prune: input.prune })
+      }),
+    cloneStart: (input) =>
+      runtime.clone.start({
+        requestId: input.requestId,
+        url: input.url,
+        target: input.target as never,
+        parentPath: input.parentPath,
+        name: input.name
+      }),
+    cloneCancel: async (input) => ({ cancelled: runtime.clone.cancel(input.requestId) }),
     mergeStart: (input) => runtime.merges.start(input),
     mergeContinue: (input) => runtime.merges.continueMerge(input.sessionId),
     mergeAbort: (input) => runtime.merges.abort(input.sessionId),
@@ -642,6 +675,10 @@ export function registerAppIpc(
     broadcast(IPC_CHANNELS.reposEvent, { type: 'repos-changed' })
   })
 
+  const unsubscribeRemovals = runtime.onRemovalChange(() => {
+    broadcast(IPC_CHANNELS.reposRemovalEvent, { type: 'removal-changed' })
+  })
+
   const unsubscribeGitStatus = runtime.gitStatusWatcher.subscribe((event) => {
     broadcast(IPC_CHANNELS.gitStatusEvent, event)
   })
@@ -654,11 +691,26 @@ export function registerAppIpc(
     broadcast(IPC_CHANNELS.assistantEvent, event)
   })
 
+  /**
+   * Clone failures are normalized at the process boundary, like every other
+   * dispatcher result, so the dialog can render a localized message key.
+   */
+  const unsubscribeClone = runtime.clone.subscribe((event) => {
+    broadcast(
+      IPC_CHANNELS.cloneProgress,
+      event.type === 'failed'
+        ? { ...event, error: localizeAppError(event.error, getMainLocale()) }
+        : event
+    )
+  })
+
   return () => {
+    unsubscribeClone()
     unsubscribeAssistant()
     unsubscribeFilesChanged()
     unsubscribeGitStatus()
     unsubscribeRepos()
+    unsubscribeRemovals()
     unsubscribeTasks()
     unsubscribe()
     for (const channel of handlers) ipcMain.removeHandler(channel)

@@ -23,8 +23,11 @@ import { WorkspaceFilesService } from '../files/workspace-files-service'
 import { WorkspaceFilesWatcherService } from '../files/workspace-files-watcher'
 import { GitWorkspaceService } from '../git/git-workspace-service'
 import { BranchService } from '../git/branch-service'
+import { RemoteService } from '../git/remote-service'
+import { CloneService } from '../git/clone-service'
 import { CommitMessageService } from '../ai/commit-message-service'
 import { MergeStore } from '../persistence/merge-store'
+import { RepoRemovalJobStore } from '../persistence/repo-removal-job-store'
 import { MergeService } from '../integration/merge-service'
 import { ChainService } from '../integration/chain-service'
 import { GitStatusWatcherService } from '../git/status-watcher'
@@ -89,6 +92,10 @@ export type AppRuntime = {
   gitWorkspace: GitWorkspaceService
   /** Local branch refs, name validation, and chain-branch creation. */
   branchRefs: BranchService
+  /** Git remotes for a registered repository: list, add, edit, remove, fetch. */
+  remotes: RemoteService
+  /** Streaming clone into a new project folder. */
+  clone: CloneService
   /** Local merge into a target branch, with durable claims and conflicts. */
   merges: MergeService
   /** One-shot AI commit-message drafts from the staged index. */
@@ -103,6 +110,8 @@ export type AppRuntime = {
   repositoryPreparations: RepositoryPreparationService
   /** Subscribe to repository/preparation changes so a window can re-read. */
   onRepoChange: (listener: () => void) => () => void
+  /** Subscribe to removal job changes so a window can re-read cleanup state. */
+  onRemovalChange: (listener: () => void) => () => void
   /** Durable tasks: creation, cancellation, retry, and the retry history. */
   tasks: TaskService
   /** Due-schedule evaluation. Every occurrence becomes an ordinary task. */
@@ -223,7 +232,14 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     socketPath: activitySocketPath,
     ingest: (event) => activity.ingest(event),
     onRejected: (reason, detail) => {
-      process.stderr.write(`[icode] activity payload dropped (${reason}) ${detail ?? ''}\n`)
+      // A zero-byte connection cannot be the shipped hook: it either sends a
+      // frame or exits before connecting. Windows named pipes are world-open,
+      // and security software probes them, so this is routine noise rather
+      // than a dropped event.
+      if (reason === 'empty-payload') return
+      process.stderr.write(
+        `[icode] activity payload dropped (${reason})${detail ? `: ${detail}` : ''}\n`
+      )
     }
   })
 
@@ -618,20 +634,6 @@ export async function startAppRuntime(): Promise<AppRuntime> {
   }
   void reconcile
 
-  const removals = new RepositoryRemovalService({
-    repositories: persistence.repositories,
-    sessions: persistence.sessions,
-    repositoryService: persistence.repositoryService,
-    host,
-    worktrees,
-    gitWorktrees,
-    preparations: repositoryPreparations,
-    summarise: async (repoId) => {
-      const view = await sessions.list(repoId)
-      return view.sessions
-    }
-  })
-
   let taskStoreForRemoval: TaskStore | null = null
   const sessionRemovals = new SessionRemovalService({
     database: persistence.database,
@@ -671,6 +673,15 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     repositories: persistence.repositories,
     worktrees,
     gitWorktrees
+  })
+  const remotes = new RemoteService({
+    repositories: persistence.repositories,
+    gitWorktrees
+  })
+  const clone = new CloneService({
+    gitWorktrees,
+    projectFolders,
+    runner: wslRunner
   })
   const commitMessages = new CommitMessageService({
     sessions,
@@ -915,7 +926,19 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     listHarnesses,
     activity,
     onError: (error) => {
-      process.stderr.write(`[icode] supervisor: ${String(error)}\n`)
+      // `String(error)` prefixes the message with "Error:", which made routine
+      // control-plane diagnostics look like application failures.
+      process.stderr.write(
+        `[icode] supervisor: ${error instanceof Error ? error.message : String(error)}\n`
+      )
+    },
+    onRejected: (reason, detail) => {
+      // A zero-byte control connection is an external pipe probe or a client
+      // that was interrupted before it wrote; neither is a supervisor failure.
+      if (reason === 'empty-payload') return
+      process.stderr.write(
+        `[icode] supervisor: a control request was rejected (${reason})${detail ? `: ${detail}` : ''}\n`
+      )
     }
   })
   await supervisorService.start().catch((error) => {
@@ -1044,6 +1067,41 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     }
   }
 
+  const removalListeners = new Set<() => void>()
+  const emitRemovalChange = (): void => {
+    for (const listener of removalListeners) {
+      try {
+        listener()
+      } catch {
+        // A dead window must not stop cleanup.
+      }
+    }
+  }
+  const removals = new RepositoryRemovalService({
+    database: persistence.database,
+    repositories: persistence.repositories,
+    sessions: persistence.sessions,
+    worktrees,
+    merges: mergeStore,
+    sessionService: sessions,
+    repositoryService: persistence.repositoryService,
+    mergeService,
+    gitWorktrees,
+    jobs: new RepoRemovalJobStore(persistence.database),
+    uiState: persistence.uiState,
+    gitStatusWatcher,
+    filesWatcher,
+    workspaceFiles: files,
+    preparations: repositoryPreparations,
+    now: () => Date.now(),
+    onTasksPurged: () => {
+      taskDispatcher.kick()
+      emitTaskChange()
+    },
+    onRepoChanged: emitRepoChange,
+    onChanged: emitRemovalChange
+  })
+
   let shutdownPromise: Promise<void> | null = null
   let taskArchiveTimer: NodeJS.Timeout | null = null
   const api: AppRuntime = {
@@ -1059,6 +1117,8 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     files,
     gitWorkspace,
     branchRefs,
+    remotes,
+    clone,
     merges: mergeService,
     commitMessages,
     gitStatusWatcher,
@@ -1068,6 +1128,10 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     onRepoChange: (listener) => {
       repoChangeListeners.add(listener)
       return () => repoChangeListeners.delete(listener)
+    },
+    onRemovalChange: (listener) => {
+      removalListeners.add(listener)
+      return () => removalListeners.delete(listener)
     },
     tasks: taskService,
     schedules: taskScheduler,
@@ -1087,6 +1151,10 @@ export async function startAppRuntime(): Promise<AppRuntime> {
       shutdownPromise = (async () => {
         if (taskArchiveTimer !== null) clearInterval(taskArchiveTimer)
         taskArchiveTimer = null
+        // Stop scheduling new cleanup stages; the persisted job resumes next boot.
+        removals.stop()
+        // Stop in-flight clones and remove their partial destinations.
+        clone.cancelAll()
         assistantNotifier?.stop()
         assistantService.stop()
         taskScheduler.stop()
@@ -1118,6 +1186,9 @@ export async function startAppRuntime(): Promise<AppRuntime> {
       trackSessionFacts(payload as never)
       assistantNotifier?.onChange()
     })
+    // Resume removal before merge reconciliation and the task pump: a
+    // tombstoned repo's sessions must be stopped before either acts on them.
+    removals.resume()
     await mergeService.reconcileInterrupted().catch(() => undefined)
     taskDispatcher.start()
     const recovered = await taskDispatcher.recover().catch(() => ({ requeued: 0, interrupted: 0 }))

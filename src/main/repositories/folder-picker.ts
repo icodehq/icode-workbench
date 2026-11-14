@@ -57,6 +57,8 @@ export type PickFolderOptions = {
    * selected; the caller translates the Windows spelling into the distro.
    */
   source?: 'wsl' | 'windows'
+  /** A clone picks the existing folder that will contain the new checkout. */
+  purpose?: 'repository' | 'clone-parent'
 }
 
 export class RepositoryFolderPicker {
@@ -68,9 +70,9 @@ export class RepositoryFolderPicker {
   ): Promise<PickFolderResult> {
     const platform = this.deps.platform ?? process.platform
     const locale = this.deps.locale ?? 'en'
-    if (target.kind === 'local') return this.pickLocal()
+    if (target.kind === 'local') return this.pickLocal(options)
 
-    if (options.source === 'windows') return this.pickWindowsForWsl(target)
+    if (options.source === 'windows') return this.pickWindowsForWsl(target, options)
 
     /*
      * A WSL target can only be browsed by Windows: `\\wsl.localhost` is a Windows
@@ -157,7 +159,8 @@ export class RepositoryFolderPicker {
    * path is translated by the service, never registered as-is.
    */
   private async pickWindowsForWsl(
-    target: Extract<ExecutionTarget, { kind: 'wsl' }>
+    target: Extract<ExecutionTarget, { kind: 'wsl' }>,
+    options: PickFolderOptions = {}
   ): Promise<PickFolderResult> {
     const platform = this.deps.platform ?? process.platform
     const locale = this.deps.locale ?? 'en'
@@ -172,7 +175,10 @@ export class RepositoryFolderPicker {
     let picked: FolderDialogResult
     try {
       picked = await this.deps.showOpenDialog({
-        title: t(locale, 'folderPicker.windowsFolder', { distro: target.distro }),
+        title:
+          options.purpose === 'clone-parent'
+            ? t(locale, 'folderPicker.cloneParent')
+            : t(locale, 'folderPicker.windowsFolder', { distro: target.distro }),
         defaultPath: this.deps.localHome(),
         properties: ['openDirectory']
       })
@@ -184,12 +190,15 @@ export class RepositoryFolderPicker {
     return { status: 'selected', path: chosen }
   }
 
-  private async pickLocal(): Promise<PickFolderResult> {
+  private async pickLocal(options: PickFolderOptions = {}): Promise<PickFolderResult> {
     const locale = this.deps.locale ?? 'en'
     let picked: FolderDialogResult
     try {
       picked = await this.deps.showOpenDialog({
-        title: t(locale, 'folderPicker.repository'),
+        title:
+          options.purpose === 'clone-parent'
+            ? t(locale, 'folderPicker.cloneParent')
+            : t(locale, 'folderPicker.repository'),
         defaultPath: this.deps.localHome(),
         properties: ['openDirectory']
       })

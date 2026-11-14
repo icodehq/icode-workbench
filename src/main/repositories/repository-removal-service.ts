@@ -1,188 +1,355 @@
-import { existsSync } from 'node:fs'
-import type { RepositoryService } from './repository-service'
-import type { SessionStore } from '../persistence/session-store'
-import type { WorktreeStore } from '../persistence/worktree-store'
-import type { GitWorktreeService } from '../worktrees/git-worktree-service'
-import type { RepositoryStore } from '../persistence/repository-store'
-import type { HostGateway } from '../sessions/host-gateway'
+import { randomUUID } from 'node:crypto'
 import type { AppError } from '../../shared/domain/errors'
 import { makeAppError } from '../../shared/domain/errors'
-import type { RepoId } from '../../shared/domain/ids'
 import { parseRepoId } from '../../shared/domain/ids'
-import type { RemoveRepositoryResult, SessionSummary } from '../../shared/schemas/ipc'
-import type { HostSessionStatus } from '../../shared/domain/session'
-import { HostRequestError } from '../host/host-client'
-import { SessionServiceError, errorFromHost } from '../sessions/session-service'
+import type {
+  DiscardRepoRemovalSnapshotsResult,
+  RemovalManifest,
+  RepoRemovalJobSummary,
+  RetryRepoRemovalJobResult
+} from '../../shared/schemas/repo-removal'
+import { SessionServiceError } from '../sessions/session-errors'
+import type { RepoRemovalJobRecord } from '../persistence/repo-removal-job-store'
+import type { RepositoryRemovalDeps } from './repository-removal-types'
+import {
+  removalAppError,
+  removalAttentionCount,
+  removalNeedsWorktreeWork,
+  RepositoryRemovalWorker
+} from './repository-removal-worker'
 
-const LIVE: ReadonlySet<HostSessionStatus> = new Set<HostSessionStatus>(['live', 'starting'])
-
-export type RepositoryRemovalDeps = {
-  repositories: RepositoryStore
-  sessions: SessionStore
-  repositoryService: RepositoryService
-  host: HostGateway
-  worktrees: WorktreeStore
-  gitWorktrees: GitWorktreeService
-  summarise: (repoId: RepoId) => Promise<SessionSummary[]>
-  /** Stops a background first commit before the project row is deleted. */
-  preparations?: { cancel(repoId: RepoId): void }
+export type RepositoryRemovalStartResult = {
+  status: 'removing'
+  jobId: string
 }
 
-/**
- * Repository removal must never silently discard live work. The database is not
- * allowed to answer that question; the host is, and an unreachable host blocks.
- */
+/** Keeps the dispatcher's `{ appError }` wrapper convention. */
+export class RepositoryRemovalServiceError extends Error {
+  constructor(readonly appError: AppError) {
+    super(appError.message)
+    this.name = 'RepositoryRemovalServiceError'
+  }
+}
+
+function failure(code: AppError['code'], message: string, detail?: string): RepositoryRemovalServiceError {
+  return new RepositoryRemovalServiceError(
+    makeAppError(code, message, {
+      ...(detail ? { detail } : {}),
+      ...(code === 'REPOSITORY_REMOVING'
+        ? { messageKey: 'errors.REPOSITORY_REMOVING' as const }
+        : {})
+    })
+  )
+}
+
 export class RepositoryRemovalService {
-  constructor(private readonly deps: RepositoryRemovalDeps) {}
+  private readonly worker: RepositoryRemovalWorker
+  private timer: ReturnType<typeof setInterval> | null = null
+  private disposed = false
+  private resumed = false
 
-  async remove(
-    repoIdInput: string,
-    options: { acknowledgeDependentSessions?: boolean } = {}
-  ): Promise<RemoveRepositoryResult> {
-    const repoId = parseRepoId(repoIdInput)
-    if (!repoId) {
-      throw new SessionServiceError(
-        makeAppError('INVALID_ARGUMENT', 'Invalid repository ID.', {
-          context: { repoId: repoIdInput }
-        })
-      )
-    }
-
-    const impact = this.deps.repositoryService.describeDeletion(repoId)
-    if (!impact) {
-      throw new SessionServiceError(
-        makeAppError('INVALID_ARGUMENT', 'Repository is not registered.', {
-          context: { repoId }
-        })
-      )
-    }
-
-    if (impact.sessions.length === 0) {
-      // The project is leaving the workspace; do not let a first commit land
-      // after the user asked to remove it.
-      this.deps.preparations?.cancel(repoId)
-      const outcome = this.deps.repositoryService.removeRepository(repoId, {
-        acknowledgeDependentSessions: false
-      })
-      if (outcome.status !== 'deleted') {
-        throw new SessionServiceError(
-          makeAppError('INTERNAL', 'Repository removal did not complete.')
-        )
-      }
-      return { status: 'removed' }
-    }
-
-    let hostSessions: Map<string, HostSessionStatus>
-    try {
-      // The repository's own host: a WSL repository's sessions live in its distro.
-      const repository = this.deps.repositories.findById(repoId)
-      const list = await this.deps.host.listSessions(repository?.executionTarget)
-      hostSessions = new Map(list.sessions.map((entry) => [entry.sessionId, entry.status]))
-    } catch (error) {
-      return {
-        status: 'host_unavailable',
-        error: this.hostUnavailable(error)
-      }
-    }
-
-    const summaries = await this.deps.summarise(repoId)
-    const live = summaries.filter((session) => {
-      const status = hostSessions.get(session.id)
-      return status !== undefined && LIVE.has(status)
-    })
-    if (live.length > 0) {
-      return { status: 'blocked_live_sessions', sessions: live }
-    }
-
-    // Each worktree is evaluated on its own. A single dirty, unmerged, missing
-    // or unverifiable checkout blocks the whole removal: repository deletion
-    // must never cascade through protected work.
-    const blockers: Array<{
-      session: SessionSummary
-      blocker: {
-        kind: 'dirty' | 'unmerged' | 'missing' | 'inconsistent'
-        files?: string[]
-        commits?: number
-        detail?: string
-      }
-    }> = []
-    const removable: Array<{ path: string; branch: string }> = []
-    for (const session of summaries) {
-      const record = this.deps.worktrees.findBySession(session.id)
-      if (!record) continue
-      const inspection = await this.deps.gitWorktrees
-        .inspect({ primaryRoot: impact.repository.path, path: record.path, branch: record.branch })
-        .catch(() => null)
-      if (inspection === null) {
-        blockers.push({ session, blocker: { kind: 'inconsistent', detail: 'The worktree could not be inspected.' } })
-      } else if (!inspection.pathExists) {
-        const branchExists =
-          record.state === 'failed'
-            ? await this.deps.gitWorktrees.branchExists(impact.repository.path, record.branch).catch(() => true)
-            : true
-        if (branchExists) {
-          blockers.push({ session, blocker: { kind: 'missing', detail: record.path } })
-        }
-      } else if (!inspection.registered) {
-        blockers.push({
-          session,
-          blocker: { kind: 'inconsistent', detail: 'The worktree directory is not registered with Git.' }
-        })
-      } else if (inspection.dirtyFiles.length > 0) {
-        blockers.push({
-          session,
-          blocker: { kind: 'dirty', files: inspection.dirtyFiles.slice(0, 200) }
-        })
-      } else if (inspection.unmergedCommits === null) {
-        blockers.push({
-          session,
-          blocker: { kind: 'inconsistent', detail: 'Unmerged commits could not be verified.' }
-        })
-      } else if (inspection.unmergedCommits > 0) {
-        blockers.push({ session, blocker: { kind: 'unmerged', commits: inspection.unmergedCommits } })
-      } else {
-        removable.push({ path: record.path, branch: record.branch })
-      }
-    }
-    if (blockers.length > 0) {
-      return { status: 'blocked_worktree_changes', blockers }
-    }
-
-    // Unknown-to-host or terminal sessions are not live. They are still durable
-    // records, so deleting them requires explicit acknowledgement.
-    if (options.acknowledgeDependentSessions !== true) {
-      return { status: 'confirmation_required', sessions: summaries }
-    }
-
-    // Branches are retained: removal deletes the checkout only.
-    for (const worktree of removable) {
-      if (!existsSync(worktree.path)) continue
-      await this.deps.gitWorktrees.remove({
-        primaryRoot: impact.repository.path,
-        path: worktree.path,
-        force: false
-      })
-    }
-
-    this.deps.preparations?.cancel(repoId)
-    const outcome = this.deps.repositoryService.removeRepository(repoId, {
-      acknowledgeDependentSessions: true
-    })
-    if (outcome.status !== 'deleted') {
-      throw new SessionServiceError(
-        makeAppError('INTERNAL', 'Repository removal did not complete.')
-      )
-    }
-    return { status: 'removed' }
+  constructor(private readonly deps: RepositoryRemovalDeps) {
+    this.worker = new RepositoryRemovalWorker(deps)
   }
 
-  private hostUnavailable(error: unknown): AppError {
-    if (error instanceof SessionServiceError) return error.appError
-    if (error instanceof HostRequestError) {
-      return errorFromHost(error, 'The terminal host is not reachable.')
+  /**
+   * Starts removal and returns immediately.
+   *
+   * The DB transaction tombstones the repo, captures the manifest, purges
+   * repo-owned rows, and clears active UI state. Nothing here touches a host, a
+   * checkout, or a Git process; those are the worker's job.
+   */
+  async start(repoIdInput: string): Promise<RepositoryRemovalStartResult> {
+    const repoId = parseRepoId(repoIdInput)
+    if (repoId === null) throw failure('INVALID_ARGUMENT', 'Invalid repository ID.')
+    const repository = this.deps.repositories.findById(repoId)
+    if (!repository) throw failure('INVALID_ARGUMENT', 'Repository is not registered.')
+
+    if (repository.removingAt !== undefined && repository.removingAt !== null) {
+      const existing = this.deps.jobs.findByRepo(repository.id)
+      if (existing === null) {
+        throw failure(
+          'DB_CORRUPT',
+          'The repository is marked for removal but its cleanup job is missing.'
+        )
+      }
+      void this.worker.run(existing.id)
+      return { status: 'removing', jobId: existing.id }
     }
-    return makeAppError('HOST_UNREACHABLE', 'The terminal host is not reachable.', {
-      detail: error instanceof Error ? error.message : String(error)
+
+    const now = this.deps.now()
+    const jobId = randomUUID()
+    const startedAt = Date.now()
+    const result = this.deps.database.transaction(() => {
+      if (!this.deps.repositories.markRemoving(repository.id, now)) {
+        const existing = this.deps.jobs.findByRepo(repository.id)
+        if (existing === null) {
+          throw failure(
+            'DB_CORRUPT',
+            'The repository is marked for removal but its cleanup job is missing.'
+          )
+        }
+        return existing.id
+      }
+
+      // Read after the tombstone inside the same write transaction: a session
+      // or worktree created just before the tombstone is included; one created
+      // after it is rejected by the create guards.
+      const sessions = this.deps.sessions.listForRepo(repository.id)
+      const worktrees = this.deps.worktrees.listByRepo(repository.id)
+      const purged = this.deps.jobs.purgeOwnedRows(repository.id)
+      const manifest: RemovalManifest = {
+        v: 1,
+        repoId: repository.id,
+        repoName: repository.displayName,
+        repoPath: repository.path,
+        target: repository.executionTarget,
+        worktreeRoot: null,
+        sessions: sessions.map((session) => ({
+          id: String(session.id),
+          harness: session.harness
+        })),
+        mergesSettled: false,
+        sessionsStopped: false,
+        worktrees: worktrees.map((worktree) => ({
+          sessionId: String(worktree.sessionId),
+          path: worktree.path,
+          branch: worktree.branch,
+          snapshot: null,
+          snapshotState: 'pending',
+          attention: null,
+          removed: false
+        })),
+        snapshots: [],
+        repoRowRemoved: false,
+        purged
+      }
+      this.deps.jobs.insert({
+        id: jobId,
+        repoId: repository.id,
+        repoName: repository.displayName,
+        repoPath: repository.path,
+        target: repository.executionTarget,
+        status: 'queued',
+        stage: 'abort_merges',
+        manifest,
+        now
+      })
+
+      if (this.deps.uiState.getActiveRepository() === repository.id) {
+        this.deps.uiState.setActiveRepository(null)
+      }
+      const activeSession = this.deps.uiState.getActiveSession()
+      if (
+        activeSession !== null &&
+        sessions.some((session) => session.id === activeSession)
+      ) {
+        this.deps.uiState.setActiveSession(null)
+      }
+      return jobId
     })
+
+    const elapsed = Date.now() - startedAt
+    if (elapsed >= 50) {
+      process.stderr.write(
+        `[removal] sync path took ${String(elapsed)}ms for ${repository.id}\n`
+      )
+    }
+
+    this.deps.preparations.cancel(repository.id)
+    this.deps.onTasksPurged()
+    this.deps.onRepoChanged()
+    this.deps.onChanged()
+    void this.worker.run(result)
+    return { status: 'removing', jobId: result }
+  }
+
+  listJobs(): RepoRemovalJobSummary[] {
+    return this.deps.jobs
+      .listAll()
+      .filter(
+        (job) =>
+          job.status !== 'completed' ||
+          job.manifest.snapshots.length > 0 ||
+          removalAttentionCount(job) > 0
+      )
+      .map((job) => this.toSummary(job))
+  }
+
+  retry(jobId: string): RetryRepoRemovalJobResult {
+    const job = this.deps.jobs.findById(jobId)
+    if (job === null) throw failure('INVALID_ARGUMENT', 'That cleanup job no longer exists.')
+    const retryable =
+      job.status === 'waiting_host' ||
+      job.status === 'failed' ||
+      (job.status === 'completed' && removalAttentionCount(job) > 0)
+    if (!retryable) throw failure('INVALID_ARGUMENT', 'That cleanup job is not retryable.')
+    job.status = 'queued'
+    job.stage = this.nextStage(job)
+    job.attempts = 0
+    job.nextAttemptAt = null
+    job.lastError = null
+    job.completedAt = null
+    job.updatedAt = this.deps.now()
+    this.deps.jobs.save(job)
+    this.deps.onChanged()
+    void this.worker.run(job.id)
+    return { status: 'retrying' }
+  }
+
+  async discardSnapshots(jobId: string): Promise<DiscardRepoRemovalSnapshotsResult> {
+    const job = this.deps.jobs.findById(jobId)
+    if (job === null) throw failure('INVALID_ARGUMENT', 'That cleanup job no longer exists.')
+    if (job.status === 'queued' || job.status === 'running' || job.status === 'waiting_host') {
+      throw failure('INVALID_ARGUMENT', 'The cleanup job is still running.')
+    }
+    const snapshots = job.manifest.snapshots
+    if (snapshots.length === 0) return { discarded: 0 }
+
+    let discarded = 0
+    try {
+      const hostFs = await this.deps.gitWorktrees.hostFsFor(job.manifest.target)
+      if (await hostFs.exists(job.repoPath)) {
+        const git = await this.deps.gitWorktrees.gitResultFor(job.manifest.target)
+        for (const snapshot of snapshots) {
+          const result = await git(job.repoPath, ['update-ref', '-d', snapshot.ref], 30_000)
+          if (
+            result.timedOut ||
+            result.spawnFailure !== undefined ||
+            result.exitCode !== 0
+          ) {
+            throw new SessionServiceError(
+              makeAppError('GIT_READ_FAILED', 'Git could not delete a recovery snapshot.', {
+                detail: result.stderr.toString('utf8').trim().slice(0, 1000)
+              })
+            )
+          }
+          discarded += 1
+        }
+      } else {
+        // The primary repository is gone; its refs went with it.
+        discarded = snapshots.length
+      }
+    } catch (error) {
+      throw new RepositoryRemovalServiceError(removalAppError(error))
+    }
+
+    job.manifest.snapshots = []
+    for (const worktree of job.manifest.worktrees) {
+      worktree.snapshot = null
+      if (worktree.snapshotState === 'saved') worktree.snapshotState = 'clean'
+    }
+    job.updatedAt = this.deps.now()
+    if (job.status === 'completed' && removalAttentionCount(job) === 0) {
+      this.deps.jobs.delete(job.id)
+    } else {
+      this.deps.jobs.save(job)
+    }
+    this.deps.onChanged()
+    return { discarded }
+  }
+
+  /**
+   * Boot recovery: requeue interrupted work, retry due host waits, and clear a
+   * tombstone that lost its job (which can only come from manual DB editing).
+   */
+  resume(): void {
+    if (this.disposed || this.resumed) return
+    this.resumed = true
+    try {
+      for (const repository of this.deps.repositories.listRemoving()) {
+        if (this.deps.jobs.findByRepo(repository.id) === null) {
+          this.deps.repositories.clearRemoving(repository.id)
+          process.stderr.write(
+            `[removal] cleared a tombstone without a job: ${repository.id}\n`
+          )
+        }
+      }
+    } catch (error) {
+      process.stderr.write(
+        `[removal] tombstone self-heal failed: ${
+          error instanceof Error ? error.message : String(error)
+        }\n`
+      )
+    }
+
+    try {
+      const now = this.deps.now()
+      for (const job of this.deps.jobs.listAll()) {
+        if (job.status === 'running') {
+          job.status = 'queued'
+          job.updatedAt = now
+          this.deps.jobs.save(job)
+          void this.worker.run(job.id)
+        } else if (job.status === 'queued') {
+          void this.worker.run(job.id)
+        } else if (
+          job.status === 'waiting_host' &&
+          (job.nextAttemptAt === null || job.nextAttemptAt <= now)
+        ) {
+          void this.worker.run(job.id)
+        }
+      }
+    } catch (error) {
+      process.stderr.write(
+        `[removal] resume failed: ${error instanceof Error ? error.message : String(error)}\n`
+      )
+    }
+
+    this.timer = setInterval(() => this.kickDue(), 60_000)
+    ;(this.timer as { unref?: () => void }).unref?.()
+  }
+
+  stop(): void {
+    this.disposed = true
+    this.worker.stop()
+    if (this.timer !== null) {
+      clearInterval(this.timer)
+      this.timer = null
+    }
+  }
+
+  private kickDue(): void {
+    if (this.disposed) return
+    try {
+      for (const job of this.deps.jobs.listDue(this.deps.now())) {
+        void this.worker.run(job.id)
+      }
+    } catch (error) {
+      process.stderr.write(
+        `[removal] due-job scan failed: ${error instanceof Error ? error.message : String(error)}\n`
+      )
+    }
+  }
+
+  private nextStage(job: RepoRemovalJobRecord): RepoRemovalJobRecord['stage'] {
+    if (!job.manifest.mergesSettled) return 'abort_merges'
+    if (!job.manifest.sessionsStopped) return 'stop_sessions'
+    if (removalNeedsWorktreeWork(job)) return 'snapshot_worktrees'
+    if (!job.manifest.repoRowRemoved) return 'remove_repository'
+    return 'cleanup'
+  }
+
+  private toSummary(job: RepoRemovalJobRecord): RepoRemovalJobSummary {
+    const attentionCount = removalAttentionCount(job)
+    return {
+      id: job.id,
+      repoId: job.repoId,
+      repoName: job.repoName,
+      repoPath: job.repoPath,
+      status: job.status,
+      stage: job.stage,
+      worktreeCount: job.manifest.worktrees.length,
+      snapshotCount: job.manifest.snapshots.length,
+      attentionCount,
+      attempts: job.attempts,
+      error: job.lastError,
+      canRetry:
+        job.status === 'waiting_host' ||
+        job.status === 'failed' ||
+        (job.status === 'completed' && attentionCount > 0),
+      createdAt: job.createdAt,
+      updatedAt: job.updatedAt
+    }
   }
 }
