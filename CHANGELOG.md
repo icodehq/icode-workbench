@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-14
+
 ### Changed
 
 - The workbench now uses one persistent sidebar for projects, direct sessions
@@ -25,6 +27,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Removed the primary activity rail, global top bar, project wall and global
   status bar.
+
+### Fixed
+
+- The session inspector gets more room at common window sizes, and split-pane
+  headers keep the session title readable.
 
 ## [0.8.2] - 2026-11-12
 
