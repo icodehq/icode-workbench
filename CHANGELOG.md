@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The workbench now uses one persistent sidebar for projects, direct sessions
+  and the cross-project task queue. Pinned projects, sessions and tasks are
+  shortcuts and no longer hide the project tree.
+- Direct sessions are organized as tabs with browser-style context menus and
+  drag reordering, a resizable split view, and a persistent Changes/Files
+  inspector. Focus mode leaves only the terminal.
+- Mira, Settings and Schedules open as auxiliary tabs; task work opens as its
+  own main surface rather than a page or app tab.
+- The session status strip keeps branch, ahead/behind and blame context beside
+  the terminal, while host, task slots and live counts stay in the sidebar
+  footer.
+
+### Removed
+
+- Removed the primary activity rail, global top bar, project wall and global
+  status bar.
+
 ## [0.8.2] - 2026-11-12
 
 ### Fixed
