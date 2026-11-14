@@ -291,7 +291,7 @@ async function main() {
   })
 
   await step('clone a repository from a URL with progress', async () => {
-    await click('[data-testid="add-project"]')
+    await click('[data-testid="sidebar-add-project"]')
     await waitForSelector('[data-testid="add-repo-form"]')
     await click('[data-testid="add-repo-mode-clone"]')
     await setValue('[data-testid="add-repo-clone-url"]', CLONE_SOURCE)
@@ -327,7 +327,8 @@ async function main() {
         : null;
     })()`)
     assert(repo && typeof repo.id === 'string', 'the plain project is missing')
-    await click(`[data-testid="project-menu-${repo.id}"]`)
+    await click(`[data-testid="sidebar-project-menu-${repo.id}"]`)
+    await waitForSelector('[data-testid="sidebar-project-menu"]', 10_000)
     await click(`[data-testid="repository-settings-${repo.id}"]`)
     await waitForSelector('[data-testid="repository-settings-dialog"]', 10_000)
     await waitForSelector('[data-testid="remotes-empty"]', 10_000)
