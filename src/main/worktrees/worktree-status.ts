@@ -43,6 +43,7 @@ export function describeWorktree(
     status = 'ready-to-start'
   }
   return {
+    id: record.id,
     path: record.path,
     branch: record.branch,
     baseOid: record.baseOid,

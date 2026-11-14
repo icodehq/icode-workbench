@@ -118,6 +118,32 @@ describe('workspace files watcher', () => {
     expect(watch.wasClosed()).toBe(true)
   })
 
+  it('shares one OS watch between sessions in the same checkout', async () => {
+    vi.useFakeTimers()
+    let watches = 0
+    const callbacks: Array<(event: FilesWatchEvent) => void> = []
+    const service = new WorkspaceFilesWatcherService({
+      resolveTarget: async () => ({ worktreePath: '/wt' }),
+      factory: (_roots, options) => {
+        watches += 1
+        callbacks.push(options.onEvent)
+        return { close: async () => undefined }
+      },
+      debounceMs: 50
+    })
+    const events: FilesChangedEvent[] = []
+    service.subscribe((event) => events.push(event))
+
+    await service.setActive('ses_a', true)
+    await service.setActive('ses_b', true)
+    expect(watches).toBe(1)
+
+    callbacks[0]?.({ type: 'change', path: '/wt/src/a.ts' })
+    await vi.advanceTimersByTimeAsync(60)
+    expect(events.map((event) => event.sessionId).sort()).toEqual(['ses_a', 'ses_b'])
+    expect(events.map((event) => event.changedPaths)).toEqual([['src/a.ts'], ['src/a.ts']])
+  })
+
   it('is truthful when the host cannot be watched', async () => {
     const service = new WorkspaceFilesWatcherService({
       resolveTarget: async () => null,

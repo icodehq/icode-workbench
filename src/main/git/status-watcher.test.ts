@@ -146,6 +146,32 @@ describe('GitStatusWatcherService', () => {
     expect(fake.closes()).toBe(1)
   })
 
+  it('shares one OS watch between sessions in the same checkout', async () => {
+    vi.useFakeTimers()
+    let watches = 0
+    const callbacks: Array<(event: WatchEvent) => void> = []
+    const service = new GitStatusWatcherService({
+      resolveTarget: async () => target,
+      factory: (_roots, options) => {
+        watches += 1
+        callbacks.push(options.onEvent)
+        return { close: async () => undefined }
+      },
+      debounceMs: 800
+    })
+    const events: Array<{ sessionId: string; changedPaths: string[] }> = []
+    service.subscribe((event) => events.push(event))
+
+    await service.setActive('s1', true)
+    await service.setActive('s2', true)
+    expect(watches).toBe(1)
+
+    callbacks[0]?.({ type: 'change', path: '/repo/src/a.ts' })
+    vi.advanceTimersByTime(800)
+    expect(events.map((event) => event.sessionId).sort()).toEqual(['s1', 's2'])
+    expect(events.map((event) => event.changedPaths)).toEqual([['src/a.ts'], ['src/a.ts']])
+  })
+
   it('reports a failed watcher so the renderer can fall back', async () => {
     vi.useFakeTimers()
     const fake = fakeFactory()

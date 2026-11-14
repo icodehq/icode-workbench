@@ -8,16 +8,24 @@ import {
   type HarnessDetection,
   type HarnessId
 } from '../../../shared/domain/harness'
-import type { RepositorySummary } from '../../../shared/schemas/ipc'
+import type {
+  RepositorySummary,
+  SessionSummary,
+  WorktreeSummary
+} from '../../../shared/schemas/ipc'
 import { repositoryPreparationView } from '../lib/repository-preparation'
 import type { CreateSessionRequest } from '../state/use-workspace'
 import { useBranchRefs } from '../state/use-branch-refs'
-import { useT } from '../i18n/use-i18n'
+import { useT, useTp } from '../i18n/use-i18n'
 import type { Translator } from '../i18n/i18n-store'
 
 type Props = {
   repos: RepositorySummary[]
   activeRepoId: string | null
+  /** Direct sessions, used to list the repository's existing worktrees. */
+  sessions: SessionSummary[]
+  /** Worktree preselected when the dialog was opened from its sidebar group. */
+  initialWorktreeId: string | null
   harnesses: HarnessDetection[]
   harnessLoading: boolean
   harnessError: AppError | null
@@ -25,6 +33,19 @@ type Props = {
   onCreate: (input: CreateSessionRequest) => Promise<boolean>
   /** Re-detect for one repository's execution target (`repoId` omitted = this machine). */
   onRefreshHarnesses: (force: boolean, repoId?: string | null) => Promise<void>
+}
+
+type ExistingWorktree = {
+  id: string
+  branch: string
+  path: string
+  sessionCount: number
+  status: WorktreeSummary['status']
+}
+
+/** A checkout can accept another session only when Git has it ready. */
+function canAttach(status: WorktreeSummary['status']): boolean {
+  return status === 'ready-to-start' || status === 'active'
 }
 
 function detectionTone(state: HarnessDetection['state']): string {
@@ -150,6 +171,8 @@ function HarnessRow({
 export default function NewSessionDialog({
   repos,
   activeRepoId,
+  sessions,
+  initialWorktreeId,
   harnesses,
   harnessLoading,
   harnessError,
@@ -158,6 +181,7 @@ export default function NewSessionDialog({
   onRefreshHarnesses
 }: Props): React.JSX.Element {
   const t = useT()
+  const tp = useTp()
   const available = useMemo(
     () => harnesses.filter((harness) => harness.state === 'available'),
     [harnesses]
@@ -167,14 +191,50 @@ export default function NewSessionDialog({
   const [title, setTitle] = useState('')
   const [startFrom, setStartFrom] = useState('')
   const [branchName, setBranchName] = useState('')
+  const [worktreeChoice, setWorktreeChoice] = useState(initialWorktreeId ?? 'new')
 
   const selectedRepo = repos.find((repo) => repo.id === repoId) ?? null
   const branchRefs = useBranchRefs(repoId.length > 0 ? repoId : null)
 
+  /**
+   * Existing checkouts for the selected repository, derived from the direct
+   * sessions that run in them. A worktree only exists while at least one
+   * session uses it, so no separate list endpoint is needed.
+   */
+  const existingWorktrees = useMemo<ExistingWorktree[]>(() => {
+    const byId = new Map<string, ExistingWorktree>()
+    for (const session of sessions) {
+      if (session.repoId !== repoId || session.worktree === null) continue
+      const worktree = session.worktree
+      const existing = byId.get(worktree.id)
+      if (existing) {
+        existing.sessionCount += 1
+        continue
+      }
+      byId.set(worktree.id, {
+        id: worktree.id,
+        branch: worktree.branch,
+        path: worktree.path,
+        sessionCount: 1,
+        status: worktree.status
+      })
+    }
+    return [...byId.values()]
+  }, [repoId, sessions])
+
+  const chosenWorktree =
+    worktreeChoice === 'new'
+      ? null
+      : (existingWorktrees.find((worktree) => worktree.id === worktreeChoice) ?? null)
+  // A preselection whose checkout disappeared (or moved repo) falls back to a
+  // fresh checkout instead of rendering a blank select.
+  const effectiveChoice = chosenWorktree === null ? 'new' : chosenWorktree.id
+
   useEffect(() => {
     setStartFrom('')
     setBranchName('')
-  }, [repoId])
+    setWorktreeChoice(initialWorktreeId ?? 'new')
+  }, [repoId, initialWorktreeId])
   const preparation = selectedRepo === null ? null : repositoryPreparationView(selectedRepo)
   const repoTarget = selectedRepo?.target ?? null
   const targetLabel =
@@ -223,8 +283,12 @@ export default function NewSessionDialog({
       repoId,
       harness,
       ...(title.trim().length > 0 ? { title: title.trim() } : {}),
-      ...(startFrom.length > 0 ? { startFrom } : {}),
-      ...(branchName.trim().length > 0 ? { branchName: branchName.trim() } : {})
+      ...(chosenWorktree !== null
+        ? { worktreeId: chosenWorktree.id }
+        : {
+            ...(startFrom.length > 0 ? { startFrom } : {}),
+            ...(branchName.trim().length > 0 ? { branchName: branchName.trim() } : {})
+          })
     })
     onClose()
   }
@@ -307,6 +371,39 @@ export default function NewSessionDialog({
             </div>
           ) : null}
 
+          <div className="mt-4">
+            <label className="block text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
+              {t('newSession.runIn')}
+              <select
+                className="mt-1.5 w-full rounded-md border border-border bg-background px-3 py-2 text-[12px] outline-none focus:border-accent"
+                value={effectiveChoice}
+                onChange={(event) => setWorktreeChoice(event.target.value)}
+                data-testid="new-session-worktree"
+              >
+                <option value="new">{t('newSession.newWorktree')}</option>
+                {existingWorktrees.map((worktree) => {
+                  const usable = canAttach(worktree.status)
+                  return (
+                    <option key={worktree.id} value={worktree.id} disabled={!usable}>
+                      {worktree.branch} ·{' '}
+                      {tp('newSession.worktreeSessions', worktree.sessionCount)}
+                      {usable ? '' : ` · ${t('newSession.worktreeUnavailable')}`}
+                    </option>
+                  )
+                })}
+              </select>
+            </label>
+            <p
+              className="mt-1.5 text-[10.5px] text-muted-foreground"
+              data-testid="new-session-worktree-hint"
+            >
+              {chosenWorktree !== null
+                ? t('newSession.existingWorktreeHint', { path: chosenWorktree.path })
+                : t('newSession.newWorktreeHint')}
+            </p>
+          </div>
+
+          {chosenWorktree === null ? (
           <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
             <label className="block text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
               {t('newSession.startFrom')}
@@ -350,6 +447,7 @@ export default function NewSessionDialog({
               />
             </label>
           </div>
+          ) : null}
 
           <div className="mt-4 flex items-center justify-between">
             <span className="text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">

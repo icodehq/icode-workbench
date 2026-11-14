@@ -432,11 +432,11 @@ export class RepositoryRemovalWorker {
       for (const worktree of job.manifest.worktrees) {
         try {
           this.deps.gitWorktrees.assertManagedPath(worktree.path, worktreeRoot)
-          trashEntries.push({
-            sessionId: worktree.sessionId,
-            worktreePath: worktree.path,
-            target
-          })
+          // Each attached session keeps its own trash subdirectory beside the
+          // shared checkout; clean every one, not just the representative.
+          for (const sessionId of worktree.sessionIds ?? [worktree.sessionId]) {
+            trashEntries.push({ sessionId, worktreePath: worktree.path, target })
+          }
         } catch {
           // Never touch a path outside the managed worktree root.
         }

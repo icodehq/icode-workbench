@@ -45,6 +45,8 @@ export type CreateSessionRequest = {
   repoId: string
   harness: HarnessId
   title?: string
+  /** Run in an existing worktree of `repoId`; excludes the new-checkout fields. */
+  worktreeId?: string
   startFrom?: string
   branchName?: string
 }
@@ -692,6 +694,7 @@ export function useWorkspace(): {
           ...(input.branchName && input.branchName.trim().length > 0
             ? { branchName: input.branchName.trim() }
             : {}),
+          ...(input.worktreeId !== undefined ? { worktreeId: input.worktreeId } : {}),
           cols: terminalSize.cols,
           rows: terminalSize.rows
         })

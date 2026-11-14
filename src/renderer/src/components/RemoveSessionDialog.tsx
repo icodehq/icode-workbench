@@ -6,6 +6,8 @@ type Props = {
   session: SessionSummary
   /** Open Files tabs with unsaved text for this session. */
   unsavedCount?: number
+  /** Another session still runs in the same worktree. */
+  sharedWorktree?: boolean
   onClose: () => void
   onConfirm: () => void
 }
@@ -21,6 +23,7 @@ type Props = {
 export default function RemoveSessionDialog({
   session,
   unsavedCount = 0,
+  sharedWorktree = false,
   onClose,
   onConfirm
 }: Props): React.JSX.Element {
@@ -50,7 +53,12 @@ export default function RemoveSessionDialog({
           </button>
         </div>
         <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground">
-          {t('session.remove.body', { title: session.title })}
+          {sharedWorktree
+            ? t('session.remove.bodyShared', {
+                title: session.title,
+                branch: session.worktree?.branch ?? ''
+              })
+            : t('session.remove.body', { title: session.title })}
         </p>
         {unsavedCount > 0 ? (
           <p

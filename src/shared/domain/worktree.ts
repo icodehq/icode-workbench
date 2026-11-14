@@ -1,5 +1,5 @@
 import type { AppError } from './errors'
-import type { RepoId, SessionId } from './ids'
+import type { RepoId, SessionId, WorktreeId } from './ids'
 import { APP_BRANCH_PREFIX } from './app-identity'
 
 /**
@@ -21,8 +21,15 @@ export const WORKTREE_STATUSES = [
 ] as const
 export type WorktreeStatus = (typeof WORKTREE_STATUSES)[number]
 
-export type SessionWorktreeRecord = {
-  sessionId: SessionId
+/**
+ * A linked checkout owned by one repository.
+ *
+ * The worktree is the durable entity; sessions attach to it and a worktree may
+ * hold several sessions at once. Its path and branch are unique across iCode's
+ * database, so two sessions can share the identity but never fork it.
+ */
+export type WorktreeRecord = {
+  id: WorktreeId
   repoId: RepoId
   path: string
   branch: string
@@ -34,8 +41,14 @@ export type SessionWorktreeRecord = {
   updatedAt: number
 }
 
-/** Renderer-facing view of a session worktree. */
+/** One worktree as seen from a session attached to it. */
+export type SessionWorktreeRecord = WorktreeRecord & {
+  sessionId: SessionId
+}
+
+/** Renderer-facing view of a worktree (shared by every session attached to it). */
 export type WorktreeSummary = {
+  id: WorktreeId
   path: string
   branch: string
   baseOid: string
@@ -54,7 +67,9 @@ export type OwnedBranchKind = (typeof OWNED_BRANCH_KINDS)[number]
 export type OwnedBranchRecord = {
   branch: string
   repoId: RepoId
-  /** Set for a session-owned branch. */
+  /** Set for a branch owned by a worktree checkout. */
+  worktreeId: WorktreeId | null
+  /** The session that created the branch; kept as provenance, not ownership. */
   sessionId: string | null
   /** Set for a dependency-chain branch. */
   taskId: string | null

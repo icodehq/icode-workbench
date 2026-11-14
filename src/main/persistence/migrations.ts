@@ -805,5 +805,66 @@ export const MIGRATIONS: readonly Migration[] = [
       `CREATE INDEX repo_removal_jobs_status_next_idx
          ON repo_removal_jobs (status, next_attempt_at)`
     ]
+  },
+  {
+    version: 18,
+    name: 'shared-worktrees',
+    /**
+     * A worktree stops being session state and becomes a repo-owned entity.
+     *
+     * `session_worktrees` was keyed by `session_id`, so a checkout could never
+     * outlive — or be shared by — more than one session. The new `worktrees`
+     * table carries the checkout, and `session_worktree_links` attaches the
+     * sessions that run in it. Existing rows migrate one-to-one: the worktree
+     * id is derived from the old session id (`ses_<uuid>` → `wt_<uuid>`), so
+     * every current session keeps the same path, branch, and behavior.
+     *
+     * Branch ownership follows the worktree. Chain branches keep a NULL
+     * `worktree_id`; their `task_id` ownership is unchanged.
+     */
+    statements: [
+      `CREATE TABLE worktrees (
+         id TEXT PRIMARY KEY NOT NULL,
+         repo_id TEXT NOT NULL REFERENCES repos(id) ON DELETE CASCADE,
+         path TEXT NOT NULL UNIQUE,
+         branch TEXT NOT NULL UNIQUE,
+         base_ref TEXT,
+         base_oid TEXT NOT NULL,
+         state TEXT NOT NULL CHECK (state IN ('creating', 'created', 'ready', 'failed')),
+         last_error_json TEXT,
+         created_at INTEGER NOT NULL,
+         updated_at INTEGER NOT NULL,
+         CHECK (length(id) > 0),
+         CHECK (length(path) > 0),
+         CHECK (length(branch) > 0),
+         CHECK (length(base_oid) > 0)
+       ) STRICT`,
+      `CREATE INDEX worktrees_repo_idx ON worktrees (repo_id)`,
+      // Why the substr: session IDs are `ses_<uuid>`, so `wt_` + the suffix is
+      // a stable `wt_<uuid>` identity derived in SQL without a generator.
+      `INSERT INTO worktrees (
+         id, repo_id, path, branch, base_ref, base_oid, state,
+         last_error_json, created_at, updated_at
+       )
+       SELECT 'wt_' || substr(session_id, 5), repo_id, path, branch, base_ref,
+              base_oid, state, last_error_json, created_at, updated_at
+       FROM session_worktrees`,
+      `CREATE TABLE session_worktree_links (
+         session_id TEXT PRIMARY KEY NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+         worktree_id TEXT NOT NULL REFERENCES worktrees(id) ON DELETE CASCADE
+       ) STRICT`,
+      `CREATE INDEX session_worktree_links_worktree_idx
+         ON session_worktree_links (worktree_id)`,
+      `INSERT INTO session_worktree_links (session_id, worktree_id)
+       SELECT session_id, 'wt_' || substr(session_id, 5) FROM session_worktrees`,
+      `DROP TABLE session_worktrees`,
+      `ALTER TABLE worktree_branches ADD COLUMN worktree_id TEXT`,
+      `UPDATE worktree_branches
+       SET worktree_id = 'wt_' || substr(session_id, 5)
+       WHERE kind = 'session' AND session_id IS NOT NULL`,
+      `CREATE INDEX worktree_branches_worktree_idx
+         ON worktree_branches (worktree_id)
+         WHERE worktree_id IS NOT NULL`
+    ]
   }
 ]

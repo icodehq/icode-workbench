@@ -18,7 +18,8 @@ import {
   sessionIdSchema,
   sessionTitleSchema,
   terminalInputSchema,
-  timestampSchema
+  timestampSchema,
+  worktreeIdSchema
 } from './primitives'
 
 /** Renderer-facing channels. Preload exposes methods, never these strings. */
@@ -295,7 +296,14 @@ export const createSessionInputSchema = z.strictObject({
   repoId: repoIdSchema,
   harness: harnessIdSchema,
   title: sessionTitleSchema.optional(),
-  /** Local branch to base the worktree on. Absent keeps the primary HEAD. */
+  /**
+   * Run in an existing worktree owned by this repository.
+   *
+   * The checkout, branch, and baseline already exist; `startFrom`, `branchName`
+   * and a main-process `base` are mutually exclusive with this.
+   */
+  worktreeId: worktreeIdSchema.optional(),
+  /** Local branch to base a new worktree on. Absent keeps the primary HEAD. */
   startFrom: branchNameSchema.optional(),
   /** Optional user-chosen branch name. Absent keeps the generated session name. */
   branchName: branchNameSchema.optional(),
@@ -506,6 +514,7 @@ export const initializeRepositoryResultSchema = addRepositoryResultSchema.extend
 
 
 export const worktreeSummarySchema = z.strictObject({
+  id: worktreeIdSchema,
   path: absolutePathSchema,
   branch: z.string().min(1).max(255),
   baseOid: z.string().min(1).max(128),
@@ -600,6 +609,7 @@ export const discardSessionInputSchema = z.strictObject({
 export const ownedBranchSummarySchema = z.strictObject({
   branch: z.string().min(1).max(255),
   repoId: repoIdSchema,
+  worktreeId: worktreeIdSchema.nullable(),
   sessionId: z.string().min(1).max(128).nullable(),
   taskId: z.string().min(1).max(128).nullable(),
   kind: z.enum(['session', 'chain']),

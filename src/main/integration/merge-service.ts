@@ -130,6 +130,7 @@ export class MergeService {
       id: this.deps.newId(),
       repoId: repository.id,
       sessionId: input.sessionId,
+      worktreeId: worktree.id,
       taskId: task?.id ?? null,
       sourceBranch: worktree.branch,
       targetBranch: input.targetBranch,
@@ -148,6 +149,12 @@ export class MergeService {
               context: { repoId: repository.id }
             }
           )
+        )
+      }
+      if (claim.kind === 'worktree-busy') {
+        throw fail(
+          'MERGE_IN_PROGRESS',
+          'Another session in this worktree is already merging.'
         )
       }
       throw claim.kind === 'session-busy'

@@ -2148,6 +2148,15 @@ export const en = {
   'workspace.notice.recoverySnapshots.other': "Saved {count} recovery snapshots for uncommitted changes.",
   'workspace.notice.snapshotsDiscarded.one': "Discarded {count} recovery snapshot.",
   'workspace.notice.snapshotsDiscarded.other': "Discarded {count} recovery snapshots.",
+  'sidebar.newSessionHere': "New session here",
+  'newSession.runIn': "Run in",
+  'newSession.newWorktree': "New worktree",
+  'newSession.newWorktreeHint': "Creates a fresh checkout and branch for this session.",
+  'newSession.existingWorktreeHint': "Runs in {path}, sharing its checkout and branch with the sessions already there.",
+  'newSession.worktreeSessions.one': "{count} session",
+  'newSession.worktreeSessions.other': "{count} sessions",
+  'newSession.worktreeUnavailable': "unavailable",
+  'session.remove.bodyShared': "Remove {title}? Only this session leaves; {branch} and the other sessions running there keep working.",
 } as const
 
 export type MessageKey = keyof typeof en

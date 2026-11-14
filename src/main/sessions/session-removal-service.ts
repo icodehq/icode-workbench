@@ -103,6 +103,18 @@ export class SessionRemovalService {
 
     const record = this.deps.worktrees.findBySession(sessionId)
     if (record !== null) {
+      /*
+       * A shared checkout is not this session's to remove. Detach only: the
+       * other sessions keep running in the same directory, on the same branch,
+       * and no Git worktree command is issued.
+       */
+      if (this.deps.worktrees.sessionCountForWorktree(record.id) > 1) {
+        this.deps.database.transaction(() => {
+          this.deps.worktrees.unlinkSession(sessionId)
+          this.deps.sessions.delete(row.id)
+        })
+        return { status: 'removed', branch: null, branchRetained: true }
+      }
       const repository = this.deps.repositories.findById(record.repoId)
       if (!repository) {
         return {
@@ -152,7 +164,12 @@ export class SessionRemovalService {
     }
 
     this.deps.database.transaction(() => {
-      if (record !== null) this.deps.worktrees.deleteBySession(sessionId)
+      if (record !== null) {
+        this.deps.worktrees.unlinkSession(sessionId)
+        // Last session out: the checkout goes with it, as it did before shared
+        // worktrees existed. A retained branch still guards the work.
+        this.deps.worktrees.deleteWorktree(record.id)
+      }
       this.deps.sessions.delete(row.id)
     })
 
@@ -182,15 +199,29 @@ export class SessionRemovalService {
         })
       )
     }
+    /*
+     * Discard is a destructive worktree action, so it is only permitted when
+     * this session is the checkout's sole user. A shared checkout can still be
+     * removed deliberately after its other sessions are gone.
+     */
+    if (this.deps.worktrees.sessionCountForWorktree(record.id) > 1) {
+      throw new SessionServiceError(
+        makeAppError(
+          'INVALID_ARGUMENT',
+          'Another session is still using this worktree, so it was not discarded.',
+          { context: { sessionId, worktreeId: record.id, branch: record.branch } }
+        )
+      )
+    }
     const liveness = await this.liveness(sessionId, this.targetForSession(this.requireSession(sessionId)))
     if (!liveness.ok) return { status: 'host_unavailable', error: liveness.error }
     if (liveness.live) return { status: 'blocked_live_sessions', session: summary }
 
     const owned = this.deps.worktrees.findBranch(record.branch)
-    if (!owned || owned.sessionId !== sessionId) {
+    if (!owned || owned.worktreeId !== record.id) {
       throw new SessionServiceError(
-        makeAppError('BRANCH_NOT_OWNED', 'That branch is not owned by this session.', {
-          context: { sessionId, branch: record.branch }
+        makeAppError('BRANCH_NOT_OWNED', 'That branch is not owned by this worktree.', {
+          context: { sessionId, worktreeId: record.id, branch: record.branch }
         })
       )
     }
@@ -247,7 +278,8 @@ export class SessionRemovalService {
       })
       .catch(() => undefined)
     this.deps.database.transaction(() => {
-      this.deps.worktrees.deleteBySession(sessionId)
+      this.deps.worktrees.unlinkSession(sessionId)
+      this.deps.worktrees.deleteWorktree(record.id)
       this.deps.sessions.delete(this.requireSession(sessionId).id)
     })
     return {
@@ -280,6 +312,7 @@ export class SessionRemovalService {
       summaries.push({
         branch: branch.branch,
         repoId: branch.repoId,
+        worktreeId: branch.worktreeId,
         sessionId: branch.sessionId,
         taskId: branch.taskId,
         kind: branch.kind,

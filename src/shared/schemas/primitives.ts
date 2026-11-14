@@ -1,5 +1,11 @@
 import { z } from 'zod'
-import { INCARNATION_ID_RE, REPO_ID_RE, SESSION_ID_RE, WORKSPACE_ID_RE } from '../domain/ids'
+import {
+  INCARNATION_ID_RE,
+  REPO_ID_RE,
+  SESSION_ID_RE,
+  WORKSPACE_ID_RE,
+  WORKTREE_ID_RE
+} from '../domain/ids'
 import { MAX_PATH_LENGTH, isAbsolutePathLike } from '../domain/paths'
 import { MAX_SESSION_TITLE_LENGTH } from '../domain/session'
 
@@ -18,6 +24,9 @@ export const workspaceIdSchema = z
   .string()
   .regex(WORKSPACE_ID_RE, 'must be a ws_<uuid> identifier')
 export const sessionIdSchema = z.string().regex(SESSION_ID_RE, 'must be a ses_<uuid> identifier')
+export const worktreeIdSchema = z
+  .string()
+  .regex(WORKTREE_ID_RE, 'must be a wt_<uuid> identifier')
 export const incarnationIdSchema = z
   .string()
   .min(8)

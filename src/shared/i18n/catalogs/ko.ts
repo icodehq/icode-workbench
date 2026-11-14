@@ -2147,4 +2147,13 @@ export const ko = {
   'workspace.notice.recoverySnapshots.other': "커밋되지 않은 변경 사항에 대한 복구 스냅샷 {count}개를 저장했습니다.",
   'workspace.notice.snapshotsDiscarded.one': "복구 스냅샷 {count}개를 삭제했습니다.",
   'workspace.notice.snapshotsDiscarded.other': "복구 스냅샷 {count}개를 삭제했습니다.",
+  'sidebar.newSessionHere': "여기에 새 세션",
+  'newSession.runIn': "실행 위치",
+  'newSession.newWorktree': "새 워크트리",
+  'newSession.newWorktreeHint': "이 세션을 위한 새 체크아웃과 브랜치를 만듭니다.",
+  'newSession.existingWorktreeHint': "{path}에서 실행하며 기존 세션과 체크아웃 및 브랜치를 공유합니다.",
+  'newSession.worktreeSessions.one': "{count}개 세션",
+  'newSession.worktreeSessions.other': "{count}개 세션",
+  'newSession.worktreeUnavailable': "사용할 수 없음",
+  'session.remove.bodyShared': "{title} 세션을 제거할까요? 이 세션만 제거되며 {branch}와 그곳에서 실행 중인 다른 세션은 계속 유지됩니다.",
 } satisfies MessageCatalog

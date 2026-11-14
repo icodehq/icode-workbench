@@ -32,7 +32,15 @@ function session(
     worktree:
       branch === null
         ? null
-        : { path: `/tmp/wt/${branch}`, branch, baseOid: 'abc', state: 'ready', status: 'active', error: null }
+        : {
+            id: `wt_${branch}`,
+            path: `/tmp/wt/${branch}`,
+            branch,
+            baseOid: 'abc',
+            state: 'ready',
+            status: 'active',
+            error: null
+          }
   } as SessionSummary
 }
 
@@ -68,7 +76,7 @@ describe('sidebar model', () => {
     expect(map.get('demo')?.map((entry) => entry.id)).toEqual(['direct'])
   })
 
-  it('groups root sessions and worktrees by branch and keeps order', () => {
+  it('groups root sessions and worktrees by checkout and keeps order', () => {
     const groups = groupDirectSessions([
       session('root-1', 'demo'),
       session('wt-1', 'demo', 'feat/a'),
@@ -77,7 +85,18 @@ describe('sidebar model', () => {
     ])
     expect(groups.root.map((entry) => entry.id)).toEqual(['root-1', 'root-2'])
     expect(groups.worktrees).toHaveLength(1)
+    expect(groups.worktrees[0]?.worktreeId).toBe('wt_feat/a')
     expect(groups.worktrees[0]?.branch).toBe('feat/a')
+    expect(groups.worktrees[0]?.sessions.map((entry) => entry.id)).toEqual(['wt-1', 'wt-2'])
+  })
+
+  it('keys a checkout by path, so a branch rename cannot split its sessions', () => {
+    const first = session('wt-1', 'demo', 'feat/a')
+    const second = session('wt-2', 'demo', 'feat/renamed')
+    // Same checkout, live branch label has moved on for one of the sessions.
+    if (second.worktree !== null) second.worktree.path = '/tmp/wt/feat/a'
+    const groups = groupDirectSessions([first, second])
+    expect(groups.worktrees).toHaveLength(1)
     expect(groups.worktrees[0]?.sessions.map((entry) => entry.id)).toEqual(['wt-1', 'wt-2'])
   })
 

@@ -2149,4 +2149,13 @@ export const de = {
   'workspace.notice.recoverySnapshots.other': "{count} Wiederherstellungs-Snapshots für nicht committete Änderungen gespeichert.",
   'workspace.notice.snapshotsDiscarded.one': "{count} Wiederherstellungs-Snapshot verworfen.",
   'workspace.notice.snapshotsDiscarded.other': "{count} Wiederherstellungs-Snapshots verworfen.",
+  'sidebar.newSessionHere': "Hier neue Sitzung starten",
+  'newSession.runIn': "Ausführen in",
+  'newSession.newWorktree': "Neuer Worktree",
+  'newSession.newWorktreeHint': "Erstellt einen neuen Checkout und Branch für diese Sitzung.",
+  'newSession.existingWorktreeHint': "Läuft in {path} und teilt Checkout und Branch mit den bereits dort laufenden Sitzungen.",
+  'newSession.worktreeSessions.one': "{count} Sitzung",
+  'newSession.worktreeSessions.other': "{count} Sitzungen",
+  'newSession.worktreeUnavailable': "nicht verfügbar",
+  'session.remove.bodyShared': "Sitzung {title} entfernen? Nur diese Sitzung wird entfernt; {branch} und die anderen dort laufenden Sitzungen bleiben erhalten.",
 } satisfies MessageCatalog

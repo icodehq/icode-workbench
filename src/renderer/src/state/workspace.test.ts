@@ -348,6 +348,7 @@ describe('worktree lifecycle state', () => {
         {
           branch: 'icode/ses_one',
           repoId: 'repo_a',
+          worktreeId: null,
           sessionId: 'ses_one',
           taskId: null,
           kind: 'session',
@@ -419,6 +420,7 @@ describe('worktree lifecycle state', () => {
       type: 'sessionUpserted',
       session: session('ses_one', 'repo_a', {
         worktree: {
+          id: 'wt_66666666-6666-4666-8666-666666666666',
           path: '/tmp/worktrees/a/ses_one',
           branch: 'icode/ses_one',
           baseOid: 'abc',

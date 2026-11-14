@@ -7,14 +7,21 @@ import type { GitWorktreeService } from '../worktrees/git-worktree-service'
 import { describeWorktree, samePath } from '../worktrees/worktree-status'
 import { branchNameForSession } from '../../shared/domain/worktree'
 import { isValidBranchName } from '../../shared/domain/branch'
-import type { SessionWorktreeRecord, WorktreeSummary } from '../../shared/domain/worktree'
+import type {
+  SessionWorktreeRecord,
+  WorktreeSummary
+} from '../../shared/domain/worktree'
 import type { StoredSession } from '../persistence/rows'
 import type { HostGateway } from './host-gateway'
 import type { ListSessionsPayload } from '../../shared/host-protocol'
 import type { HarnessDetectionResult } from '../harness/harness-detector'
 import { makeAppError } from '../../shared/domain/errors'
 import type { AppError } from '../../shared/domain/errors'
-import type { ExecutionTarget } from '../../shared/domain/repository'
+import type {
+  ExecutionTarget,
+  RepositoryRecord,
+  WorkspaceRecord
+} from '../../shared/domain/repository'
 import {
   buildWslTerminalArgs,
   hostTargetFor as pathAHostTargetFor,
@@ -28,8 +35,10 @@ import { harnessLabel, type HarnessId } from '../../shared/domain/harness'
 import { wakePlan } from '../../shared/domain/session-sleep'
 import {
   newSessionId,
+  newWorktreeId,
   parseRepoId,
   parseSessionId,
+  parseWorktreeId,
   toPtyIncarnationId,
   type PtyIncarnationId,
   type SessionId
@@ -167,16 +176,19 @@ function hostObservation(entry: SessionInfo | undefined): HostObservation {
  */
 const FRESH_CHECKOUT_TTL_MS = 15_000
 
+/** The machine-local part of a Path A launch (the guest cwd is added by argv). */
+type PathALaunch = {
+  command: string
+  args: string[]
+  ptyCwd: string
+  distro: string
+}
+
 type FreshCheckoutGrant = {
   path: string
   branch: string
   verifiedAt: number
-  pathALaunch: {
-    command: string
-    args: string[]
-    ptyCwd: string
-    distro: string
-  } | null
+  pathALaunch: PathALaunch | null
 }
 
 /**
@@ -458,13 +470,18 @@ export class SessionService {
 
   /** Idempotent across launches: repeated reconciliation converges. */
   private async repairWorktreeStates(bySessionId: Map<string, SessionInfo>): Promise<void> {
+    // One row per checkout, even when several sessions share it. Any live
+    // attached session proves the checkout is ready; the repair is idempotent.
     const records = this.deps.worktrees.listAll()
     for (const record of records) {
       if (this.deps.repositories.isRemoving(record.repoId)) continue
-      const host = bySessionId.get(record.sessionId)
-      const hostActive = host !== undefined && (host.status === 'live' || host.status === 'starting')
+      const sessionIds = this.deps.worktrees.sessionIdsForWorktree(record.id)
+      const hostActive = sessionIds.some((sessionId) => {
+        const host = bySessionId.get(sessionId)
+        return host !== undefined && (host.status === 'live' || host.status === 'starting')
+      })
       if (record.state === 'created' && hostActive) {
-        this.deps.worktrees.updateState(record.sessionId, 'ready', null, this.now())
+        this.deps.worktrees.updateStateById(record.id, 'ready', null, this.now())
         continue
       }
       if (record.state !== 'creating') continue
@@ -480,7 +497,7 @@ export class SessionService {
         .catch(() => null)
       if (inspection?.pathExists === true && inspection.registered) {
         // Creation completed before the crash; the PTY was never started.
-        this.deps.worktrees.updateState(record.sessionId, 'created', null, this.now())
+        this.deps.worktrees.updateStateById(record.id, 'created', null, this.now())
       }
     }
   }
@@ -588,6 +605,24 @@ export class SessionService {
     const pathAPreflight = pathA
       ? await this.requirePathATerminal(target, repository.path)
       : null
+
+    /*
+     * Attaching to an existing worktree skips checkout creation entirely: the
+     * worktree, branch, and baseline already exist, and other sessions may be
+     * using them. The session only gains a link and a PTY in that directory.
+     */
+    if (input.worktreeId !== undefined) {
+      return this.createInExistingWorktree(input, options, {
+        repository,
+        workspace,
+        target,
+        pathA,
+        pathAPreflight,
+        detection,
+        launchSpec,
+        hostPrewarm
+      })
+    }
 
     // Every new session in a Git repository gets its own checkout. Refuse
     // repositories where a worktree cannot be based on a known commit. On WSL
@@ -702,7 +737,12 @@ export class SessionService {
     // The managed root belongs to the repository's host: a WSL repository's
     // sessions live on the guest filesystem, under the guest worktree root.
     const worktreeRoot = await this.deps.gitWorktrees.worktreeRootFor(target)
-    const worktreePath = this.deps.gitWorktrees.worktreePathFor(repository.id, sessionId, worktreeRoot)
+    const worktreeId = newWorktreeId()
+    const worktreePath = this.deps.gitWorktrees.worktreePathFor(
+      repository.id,
+      worktreeId,
+      worktreeRoot
+    )
     const initial: PersistedSessionObservation = {
       lastObservedState: 'starting',
       lastObservedExitCode: null,
@@ -711,6 +751,7 @@ export class SessionService {
       lastObservedAt: createdAt
     }
     const worktree: SessionWorktreeRecord = {
+      id: worktreeId,
       sessionId,
       repoId: repository.id,
       path: worktreePath,
@@ -746,6 +787,7 @@ export class SessionService {
       this.deps.worktrees.insertBranch({
         branch,
         repoId: repository.id,
+        worktreeId: worktree.id,
         sessionId,
         taskId: null,
         kind: 'session',
@@ -795,94 +837,326 @@ export class SessionService {
        *   Path B — a coding Agent: the managed Guest Host reached by the W5 relay,
        *            exactly as W7 wired it.
        */
-      const created = pathA
-        ? await this.deps.host.createOrAttach(
-            {
-              sessionId,
-              // A ConPTY cannot start in a Linux path; the guest directory is
-              // entered by the child script instead.
-              cwd: pathALaunch!.ptyCwd,
-              command: pathALaunch!.command,
-              args: pathALaunch!.args,
-              cols: input.cols,
-              rows: input.rows
-            },
-            // The desktop Host: Path A is deliberately not routed through W5.
-            LOCAL_TARGET
-          )
-        : await this.deps.host.createOrAttach(
-            {
-              sessionId,
-              cwd,
-              command: detection!.command!.command,
-              args: withLaunchArgs(detection!.command!, launchSpec.args).args,
-              env: launchSpec.env,
-              cols: input.cols,
-              rows: input.rows
-            },
-            target
-          )
-      this.currentIncarnations.set(sessionId, created.incarnationId)
-      this.deps.onIncarnation?.(sessionId, created.incarnationId)
-      const observation: PersistedSessionObservation = {
-        lastObservedState: 'live',
-        lastObservedExitCode: null,
-        lastObservedError: null,
-        lastObservedIncarnationId: toPtyIncarnationId(created.incarnationId),
-        lastObservedAt: this.now()
-      }
-      this.deps.sessions.recordObservation(sessionId, observation)
-      this.deps.worktrees.updateState(sessionId, 'ready', null, this.now())
-      const row = this.deps.sessions.findById(sessionIdParse(sessionId))!
-      const summary = this.toSummary(
-        row,
-        {
-          state: 'live',
-          authority: 'host',
-          reason: 'host_live',
-          incarnationId: toPtyIncarnationId(created.incarnationId),
-          exitCode: null,
-          error: null
-        },
-        null,
-        true
-      )
-      this.emit({ type: 'state', session: summary })
-      return summary
+      return await this.launchPty({
+        sessionId,
+        harness: input.harness,
+        cwd,
+        target,
+        pathA,
+        pathALaunch,
+        detection,
+        launchSpec,
+        cols: input.cols,
+        rows: input.rows,
+        markReady: () =>
+          this.deps.worktrees.updateState(sessionId, 'ready', null, this.now())
+      })
     } catch (error) {
       // A worktree failure keeps its specific code; only a Host failure is a
       // spawn failure. Nothing is deleted: the failed session stays inspectable.
       this.freshCheckouts.delete(sessionId)
-      const appError =
-        error instanceof SessionServiceError
-          ? error.appError
-          : error instanceof HostRequestError
-            ? errorFromHost(error, 'The session could not be started.')
-            : makeAppError('SPAWN_FAILED', 'The session process could not be started.', {
-                detail: error instanceof Error ? error.message : String(error)
-              })
+      const appError = this.startFailure(error)
       this.deps.worktrees.updateState(sessionId, 'failed', appError, this.now())
-      const failed: PersistedSessionObservation = {
-        lastObservedState: 'failed',
-        lastObservedExitCode: null,
-        lastObservedError: appError,
-        lastObservedIncarnationId: null,
-        lastObservedAt: this.now()
-      }
-      this.deps.sessions.recordObservation(sessionId, failed)
-      this.emit({
-        type: 'state',
-        session: this.toSummary(this.deps.sessions.findById(sessionId)!, {
-          state: 'failed',
-          authority: 'persisted',
-          reason: 'host_failed',
-          incarnationId: null,
-          exitCode: null,
-          error: appError
-        })
-      })
+      this.recordFailedStart(sessionId, appError)
       throw new SessionServiceError(appError)
     }
+  }
+
+  /**
+   * Starts a session in a worktree that already exists.
+   *
+   * The checkout is shared state: inspection failures refuse the new session,
+   * but a failed PTY never marks the worktree failed for the sessions already
+   * running in it. Only the new session row records that failure.
+   */
+  private async createInExistingWorktree(
+    input: CreateSessionInput,
+    options: {
+      role?: SessionRole
+      base?: { ref: string | null; oid: string }
+    },
+    context: {
+      repository: RepositoryRecord
+      workspace: WorkspaceRecord
+      target: ExecutionTarget
+      pathA: boolean
+      pathAPreflight: PathALaunch | null
+      detection: HarnessDetectionResult | null
+      launchSpec: { args: string[]; env: Record<string, string> }
+      hostPrewarm: Promise<void> | null
+    }
+  ): Promise<SessionSummary> {
+    const {
+      repository,
+      workspace,
+      target,
+      pathA,
+      pathAPreflight,
+      detection,
+      launchSpec,
+      hostPrewarm
+    } = context
+    if (
+      options.base !== undefined ||
+      input.startFrom !== undefined ||
+      input.branchName !== undefined
+    ) {
+      throw new SessionServiceError(
+        makeAppError(
+          'INVALID_ARGUMENT',
+          'A base branch or branch name cannot be combined with an existing worktree.',
+          { context: { repoId: repository.id, worktreeId: input.worktreeId ?? '' } }
+        )
+      )
+    }
+    const worktreeId = parseWorktreeId(input.worktreeId ?? '')
+    if (!worktreeId) {
+      throw new SessionServiceError(
+        makeAppError('INVALID_ARGUMENT', 'Invalid worktree ID.', {
+          context: { worktreeId: input.worktreeId ?? '' }
+        })
+      )
+    }
+    const record = this.deps.worktrees.findById(worktreeId)
+    if (record === null || String(record.repoId) !== String(repository.id)) {
+      throw new SessionServiceError(
+        makeAppError('INVALID_ARGUMENT', 'That worktree does not belong to this repository.', {
+          context: { repoId: repository.id, worktreeId }
+        })
+      )
+    }
+    if (record.state === 'creating') {
+      throw new SessionServiceError(
+        makeAppError('INVALID_ARGUMENT', 'That worktree is still being created.', {
+          context: { worktreeId, path: record.path }
+        })
+      )
+    }
+    if (record.state === 'failed') {
+      throw new SessionServiceError(
+        makeAppError('WORKTREE_CREATE_FAILED', 'That worktree could not be created.', {
+          detail: record.error?.message,
+          context: { worktreeId, path: record.path }
+        })
+      )
+    }
+    const inspection = await this.deps.gitWorktrees
+      .inspect({
+        primaryRoot: repository.path,
+        path: record.path,
+        branch: record.branch,
+        target
+      })
+      .catch((error: unknown) => {
+        throw new SessionServiceError(
+          makeAppError('GIT_READ_FAILED', 'The worktree could not be inspected.', {
+            detail: error instanceof Error ? error.message : String(error),
+            context: { worktreeId, path: record.path }
+          })
+        )
+      })
+    if (!inspection.pathExists) {
+      throw new SessionServiceError(
+        makeAppError('WORKTREE_MISSING', 'The isolated worktree is missing.', {
+          detail: 'Restore the worktree from its retained branch before starting another session in it.',
+          context: { worktreeId, path: record.path, branch: record.branch }
+        })
+      )
+    }
+    if (!inspection.registered) {
+      throw new SessionServiceError(
+        makeAppError('WORKTREE_INCONSISTENT', 'The worktree directory is not registered with Git.', {
+          detail: record.path,
+          context: { worktreeId, branch: record.branch }
+        })
+      )
+    }
+
+    const sessionId = this.makeSessionId()
+    const createdAt = this.now()
+    const title = normalizeSessionTitle(
+      input.title ?? `${harnessLabel(input.harness)} · ${repository.displayName}`,
+      mainT('session.untitled')
+    )
+    const initial: PersistedSessionObservation = {
+      lastObservedState: 'starting',
+      lastObservedExitCode: null,
+      lastObservedError: null,
+      lastObservedIncarnationId: null,
+      lastObservedAt: createdAt
+    }
+
+    // The session and its link are one transaction: a crash cannot leave a
+    // running PTY whose checkout association is missing.
+    this.deps.database.transaction(() => {
+      if (this.deps.repositories.isRemoving(repository.id)) {
+        throw new SessionServiceError(repositoryRemovingError(repository.id))
+      }
+      this.deps.sessions.insert({
+        id: sessionId,
+        workspaceId: workspace.id,
+        harness: input.harness,
+        title,
+        role: options.role ?? 'interactive',
+        createdAt,
+        lastActiveAt: createdAt,
+        observation: initial
+      })
+      this.deps.worktrees.linkSession(sessionId, worktreeId)
+    })
+
+    const pathALaunch = pathAPreflight
+      ? {
+          ...pathAPreflight,
+          args: buildWslTerminalArgs(pathAPreflight.distro, record.path)
+        }
+      : null
+    this.freshCheckouts.set(sessionId, {
+      path: record.path,
+      branch: record.branch,
+      verifiedAt: this.now(),
+      pathALaunch
+    })
+    try {
+      await this.prepareWorkspaceTrust(input.harness, target, record.path)
+      if (hostPrewarm !== null) await hostPrewarm
+      return await this.launchPty({
+        sessionId,
+        harness: input.harness,
+        cwd: record.path,
+        target,
+        pathA,
+        pathALaunch,
+        detection,
+        launchSpec,
+        cols: input.cols,
+        rows: input.rows,
+        markReady: () =>
+          this.deps.worktrees.updateStateById(worktreeId, 'ready', null, this.now())
+      })
+    } catch (error) {
+      // The shared checkout is not this session's to mark failed.
+      this.freshCheckouts.delete(sessionId)
+      const appError = this.startFailure(error)
+      this.recordFailedStart(sessionId, appError)
+      throw new SessionServiceError(appError)
+    }
+  }
+
+  /**
+   * Spawns the PTY for a session whose row is already durable.
+   *
+   * `markReady` runs after the process is confirmed and before the summary is
+   * built, so the returned status reflects a live session in a ready worktree.
+   */
+  private async launchPty(input: {
+    sessionId: SessionId
+    harness: HarnessId
+    cwd: string
+    target: ExecutionTarget
+    pathA: boolean
+    pathALaunch: PathALaunch | null
+    detection: HarnessDetectionResult | null
+    launchSpec: { args: string[]; env: Record<string, string> }
+    cols: number
+    rows: number
+    markReady: () => void
+  }): Promise<SessionSummary> {
+    /**
+     * Two routes, chosen by persisted intent:
+     *
+     *   Path A — a local WSL terminal: the **desktop** Host spawns `wsl.exe`,
+     *            the PTY cwd is machine-local, and the guest shell starts in the
+     *            worktree. No relay, no managed Guest Host.
+     *   Path B — a coding Agent: the managed Guest Host reached by the W5 relay,
+     *            exactly as W7 wired it.
+     */
+    const created = input.pathA
+      ? await this.deps.host.createOrAttach(
+          {
+            sessionId: input.sessionId,
+            // A ConPTY cannot start in a Linux path; the guest directory is
+            // entered by the child script instead.
+            cwd: input.pathALaunch!.ptyCwd,
+            command: input.pathALaunch!.command,
+            args: input.pathALaunch!.args,
+            cols: input.cols,
+            rows: input.rows
+          },
+          // The desktop Host: Path A is deliberately not routed through W5.
+          LOCAL_TARGET
+        )
+      : await this.deps.host.createOrAttach(
+          {
+            sessionId: input.sessionId,
+            cwd: input.cwd,
+            command: input.detection!.command!.command,
+            args: withLaunchArgs(input.detection!.command!, input.launchSpec.args).args,
+            env: input.launchSpec.env,
+            cols: input.cols,
+            rows: input.rows
+          },
+          input.target
+        )
+    this.currentIncarnations.set(input.sessionId, created.incarnationId)
+    this.deps.onIncarnation?.(input.sessionId, created.incarnationId)
+    const observation: PersistedSessionObservation = {
+      lastObservedState: 'live',
+      lastObservedExitCode: null,
+      lastObservedError: null,
+      lastObservedIncarnationId: toPtyIncarnationId(created.incarnationId),
+      lastObservedAt: this.now()
+    }
+    this.deps.sessions.recordObservation(input.sessionId, observation)
+    input.markReady()
+    const row = this.deps.sessions.findById(sessionIdParse(input.sessionId))!
+    const summary = this.toSummary(
+      row,
+      {
+        state: 'live',
+        authority: 'host',
+        reason: 'host_live',
+        incarnationId: toPtyIncarnationId(created.incarnationId),
+        exitCode: null,
+        error: null
+      },
+      null,
+      true
+    )
+    this.emit({ type: 'state', session: summary })
+    return summary
+  }
+
+  private startFailure(error: unknown): AppError {
+    if (error instanceof SessionServiceError) return error.appError
+    if (error instanceof HostRequestError) {
+      return errorFromHost(error, 'The session could not be started.')
+    }
+    return makeAppError('SPAWN_FAILED', 'The session process could not be started.', {
+      detail: error instanceof Error ? error.message : String(error)
+    })
+  }
+
+  private recordFailedStart(sessionId: SessionId, appError: AppError): void {
+    const failed: PersistedSessionObservation = {
+      lastObservedState: 'failed',
+      lastObservedExitCode: null,
+      lastObservedError: appError,
+      lastObservedIncarnationId: null,
+      lastObservedAt: this.now()
+    }
+    this.deps.sessions.recordObservation(sessionId, failed)
+    this.emit({
+      type: 'state',
+      session: this.toSummary(this.deps.sessions.findById(sessionId)!, {
+        state: 'failed',
+        authority: 'persisted',
+        reason: 'host_failed',
+        incarnationId: null,
+        exitCode: null,
+        error: appError
+      })
+    })
   }
 
   async attach(sessionId: string): Promise<TerminalAttachPayload> {
@@ -1286,13 +1560,13 @@ export class SessionService {
         makeAppError('DB_CORRUPT', 'Session repository is missing.', { context: { sessionId } })
       )
     }
-    // Why: only branches iCode recorded for this session may be used to rebuild a
-    // checkout; otherwise recovery could resurrect unrelated user work.
+    // Why: only branches iCode recorded for this worktree may be used to rebuild
+    // a checkout; otherwise recovery could resurrect unrelated user work.
     const owned = this.deps.worktrees.findBranch(record.branch)
-    if (!owned || owned.sessionId !== String(sessionId)) {
+    if (!owned || owned.worktreeId !== record.id) {
       throw new SessionServiceError(
-        makeAppError('BRANCH_NOT_OWNED', 'That branch is not owned by this session.', {
-          context: { sessionId, branch: record.branch }
+        makeAppError('BRANCH_NOT_OWNED', 'That branch is not owned by this worktree.', {
+          context: { sessionId, worktreeId: record.id, branch: record.branch }
         })
       )
     }
@@ -1302,7 +1576,8 @@ export class SessionService {
       branch: record.branch,
       target: repository.executionTarget
     })
-    this.deps.worktrees.updateState(sessionId, 'created', null, this.now())
+    // Recovery rebuilds the one shared checkout; every attached session sees it.
+    this.deps.worktrees.updateStateById(record.id, 'created', null, this.now())
     const summary = await this.get(sessionId)
     this.emit({ type: 'state', session: summary })
     return summary

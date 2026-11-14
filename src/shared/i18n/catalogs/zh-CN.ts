@@ -2145,4 +2145,13 @@ export const zhCN = {
   'workspace.notice.recoverySnapshots.other': "已为未提交改动保存 {count} 个恢复快照。",
   'workspace.notice.snapshotsDiscarded.one': "已丢弃 {count} 个恢复快照。",
   'workspace.notice.snapshotsDiscarded.other': "已丢弃 {count} 个恢复快照。",
+  'sidebar.newSessionHere': "在此新建会话",
+  'newSession.runIn': "运行位置",
+  'newSession.newWorktree': "新建工作树",
+  'newSession.newWorktreeHint': "为此会话创建新的检出和分支。",
+  'newSession.existingWorktreeHint': "在 {path} 中运行，与已有会话共享该检出和分支。",
+  'newSession.worktreeSessions.one': "{count} 个会话",
+  'newSession.worktreeSessions.other': "{count} 个会话",
+  'newSession.worktreeUnavailable': "不可用",
+  'session.remove.bodyShared': "移除 {title}？只会移除此会话；{branch} 及其中运行的其他会话将继续工作。",
 } satisfies MessageCatalog

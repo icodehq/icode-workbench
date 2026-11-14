@@ -2147,4 +2147,13 @@ export const ja = {
   'workspace.notice.recoverySnapshots.other': "未コミットの変更に対して {count} 個の復元スナップショットを保存しました。",
   'workspace.notice.snapshotsDiscarded.one': "{count} 個の復元スナップショットを破棄しました。",
   'workspace.notice.snapshotsDiscarded.other': "{count} 個の復元スナップショットを破棄しました。",
+  'sidebar.newSessionHere': "ここに新しいセッション",
+  'newSession.runIn': "実行場所",
+  'newSession.newWorktree': "新しいワークツリー",
+  'newSession.newWorktreeHint': "このセッション用に新しいチェックアウトとブランチを作成します。",
+  'newSession.existingWorktreeHint': "{path} で実行し、既存のセッションとチェックアウトとブランチを共有します。",
+  'newSession.worktreeSessions.one': "{count} セッション",
+  'newSession.worktreeSessions.other': "{count} セッション",
+  'newSession.worktreeUnavailable': "利用不可",
+  'session.remove.bodyShared': "{title} を削除しますか？このセッションだけが削除され、{branch} とそこで実行中の他のセッションはそのまま残ります。",
 } satisfies MessageCatalog

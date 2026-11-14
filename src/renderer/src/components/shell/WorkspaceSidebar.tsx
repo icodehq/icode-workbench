@@ -74,6 +74,8 @@ type Props = {
   onOpenTask: (task: TaskRecordPayload) => void
   onNewSession: () => void
   onNewSessionInRepo: (repoId: string) => void
+  /** Start another session in an existing worktree, from its sidebar group. */
+  onNewSessionInWorktree: (repoId: string, worktreeId: string) => void
   onQueueTask: () => void
   onQueueTaskInRepo: (repoId: string) => void
   onAddProject: () => void
@@ -135,6 +137,7 @@ export default function WorkspaceSidebar({
   onOpenTask,
   onNewSession,
   onNewSessionInRepo,
+  onNewSessionInWorktree,
   onQueueTask,
   onQueueTaskInRepo,
   onAddProject,
@@ -583,16 +586,38 @@ export default function WorkspaceSidebar({
             data-testid={`sidebar-sessions-${repo.id}`}
           >
             {groups.root.map(sessionRow)}
-            {groups.worktrees.map((group) => (
-              <div key={group.branch}>
-                <div className="flex h-5 items-center gap-1 px-1 font-mono text-[7.5px] text-muted-foreground">
-                  <GitBranch size={8} className="shrink-0" />
-                  <span className="min-w-0 flex-1 truncate">{group.branch}</span>
-                  <span>{group.sessions.length}</span>
+            {groups.worktrees.map((group) => {
+              const status = group.sessions[0]?.worktree?.status
+              // A checkout Git cannot hand to a PTY must not offer a session.
+              const canAdd = status === 'ready-to-start' || status === 'active'
+              return (
+                <div key={group.worktreeId} data-testid={`sidebar-worktree-${group.worktreeId}`}>
+                  <div className="group/wt flex h-5 items-center gap-1 px-1 font-mono text-[7.5px] text-muted-foreground">
+                    <GitBranch size={8} className="shrink-0" />
+                    <span className="min-w-0 flex-1 truncate" title={group.path}>
+                      {group.branch}
+                    </span>
+                    <span>{group.sessions.length}</span>
+                    <button
+                      type="button"
+                      className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded opacity-0 hover:bg-muted hover:text-foreground focus-visible:opacity-100 disabled:cursor-not-allowed disabled:opacity-30 group-hover/wt:opacity-100 group-hover/wt:disabled:opacity-30"
+                      aria-label={t('sidebar.newSessionHere')}
+                      title={
+                        canAdd
+                          ? t('sidebar.newSessionHere')
+                          : t('newSession.worktreeUnavailable')
+                      }
+                      disabled={!canAdd}
+                      data-testid={`sidebar-worktree-new-session-${group.worktreeId}`}
+                      onClick={() => onNewSessionInWorktree(repo.id, group.worktreeId)}
+                    >
+                      <Plus size={9} />
+                    </button>
+                  </div>
+                  <div className="pl-1">{group.sessions.map(sessionRow)}</div>
                 </div>
-                <div className="pl-1">{group.sessions.map(sessionRow)}</div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         ) : null}
       </div>

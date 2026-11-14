@@ -141,6 +141,7 @@ function setup(options: { guestExists: boolean; resolveFails?: boolean; target?:
   const worktreePath = options.target?.kind === 'local' ? join(root.dir, 'worktrees', 'local-wt') : GUEST_PATH
   if (options.target?.kind === 'local') mkdirSync(worktreePath, { recursive: true })
   worktrees.insert({
+    id: 'wt_55555555-5555-4555-8555-555555555555' as never,
     sessionId,
     repoId,
     path: worktreePath,

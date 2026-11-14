@@ -6,10 +6,12 @@ import {
   parseRepoId as parseDomainRepoId,
   parseSessionId as parseDomainSessionId,
   parseWorkspaceId as parseDomainWorkspaceId,
+  parseWorktreeId as parseDomainWorktreeId,
   type PtyIncarnationId,
   type RepoId,
   type SessionId,
-  type WorkspaceId
+  type WorkspaceId,
+  type WorktreeId
 } from '../../shared/domain/ids'
 import type { CanonicalRepositoryPath } from '../../shared/domain/paths'
 import type {
@@ -44,6 +46,12 @@ export function parseWorkspaceId(value: unknown): WorkspaceId {
 export function parseSessionId(value: unknown): SessionId {
   const parsed = parseDomainSessionId(requireString(value, 'sessions.id'))
   if (!parsed) throw rowError('sessions.id', value)
+  return parsed
+}
+
+export function parseWorktreeId(value: unknown): WorktreeId {
+  const parsed = parseDomainWorktreeId(requireString(value, 'worktrees.id'))
+  if (!parsed) throw rowError('worktrees.id', value)
   return parsed
 }
 

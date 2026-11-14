@@ -120,6 +120,7 @@ export async function makeRepoFixture(): Promise<MergeFixture> {
         }
       })
       worktrees.insert({
+        id: 'wt_33333333-3333-4333-8333-333333333333' as never,
         sessionId: sessionId as never,
         repoId: added.repository.id,
         path,
@@ -134,6 +135,7 @@ export async function makeRepoFixture(): Promise<MergeFixture> {
       worktrees.insertBranch({
         branch,
         repoId: added.repository.id,
+        worktreeId: 'wt_33333333-3333-4333-8333-333333333333' as never,
         sessionId,
         taskId: null,
         kind: 'session',

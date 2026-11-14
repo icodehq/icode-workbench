@@ -300,6 +300,7 @@ async function setup(options: { resolveTargetFails?: boolean } = {}): Promise<Fi
         }
       })
       const record: SessionWorktreeRecord = {
+        id: 'wt_22222222-2222-4222-8222-222222222222' as never,
         sessionId,
         repoId: added.repository.id,
         path: guestPath,

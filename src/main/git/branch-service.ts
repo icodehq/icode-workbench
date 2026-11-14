@@ -141,6 +141,7 @@ export class BranchService {
           this.deps.worktrees.insertBranch({
             branch: input.branch,
             repoId: repository.id,
+            worktreeId: null,
             sessionId: null,
             taskId: input.ownerTaskId,
             kind: 'chain',
@@ -159,6 +160,7 @@ export class BranchService {
       this.deps.worktrees.insertBranch({
         branch: input.branch,
         repoId: repository.id,
+        worktreeId: null,
         sessionId: null,
         taskId: input.ownerTaskId,
         kind: 'chain',

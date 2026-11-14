@@ -60,7 +60,13 @@ export const removalSnapshotSchema = z.strictObject({
 export type RemovalSnapshot = z.infer<typeof removalSnapshotSchema>
 
 export const removalWorktreeSchema = z.strictObject({
+  /** Representative session, used to name the worktree snapshot. */
   sessionId: sessionIdSchema,
+  /**
+   * Every session attached to this checkout. Optional because manifests
+   * written before worktrees could be shared carry only `sessionId`.
+   */
+  sessionIds: z.array(sessionIdSchema).optional(),
   path: absolutePathSchema,
   branch: branchSchema,
   snapshot: removalSnapshotSchema.nullable(),

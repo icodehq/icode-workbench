@@ -218,7 +218,10 @@ describe('review availability', () => {
     // A second worktree keeps the branch reachable; delete the baseline object
     // by pruning reflogs is impractical, so simulate with an unknown OID.
     f.db.raw
-      .prepare('UPDATE session_worktrees SET base_oid = ? WHERE session_id = ?')
+      .prepare(
+        `UPDATE worktrees SET base_oid = ?
+         WHERE id = (SELECT worktree_id FROM session_worktree_links WHERE session_id = ?)`
+      )
       .run('a'.repeat(40), session.id)
 
     const result = await f.review.list(session.id)

@@ -111,15 +111,27 @@ export class RepositoryRemovalService {
         })),
         mergesSettled: false,
         sessionsStopped: false,
-        worktrees: worktrees.map((worktree) => ({
-          sessionId: String(worktree.sessionId),
-          path: worktree.path,
-          branch: worktree.branch,
-          snapshot: null,
-          snapshotState: 'pending',
-          attention: null,
-          removed: false
-        })),
+        worktrees: worktrees.flatMap((worktree) => {
+          const sessionIds = this.deps.worktrees
+            .sessionIdsForWorktree(worktree.id)
+            .map((sessionId) => String(sessionId))
+          const representative = sessionIds[0]
+          // A worktree with no attached session is not a state iCode creates;
+          // without a session id the manifest cannot name its snapshot.
+          if (representative === undefined) return []
+          return [
+            {
+              sessionId: representative,
+              sessionIds,
+              path: worktree.path,
+              branch: worktree.branch,
+              snapshot: null,
+              snapshotState: 'pending' as const,
+              attention: null,
+              removed: false
+            }
+          ]
+        }),
         snapshots: [],
         repoRowRemoved: false,
         purged

@@ -252,6 +252,37 @@ describe('session creation', () => {
     expect(f.events.some((event) => event.type === 'state')).toBe(true)
   })
 
+  it('runs a second session in an existing worktree without creating another checkout', async () => {
+    const f = await withRepo()
+    const first = await f.service.create(createInput(f))
+    const worktree = first.worktree!
+    const second = await f.service.create(createInput(f, { worktreeId: worktree.id }))
+
+    expect(second.worktree).toMatchObject({
+      id: worktree.id,
+      path: worktree.path,
+      branch: worktree.branch
+    })
+    expect(f.host.calls.createOrAttach).toHaveLength(2)
+    expect(f.host.calls.createOrAttach[1]?.cwd).toBe(worktree.path)
+    expect(f.worktrees.listAll()).toHaveLength(1)
+    expect(f.worktrees.sessionCountForWorktree(worktree.id)).toBe(2)
+    // Attaching does not mint a second owned branch.
+    expect(f.worktrees.listBranches(f.repoId)).toHaveLength(1)
+  })
+
+  it('refuses to combine an existing worktree with a new checkout request', async () => {
+    const f = await withRepo()
+    const first = await f.service.create(createInput(f))
+    await expect(
+      f.service.create(
+        createInput(f, { worktreeId: first.worktree!.id, startFrom: 'main' })
+      )
+    ).rejects.toMatchObject({ appError: { code: 'INVALID_ARGUMENT' } })
+    expect(f.host.calls.createOrAttach).toHaveLength(1)
+    expect(f.worktrees.sessionCountForWorktree(first.worktree!.id)).toBe(1)
+  })
+
   it('forwards provider env to create and restart, never to attach', async () => {
     const env = {
       ANTHROPIC_BASE_URL: 'https://relay.example.com',

@@ -107,12 +107,21 @@ export function createChokidarFilesWatchFactory(): FilesWatchFactory {
 
 type SessionWatch = {
   active: boolean
-  handle: FilesWatchHandle | null
   timer: NodeJS.Timeout | null
   pending: Set<string>
   overflow: boolean
   revision: number
   target: FilesWatchTarget
+}
+
+/** One OS watch shared by every session running in the same checkout. */
+type SharedWatch = {
+  handle: FilesWatchHandle
+  sessions: Set<string>
+}
+
+function watchKey(target: FilesWatchTarget): string {
+  return target.worktreePath
 }
 
 export class WorkspaceFilesWatcherService {
@@ -122,6 +131,7 @@ export class WorkspaceFilesWatcherService {
   private readonly sessions = new Map<string, SessionWatch>()
   /** Last requested state; a slow resolve must not resurrect a stopped watch. */
   private readonly desired = new Map<string, number>()
+  private readonly handles = new Map<string, SharedWatch>()
   private readonly listeners = new Set<(event: FilesChangedEvent) => void>()
   private token = 0
 
@@ -174,7 +184,6 @@ export class WorkspaceFilesWatcherService {
     await this.stop(sessionId)
     const state: SessionWatch = {
       active: true,
-      handle: null,
       timer: null,
       pending: new Set(),
       overflow: false,
@@ -182,18 +191,34 @@ export class WorkspaceFilesWatcherService {
       target
     }
     this.sessions.set(sessionId, state)
-    try {
-      state.handle = this.factory([target.worktreePath], {
-        ignored: (path) => shouldIgnoreFilesWatchPath(path, target.worktreePath),
-        onEvent: (event) => this.onEvent(sessionId, event),
-        onError: () => this.fail(sessionId),
-        // A write that lands during chokidar's initial scan must not be lost.
-        onReady: () => this.onReady(sessionId)
-      })
-    } catch {
-      this.sessions.delete(sessionId)
-      this.desired.delete(sessionId)
-      return { watching: false, reason: 'watch-failed' }
+    const key = watchKey(target)
+    let shared = this.handles.get(key)
+    const joinedExisting = shared !== undefined
+    if (!shared) {
+      try {
+        shared = {
+          handle: this.factory([target.worktreePath], {
+            ignored: (path) => shouldIgnoreFilesWatchPath(path, target.worktreePath),
+            onEvent: (event) => this.onTargetEvent(key, event),
+            onError: () => this.failTarget(key),
+            // A write that lands during chokidar's initial scan must not be lost.
+            onReady: () => this.onTargetReady(key)
+          }),
+          sessions: new Set()
+        }
+      } catch {
+        this.sessions.delete(sessionId)
+        this.desired.delete(sessionId)
+        return { watching: false, reason: 'watch-failed' }
+      }
+      this.handles.set(key, shared)
+    }
+    shared.sessions.add(sessionId)
+    if (joinedExisting) {
+      // The shared watch is already past its initial scan; the joining session
+      // still needs one full read to match what is on disk.
+      state.overflow = true
+      this.schedule(sessionId, state)
     }
     return { watching: true }
   }
@@ -211,24 +236,32 @@ export class WorkspaceFilesWatcherService {
       .map(([sessionId]) => sessionId)
   }
 
-  private onEvent(sessionId: string, event: FilesWatchEvent): void {
-    const state = this.sessions.get(sessionId)
-    if (!state?.active) return
+  private onTargetEvent(key: string, event: FilesWatchEvent): void {
+    const shared = this.handles.get(key)
+    if (!shared) return
     if (event.type === 'error') {
-      this.fail(sessionId)
+      this.failTarget(key)
       return
     }
-    if (shouldIgnoreFilesWatchPath(event.path, state.target.worktreePath)) return
-    this.recordChange(state, event.path)
-    this.schedule(sessionId, state)
+    for (const sessionId of [...shared.sessions]) {
+      const state = this.sessions.get(sessionId)
+      if (!state?.active) continue
+      if (shouldIgnoreFilesWatchPath(event.path, state.target.worktreePath)) continue
+      this.recordChange(state, event.path)
+      this.schedule(sessionId, state)
+    }
   }
 
-  private onReady(sessionId: string): void {
-    const state = this.sessions.get(sessionId)
-    if (!state?.active) return
-    // The scan itself may have raced a write; reconcile once after it settles.
-    state.overflow = true
-    this.schedule(sessionId, state)
+  private onTargetReady(key: string): void {
+    const shared = this.handles.get(key)
+    if (!shared) return
+    for (const sessionId of [...shared.sessions]) {
+      const state = this.sessions.get(sessionId)
+      if (!state?.active) continue
+      // The scan itself may have raced a write; reconcile once after it settles.
+      state.overflow = true
+      this.schedule(sessionId, state)
+    }
   }
 
   private recordChange(state: SessionWatch, path: string): void {
@@ -269,27 +302,31 @@ export class WorkspaceFilesWatcherService {
     }
   }
 
-  private fail(sessionId: string): void {
-    const state = this.sessions.get(sessionId)
-    if (!state) return
-    if (state.timer !== null) clearTimeout(state.timer)
-    state.timer = null
-    state.revision += 1
-    const event: FilesChangedEvent = {
-      sessionId,
-      revision: state.revision,
-      changedPaths: [],
-      overflow: false,
-      failed: true
-    }
-    for (const listener of this.listeners) {
-      try {
-        listener(event)
-      } catch {
-        // ignore
+  private failTarget(key: string): void {
+    const shared = this.handles.get(key)
+    if (!shared) return
+    for (const sessionId of [...shared.sessions]) {
+      const state = this.sessions.get(sessionId)
+      if (!state) continue
+      if (state.timer !== null) clearTimeout(state.timer)
+      state.timer = null
+      state.revision += 1
+      const event: FilesChangedEvent = {
+        sessionId,
+        revision: state.revision,
+        changedPaths: [],
+        overflow: false,
+        failed: true
       }
+      for (const listener of this.listeners) {
+        try {
+          listener(event)
+        } catch {
+          // ignore
+        }
+      }
+      void this.stop(sessionId)
     }
-    void this.stop(sessionId)
   }
 
   private async stop(sessionId: string): Promise<void> {
@@ -300,12 +337,17 @@ export class WorkspaceFilesWatcherService {
     if (state.timer !== null) clearTimeout(state.timer)
     state.timer = null
     state.pending.clear()
-    if (state.handle) {
-      try {
-        await state.handle.close()
-      } catch {
-        // The OS watcher may already be gone; stopping is best effort.
-      }
+    const key = watchKey(state.target)
+    const shared = this.handles.get(key)
+    if (!shared) return
+    shared.sessions.delete(sessionId)
+    if (shared.sessions.size > 0) return
+    // Last session out: the physical watch has no remaining consumer.
+    this.handles.delete(key)
+    try {
+      await shared.handle.close()
+    } catch {
+      // The OS watcher may already be gone; stopping is best effort.
     }
   }
 }

@@ -436,7 +436,7 @@ describe('assistant store', () => {
 
     const current = openDatabase({ path, migrations: MIGRATIONS })
     cleanups.push(() => current.close())
-    expect(current.userVersion()).toBe(17)
+    expect(current.userVersion()).toBe(18)
     const rows = current.raw
       .prepare(
         `SELECT id, start_seq, end_seq FROM assistant_conversations ORDER BY rowid`
@@ -467,7 +467,7 @@ describe('assistant store', () => {
 
     const current = openDatabase({ path, migrations: MIGRATIONS })
     cleanups.push(() => current.close())
-    expect(current.userVersion()).toBe(17)
+    expect(current.userVersion()).toBe(18)
     const row = current.raw
       .prepare("SELECT attempt_mode FROM tasks WHERE id = 'task_old'")
       .get() as { attempt_mode: string }
@@ -484,7 +484,7 @@ describe('assistant store', () => {
 
     const current = openDatabase({ path, migrations: MIGRATIONS })
     cleanups.push(() => current.close())
-    expect(current.userVersion()).toBe(17)
+    expect(current.userVersion()).toBe(18)
     const columns = current.raw
       .prepare("PRAGMA table_info('tasks')")
       .all() as Array<{ name: string }>

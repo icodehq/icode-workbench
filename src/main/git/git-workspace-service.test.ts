@@ -148,6 +148,7 @@ async function realRepo(): Promise<Fixture> {
     }
   })
   worktrees.insert({
+    id: 'wt_11111111-1111-4111-8111-111111111111' as never,
     sessionId,
     repoId: added.repository.id,
     path: worktreePath,

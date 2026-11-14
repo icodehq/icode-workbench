@@ -2150,4 +2150,13 @@ export const fr = {
   'workspace.notice.recoverySnapshots.other': "{count} instantanés de récupération enregistrés pour les modifications non validées.",
   'workspace.notice.snapshotsDiscarded.one': "{count} instantané de récupération supprimé.",
   'workspace.notice.snapshotsDiscarded.other': "{count} instantanés de récupération supprimés.",
+  'sidebar.newSessionHere': "Nouvelle session ici",
+  'newSession.runIn': "Exécuter dans",
+  'newSession.newWorktree': "Nouveau worktree",
+  'newSession.newWorktreeHint': "Crée un nouveau checkout et une nouvelle branche pour cette session.",
+  'newSession.existingWorktreeHint': "S’exécute dans {path}, en partageant son checkout et sa branche avec les sessions déjà présentes.",
+  'newSession.worktreeSessions.one': "{count} session",
+  'newSession.worktreeSessions.other': "{count} sessions",
+  'newSession.worktreeUnavailable': "indisponible",
+  'session.remove.bodyShared': "Supprimer {title} ? Seule cette session est retirée ; {branch} et les autres sessions qui y tournent continuent.",
 } satisfies MessageCatalog

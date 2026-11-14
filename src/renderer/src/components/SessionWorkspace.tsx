@@ -91,6 +91,8 @@ type Props = {
   hideHeader?: boolean
   /** Split panes hide the branch so the session title keeps its room. */
   showBranch?: boolean
+  /** Another session runs in this session's worktree, so removal only detaches. */
+  worktreeShared?: boolean
 }
 
 function worktreeStatusLabel(status: WorktreeSummary['status']): string {
@@ -325,7 +327,8 @@ export default function SessionWorkspace({
   onShowSessionsList,
   layout = 'tabs',
   hideHeader = false,
-  showBranch = true
+  showBranch = true,
+  worktreeShared = false
 }: Props): React.JSX.Element {
   const t = useT()
   const locale = useLocale()
@@ -688,6 +691,7 @@ export default function SessionWorkspace({
         <RemoveSessionDialog
           session={session}
           unsavedCount={unsavedFiles}
+          sharedWorktree={worktreeShared}
           onClose={() => setRemoveOpen(false)}
           onConfirm={() => {
             setRemoveOpen(false)

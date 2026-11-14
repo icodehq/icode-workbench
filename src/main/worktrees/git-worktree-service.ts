@@ -187,8 +187,12 @@ export class GitWorktreeService {
     return result.stdout.toString('utf8').trim()
   }
 
-  worktreePathFor(repoId: string, sessionId: string, worktreeRoot = this.deps.worktreeRoot): string {
-    return `${worktreeRoot.replace(/\/+$/u, '')}/${repoId}/${sessionId}`
+  /**
+   * Managed path for one checkout, keyed by worktree — not by session — so a
+   * shared checkout keeps one stable directory when its sessions come and go.
+   */
+  worktreePathFor(repoId: string, worktreeId: string, worktreeRoot = this.deps.worktreeRoot): string {
+    return `${worktreeRoot.replace(/\/+$/u, '')}/${repoId}/${worktreeId}`
   }
 
   /** Resolves the managed root WorktreePaths are built from, for one target. */

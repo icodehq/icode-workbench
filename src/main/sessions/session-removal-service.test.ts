@@ -225,6 +225,42 @@ describe('ordinary session removal', () => {
     )
   })
 
+  it('detaches one of two sessions without touching the shared checkout', async () => {
+    const f = await setup()
+    const first = await f.createSession()
+    const worktree = first.worktree!
+    const second = await f.sessions.create({
+      repoId: f.repoId,
+      harness: 'claude',
+      worktreeId: worktree.id,
+      cols: 100,
+      rows: 30
+    })
+    expect(second.worktree?.path).toBe(worktree.path)
+    expect(second.worktree?.branch).toBe(worktree.branch)
+    expect(f.worktrees.listByRepo(f.repoId as never)).toHaveLength(1)
+    expect(f.worktrees.sessionCountForWorktree(worktree.id)).toBe(2)
+    f.finish(first.id)
+    f.finish(second.id)
+
+    const removed = await f.removals.remove(first.id)
+    expect(removed.status).toBe('removed')
+    expect(existsSync(worktree.path)).toBe(true)
+    expect(f.worktrees.findBySession(first.id)).toBeNull()
+    expect(f.worktrees.findBySession(second.id)?.path).toBe(worktree.path)
+    await expect(f.git.branchExists(f.repoPath, worktree.branch)).resolves.toBe(true)
+
+    // Last session out keeps today's cleanup semantics and removes the checkout.
+    const last = await f.removals.remove(second.id)
+    expect(last).toEqual({
+      status: 'removed',
+      branch: worktree.branch,
+      branchRetained: true
+    })
+    expect(existsSync(worktree.path)).toBe(false)
+    expect(f.worktrees.listByRepo(f.repoId as never)).toHaveLength(0)
+  })
+
   it('blocks when the worktree directory has vanished', async () => {
     const f = await setup()
     const session = await f.createSession()
@@ -389,6 +425,7 @@ describe('failed creation cleanup', () => {
       )
       .run(id, workspace.id)
     f.worktrees.insert({
+      id: 'wt_44444444-4444-4444-8444-444444444444' as never,
       sessionId: id,
       repoId: f.repoId as never,
       path: join(f.root.dir, 'worktrees', 'never-created'),
@@ -462,13 +499,16 @@ describe('removal probes the repository target', () => {
       } as never,
       worktrees: {
         findBySession: () => ({
+          id: 'wt_77777777-7777-4777-8777-777777777777',
           sessionId,
           repoId,
           path: worktreePath,
           branch: 'icode/ses',
           state: 'ready'
         }),
-        deleteBySession: () => undefined
+        sessionCountForWorktree: () => 1,
+        unlinkSession: () => undefined,
+        deleteWorktree: () => undefined
       } as never,
       gitWorktrees: {
         inspect: async (input: { target?: unknown }) => {

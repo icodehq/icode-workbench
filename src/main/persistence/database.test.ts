@@ -58,7 +58,8 @@ describe('database initialization', () => {
       'repo_removal_jobs',
       // v4: durable work lives beside sessions, not inside them.
       'repos',
-      'session_worktrees',
+      // v18: a worktree is repo-owned; sessions attach through a link table.
+      'session_worktree_links',
       'sessions',
       'sqlite_sequence',
       'supervisor_actions',
@@ -71,7 +72,8 @@ describe('database initialization', () => {
       'tasks',
       'ui_state',
       'workspaces',
-      'worktree_branches'
+      'worktree_branches',
+      'worktrees'
     ].filter((name) => name !== 'sqlite_sequence'))
     db.close()
     expect(db.isClosed()).toBe(true)
@@ -497,6 +499,79 @@ describe('migrations', () => {
     v2.close()
   })
 
+  it('migrates v17 session worktrees into shared worktrees without changing identity', () => {
+    const root = tempRoot()
+    const path = join(root.dir, 'v17.sqlite')
+    const repoId = newRepoId()
+    const workspaceId = newWorkspaceId()
+    const sessionId = newSessionId()
+    const worktreePath = `/tmp/worktrees/${String(repoId)}/${String(sessionId)}`
+    const branch = `icode/${String(sessionId)}`
+    const baseOid = 'b'.repeat(40)
+    const v17 = openDatabase({ path, migrations: MIGRATIONS.slice(0, 17) })
+    v17.raw
+      .prepare(
+        `INSERT INTO repos (id, path, display_name, added_at, last_opened_at, current_branch, availability)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(repoId, '/tmp/legacy', 'legacy', 1, 1, 'main', 'present')
+    v17.raw
+      .prepare(
+        `INSERT INTO workspaces (id, repo_id, path, kind, created_at)
+         VALUES (?, ?, ?, ?, ?)`
+      )
+      .run(workspaceId, repoId, '/tmp/legacy', 'primary-checkout', 1)
+    v17.raw
+      .prepare(
+        `INSERT INTO sessions (id, workspace_id, harness, title, created_at, last_active_at,
+           last_observed_state, last_observed_exit_code, last_observed_error_json,
+           last_observed_incarnation_id, last_observed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(sessionId, workspaceId, 'shell', 'legacy session', 1, 1, 'exited', 0, null, null, 1)
+    v17.raw
+      .prepare(
+        `INSERT INTO session_worktrees (session_id, repo_id, path, branch, base_ref, base_oid,
+           state, last_error_json, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(sessionId, repoId, worktreePath, branch, 'main', baseOid, 'ready', null, 1, 2)
+    v17.raw
+      .prepare(
+        `INSERT INTO worktree_branches (branch, repo_id, session_id, task_id, kind, base_oid, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(branch, repoId, sessionId, null, 'session', baseOid, 1)
+    v17.close()
+
+    const current = openDatabase({ path, migrations: MIGRATIONS })
+    cleanups.push(() => current.close())
+    expect(current.userVersion()).toBe(SCHEMA_VERSION)
+    const expectedWorktreeId = `wt_${String(sessionId).slice(4)}`
+    const worktrees = new WorktreeStore(current)
+    expect(worktrees.findBySession(sessionId)).toMatchObject({
+      id: expectedWorktreeId,
+      sessionId,
+      repoId,
+      path: worktreePath,
+      branch,
+      baseRef: 'main',
+      baseOid,
+      state: 'ready'
+    })
+    expect(worktrees.listAll()).toHaveLength(1)
+    expect(worktrees.findBranch(branch)).toMatchObject({
+      branch,
+      worktreeId: expectedWorktreeId,
+      sessionId,
+      kind: 'session'
+    })
+    const old = current.raw
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'session_worktrees'")
+      .get()
+    expect(old).toBeUndefined()
+  })
+
   it('preserves pre-v16 task and branch rows while adding merge gating', () => {
     const root = tempRoot()
     const path = join(root.dir, 'v16.sqlite')
@@ -595,7 +670,7 @@ describe('migrations', () => {
       'repos_local_path_idx',
       'repos_wsl_name_path_idx',
       'repos_wsl_registration_path_idx',
-      'session_worktrees_repo_idx',
+      'session_worktree_links_worktree_idx',
       'sessions_workspace_idx',
       // v8: supervisor actions and the approval queue.
       'supervisor_actions_repo_created_idx',
@@ -619,7 +694,10 @@ describe('migrations', () => {
       'tasks_status_created_idx',
       'workspaces_repo_idx',
       'worktree_branches_repo_idx',
-      'worktree_branches_task_idx'
+      'worktree_branches_task_idx',
+      // v18: branch ownership and worktree lookup by their owning checkout.
+      'worktree_branches_worktree_idx',
+      'worktrees_repo_idx'
     ])
     db.close()
   })

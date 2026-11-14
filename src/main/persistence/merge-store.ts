@@ -123,6 +123,8 @@ export type MergeClaimInput = {
   id: string
   repoId: string
   sessionId: string
+  /** The checkout the merge mutates; shared by every session attached to it. */
+  worktreeId: string
   taskId: string | null
   sourceBranch: string
   targetBranch: string
@@ -134,6 +136,7 @@ export type MergeClaimInput = {
 export type MergeClaimResult =
   | { kind: 'claimed'; record: MergeRecord }
   | { kind: 'session-busy'; record: MergeRecord }
+  | { kind: 'worktree-busy'; record: MergeRecord }
   | { kind: 'target-busy'; record: MergeRecord }
   | { kind: 'repo-removing' }
 
@@ -155,6 +158,13 @@ export class MergeStore {
       }
       const sessionActive = this.findActiveForSession(input.sessionId)
       if (sessionActive !== null) return { kind: 'session-busy', record: sessionActive }
+      /*
+       * A merge mutates the checkout: index, worktree files, conflict state.
+       * Sessions sharing that checkout must not run two at once, even into
+       * different target branches, so the claim is checkout-scoped too.
+       */
+      const worktreeActive = this.findActiveForWorktree(input.worktreeId)
+      if (worktreeActive !== null) return { kind: 'worktree-busy', record: worktreeActive }
       const targetActive = this.findActiveForTarget(input.repoId, input.targetBranch)
       if (targetActive !== null) return { kind: 'target-busy', record: targetActive }
 
@@ -191,6 +201,22 @@ export class MergeStore {
          ORDER BY created_at DESC LIMIT 1`
       )
       .get(sessionId, ...ACTIVE_MERGE_STATES) as MergeRow | undefined
+    return row ? fromRow(row) : null
+  }
+
+  private findActiveForWorktree(worktreeId: string): MergeRecord | null {
+    const placeholders = ACTIVE_MERGE_STATES.map(() => '?').join(', ')
+    const row = this.db.raw
+      .prepare(
+        `SELECT ${COLUMNS.split(', ')
+          .map((column) => `m.${column.trim()}`)
+          .join(', ')}
+         FROM merge_records m
+         JOIN session_worktree_links l ON l.session_id = m.session_id
+         WHERE l.worktree_id = ? AND m.state IN (${placeholders})
+         ORDER BY m.created_at DESC LIMIT 1`
+      )
+      .get(worktreeId, ...ACTIVE_MERGE_STATES) as MergeRow | undefined
     return row ? fromRow(row) : null
   }
 

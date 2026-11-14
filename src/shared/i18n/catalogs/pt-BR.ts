@@ -2150,4 +2150,13 @@ export const ptBR = {
   'workspace.notice.recoverySnapshots.other': "Salvamos {count} snapshots de recuperação para alterações não commitadas.",
   'workspace.notice.snapshotsDiscarded.one': "Descartamos {count} snapshots de recuperação.",
   'workspace.notice.snapshotsDiscarded.other': "Descartamos {count} snapshots de recuperação.",
+  'sidebar.newSessionHere': "Nova sessão aqui",
+  'newSession.runIn': "Executar em",
+  'newSession.newWorktree': "Novo worktree",
+  'newSession.newWorktreeHint': "Cria um novo checkout e branch para esta sessão.",
+  'newSession.existingWorktreeHint': "Executa em {path}, compartilhando o checkout e a branch com as sessões que já estão lá.",
+  'newSession.worktreeSessions.one': "{count} sessão",
+  'newSession.worktreeSessions.other': "{count} sessões",
+  'newSession.worktreeUnavailable': "indisponível",
+  'session.remove.bodyShared': "Remover {title}? Apenas esta sessão será removida; {branch} e as outras sessões em execução ali continuam.",
 } satisfies MessageCatalog

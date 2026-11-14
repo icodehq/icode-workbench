@@ -191,6 +191,8 @@ export default function App(): React.JSX.Element {
   const [markingActivity, setMarkingActivity] = useState(false)
   const [refreshToken, setRefreshToken] = useState(0)
   const [newSessionOpen, setNewSessionOpen] = useState(false)
+  /** A worktree the dialog should preselect; null means "create a new one". */
+  const [newSessionWorktreeId, setNewSessionWorktreeId] = useState<string | null>(null)
   const [taskComposer, setTaskComposer] = useState<{
     repoId: string
     afterTaskId: string | null
@@ -400,7 +402,7 @@ export default function App(): React.JSX.Element {
     [repo, state.activeRepoId, state.repos, workspace]
   )
 
-  const openNewSession = (): void => {
+  const openNewSession = (worktreeId: string | null = null): void => {
     if (hostUnreachable) {
       workspace.notify({
         tone: 'error',
@@ -412,6 +414,7 @@ export default function App(): React.JSX.Element {
       setAddOpen(true)
       return
     }
+    setNewSessionWorktreeId(worktreeId)
     setNewSessionOpen(true)
   }
 
@@ -640,6 +643,11 @@ export default function App(): React.JSX.Element {
             openNewSession()
             setSidebarOpen(false)
           }}
+          onNewSessionInWorktree={(repoId, worktreeId) => {
+            workspace.selectRepo(repoId)
+            openNewSession(worktreeId)
+            setSidebarOpen(false)
+          }}
           onQueueTask={() => {
             openQueueTask()
             setSidebarOpen(false)
@@ -777,10 +785,15 @@ export default function App(): React.JSX.Element {
               ? {
                   repos: state.repos,
                   activeRepoId: state.activeRepoId,
+                  sessions: sidebarSessions,
+                  initialWorktreeId: newSessionWorktreeId,
                   harnesses: state.harnesses,
                   harnessLoading: state.harnessLoading,
                   harnessError: state.harnessError,
-                  onClose: () => setNewSessionOpen(false),
+                  onClose: () => {
+                    setNewSessionOpen(false)
+                    setNewSessionWorktreeId(null)
+                  },
                   onCreate: submitCreate,
                   onRefreshHarnesses: workspace.refreshHarnesses
                 }

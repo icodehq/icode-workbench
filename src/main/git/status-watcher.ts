@@ -111,7 +111,6 @@ export function createChokidarWatchFactory(): WatchFactory {
 
 type SessionWatch = {
   active: boolean
-  handle: WatchHandle | null
   timer: NodeJS.Timeout | null
   pending: Set<string>
   overflow: boolean
@@ -120,12 +119,29 @@ type SessionWatch = {
   target: WatchTarget
 }
 
+/**
+ * One OS watch shared by every session in the same checkout.
+ *
+ * Sessions sharing a worktree must not each open their own chokidar tree; the
+ * physical watch is refcounted by the set, while pending paths and revisions
+ * stay per session so each pane receives its own event.
+ */
+type SharedWatch = {
+  handle: WatchHandle
+  sessions: Set<string>
+}
+
+function watchKey(target: WatchTarget): string {
+  return `${target.worktreePath}\u0000${target.gitDir}`
+}
+
 export class GitStatusWatcherService {
   private readonly factory: WatchFactory
   private readonly debounceMs: number
   private readonly maxPaths: number
   private readonly sessions = new Map<string, SessionWatch>()
   private readonly desired = new Map<string, number>()
+  private readonly handles = new Map<string, SharedWatch>()
   private readonly listeners = new Set<(event: GitStatusChangeEvent) => void>()
   private token = 0
 
@@ -182,7 +198,6 @@ export class GitStatusWatcherService {
     await this.stop(sessionId)
     const state: SessionWatch = {
       active: true,
-      handle: null,
       timer: null,
       pending: new Set(),
       overflow: false,
@@ -191,17 +206,33 @@ export class GitStatusWatcherService {
       target
     }
     this.sessions.set(sessionId, state)
-    try {
-      state.handle = this.factory([target.worktreePath, target.gitDir], {
-        ignored: (path) => shouldIgnoreWatchPath(path, target),
-        onEvent: (event) => this.onEvent(sessionId, event),
-        onError: () => this.fail(sessionId),
-        onReady: () => this.onReady(sessionId)
-      })
-    } catch {
-      this.sessions.delete(sessionId)
-      this.desired.delete(sessionId)
-      return { watching: false, reason: 'watch-failed' }
+    const key = watchKey(target)
+    let shared = this.handles.get(key)
+    const joinedExisting = shared !== undefined
+    if (!shared) {
+      try {
+        shared = {
+          handle: this.factory([target.worktreePath, target.gitDir], {
+            ignored: (path) => shouldIgnoreWatchPath(path, target),
+            onEvent: (event) => this.onTargetEvent(key, event),
+            onError: () => this.failTarget(key),
+            onReady: () => this.onTargetReady(key)
+          }),
+          sessions: new Set()
+        }
+      } catch {
+        this.sessions.delete(sessionId)
+        this.desired.delete(sessionId)
+        return { watching: false, reason: 'watch-failed' }
+      }
+      this.handles.set(key, shared)
+    }
+    shared.sessions.add(sessionId)
+    if (joinedExisting) {
+      // An already-running watch will not emit `ready` again, so the joining
+      // session schedules its own initial read instead of waiting forever.
+      state.metadataChanged = true
+      this.schedule(sessionId, state)
     }
     return { watching: true }
   }
@@ -219,27 +250,35 @@ export class GitStatusWatcherService {
       : []
   }
 
-  private onEvent(sessionId: string, event: WatchEvent): void {
-    const state = this.sessions.get(sessionId)
-    if (!state?.active) return
+  private onTargetEvent(key: string, event: WatchEvent): void {
+    const shared = this.handles.get(key)
+    if (!shared) return
     if (event.type === 'error') {
-      this.fail(sessionId)
+      this.failTarget(key)
       return
     }
-    if (shouldIgnoreWatchPath(event.path, state.target)) return
-    this.recordChange(state, event.path)
-    this.schedule(sessionId, state)
+    for (const sessionId of [...shared.sessions]) {
+      const state = this.sessions.get(sessionId)
+      if (!state?.active) continue
+      if (shouldIgnoreWatchPath(event.path, state.target)) continue
+      this.recordChange(state, event.path)
+      this.schedule(sessionId, state)
+    }
   }
 
   /**
    * The initial chokidar scan takes a moment. A write that lands while it runs
    * must not be lost, so becoming ready schedules one normal status read.
    */
-  private onReady(sessionId: string): void {
-    const state = this.sessions.get(sessionId)
-    if (!state?.active) return
-    state.metadataChanged = true
-    this.schedule(sessionId, state)
+  private onTargetReady(key: string): void {
+    const shared = this.handles.get(key)
+    if (!shared) return
+    for (const sessionId of [...shared.sessions]) {
+      const state = this.sessions.get(sessionId)
+      if (!state?.active) continue
+      state.metadataChanged = true
+      this.schedule(sessionId, state)
+    }
   }
 
   private recordChange(state: SessionWatch, path: string): void {
@@ -291,11 +330,15 @@ export class GitStatusWatcherService {
     }
   }
 
-  private fail(sessionId: string): void {
-    const state = this.sessions.get(sessionId)
-    if (!state) return
-    this.emitFailed(sessionId, state)
-    void this.stop(sessionId)
+  private failTarget(key: string): void {
+    const shared = this.handles.get(key)
+    if (!shared) return
+    for (const sessionId of [...shared.sessions]) {
+      const state = this.sessions.get(sessionId)
+      if (!state) continue
+      this.emitFailed(sessionId, state)
+      void this.stop(sessionId)
+    }
   }
 
   private emitFailed(sessionId: string, state: SessionWatch): void {
@@ -326,12 +369,17 @@ export class GitStatusWatcherService {
     if (state.timer !== null) clearTimeout(state.timer)
     state.timer = null
     state.pending.clear()
-    if (state.handle) {
-      try {
-        await state.handle.close()
-      } catch {
-        // The OS watcher may already be gone; stopping is best effort.
-      }
+    const key = watchKey(state.target)
+    const shared = this.handles.get(key)
+    if (!shared) return
+    shared.sessions.delete(sessionId)
+    if (shared.sessions.size > 0) return
+    // Last session out: the physical watch has no remaining consumer.
+    this.handles.delete(key)
+    try {
+      await shared.handle.close()
+    } catch {
+      // The OS watcher may already be gone; stopping is best effort.
     }
   }
 }

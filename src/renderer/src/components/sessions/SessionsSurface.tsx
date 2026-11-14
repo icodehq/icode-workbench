@@ -319,6 +319,14 @@ export default function SessionsSurface({
             ? secondarySession === null || candidate.id !== secondarySession.id
             : candidate.id === target.id
         )}
+        worktreeShared={
+          target.worktree !== null &&
+          sessions.some(
+            (candidate) =>
+              candidate.id !== target.id &&
+              candidate.worktree?.id === target.worktree?.id
+          )
+        }
         allowSleep
         refreshToken={refreshToken}
         openRequest={null}

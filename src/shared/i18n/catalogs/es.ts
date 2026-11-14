@@ -2150,4 +2150,13 @@ export const es = {
   'workspace.notice.recoverySnapshots.other': "Se guardaron {count} instantáneas de recuperación para los cambios sin confirmar.",
   'workspace.notice.snapshotsDiscarded.one': "Se descartaron {count} instantáneas de recuperación.",
   'workspace.notice.snapshotsDiscarded.other': "Se descartaron {count} instantáneas de recuperación.",
+  'sidebar.newSessionHere': "Nueva sesión aquí",
+  'newSession.runIn': "Ejecutar en",
+  'newSession.newWorktree': "Nuevo worktree",
+  'newSession.newWorktreeHint': "Crea un checkout y una rama nuevos para esta sesión.",
+  'newSession.existingWorktreeHint': "Se ejecuta en {path}, compartiendo su checkout y rama con las sesiones que ya están allí.",
+  'newSession.worktreeSessions.one': "{count} sesión",
+  'newSession.worktreeSessions.other': "{count} sesiones",
+  'newSession.worktreeUnavailable': "no disponible",
+  'session.remove.bodyShared': "¿Eliminar {title}? Solo se quita esta sesión; {branch} y las demás sesiones que se ejecutan allí siguen activas.",
 } satisfies MessageCatalog

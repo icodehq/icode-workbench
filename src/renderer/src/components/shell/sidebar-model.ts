@@ -9,8 +9,9 @@ export type SidebarTaskGroup = {
 }
 
 export type WorktreeSessionGroup = {
+  worktreeId: string
   branch: string
-  path: string | null
+  path: string
   sessions: SessionSummary[]
 }
 
@@ -49,8 +50,12 @@ export function directSessionsByRepo(
 }
 
 /**
- * The project tree shows a root group then one group per worktree branch.
- * Session order within a group follows the store (newest first).
+ * The project tree shows a root group then one group per checkout.
+ *
+ * A worktree is keyed by its stable path, never its branch: a `git checkout`
+ * inside the folder changes the label but must not split — or merge — the
+ * sessions that live there. Session order within a group follows the store
+ * (newest first).
  */
 export function groupDirectSessions(sessions: readonly SessionSummary[]): DirectSessionGroups {
   const root: SessionSummary[] = []
@@ -60,12 +65,13 @@ export function groupDirectSessions(sessions: readonly SessionSummary[]): Direct
       root.push(session)
       continue
     }
-    const branch = session.worktree.branch
-    const existing = worktrees.get(branch)
+    const key = session.worktree.path
+    const existing = worktrees.get(key)
     if (existing) existing.sessions.push(session)
     else {
-      worktrees.set(branch, {
-        branch,
+      worktrees.set(key, {
+        worktreeId: session.worktree.id,
+        branch: session.worktree.branch,
         path: session.worktree.path,
         sessions: [session]
       })

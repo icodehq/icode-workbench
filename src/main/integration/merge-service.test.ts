@@ -193,6 +193,7 @@ describe('merge store', () => {
     const base = {
       repoId: f.repoId,
       sessionId: 'ses_one',
+      worktreeId: 'wt_88888888-8888-4888-8888-888888888888',
       taskId: null,
       sourceBranch: 'session/one',
       targetBranch: 'main',
@@ -228,5 +229,50 @@ describe('merge store', () => {
         sourceBranch: 'session/two'
       }).kind
     ).toBe('claimed')
+  })
+
+  it('claims one active merge per shared checkout, even for different targets', async () => {
+    const f = await setup()
+    const source = await f.createSource('session/one', f.mainOid)
+    const worktree = f.worktrees.findBySession(source.sessionId)!
+    const workspace = f.db.raw
+      .prepare('SELECT id FROM workspaces LIMIT 1')
+      .get() as { id: string }
+    const secondId = `ses_${randomUUID()}`
+    f.db.raw
+      .prepare(
+        `INSERT INTO sessions (id, workspace_id, harness, title, created_at, last_active_at,
+           last_observed_state, last_observed_exit_code, last_observed_error_json,
+           last_observed_incarnation_id, last_observed_at)
+         VALUES (?, ?, 'claude', 'second', 1, 1, 'exited', 0, NULL, NULL, 1)`
+      )
+      .run(secondId, workspace.id)
+    f.db.raw
+      .prepare('INSERT INTO session_worktree_links (session_id, worktree_id) VALUES (?, ?)')
+      .run(secondId, worktree.id)
+
+    const base = {
+      repoId: f.repoId,
+      worktreeId: worktree.id,
+      taskId: null,
+      sourceBranch: worktree.branch,
+      targetBranch: 'main',
+      sourceOidBefore: f.mainOid,
+      targetOidBefore: f.mainOid,
+      now: 1
+    }
+    const first = f.mergeStore.claim({
+      ...base,
+      id: randomUUID(),
+      sessionId: source.sessionId
+    })
+    expect(first.kind).toBe('claimed')
+    const second = f.mergeStore.claim({
+      ...base,
+      id: randomUUID(),
+      sessionId: secondId,
+      targetBranch: 'release'
+    })
+    expect(second.kind).toBe('worktree-busy')
   })
 })
