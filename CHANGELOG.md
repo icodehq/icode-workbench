@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-11-15
+
+### Added
+
+- Several sessions — terminals and coding agents — can now run in one
+  worktree. Start another from the worktree's add button in the sidebar, or
+  choose **Run in** when creating a session. The sessions share one checkout
+  and branch while keeping their own terminal, state, sleep and wake lifecycle.
+
+### Changed
+
+- Removing one of several sessions from a shared worktree detaches it without
+  removing the checkout or disturbing the other sessions. Removing the last
+  session still runs the existing dirty/unmerged cleanup flow.
+- Source Control and Files now share one file watch per checkout, and merge
+  actions are serialized per checkout so two sessions cannot mutate the same
+  working tree at once.
+- Existing sessions keep their worktree path, branch, baseline and branch
+  ownership; the schema upgrade moves them to the shared model in place.
+
 ## [0.9.0] - 2026-11-14
 
 ### Changed
