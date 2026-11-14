@@ -86,6 +86,8 @@ export default function SessionsSurface({
   const [splitSessionId, setSplitSessionId] = useState<string | null>(null)
   const [focusedPane, setFocusedPane] = useState<'primary' | 'secondary'>('primary')
   const [splitRatio, setSplitRatio] = useState(0.5)
+  /** The active session from the previous render, used to keep splits alive. */
+  const previousActiveSessionId = useRef<string | null>(null)
   const splitContainerRef = useRef<HTMLDivElement | null>(null)
   const splitRectRef = useRef<DOMRect | null>(null)
   const inspectorExpandedRef = useRef(!inspectorCollapsed)
@@ -145,8 +147,19 @@ export default function SessionsSurface({
   }, [sessions])
 
   useEffect(() => {
+    const previous = previousActiveSessionId.current
+    const next = activeSession?.id ?? null
+    previousActiveSessionId.current = next
     setFocusedPane('primary')
-    setSplitSessionId((current) => (current === activeSession?.id ? null : current))
+    setSplitSessionId((current) => {
+      if (current === null || next === null || current !== next) return current
+      /*
+       * The session in the secondary pane was selected. Swap the panes rather
+       * than dropping the split: the selected session becomes primary and the
+       * previous primary takes its place on the right.
+       */
+      return previous !== null && previous !== next ? previous : null
+    })
   }, [activeSession?.id])
 
   useEffect(() => {
