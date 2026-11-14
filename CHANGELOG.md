@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-11-15
+
+### Added
+
+- Worktree rows in the left sidebar can be collapsed. Their right-click menu
+  offers New session, Copy path, Collapse/Expand, and Recover worktree when
+  the checkout directory is missing.
+
+### Fixed
+
+- Selecting the session shown in the right split pane no longer collapses the
+  split. The selected session becomes the left pane and the previous left
+  session takes its place on the right, preserving the divider and size.
+
 ## [0.9.1] - 2026-11-15
 
 ### Added
