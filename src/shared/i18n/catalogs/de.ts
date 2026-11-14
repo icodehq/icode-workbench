@@ -2158,4 +2158,8 @@ export const de = {
   'newSession.worktreeSessions.other': "{count} Sitzungen",
   'newSession.worktreeUnavailable': "nicht verfügbar",
   'session.remove.bodyShared': "Sitzung {title} entfernen? Nur diese Sitzung wird entfernt; {branch} und die anderen dort laufenden Sitzungen bleiben erhalten.",
+  'sidebar.worktreeMenu': "Worktree-Aktionen",
+  'sidebar.collapseWorktree': "Worktree einklappen",
+  'sidebar.expandWorktree': "Worktree ausklappen",
+  'sidebar.recoverWorktree': "Worktree wiederherstellen",
 } satisfies MessageCatalog

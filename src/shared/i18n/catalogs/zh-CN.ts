@@ -2154,4 +2154,8 @@ export const zhCN = {
   'newSession.worktreeSessions.other': "{count} 个会话",
   'newSession.worktreeUnavailable': "不可用",
   'session.remove.bodyShared': "移除 {title}？只会移除此会话；{branch} 及其中运行的其他会话将继续工作。",
+  'sidebar.worktreeMenu': "工作树操作",
+  'sidebar.collapseWorktree': "折叠工作树",
+  'sidebar.expandWorktree': "展开工作树",
+  'sidebar.recoverWorktree': "恢复工作树",
 } satisfies MessageCatalog

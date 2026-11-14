@@ -2156,4 +2156,8 @@ export const ja = {
   'newSession.worktreeSessions.other': "{count} セッション",
   'newSession.worktreeUnavailable': "利用不可",
   'session.remove.bodyShared': "{title} を削除しますか？このセッションだけが削除され、{branch} とそこで実行中の他のセッションはそのまま残ります。",
+  'sidebar.worktreeMenu': "ワークツリーの操作",
+  'sidebar.collapseWorktree': "ワークツリーを折りたたむ",
+  'sidebar.expandWorktree': "ワークツリーを展開",
+  'sidebar.recoverWorktree': "ワークツリーを復元",
 } satisfies MessageCatalog

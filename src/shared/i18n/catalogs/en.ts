@@ -2157,6 +2157,10 @@ export const en = {
   'newSession.worktreeSessions.other': "{count} sessions",
   'newSession.worktreeUnavailable': "unavailable",
   'session.remove.bodyShared': "Remove {title}? Only this session leaves; {branch} and the other sessions running there keep working.",
+  'sidebar.worktreeMenu': "Worktree actions",
+  'sidebar.collapseWorktree': "Collapse worktree",
+  'sidebar.expandWorktree': "Expand worktree",
+  'sidebar.recoverWorktree': "Recover worktree",
 } as const
 
 export type MessageKey = keyof typeof en

@@ -648,6 +648,7 @@ export default function App(): React.JSX.Element {
             openNewSession(worktreeId)
             setSidebarOpen(false)
           }}
+          onRecoverWorktree={(sessionId) => void workspace.recoverWorktree(sessionId)}
           onQueueTask={() => {
             openQueueTask()
             setSidebarOpen(false)

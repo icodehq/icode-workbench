@@ -41,7 +41,8 @@ import {
   attentionTaskCount,
   buildSidebarTaskGroups,
   groupDirectSessions,
-  pinnedProjectsFirst
+  pinnedProjectsFirst,
+  type WorktreeSessionGroup
 } from './sidebar-model'
 import { sidebarBrandInset } from './window-chrome'
 import { taskAttention, taskStatusLabel } from '../task-status'
@@ -76,6 +77,8 @@ type Props = {
   onNewSessionInRepo: (repoId: string) => void
   /** Start another session in an existing worktree, from its sidebar group. */
   onNewSessionInWorktree: (repoId: string, worktreeId: string) => void
+  /** Re-create a missing checkout from its retained branch. */
+  onRecoverWorktree: (sessionId: string) => void
   onQueueTask: () => void
   onQueueTaskInRepo: (repoId: string) => void
   onAddProject: () => void
@@ -99,6 +102,14 @@ type ProjectMenuRequest = {
   y?: number
   returnFocus: HTMLElement | null
   opener?: HTMLElement | null
+}
+
+type WorktreeMenuRequest = {
+  repo: RepositorySummary
+  group: WorktreeSessionGroup
+  x: number
+  y: number
+  returnFocus: HTMLElement | null
 }
 
 function taskDotClass(task: TaskRecordPayload): string {
@@ -138,6 +149,7 @@ export default function WorkspaceSidebar({
   onNewSession,
   onNewSessionInRepo,
   onNewSessionInWorktree,
+  onRecoverWorktree,
   onQueueTask,
   onQueueTaskInRepo,
   onAddProject,
@@ -160,9 +172,11 @@ export default function WorkspaceSidebar({
   const [tasksNeedsOnly, setTasksNeedsOnly] = useState(false)
   const [tasksHistory, setTasksHistory] = useState(false)
   const [collapsedRepos, setCollapsedRepos] = useState<Set<string>>(() => new Set())
+  const [collapsedWorktrees, setCollapsedWorktrees] = useState<Set<string>>(() => new Set())
   const [maintenanceRepo, setMaintenanceRepo] = useState<RepositorySummary | null>(null)
   const [settingsRepo, setSettingsRepo] = useState<RepositorySummary | null>(null)
   const [projectMenu, setProjectMenu] = useState<ProjectMenuRequest | null>(null)
+  const [worktreeMenu, setWorktreeMenu] = useState<WorktreeMenuRequest | null>(null)
   const [newMenu, setNewMenu] = useState<{
     anchor: MenuAnchor
     returnFocus: HTMLElement | null
@@ -228,6 +242,73 @@ export default function WorkspaceSidebar({
 
   const toggleProjectPin = (repoId: string): void => {
     updatePins((current) => ({ ...current, projects: togglePin(current.projects, repoId) }))
+  }
+
+  const toggleWorktreeCollapsed = (worktreeId: string): void => {
+    setCollapsedWorktrees((current) => {
+      const next = new Set(current)
+      if (next.has(worktreeId)) next.delete(worktreeId)
+      else next.add(worktreeId)
+      return next
+    })
+  }
+
+  const worktreeMenuItems = (request: WorktreeMenuRequest): ContextMenuItem[] => {
+    const { repo, group } = request
+    const status = group.sessions[0]?.worktree?.status
+    // A checkout Git cannot hand to a PTY must not offer a session.
+    const canAdd = status === 'ready-to-start' || status === 'active'
+    const collapsed = collapsedWorktrees.has(group.worktreeId)
+    const items: ContextMenuItem[] = [
+      {
+        id: 'new-session',
+        label: t('sessions.newSession'),
+        icon: <TerminalSquare size={12} />,
+        disabled: !canAdd,
+        reason: canAdd ? undefined : t('newSession.worktreeUnavailable'),
+        testId: `sidebar-worktree-${group.worktreeId}-new-session`,
+        onSelect: () => onNewSessionInWorktree(repo.id, group.worktreeId)
+      },
+      {
+        id: 'copy-path',
+        label: t('projects.menu.copyPath'),
+        icon: <Copy size={12} />,
+        testId: `sidebar-worktree-${group.worktreeId}-copy-path`,
+        onSelect: () => {
+          const write = navigator.clipboard?.writeText(group.path)
+          if (write === undefined) return
+          void write.then(
+            () => onNotify({ tone: 'success', message: t('projects.menu.copyPath') }),
+            () => undefined
+          )
+        }
+      },
+      {
+        id: 'toggle',
+        label: collapsed ? t('sidebar.expandWorktree') : t('sidebar.collapseWorktree'),
+        icon: (
+          <ChevronRight
+            size={12}
+            className={collapsed ? '' : 'rotate-90'}
+          />
+        ),
+        separatorBefore: true,
+        testId: `sidebar-worktree-${group.worktreeId}-toggle`,
+        onSelect: () => toggleWorktreeCollapsed(group.worktreeId)
+      }
+    ]
+    const firstSession = group.sessions[0]
+    if (status === 'missing' && firstSession !== undefined) {
+      items.push({
+        id: 'recover',
+        label: t('sidebar.recoverWorktree'),
+        icon: <RefreshCw size={12} />,
+        separatorBefore: true,
+        testId: `sidebar-worktree-${group.worktreeId}-recover`,
+        onSelect: () => onRecoverWorktree(firstSession.id)
+      })
+    }
+    return items
   }
   const toggleSessionPin = (sessionId: string): void => {
     updatePins((current) => ({ ...current, sessions: togglePin(current.sessions, sessionId) }))
@@ -590,14 +671,38 @@ export default function WorkspaceSidebar({
               const status = group.sessions[0]?.worktree?.status
               // A checkout Git cannot hand to a PTY must not offer a session.
               const canAdd = status === 'ready-to-start' || status === 'active'
+              const collapsed = collapsedWorktrees.has(group.worktreeId)
               return (
                 <div key={group.worktreeId} data-testid={`sidebar-worktree-${group.worktreeId}`}>
                   <div className="group/wt flex h-5 items-center gap-1 px-1 font-mono text-[7.5px] text-muted-foreground">
-                    <GitBranch size={8} className="shrink-0" />
-                    <span className="min-w-0 flex-1 truncate" title={group.path}>
-                      {group.branch}
-                    </span>
-                    <span>{group.sessions.length}</span>
+                    <button
+                      type="button"
+                      className="flex h-full min-w-0 flex-1 items-center gap-1 text-left hover:text-foreground focus-visible:text-foreground"
+                      aria-expanded={!collapsed}
+                      aria-label={group.branch}
+                      data-testid={`sidebar-worktree-toggle-${group.worktreeId}`}
+                      onClick={() => toggleWorktreeCollapsed(group.worktreeId)}
+                      onContextMenu={(event) => {
+                        event.preventDefault()
+                        setWorktreeMenu({
+                          repo,
+                          group,
+                          x: event.clientX,
+                          y: event.clientY,
+                          returnFocus: event.currentTarget
+                        })
+                      }}
+                    >
+                      <ChevronRight
+                        size={8}
+                        className={`shrink-0 transition-transform ${collapsed ? '' : 'rotate-90'}`}
+                      />
+                      <GitBranch size={8} className="shrink-0" />
+                      <span className="min-w-0 flex-1 truncate" title={group.path}>
+                        {group.branch}
+                      </span>
+                      <span>{group.sessions.length}</span>
+                    </button>
                     <button
                       type="button"
                       className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded opacity-0 hover:bg-muted hover:text-foreground focus-visible:opacity-100 disabled:cursor-not-allowed disabled:opacity-30 group-hover/wt:opacity-100 group-hover/wt:disabled:opacity-30"
@@ -614,7 +719,9 @@ export default function WorkspaceSidebar({
                       <Plus size={9} />
                     </button>
                   </div>
-                  <div className="pl-1">{group.sessions.map(sessionRow)}</div>
+                  {collapsed ? null : (
+                    <div className="pl-1">{group.sessions.map(sessionRow)}</div>
+                  )}
                 </div>
               )
             })}
@@ -1002,6 +1109,18 @@ export default function WorkspaceSidebar({
           returnFocus={projectMenu.returnFocus}
           opener={projectMenu.opener}
           onClose={() => setProjectMenu(null)}
+        />
+      ) : null}
+      {worktreeMenu !== null ? (
+        <ContextMenu
+          items={worktreeMenuItems(worktreeMenu)}
+          ariaLabel={t('sidebar.worktreeMenu')}
+          testId="sidebar-worktree-menu"
+          width={208}
+          x={worktreeMenu.x}
+          y={worktreeMenu.y}
+          returnFocus={worktreeMenu.returnFocus}
+          onClose={() => setWorktreeMenu(null)}
         />
       ) : null}
       {newMenu !== null ? (

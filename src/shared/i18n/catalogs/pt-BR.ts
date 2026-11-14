@@ -2159,4 +2159,8 @@ export const ptBR = {
   'newSession.worktreeSessions.other': "{count} sessões",
   'newSession.worktreeUnavailable': "indisponível",
   'session.remove.bodyShared': "Remover {title}? Apenas esta sessão será removida; {branch} e as outras sessões em execução ali continuam.",
+  'sidebar.worktreeMenu': "Ações do worktree",
+  'sidebar.collapseWorktree': "Recolher worktree",
+  'sidebar.expandWorktree': "Expandir worktree",
+  'sidebar.recoverWorktree': "Recuperar worktree",
 } satisfies MessageCatalog

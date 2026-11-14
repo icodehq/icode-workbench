@@ -2156,4 +2156,8 @@ export const ko = {
   'newSession.worktreeSessions.other': "{count}개 세션",
   'newSession.worktreeUnavailable': "사용할 수 없음",
   'session.remove.bodyShared': "{title} 세션을 제거할까요? 이 세션만 제거되며 {branch}와 그곳에서 실행 중인 다른 세션은 계속 유지됩니다.",
+  'sidebar.worktreeMenu': "워크트리 작업",
+  'sidebar.collapseWorktree': "워크트리 접기",
+  'sidebar.expandWorktree': "워크트리 펼치기",
+  'sidebar.recoverWorktree': "워크트리 복구",
 } satisfies MessageCatalog
