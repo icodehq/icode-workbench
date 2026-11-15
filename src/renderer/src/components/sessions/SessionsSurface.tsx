@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Loader2, Plus } from 'lucide-react'
 import type { AppError } from '../../../../shared/domain/errors'
 import { harnessLabel } from '../../../../shared/domain/harness'
@@ -14,6 +14,8 @@ import SessionTabStrip from '../sessions/SessionTabStrip'
 import { moveSessionTab, orderSessionTabIds } from '../sessions/session-tab-order'
 import SessionWorkspace from '../SessionWorkspace'
 import { useT } from '../../i18n/use-i18n'
+import { useSessionSplit } from '../../state/use-session-split'
+import type { PaneSide } from '../../state/session-split'
 
 type Props = {
   repo: RepositorySummary | null
@@ -83,11 +85,6 @@ export default function SessionsSurface({
   )
   const [closedTabIds, setClosedTabIds] = useState<Set<string>>(() => new Set())
   const [tabOrder, setTabOrder] = useState<string[]>([])
-  const [splitSessionId, setSplitSessionId] = useState<string | null>(null)
-  const [focusedPane, setFocusedPane] = useState<'primary' | 'secondary'>('primary')
-  const [splitRatio, setSplitRatio] = useState(0.5)
-  /** The active session from the previous render, used to keep splits alive. */
-  const previousActiveSessionId = useRef<string | null>(null)
   const splitContainerRef = useRef<HTMLDivElement | null>(null)
   const splitRectRef = useRef<DOMRect | null>(null)
   const inspectorExpandedRef = useRef(!inspectorCollapsed)
@@ -147,30 +144,6 @@ export default function SessionsSurface({
   }, [sessions])
 
   useEffect(() => {
-    const previous = previousActiveSessionId.current
-    const next = activeSession?.id ?? null
-    previousActiveSessionId.current = next
-    setFocusedPane('primary')
-    setSplitSessionId((current) => {
-      if (current === null || next === null || current !== next) return current
-      /*
-       * The session in the secondary pane was selected. Swap the panes rather
-       * than dropping the split: the selected session becomes primary and the
-       * previous primary takes its place on the right.
-       */
-      return previous !== null && previous !== next ? previous : null
-    })
-  }, [activeSession?.id])
-
-  useEffect(() => {
-    if (splitSessionId === null) return
-    if (closedTabIds.has(splitSessionId) || !sessions.some((session) => session.id === splitSessionId)) {
-      setSplitSessionId(null)
-      setFocusedPane('primary')
-    }
-  }, [closedTabIds, sessions, splitSessionId])
-
-  useEffect(() => {
     if (!viewRequest) return
     if (viewRequest.view !== 'terminal') {
       setInspectorCollapsed(false)
@@ -183,6 +156,33 @@ export default function SessionsSurface({
     if (!openRequest) return
     setInspectorCollapsed(false)
   }, [openRequest?.nonce])
+
+  const orderedSessions = useMemo(() => {
+    const byId = new Map(sessions.map((session) => [session.id, session]))
+    return orderSessionTabIds(
+      sessions.map((session) => session.id),
+      tabOrder
+    ).flatMap((id) => {
+      const session = byId.get(id)
+      return session === undefined ? [] : [session]
+    })
+  }, [sessions, tabOrder])
+  const visibleSessions = useMemo(
+    () =>
+      orderedSessions.filter(
+        (session) => !closedTabIds.has(session.id) || session.id === activeSession?.id
+      ),
+    [orderedSessions, closedTabIds, activeSession?.id]
+  )
+  const visibleSessionIds = useMemo(
+    () => visibleSessions.map((session) => session.id),
+    [visibleSessions]
+  )
+  const split = useSessionSplit({
+    activeSessionId: activeSession?.id ?? null,
+    visibleSessionIds,
+    onSelectSession
+  })
 
   if (repo === null) return <></>
 
@@ -216,18 +216,7 @@ export default function SessionsSurface({
   }
 
   const sessionById = new Map(sessions.map((session) => [session.id, session]))
-  const orderedSessions = orderSessionTabIds(
-    sessions.map((session) => session.id),
-    tabOrder
-  ).flatMap((id) => {
-    const session = sessionById.get(id)
-    return session === undefined ? [] : [session]
-  })
-  const visibleSessions = orderedSessions.filter(
-    (session) => !closedTabIds.has(session.id) || session.id === activeSession.id
-  )
   const closeTab = (sessionId: string): void => {
-    if (splitSessionId === sessionId) setSplitSessionId(null)
     if (sessionId === activeSession.id) {
       const next = visibleSessions.find((session) => session.id !== sessionId)
       if (next === undefined) return
@@ -243,10 +232,6 @@ export default function SessionsSurface({
   const closeTabsNotIn = (keepIds: readonly string[], fallbackId: string): void => {
     const kept = new Set(keepIds)
     if (!kept.has(activeSession.id)) onSelectSession(fallbackId)
-    if (splitSessionId !== null && !kept.has(splitSessionId)) {
-      setSplitSessionId(null)
-      setFocusedPane('primary')
-    }
     setClosedTabIds((current) => {
       const updated = new Set(current)
       for (const session of visibleSessions) {
@@ -270,36 +255,21 @@ export default function SessionsSurface({
     setTabOrder(moveSessionTab(orderedSessions.map((session) => session.id), sourceId, targetId))
   }
 
-  const secondarySession =
-    splitSessionId === null || splitSessionId === activeSession.id
-      ? null
-      : (visibleSessions.find((session) => session.id === splitSessionId) ?? null)
-  const inspectorSession =
-    secondarySession !== null && focusedPane === 'secondary' ? secondarySession : activeSession
-  const clearSplit = (): void => {
-    setSplitSessionId(null)
-    setFocusedPane('primary')
-  }
-  const toggleSplit = (): void => {
-    if (secondarySession !== null) {
-      clearSplit()
-      return
-    }
-    const next = visibleSessions.find((session) => session.id !== activeSession.id)
-    if (next) setSplitSessionId(next.id)
-  }
-  const splitOnSession = (sessionId: string): void => {
-    if (sessionId === activeSession.id) {
-      toggleSplit()
-      return
-    }
-    setSplitSessionId(sessionId)
-    setFocusedPane('primary')
-  }
+  const splitLeft =
+    split.layout === null ? null : (sessionById.get(split.layout.left) ?? null)
+  const splitRight =
+    split.layout === null ? null : (sessionById.get(split.layout.right) ?? null)
+  /*
+   * A layout can reference a session for one frame before reconciliation runs.
+   * Rendering a single pane until both sides resolve keeps the divider and the
+   * panes consistent.
+   */
+  const paneLayout = splitLeft !== null && splitRight !== null ? split.layout : null
+  const leftPaneSession = splitLeft ?? activeSession
   const resizeSplit = (clientX: number): void => {
     const rect = splitRectRef.current
     if (rect === null || rect.width <= 0) return
-    setSplitRatio(Math.min(0.8, Math.max(0.2, (clientX - rect.left) / rect.width)))
+    split.resize((clientX - rect.left) / rect.width)
   }
   const beginSplitResize = (event: React.PointerEvent<HTMLDivElement>): void => {
     const container = splitContainerRef.current
@@ -315,21 +285,26 @@ export default function SessionsSurface({
     }
     splitRectRef.current = null
   }
-  const workspace = (target: SessionSummary, primary: boolean): React.JSX.Element => (
+  const workspace = (target: SessionSummary, side: PaneSide): React.JSX.Element => (
     <div
       className="flex min-h-0 min-w-0 flex-1 flex-col"
-      onPointerDownCapture={() => setFocusedPane(primary ? 'primary' : 'secondary')}
+      onPointerDownCapture={(event) => {
+        if (event.button !== 0) return
+        if (target.id !== activeSession.id) onSelectSession(target.id)
+      }}
+      data-testid={`session-pane-${side}`}
+      data-active={target.id === activeSession.id}
     >
       <SessionWorkspace
         layout="split"
         hideHeader={focusActive}
-        showBranch={secondarySession === null}
+        showBranch={paneLayout === null}
         session={target}
         repo={repo}
         pending={pending[target.id] ?? null}
         panes={paneSessions.filter((candidate) =>
-          primary
-            ? secondarySession === null || candidate.id !== secondarySession.id
+          side === 'left'
+            ? paneLayout === null || candidate.id !== paneLayout.right
             : candidate.id === target.id
         )}
         worktreeShared={
@@ -377,11 +352,11 @@ export default function SessionsSurface({
           onCloseOthers={closeOtherTabs}
           onCloseRight={closeTabsToRight}
           onReorder={reorderTabs}
-          onSplit={toggleSplit}
-          onSplitSession={splitOnSession}
-          onUnsplit={clearSplit}
-          splitActive={secondarySession !== null}
-          splitSessionId={splitSessionId}
+          onSplit={split.toggle}
+          onSplitOn={split.splitOn}
+          onSwapPanes={split.swap}
+          onCloseSplit={split.close}
+          layout={paneLayout}
         />
       ) : null}
       <div className="relative flex min-h-0 min-w-0 flex-1">
@@ -389,20 +364,20 @@ export default function SessionsSurface({
           <div
             className="flex min-h-0 min-w-0 flex-col"
             style={
-              secondarySession === null
+              paneLayout === null
                 ? { flexGrow: 1, flexBasis: 0 }
-                : { flexGrow: 0, flexShrink: 0, flexBasis: `${splitRatio * 100}%` }
+                : { flexGrow: 0, flexShrink: 0, flexBasis: `${split.ratio * 100}%` }
             }
           >
-            {workspace(activeSession, true)}
+            {workspace(leftPaneSession, 'left')}
           </div>
-          {secondarySession !== null ? (
+          {splitLeft !== null && splitRight !== null ? (
             <>
               <div
                 role="separator"
                 aria-orientation="vertical"
                 aria-label={t('session.resizeSplit')}
-                aria-valuenow={Math.round(splitRatio * 100)}
+                aria-valuenow={Math.round(split.ratio * 100)}
                 aria-valuemin={20}
                 aria-valuemax={80}
                 tabIndex={0}
@@ -421,14 +396,12 @@ export default function SessionsSurface({
                 onKeyDown={(event) => {
                   if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
                   event.preventDefault()
-                  setSplitRatio((current) =>
-                    Math.min(0.8, Math.max(0.2, current + (event.key === 'ArrowRight' ? 0.02 : -0.02)))
-                  )
+                  split.resize(split.ratio + (event.key === 'ArrowRight' ? 0.02 : -0.02))
                 }}
                 data-testid="session-split-divider"
               />
               <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-                {workspace(secondarySession, false)}
+                {workspace(splitRight, 'right')}
               </div>
             </>
           ) : null}
@@ -452,7 +425,7 @@ export default function SessionsSurface({
               }
             >
               <SessionInspector
-                session={inspectorSession}
+                session={activeSession}
                 repo={repo}
                 refreshToken={refreshToken}
                 openRequest={openRequest}
@@ -460,8 +433,8 @@ export default function SessionsSurface({
                 requestedPane={paneRequest}
                 notify={notify}
                 drafts={drafts}
-                onSendToAgent={(text) => sendToAgent(text, inspectorSession)}
-                onRecheck={() => onRecheckSession(inspectorSession.id)}
+                onSendToAgent={(text) => sendToAgent(text, activeSession)}
+                onRecheck={() => onRecheckSession(activeSession.id)}
                 onOpenTerminal={() => undefined}
                 collapsed={inspectorCollapsed}
                 onToggleCollapsed={() => setInspectorCollapsed((current) => !current)}

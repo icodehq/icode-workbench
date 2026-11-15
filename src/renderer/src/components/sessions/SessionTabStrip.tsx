@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import type { SessionSummary } from '../../../../shared/schemas/ipc'
 import type { PendingAction } from '../../state/workspace'
-import { Columns2, X } from 'lucide-react'
+import { ArrowLeft, ArrowLeftRight, ArrowRight, Columns2, X } from 'lucide-react'
 import ContextMenu, { type ContextMenuItem, type MenuAnchor } from '../ContextMenu'
 import { sessionStateDotClass } from '../status'
 import { useT } from '../../i18n/use-i18n'
+import { paneSide, type PaneSide, type SplitLayout } from '../../state/session-split'
 
 type Props = {
   sessions: SessionSummary[]
@@ -16,10 +17,10 @@ type Props = {
   onCloseRight?: (sessionId: string) => void
   onReorder?: (sourceId: string, targetId: string) => void
   onSplit?: () => void
-  onSplitSession?: (sessionId: string) => void
-  onUnsplit?: () => void
-  splitActive?: boolean
-  splitSessionId?: string | null
+  onSplitOn?: (side: PaneSide, sessionId: string) => void
+  onSwapPanes?: () => void
+  onCloseSplit?: () => void
+  layout?: SplitLayout | null
 }
 
 type TabMenuState = {
@@ -45,12 +46,13 @@ export default function SessionTabStrip({
   onCloseRight,
   onReorder,
   onSplit,
-  onSplitSession,
-  onUnsplit,
-  splitActive = false,
-  splitSessionId = null
+  onSplitOn,
+  onSwapPanes,
+  onCloseSplit,
+  layout = null
 }: Props): React.JSX.Element | null {
   const t = useT()
+  const splitActive = layout !== null
   const [menu, setMenu] = useState<TabMenuState | null>(null)
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [dropTargetId, setDropTargetId] = useState<string | null>(null)
@@ -81,6 +83,77 @@ export default function SessionTabStrip({
     menu === null ? null : (sessions.find((session) => session.id === menu.sessionId) ?? null)
   const menuIndex = menuSession === null ? -1 : sessions.indexOf(menuSession)
 
+  const menuSide = menuSession === null ? null : paneSide(layout, menuSession.id)
+  const splitItems: ContextMenuItem[] = []
+  if (menuSession !== null && onSplitOn !== undefined && (sessions.length > 1 || layout !== null)) {
+    if (menuSide === null) {
+      const splittingSelf = layout === null && menuSession.id === activeSessionId
+      const reason = splittingSelf ? t('session.splitNeedsOther') : undefined
+      splitItems.push(
+        {
+          id: 'split-left',
+          label: t('session.splitLeft'),
+          icon: <Columns2 size={12} />,
+          disabled: splittingSelf,
+          reason,
+          separatorBefore: true,
+          testId: 'session-tab-menu-split-left',
+          onSelect: () => onSplitOn('left', menuSession.id)
+        },
+        {
+          id: 'split-right',
+          label: t('session.splitRight'),
+          icon: <Columns2 size={12} />,
+          disabled: splittingSelf,
+          reason,
+          testId: 'session-tab-menu-split-right',
+          onSelect: () => onSplitOn('right', menuSession.id)
+        }
+      )
+    } else {
+      splitItems.push(
+        {
+          id: 'move-left',
+          label: t('session.moveLeft'),
+          icon: <ArrowLeft size={12} />,
+          disabled: menuSide === 'left',
+          separatorBefore: true,
+          testId: 'session-tab-menu-move-left',
+          onSelect: () => onSplitOn('left', menuSession.id)
+        },
+        {
+          id: 'move-right',
+          label: t('session.moveRight'),
+          icon: <ArrowRight size={12} />,
+          disabled: menuSide === 'right',
+          testId: 'session-tab-menu-move-right',
+          onSelect: () => onSplitOn('right', menuSession.id)
+        }
+      )
+    }
+    if (layout !== null) {
+      splitItems.push(
+        {
+          id: 'swap-panes',
+          label: t('session.swapPanes'),
+          icon: <ArrowLeftRight size={12} />,
+          disabled: onSwapPanes === undefined,
+          separatorBefore: true,
+          testId: 'session-tab-menu-swap',
+          onSelect: () => onSwapPanes?.()
+        },
+        {
+          id: 'unsplit',
+          label: t('session.unsplit'),
+          icon: <Columns2 size={12} />,
+          disabled: onCloseSplit === undefined,
+          testId: 'session-tab-menu-unsplit',
+          onSelect: () => onCloseSplit?.()
+        }
+      )
+    }
+  }
+
   const menuItems: ContextMenuItem[] = menuSession === null
     ? []
     : [
@@ -106,22 +179,7 @@ export default function SessionTabStrip({
           testId: 'session-tab-menu-close-right',
           onSelect: () => onCloseRight?.(menuSession.id)
         },
-        ...(onSplitSession !== undefined && sessions.length > 1
-          ? [
-              {
-                id: 'split',
-                label:
-                  splitSessionId === menuSession.id ? t('session.unsplit') : t('session.splitRight'),
-                icon: <Columns2 size={12} />,
-                separatorBefore: true,
-                testId: 'session-tab-menu-split',
-                onSelect: () => {
-                  if (splitSessionId === menuSession.id) onUnsplit?.()
-                  else onSplitSession(menuSession.id)
-                }
-              } satisfies ContextMenuItem
-            ]
-          : [])
+        ...splitItems
       ]
 
   const openMenu = (

@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Split view can open in either direction. A session tab's menu now offers
+  **Split left** and **Split right**, **Move to left pane** and **Move to right
+  pane** while a split is open, and **Swap panes**.
+- Selecting a session in either pane makes it the active session, so the tab
+  strip, inspector and status strip agree with the pane you are using.
+
+### Changed
+
+- Selecting the session already shown in the right pane no longer reorders the
+  panes. Pane order changes only through the explicit split actions, and
+  **Close split view** is available from the same tab menu.
+
 ## [0.9.3] - 2026-11-15
 
 ### Fixed

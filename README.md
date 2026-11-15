@@ -145,8 +145,9 @@ Every direct session gets its own Git worktree and a new branch, starting from
 the current branch or one you choose, so two agents in the same repository never
 edit the same checkout. Open sessions
 appear as tabs above the workspace; drag them to reorder, right-click for
-**Close**, **Close other tabs**, **Close tabs to the right** or **Split right**,
-and resize the divider to rebalance the two panes. Restart a session without
+**Close**, **Close other tabs**, **Close tabs to the right**, **Split left**,
+**Split right**, **Swap panes** or **Close split view**, and resize the divider
+to rebalance the two panes. Restart a session without
 moving its worktree; sleep a direct session to stop the process while keeping the
 checkout and resume token; wake it to continue the harness conversation where
 the harness supports it.
