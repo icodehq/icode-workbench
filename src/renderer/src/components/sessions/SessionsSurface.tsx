@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { Loader2, Plus } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { GripVertical, Loader2, Plus } from 'lucide-react'
 import type { AppError } from '../../../../shared/domain/errors'
 import { harnessLabel } from '../../../../shared/domain/harness'
 import type { RepositorySummary, SessionSummary } from '../../../../shared/schemas/ipc'
@@ -8,6 +8,7 @@ import type { WorkbenchDraftStore } from '../../review/drafts'
 import type { OpenFileRequest, ViewRequest } from '../../router/use-app-navigation'
 import type { Notice, PendingAction } from '../../state/workspace'
 import type { PendingCreate } from '../../state/pending-create'
+import type { CreateSessionOutcome, CreateSessionRequest } from '../../state/use-workspace'
 import SessionInspector from '../sessions/SessionInspector'
 import SessionStatusStrip from '../sessions/SessionStatusStrip'
 import SessionTabStrip from '../sessions/SessionTabStrip'
@@ -15,7 +16,17 @@ import { moveSessionTab, orderSessionTabIds } from '../sessions/session-tab-orde
 import SessionWorkspace from '../SessionWorkspace'
 import { useT } from '../../i18n/use-i18n'
 import { useSessionSplit } from '../../state/use-session-split'
-import type { PaneSide } from '../../state/session-split'
+import { registerSplitCommand } from '../../state/split-commands'
+import {
+  dropZoneAt,
+  leafSessionIds,
+  type PaneDropZone,
+  type SplitSide
+} from '../../state/session-split'
+import { isMacPlatform } from '../../lib/platform'
+import SplitTreeView from './SplitTreeView'
+
+const PANE_DRAG_TYPE = 'application/x-icode-pane'
 
 type Props = {
   repo: RepositorySummary | null
@@ -32,6 +43,7 @@ type Props = {
   sendToAgent: (text: string, session: SessionSummary) => Promise<AgentSendResult>
 
   onSelectSession: (sessionId: string) => void
+  onCreateSession: (input: CreateSessionRequest) => Promise<CreateSessionOutcome>
   onNewSession: () => void
   onRestartSession: (sessionId: string) => void
   onSleepSession: (sessionId: string) => void
@@ -64,6 +76,7 @@ export default function SessionsSurface({
   drafts,
   sendToAgent,
   onSelectSession,
+  onCreateSession,
   onNewSession,
   onRestartSession,
   onSleepSession,
@@ -85,8 +98,13 @@ export default function SessionsSurface({
   )
   const [closedTabIds, setClosedTabIds] = useState<Set<string>>(() => new Set())
   const [tabOrder, setTabOrder] = useState<string[]>([])
-  const splitContainerRef = useRef<HTMLDivElement | null>(null)
-  const splitRectRef = useRef<DOMRect | null>(null)
+  const creatingPane = useRef(false)
+  const closeActiveRef = useRef<(() => void) | null>(null)
+  const paneDragSource = useRef<string | null>(null)
+  const [paneDrop, setPaneDrop] = useState<{
+    targetId: string
+    zone: PaneDropZone
+  } | null>(null)
   const inspectorExpandedRef = useRef(!inspectorCollapsed)
   const autoCollapsedInspectorRef = useRef(false)
 
@@ -181,8 +199,161 @@ export default function SessionsSurface({
   const split = useSessionSplit({
     activeSessionId: activeSession?.id ?? null,
     visibleSessionIds,
-    onSelectSession
+    onSelectSession,
+    storageKey: repo === null ? null : `icode:split:${repo.id}`
   })
+  const { focus, toggleZoom, expectNewSession, cancelNewSession } = split
+
+  const createBeside = useCallback(
+    (side: SplitSide): void => {
+      const anchor = activeSession
+      if (anchor === null || creatingPane.current) return
+      creatingPane.current = true
+      expectNewSession(anchor.id, side)
+      void onCreateSession({
+        repoId: anchor.repoId,
+        harness: anchor.harness,
+        ...(anchor.worktree !== null ? { worktreeId: anchor.worktree.id } : {})
+      })
+        .then((outcome) => {
+          if (!outcome.ok) {
+            cancelNewSession()
+            onError(outcome.error)
+          }
+        })
+        .catch(() => {
+          cancelNewSession()
+        })
+        .finally(() => {
+          creatingPane.current = false
+        })
+    },
+    [activeSession, cancelNewSession, expectNewSession, onCreateSession, onError]
+  )
+
+  const toggleSplit = useCallback((): void => {
+    if (split.root !== null) {
+      split.close()
+      return
+    }
+    const anchor = activeSession
+    if (anchor === null) return
+    const hasUngrouped = visibleSessions.some(
+      (session) => session.id !== anchor.id && !split.groupedSessionIds.has(session.id)
+    )
+    if (hasUngrouped) split.toggle()
+    else createBeside('right')
+  }, [activeSession, createBeside, split, visibleSessions])
+
+  useEffect(() => {
+    if (activeSession === null) return
+    const sessionId = activeSession.id
+    const hasSplit = split.root !== null
+    const reason = hasSplit ? undefined : t('palette.splitNeedsSplit')
+    const unregister = [
+      registerSplitCommand('split.left', {
+        sessionId,
+        enabled: true,
+        run: () => createBeside('left')
+      }),
+      registerSplitCommand('split.right', {
+        sessionId,
+        enabled: true,
+        run: () => createBeside('right')
+      }),
+      registerSplitCommand('split.up', {
+        sessionId,
+        enabled: true,
+        run: () => createBeside('up')
+      }),
+      registerSplitCommand('split.down', {
+        sessionId,
+        enabled: true,
+        run: () => createBeside('down')
+      }),
+      registerSplitCommand('split.zoom', {
+        sessionId,
+        enabled: hasSplit,
+        disabledReason: reason,
+        run: toggleZoom
+      }),
+      registerSplitCommand('split.close', {
+        sessionId,
+        enabled: hasSplit,
+        disabledReason: reason,
+        run: split.close
+      })
+    ]
+    return () => {
+      for (const remove of unregister) remove()
+    }
+  }, [activeSession, createBeside, split.close, split.root, t, toggleZoom])
+
+  useEffect(() => {
+    const isMac = isMacPlatform()
+    const directionFor = (key: string): SplitSide | null =>
+      key === 'ArrowLeft'
+        ? 'left'
+        : key === 'ArrowRight'
+          ? 'right'
+          : key === 'ArrowUp'
+            ? 'up'
+            : key === 'ArrowDown'
+              ? 'down'
+              : null
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.defaultPrevented || event.isComposing || event.repeat) return
+      if (event.target instanceof Element) {
+        if (event.target.closest('.monaco-editor')) return
+        if (event.target.closest('input, textarea, [contenteditable="true"], [role="dialog"]')) {
+          return
+        }
+      }
+      const key = event.key
+      const lower = key.toLowerCase()
+      const direction = directionFor(key)
+      const handle = (action: () => void): void => {
+        event.preventDefault()
+        event.stopPropagation()
+        action()
+      }
+
+      if (isMac) {
+        if (!event.metaKey || event.ctrlKey) return
+        if (event.altKey && !event.shiftKey && direction !== null) {
+          return handle(() => focus(direction))
+        }
+        if (event.altKey) return
+        if (event.shiftKey && !event.altKey && lower === 'enter') return handle(toggleZoom)
+        if (event.shiftKey && !event.altKey && lower === 'w') {
+          if (activeSession !== null) handle(() => closeActiveRef.current?.())
+          return
+        }
+        if (event.shiftKey && !event.altKey && lower === 'd') {
+          return handle(() => createBeside('down'))
+        }
+        if (!event.shiftKey && !event.altKey && lower === 'd') {
+          return handle(() => createBeside('right'))
+        }
+        return
+      }
+
+      if (!event.ctrlKey || event.metaKey) return
+      if (event.altKey && !event.shiftKey && direction !== null) {
+        return handle(() => focus(direction))
+      }
+      if (!event.shiftKey || event.altKey) return
+      if (lower === 'enter') return handle(toggleZoom)
+      if (lower === 'w') {
+        if (activeSession !== null) handle(() => closeActiveRef.current?.())
+        return
+      }
+      if (lower === 'd') return handle(() => createBeside('right'))
+      if (direction !== null) return handle(() => createBeside(direction))
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [activeSession, createBeside, focus, toggleZoom])
 
   if (repo === null) return <></>
 
@@ -229,6 +400,7 @@ export default function SessionsSurface({
     })
   }
 
+  closeActiveRef.current = () => closeTab(activeSession.id)
   const closeTabsNotIn = (keepIds: readonly string[], fallbackId: string): void => {
     const kept = new Set(keepIds)
     if (!kept.has(activeSession.id)) onSelectSession(fallbackId)
@@ -255,58 +427,117 @@ export default function SessionsSurface({
     setTabOrder(moveSessionTab(orderedSessions.map((session) => session.id), sourceId, targetId))
   }
 
-  const splitLeft =
-    split.layout === null ? null : (sessionById.get(split.layout.left) ?? null)
-  const splitRight =
-    split.layout === null ? null : (sessionById.get(split.layout.right) ?? null)
-  /*
-   * A layout can reference a session for one frame before reconciliation runs.
-   * Rendering a single pane until both sides resolve keeps the divider and the
-   * panes consistent.
-   */
-  const paneLayout = splitLeft !== null && splitRight !== null ? split.layout : null
-  const leftPaneSession = splitLeft ?? activeSession
-  const resizeSplit = (clientX: number): void => {
-    const rect = splitRectRef.current
-    if (rect === null || rect.width <= 0) return
-    split.resize((clientX - rect.left) / rect.width)
+  const splitRoot =
+    split.root !== null && split.root.kind === 'split' ? split.root : null
+  const splitLeafIds = splitRoot === null ? null : new Set(leafSessionIds(splitRoot))
+  const zoomedSession =
+    split.zoomedSessionId === null ? null : (sessionById.get(split.zoomedSessionId) ?? null)
+  const dropZoneFor = (event: React.DragEvent<HTMLDivElement>): PaneDropZone => {
+    const rect = event.currentTarget.getBoundingClientRect()
+    return dropZoneAt(
+      event.clientX - rect.left,
+      event.clientY - rect.top,
+      rect.width,
+      rect.height
+    )
   }
-  const beginSplitResize = (event: React.PointerEvent<HTMLDivElement>): void => {
-    const container = splitContainerRef.current
-    if (container === null) return
-    event.preventDefault()
-    splitRectRef.current = container.getBoundingClientRect()
-    event.currentTarget.setPointerCapture(event.pointerId)
-    resizeSplit(event.clientX)
-  }
-  const endSplitResize = (event: React.PointerEvent<HTMLDivElement>): void => {
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId)
+  const dropOverlayClass = (zone: PaneDropZone): string => {
+    switch (zone) {
+      case 'left':
+        return 'inset-y-0 left-0 w-1/2'
+      case 'right':
+        return 'inset-y-0 right-0 w-1/2'
+      case 'top':
+        return 'inset-x-0 top-0 h-1/2'
+      case 'bottom':
+        return 'inset-x-0 bottom-0 h-1/2'
+      case 'center':
+        return 'inset-[30%]'
     }
-    splitRectRef.current = null
   }
-  const workspace = (target: SessionSummary, side: PaneSide): React.JSX.Element => (
+  const workspace = (target: SessionSummary, leafIds: Set<string> | null): React.JSX.Element => (
     <div
-      className="flex min-h-0 min-w-0 flex-1 flex-col"
+      className="relative flex min-h-0 min-w-0 flex-1 flex-col"
       onPointerDownCapture={(event) => {
         if (event.button !== 0) return
         if (target.id !== activeSession.id) onSelectSession(target.id)
       }}
-      data-testid={`session-pane-${side}`}
+      onDragOver={(event) => {
+        if (!event.dataTransfer.types.includes(PANE_DRAG_TYPE)) return
+        const source = paneDragSource.current
+        if (source === null) return
+        if (source === target.id) {
+          event.dataTransfer.dropEffect = 'none'
+          return
+        }
+        event.preventDefault()
+        event.dataTransfer.dropEffect = 'move'
+        const zone = dropZoneFor(event)
+        setPaneDrop((current) =>
+          current !== null && current.targetId === target.id && current.zone === zone
+            ? current
+            : { targetId: target.id, zone }
+        )
+      }}
+      onDragLeave={(event) => {
+        if (event.currentTarget.contains(event.relatedTarget as Node | null)) return
+        setPaneDrop((current) =>
+          current !== null && current.targetId === target.id ? null : current
+        )
+      }}
+      onDrop={(event) => {
+        if (!event.dataTransfer.types.includes(PANE_DRAG_TYPE)) return
+        const source = paneDragSource.current
+        if (source === null) return
+        event.preventDefault()
+        const zone = paneDrop?.targetId === target.id ? paneDrop.zone : dropZoneFor(event)
+        if (source !== target.id) split.dropPane(source, target.id, zone)
+        paneDragSource.current = null
+        setPaneDrop(null)
+      }}
+      data-testid="session-pane"
+      data-session-id={target.id}
       data-active={target.id === activeSession.id}
     >
       <SessionWorkspace
+        dragHandle={
+          leafIds === null ? undefined : (
+            <button
+              type="button"
+              className="inline-flex h-6 w-5 shrink-0 cursor-grab items-center justify-center rounded text-muted-foreground/60 hover:bg-muted hover:text-foreground active:cursor-grabbing"
+              draggable
+              aria-label={t('session.movePane')}
+              title={t('session.movePane')}
+              onDragStart={(event) => {
+                paneDragSource.current = target.id
+                event.dataTransfer.effectAllowed = 'move'
+                event.dataTransfer.setData(PANE_DRAG_TYPE, target.id)
+                event.dataTransfer.setData('text/plain', target.id)
+                setPaneDrop(null)
+              }}
+              onDragEnd={() => {
+                paneDragSource.current = null
+                setPaneDrop(null)
+              }}
+              data-testid={`session-pane-handle-${target.id}`}
+            >
+              <GripVertical size={12} />
+            </button>
+          )
+        }
         layout="split"
         hideHeader={focusActive}
-        showBranch={paneLayout === null}
+        showBranch={leafIds === null}
         session={target}
         repo={repo}
         pending={pending[target.id] ?? null}
-        panes={paneSessions.filter((candidate) =>
-          side === 'left'
-            ? paneLayout === null || candidate.id !== paneLayout.right
-            : candidate.id === target.id
-        )}
+        panes={paneSessions.filter((candidate) => {
+          if (leafIds === null) return true
+          if (candidate.id === target.id) return true
+          if (leafIds.has(candidate.id)) return false
+          // Hidden tabs keep their terminals mounted in the focused pane.
+          return target.id === activeSession.id
+        })}
         worktreeShared={
           target.worktree !== null &&
           sessions.some(
@@ -334,6 +565,13 @@ export default function SessionsSurface({
         onRequestOpenInFiles={() => undefined}
         onViewRequestHandled={() => undefined}
       />
+      {paneDrop !== null && paneDrop.targetId === target.id ? (
+        <div
+          className={`pointer-events-none absolute z-10 rounded-sm border border-accent bg-accent/15 ${dropOverlayClass(paneDrop.zone)}`}
+          data-testid="session-drop-preview"
+          data-zone={paneDrop.zone}
+        />
+      ) : null}
     </div>
   )
 
@@ -352,59 +590,30 @@ export default function SessionsSurface({
           onCloseOthers={closeOtherTabs}
           onCloseRight={closeTabsToRight}
           onReorder={reorderTabs}
-          onSplit={split.toggle}
+          onSplit={toggleSplit}
           onSplitOn={split.splitOn}
-          onSwapPanes={split.swap}
+          onSwapPanes={split.swapWithFocused}
           onCloseSplit={split.close}
-          layout={paneLayout}
+          onToggleZoom={split.toggleZoom}
+          zoomed={split.zoomedSessionId !== null}
+          groupedSessionIds={split.groupedSessionIds}
+          root={splitRoot}
         />
       ) : null}
       <div className="relative flex min-h-0 min-w-0 flex-1">
-        <div ref={splitContainerRef} className="flex min-h-0 min-w-0 flex-1">
-          <div
-            className="flex min-h-0 min-w-0 flex-col"
-            style={
-              paneLayout === null
-                ? { flexGrow: 1, flexBasis: 0 }
-                : { flexGrow: 0, flexShrink: 0, flexBasis: `${split.ratio * 100}%` }
-            }
-          >
-            {workspace(leftPaneSession, 'left')}
-          </div>
-          {splitLeft !== null && splitRight !== null ? (
-            <>
-              <div
-                role="separator"
-                aria-orientation="vertical"
-                aria-label={t('session.resizeSplit')}
-                aria-valuenow={Math.round(split.ratio * 100)}
-                aria-valuemin={20}
-                aria-valuemax={80}
-                tabIndex={0}
-                className="w-[3px] shrink-0 cursor-col-resize bg-border/70 transition-colors hover:bg-accent/60 focus-visible:bg-accent focus-visible:outline-none"
-                onPointerDown={beginSplitResize}
-                onPointerMove={(event) => {
-                  if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-                    resizeSplit(event.clientX)
-                  }
-                }}
-                onPointerUp={endSplitResize}
-                onPointerCancel={endSplitResize}
-                onLostPointerCapture={() => {
-                  splitRectRef.current = null
-                }}
-                onKeyDown={(event) => {
-                  if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
-                  event.preventDefault()
-                  split.resize(split.ratio + (event.key === 'ArrowRight' ? 0.02 : -0.02))
-                }}
-                data-testid="session-split-divider"
-              />
-              <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-                {workspace(splitRight, 'right')}
-              </div>
-            </>
-          ) : null}
+        <div className="flex min-h-0 min-w-0 flex-1">
+          {splitRoot === null || zoomedSession !== null ? (
+            workspace(zoomedSession ?? activeSession, splitRoot === null ? null : splitLeafIds)
+          ) : (
+            <SplitTreeView
+              node={splitRoot}
+              renderLeaf={(sessionId) => {
+                const session = sessionById.get(sessionId)
+                return session === undefined ? null : workspace(session, splitLeafIds)
+              }}
+              onResize={split.resize}
+            />
+          )}
         </div>
         {!focusActive ? (
           <>

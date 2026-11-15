@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Split view is now a nested tree. Sessions can split left, right, above or
+  below the focused pane, and panes can combine both axes into any
+  arrangement.
+- Every divider resizes its own branch. Closing a session collapses its pane
+  into the surviving sibling, and a tree that falls back to one pane returns
+  to the single-pane view.
+- Panes can be rearranged by dragging the grip in a pane header. Dropping on
+  an edge re-splits the target on that side; dropping on its centre swaps the
+  two panes.
+- Split shortcuts: macOS uses `⌘D`, `⇧⌘D`, `⌥⌘` + arrows and `⇧⌘↩`; Windows
+  and Linux use `Ctrl+Shift+D`, `Ctrl+Shift+Arrow`, `Ctrl+Alt+Arrow` and
+  `Ctrl+Shift+Enter`. `⇧⌘W` / `Ctrl+Shift+W` closes the focused tab and
+  collapses its pane, and the focused pane can also be zoomed from the tab
+  strip.
+- Split shortcuts start a sibling session with the focused harness in the same
+  worktree, then place it beside the focused pane. The tab menu still places
+  existing sessions.
+- The command palette now lists split left/right/up/down, pane zoom and
+  close-split actions for the active direct session.
+- Split trees and divider ratios persist per project and are pruned against the
+  live sessions when the app restarts.
+- Projects can keep multiple independent split groups. Selecting a session
+  reveals the group it belongs to; an ungrouped session opens as a single pane
+  while the other groups stay saved.
+
+### Changed
+
+- A tab already shown in the split can move left, right, up or down of the
+  focused pane instead of only to a fixed side; **Swap panes** exchanges it
+  with the focused pane.
+
 ## [0.9.4] - 2026-11-15
 
 ### Added

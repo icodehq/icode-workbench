@@ -46,7 +46,7 @@ made.
   cross-project task queue share one sidebar. Sessions and task workbenches are
   the main surfaces; Mira, Settings and Schedules are temporary app tabs.
 - **Parallel by default.** Every session gets its own branch and Git worktree;
-  keep several in sight with session tabs and a resizable split view.
+  keep several in sight with session tabs and a resizable, nested split view.
 - **Review in place.** Source Control and Files live in a persistent inspector
   beside the terminal, or in the task workbench for queued work.
 - **Mira across projects.** One conversation for the real queue, blockers, and
@@ -73,8 +73,8 @@ in view; Mira and Settings sit below it.
 
 The main column has two work surfaces:
 
-- **Sessions** — one tab per direct session, a resizable split view, and a
-  persistent Source Control/Files inspector on the right. A compact strip under
+- **Sessions** — one tab per direct session, a resizable nested split view, and
+  a persistent Source Control/Files inspector on the right. A compact strip under
   the terminal carries branch, ahead/behind, conflicts and caret blame.
 - **Task workbench** — Overview, Terminal, Source Control and Files for one task,
   selected from the sidebar rather than opened as a tab.
@@ -146,8 +146,20 @@ the current branch or one you choose, so two agents in the same repository never
 edit the same checkout. Open sessions
 appear as tabs above the workspace; drag them to reorder, right-click for
 **Close**, **Close other tabs**, **Close tabs to the right**, **Split left**,
-**Split right**, **Swap panes** or **Close split view**, and resize the divider
-to rebalance the two panes. Restart a session without
+**Split right**, **Split up**, **Split down**, **Swap panes** or **Close split
+view**. Splits nest, so panes can combine side-by-side and stacked layouts, and
+every divider rebalances its own branch. Drag a pane's grip handle onto another
+pane's edge to re-split there, or onto its centre to swap the two panes. On
+macOS, `⌘D` and `⇧⌘D` split right and down, `⌥⌘` + arrows move focus, and
+`⇧⌘↩` zooms the focused pane; Windows and Linux use `Ctrl+Shift+D`,
+`Ctrl+Shift+Arrow`, `Ctrl+Alt+Arrow` and `Ctrl+Shift+Enter`. `⇧⌘W` (macOS) or
+`Ctrl+Shift+W` closes the focused tab and collapses its pane. A split shortcut
+starts a sibling session with the focused harness in the same worktree. The
+command palette (`Ctrl/Cmd+K`) also lists Split left/right/up/down, zoom and
+close-split actions. Each
+project can keep several split layouts; selecting a session reveals the layout
+it belongs to, and a session outside every layout opens full-width. Layouts and
+divider ratios persist per project. Restart a session without
 moving its worktree; sleep a direct session to stop the process while keeping the
 checkout and resume token; wake it to continue the harness conversation where
 the harness supports it.
@@ -337,7 +349,7 @@ sandboxed behind a typed preload and validated IPC.
 **Also in the box:**
 
 - **Session tabs and split view**: browser-style tab menus, drag reordering,
-  and a resizable two-pane split.
+  and a resizable split tree that nests both axes.
 - **Focus mode**: `F11` or `Ctrl/Cmd+J` leaves only the terminal.
 - **Pinned working set**: pin projects, sessions and tasks as sidebar
   shortcuts; the project tree stays complete.

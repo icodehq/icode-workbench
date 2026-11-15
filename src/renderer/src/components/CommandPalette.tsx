@@ -5,6 +5,7 @@ import {
   Bot,
   CalendarClock,
   CloudUpload,
+  Columns2,
   FileText,
   FolderGit2,
   GitBranch,
@@ -12,17 +13,20 @@ import {
   GitMerge,
   History,
   ListTodo,
+  Maximize2,
   Minus,
   Moon,
   Play,
   Plus,
   RefreshCw,
+  Rows2,
   Search,
   Settings,
   Square,
   Sun,
   TerminalSquare,
   Trash2,
+  X,
   type LucideIcon
 } from 'lucide-react'
 import type { TaskRecordPayload } from '../../../shared/icode-api'
@@ -43,6 +47,11 @@ import {
   useScmCommandSnapshot,
   type ScmCommandId
 } from '../scm/scm-commands'
+import {
+  runSplitCommand,
+  useSplitCommandSnapshot,
+  type SplitCommandId
+} from '../state/split-commands'
 
 type PaletteKind = 'action' | 'project' | 'work' | 'file'
 
@@ -185,6 +194,7 @@ export default function CommandPalette({
 
   const normalizedQuery = query.trim().toLowerCase()
   const scmCommands = useScmCommandSnapshot()
+  const splitCommands = useSplitCommandSnapshot()
 
   const actions = useMemo<PaletteItem[]>(() => {
     const scmSessionId = fileSession?.id ?? null
@@ -213,6 +223,35 @@ export default function CommandPalette({
         disabled,
         run: () => {
           if (runScmCommand(id, scmSessionId ?? undefined)) onSourceControl()
+        }
+      }
+    }
+    const splitSessionId = fileSession?.id ?? null
+    const splitAction = (
+      id: SplitCommandId,
+      label: string,
+      hint: string,
+      icon: LucideIcon
+    ): PaletteItem => {
+      const entry = splitSessionId === null ? undefined : splitCommands[id]
+      const available = entry !== undefined && entry.sessionId === splitSessionId
+      const disabled = !available || !entry.enabled
+      return {
+        id,
+        kind: 'action',
+        label,
+        hint:
+          splitSessionId === null
+            ? t('palette.openSessionFirst')
+            : !available
+              ? t('palette.splitUnavailable')
+              : !entry.enabled
+                ? entry.disabledReason ?? t('common.unavailable')
+                : hint,
+        icon,
+        disabled,
+        run: () => {
+          runSplitCommand(id, splitSessionId ?? undefined)
         }
       }
     }
@@ -259,6 +298,12 @@ export default function CommandPalette({
         disabled: fileSession === null,
         run: onSourceControl
       },
+      splitAction('split.left', t('session.splitLeft'), t('palette.hint.splitPane'), Columns2),
+      splitAction('split.right', t('session.splitRight'), t('palette.hint.splitPane'), Columns2),
+      splitAction('split.up', t('session.splitUp'), t('palette.hint.splitPane'), Rows2),
+      splitAction('split.down', t('session.splitDown'), t('palette.hint.splitPane'), Rows2),
+      splitAction('split.zoom', t('session.zoom'), t('palette.hint.zoomPane'), Maximize2),
+      splitAction('split.close', t('session.unsplit'), t('palette.hint.closeSplit'), X),
       scmAction('git.commit', t('palette.action.commit'), t('palette.hint.commit'), GitCommitHorizontal),
       scmAction('git.commitAll', t('palette.action.commitAll'), t('palette.hint.commitAll'), GitCommitHorizontal),
       scmAction('git.refresh', t('palette.action.refreshScm'), t('palette.hint.refreshScm'), RefreshCw),
@@ -318,6 +363,7 @@ export default function CommandPalette({
     repos.length,
     resolvedTheme,
     scmCommands,
+    splitCommands,
     t
   ])
 

@@ -1,11 +1,23 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import type { SessionSummary } from '../../../../shared/schemas/ipc'
 import type { PendingAction } from '../../state/workspace'
-import { ArrowLeft, ArrowLeftRight, ArrowRight, Columns2, X } from 'lucide-react'
+import {
+  ArrowDown,
+  ArrowLeft,
+  ArrowLeftRight,
+  ArrowRight,
+  ArrowUp,
+  Columns2,
+  Maximize2,
+  Minimize2,
+  Rows2,
+  X
+} from 'lucide-react'
 import ContextMenu, { type ContextMenuItem, type MenuAnchor } from '../ContextMenu'
 import { sessionStateDotClass } from '../status'
 import { useT } from '../../i18n/use-i18n'
-import { paneSide, type PaneSide, type SplitLayout } from '../../state/session-split'
+import { isMacPlatform } from '../../lib/platform'
+import { containsSession, type SplitNode, type SplitSide } from '../../state/session-split'
 
 type Props = {
   sessions: SessionSummary[]
@@ -17,10 +29,13 @@ type Props = {
   onCloseRight?: (sessionId: string) => void
   onReorder?: (sourceId: string, targetId: string) => void
   onSplit?: () => void
-  onSplitOn?: (side: PaneSide, sessionId: string) => void
-  onSwapPanes?: () => void
+  onSplitOn?: (side: SplitSide, sessionId: string) => void
+  onSwapPanes?: (sessionId: string) => void
   onCloseSplit?: () => void
-  layout?: SplitLayout | null
+  onToggleZoom?: () => void
+  zoomed?: boolean
+  groupedSessionIds?: ReadonlySet<string>
+  root?: SplitNode | null
 }
 
 type TabMenuState = {
@@ -49,10 +64,24 @@ export default function SessionTabStrip({
   onSplitOn,
   onSwapPanes,
   onCloseSplit,
-  layout = null
+  onToggleZoom,
+  zoomed = false,
+  groupedSessionIds,
+  root = null
 }: Props): React.JSX.Element | null {
   const t = useT()
-  const splitActive = layout !== null
+  const mac = isMacPlatform()
+  const splitActive = root !== null && root.kind === 'split'
+  const splitShortcut = (side: SplitSide): string | undefined => {
+    if (mac) return side === 'right' ? '⌘D' : side === 'down' ? '⇧⌘D' : undefined
+    return side === 'right'
+      ? 'Ctrl+Shift+D'
+      : side === 'left'
+        ? 'Ctrl+Shift+←'
+        : side === 'up'
+          ? 'Ctrl+Shift+↑'
+          : 'Ctrl+Shift+↓'
+  }
   const [menu, setMenu] = useState<TabMenuState | null>(null)
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [dropTargetId, setDropTargetId] = useState<string | null>(null)
@@ -83,64 +112,77 @@ export default function SessionTabStrip({
     menu === null ? null : (sessions.find((session) => session.id === menu.sessionId) ?? null)
   const menuIndex = menuSession === null ? -1 : sessions.indexOf(menuSession)
 
-  const menuSide = menuSession === null ? null : paneSide(layout, menuSession.id)
+  const menuInTree =
+    menuSession !== null &&
+    root !== null &&
+    root.kind === 'split' &&
+    containsSession(root, menuSession.id)
+  const menuGrouped =
+    menuSession !== null && (groupedSessionIds?.has(menuSession.id) ?? false)
+  const menuIsActive = menuSession !== null && menuSession.id === activeSessionId
+
   const splitItems: ContextMenuItem[] = []
-  if (menuSession !== null && onSplitOn !== undefined && (sessions.length > 1 || layout !== null)) {
-    if (menuSide === null) {
-      const splittingSelf = layout === null && menuSession.id === activeSessionId
-      const reason = splittingSelf ? t('session.splitNeedsOther') : undefined
-      splitItems.push(
-        {
-          id: 'split-left',
-          label: t('session.splitLeft'),
-          icon: <Columns2 size={12} />,
-          disabled: splittingSelf,
-          reason,
-          separatorBefore: true,
-          testId: 'session-tab-menu-split-left',
-          onSelect: () => onSplitOn('left', menuSession.id)
-        },
-        {
-          id: 'split-right',
-          label: t('session.splitRight'),
-          icon: <Columns2 size={12} />,
-          disabled: splittingSelf,
-          reason,
-          testId: 'session-tab-menu-split-right',
-          onSelect: () => onSplitOn('right', menuSession.id)
-        }
-      )
-    } else {
-      splitItems.push(
-        {
-          id: 'move-left',
-          label: t('session.moveLeft'),
-          icon: <ArrowLeft size={12} />,
-          disabled: menuSide === 'left',
-          separatorBefore: true,
-          testId: 'session-tab-menu-move-left',
-          onSelect: () => onSplitOn('left', menuSession.id)
-        },
-        {
-          id: 'move-right',
-          label: t('session.moveRight'),
-          icon: <ArrowRight size={12} />,
-          disabled: menuSide === 'right',
-          testId: 'session-tab-menu-move-right',
-          onSelect: () => onSplitOn('right', menuSession.id)
-        }
-      )
-    }
-    if (layout !== null) {
+  if (
+    menuSession !== null &&
+    onSplitOn !== undefined &&
+    (sessions.length > 1 || splitActive)
+  ) {
+    const splittingSelf = menuIsActive
+    const reason = splittingSelf ? t('session.splitNeedsOther') : undefined
+    const actions: Array<{
+      side: SplitSide
+      splitLabel: string
+      moveLabel: string
+      icon: ReactNode
+    }> = [
+      {
+        side: 'left',
+        splitLabel: t('session.splitLeft'),
+        moveLabel: t('session.moveLeft'),
+        icon: menuGrouped ? <ArrowLeft size={12} /> : <Columns2 size={12} />
+      },
+      {
+        side: 'right',
+        splitLabel: t('session.splitRight'),
+        moveLabel: t('session.moveRight'),
+        icon: menuGrouped ? <ArrowRight size={12} /> : <Columns2 size={12} />
+      },
+      {
+        side: 'up',
+        splitLabel: t('session.splitUp'),
+        moveLabel: t('session.moveUp'),
+        icon: menuGrouped ? <ArrowUp size={12} /> : <Rows2 size={12} />
+      },
+      {
+        side: 'down',
+        splitLabel: t('session.splitDown'),
+        moveLabel: t('session.moveDown'),
+        icon: menuGrouped ? <ArrowDown size={12} /> : <Rows2 size={12} />
+      }
+    ]
+    splitItems.push(
+      ...actions.map((action, index) => ({
+        id: `${menuGrouped ? 'move' : 'split'}-${action.side}`,
+        label: menuGrouped ? action.moveLabel : action.splitLabel,
+        icon: action.icon,
+        disabled: splittingSelf,
+        reason,
+        shortcut: menuGrouped ? undefined : splitShortcut(action.side),
+        separatorBefore: index === 0,
+        testId: `session-tab-menu-${menuGrouped ? 'move' : 'split'}-${action.side}`,
+        onSelect: () => onSplitOn(action.side, menuSession.id)
+      }))
+    )
+    if (splitActive && menuInTree) {
       splitItems.push(
         {
           id: 'swap-panes',
           label: t('session.swapPanes'),
           icon: <ArrowLeftRight size={12} />,
-          disabled: onSwapPanes === undefined,
+          disabled: !menuInTree || menuIsActive || onSwapPanes === undefined,
           separatorBefore: true,
           testId: 'session-tab-menu-swap',
-          onSelect: () => onSwapPanes?.()
+          onSelect: () => onSwapPanes?.(menuSession.id)
         },
         {
           id: 'unsplit',
@@ -162,6 +204,7 @@ export default function SessionTabStrip({
           label: t('session.close'),
           icon: <X size={12} />,
           disabled: sessions.length <= 1,
+          shortcut: mac ? '⇧⌘W' : 'Ctrl+Shift+W',
           testId: 'session-tab-menu-close',
           onSelect: () => onClose(menuSession.id)
         },
@@ -288,6 +331,13 @@ export default function SessionTabStrip({
                   )}`}
                 />
                 <span className="min-w-0 truncate">{session.title}</span>
+                {groupedSessionIds?.has(session.id) ? (
+                  <Columns2
+                    size={9}
+                    className="shrink-0 text-muted-foreground/60"
+                    aria-hidden="true"
+                  />
+                ) : null}
               </button>
               {sessions.length > 1 ? (
                 <button
@@ -304,20 +354,42 @@ export default function SessionTabStrip({
             </div>
           )
         })}
-        {onSplit !== undefined && (sessions.length > 1 || splitActive) ? (
-          <button
-            type="button"
-            className={`ml-auto inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground ${
-              splitActive ? 'bg-accent-weak text-accent' : ''
-            }`}
-            onClick={onSplit}
-            aria-pressed={splitActive}
-            aria-label={splitActive ? t('session.unsplit') : t('session.split')}
-            title={splitActive ? t('session.unsplit') : t('session.split')}
-            data-testid="session-split-toggle"
-          >
-            <Columns2 size={12} />
-          </button>
+        {(onSplit !== undefined && (sessions.length > 1 || splitActive)) ||
+        (splitActive && onToggleZoom !== undefined) ? (
+          <div className="ml-auto flex shrink-0 items-center gap-1">
+            {onSplit !== undefined && (sessions.length > 1 || splitActive) ? (
+              <button
+                type="button"
+                className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground ${
+                  splitActive ? 'bg-accent-weak text-accent' : ''
+                }`}
+                onClick={onSplit}
+                aria-pressed={splitActive}
+                aria-label={splitActive ? t('session.unsplit') : t('session.split')}
+                title={splitActive ? t('session.unsplit') : t('session.split')}
+                data-testid="session-split-toggle"
+              >
+                <Columns2 size={12} />
+              </button>
+            ) : null}
+            {splitActive && onToggleZoom !== undefined ? (
+              <button
+                type="button"
+                className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground ${
+                  zoomed ? 'bg-accent-weak text-accent' : ''
+                }`}
+                onClick={onToggleZoom}
+                aria-pressed={zoomed}
+                aria-label={zoomed ? t('session.unzoom') : t('session.zoom')}
+                title={`${zoomed ? t('session.unzoom') : t('session.zoom')} (${
+                  mac ? '⇧⌘↩' : 'Ctrl+Shift+Enter'
+                })`}
+                data-testid="session-zoom-toggle"
+              >
+                {zoomed ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+              </button>
+            ) : null}
+          </div>
         ) : null}
       </nav>
       {menu !== null && menuSession !== null ? (

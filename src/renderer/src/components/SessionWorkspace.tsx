@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import {
   AlertTriangle,
   FileDiff,
@@ -91,6 +91,8 @@ type Props = {
   hideHeader?: boolean
   /** Split panes hide the branch so the session title keeps its room. */
   showBranch?: boolean
+  /** Split panes render a drag affordance at the start of their header. */
+  dragHandle?: ReactNode
   /** Another session runs in this session's worktree, so removal only detaches. */
   worktreeShared?: boolean
 }
@@ -328,6 +330,7 @@ export default function SessionWorkspace({
   layout = 'tabs',
   hideHeader = false,
   showBranch = true,
+  dragHandle,
   worktreeShared = false
 }: Props): React.JSX.Element {
   const t = useT()
@@ -391,6 +394,7 @@ export default function SessionWorkspace({
         data-testid="session-header"
       >
         <div className="flex h-12 items-center gap-2 px-3">
+          {dragHandle}
           <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
             <h1
               className="min-w-0 flex-1 truncate text-[15px] font-semibold leading-none tracking-[-0.01em]"

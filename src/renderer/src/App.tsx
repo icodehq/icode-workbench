@@ -512,6 +512,7 @@ export default function App(): React.JSX.Element {
         drafts={drafts}
         sendToAgent={sendToAgent}
         onSelectSession={commands.openDirectSession}
+        onCreateSession={workspace.createSession}
         onNewSession={openNewSession}
         onRestartSession={(sessionId) => void workspace.restartSession(sessionId)}
         onSleepSession={(sessionId) => void workspace.sleepSession(sessionId)}
