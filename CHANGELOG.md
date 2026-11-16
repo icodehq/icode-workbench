@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.7] - 2026-11-16
+
 ### Changed
 
 - The right inspector is now a master–detail surface, matching Termio's right
