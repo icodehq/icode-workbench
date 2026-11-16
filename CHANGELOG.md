@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.12] - 2026-11-16
+
+### Changed
+
+- The project context menu is action-first: New session and Queue task lead,
+  Sessions and Tasks are a checked pair that shows the open view, project
+  actions follow, and Retry preparation moves to the top when a project needs
+  attention. Session and task creation disable with a reason when the Host or
+  first-commit preparation blocks them.
+- Right-clicking anywhere on a project row opens its menu, including the
+  chevron, branch chip, and trailing actions. The row stays highlighted while
+  the menu is open, the ⋯ trigger reports its expanded state, and each menu is
+  labelled with its project's name.
+- Copy path confirms with a short success notice and reports clipboard
+  failures instead of failing silently.
+
+### Added
+
+- Removing a project now asks for confirmation, showing the affected session
+  and worktree counts and noting that uncommitted worktree changes are saved
+  to a recovery ref first. The repository folder itself is not deleted.
+
 ## [0.9.11] - 2026-11-16
 
 ### Changed
