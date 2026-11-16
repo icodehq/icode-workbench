@@ -34,6 +34,8 @@ type Props = {
   onToggleCollapsed: () => void
   /** Narrow viewports render the inspector above the workspace, not beside it. */
   overlay?: boolean
+  /** Width of the row holding the terminal and this inspector. */
+  availableWidth?: number
 }
 
 /**
@@ -61,7 +63,8 @@ export default function SessionInspector({
   onOpenTerminal,
   collapsed,
   onToggleCollapsed,
-  overlay = false
+  overlay = false,
+  availableWidth
 }: Props): React.JSX.Element {
   const t = useT()
   const [pane, setPane] = useState<Pane>('files')
@@ -94,9 +97,13 @@ export default function SessionInspector({
     return () => window.removeEventListener('resize', onResize)
   }, [])
 
+  // Before the row has been measured, fall back to the window. Once measured,
+  // the row is the real budget: the sidebar and split layout are excluded.
+  const layoutWidth =
+    availableWidth !== undefined && availableWidth > 0 ? availableWidth : viewportWidth
   const width = overlay
     ? Math.min(360, Math.round(viewportWidth * 0.85))
-    : clampInspectorWidth(preferredWidth, viewportWidth)
+    : clampInspectorWidth(preferredWidth, layoutWidth)
 
   const setWidth = (next: number): void => {
     preferredRef.current = next
@@ -107,7 +114,7 @@ export default function SessionInspector({
     kind: 'inspector',
     panelRef: asideRef,
     getStartValue: () => width,
-    clamp: (candidate) => clampInspectorWidth(candidate, viewportWidth),
+    clamp: (candidate) => clampInspectorWidth(candidate, layoutWidth),
     direction: -1,
     axis: 'x',
     disabled: collapsed || overlay,
@@ -119,13 +126,13 @@ export default function SessionInspector({
   })
 
   const nudgeWidth = (delta: number): void => {
-    const next = clampInspectorWidth(preferredRef.current + delta, viewportWidth)
+    const next = clampInspectorWidth(preferredRef.current + delta, layoutWidth)
     setWidth(next)
     saveInspectorWidth(next)
   }
 
   const resetWidth = (): void => {
-    const next = clampInspectorWidth(INSPECTOR_WIDTH_DEFAULT, viewportWidth)
+    const next = clampInspectorWidth(INSPECTOR_WIDTH_DEFAULT, layoutWidth)
     setWidth(next)
     saveInspectorWidth(next)
   }

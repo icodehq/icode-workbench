@@ -11,9 +11,9 @@ import { useSyncExternalStore } from 'react'
 import { z } from 'zod'
 
 /** Drag bounds for the file-tree column when the inspector is two-column. */
-export const FILES_LIST_WIDTH_MIN = 220
-export const FILES_LIST_WIDTH_MAX = 420
-export const FILES_LIST_WIDTH_DEFAULT = 288
+export const FILES_LIST_WIDTH_MIN = 180
+export const FILES_LIST_WIDTH_MAX = 460
+export const FILES_LIST_WIDTH_DEFAULT = 240
 
 export const filesSettingsSchema = z.object({
   sortOrder: z.enum(['name', 'type', 'modified']).default('name'),

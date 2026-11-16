@@ -20,17 +20,17 @@ function storage(initial: string | null = null) {
 }
 
 describe('inspector layout', () => {
-  it('defaults wide, and clamps into the drag bounds', () => {
+  it('defaults to Termio’s width and clamps into the drag bounds', () => {
     expect(loadInspectorWidth(storage())).toBe(INSPECTOR_WIDTH_DEFAULT)
     expect(loadInspectorWidth(storage('200'))).toBe(INSPECTOR_WIDTH_MIN)
     expect(loadInspectorWidth(storage('5000'))).toBe(INSPECTOR_WIDTH_MAX)
     expect(loadInspectorWidth(storage('nope'))).toBe(INSPECTOR_WIDTH_DEFAULT)
   })
 
-  it('leaves room for the terminal when the window is small', () => {
-    // 900px window - 420px terminal = 480px at most.
-    expect(clampInspectorWidth(640, 900)).toBe(480)
-    // Never below the minimum, even in a window narrower than the sum.
+  it('leaves room for the terminal when the surface is small', () => {
+    // 900px surface - 360px terminal = 540px at most.
+    expect(clampInspectorWidth(640, 900)).toBe(540)
+    // Never below the minimum, even in a surface narrower than the sum.
     expect(clampInspectorWidth(640, 500)).toBe(INSPECTOR_WIDTH_MIN)
     expect(clampInspectorWidth(640, 1600)).toBe(640)
   })

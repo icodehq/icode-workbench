@@ -8,27 +8,31 @@
  * ever squeezed into half a panel.
  *
  * The width is renderer-only state, so localStorage is the persistence
- * boundary. Values are clamped on load and on every drag; the viewport clamp
- * leaves `INSPECTOR_TERMINAL_MIN` for the terminal beside the inspector.
+ * boundary. Values are clamped on load and on every drag; the available-width
+ * clamp leaves `INSPECTOR_TERMINAL_MIN` for the terminal beside the inspector.
  */
 
 export const INSPECTOR_WIDTH_KEY = 'icode.inspector.width.v1'
 
 /** Narrowest the inspector may be dragged while expanded. */
-export const INSPECTOR_WIDTH_MIN = 360
+export const INSPECTOR_WIDTH_MIN = 240
 /** Width a first launch gets, and what a double-click on the seam restores. */
-export const INSPECTOR_WIDTH_DEFAULT = 640
-/** Widest the inspector may be dragged, however large the window. */
-export const INSPECTOR_WIDTH_MAX = 1000
+export const INSPECTOR_WIDTH_DEFAULT = 320
+/**
+ * Storage sanity bound. The rendered maximum is the space the session surface
+ * can spare; a stored preference is kept intact so widening the window again
+ * restores the width the user chose.
+ */
+export const INSPECTOR_WIDTH_MAX = 2400
 /** Room the terminal keeps when the inspector sits beside it. */
-export const INSPECTOR_TERMINAL_MIN = 420
+export const INSPECTOR_TERMINAL_MIN = 360
 
 /**
  * Panel width at which the list and the detail sit side by side. Below this
  * the detail covers the list; the list stays mounted underneath, and closing
- * the detail brings it back.
+ * the detail brings it back. Matches Termio's inspector threshold.
  */
-export const INSPECTOR_TWO_COLUMN_MIN = 760
+export const INSPECTOR_TWO_COLUMN_MIN = 600
 
 type ReadableStorage = Pick<Storage, 'getItem'>
 type WritableStorage = Pick<Storage, 'setItem'>
@@ -42,14 +46,14 @@ function browserStorage(): Storage | null {
 }
 
 /**
- * Fits a preferred width into what the window can spare. The preference is
- * kept intact in storage; only the width rendered is clamped, so shrinking a
- * window and growing it again restores the width the user chose.
+ * Fits a preferred width into what the session surface can spare. The
+ * preference is kept intact in storage; only the width rendered is clamped, so
+ * shrinking a window and growing it again restores the width the user chose.
  */
-export function clampInspectorWidth(width: number, viewportWidth: number): number {
+export function clampInspectorWidth(width: number, availableWidth: number): number {
   const widest = Math.max(
     INSPECTOR_WIDTH_MIN,
-    Math.min(INSPECTOR_WIDTH_MAX, Math.floor(viewportWidth) - INSPECTOR_TERMINAL_MIN)
+    Math.min(INSPECTOR_WIDTH_MAX, Math.floor(availableWidth) - INSPECTOR_TERMINAL_MIN)
   )
   const rounded = Number.isFinite(width) ? Math.round(width) : INSPECTOR_WIDTH_DEFAULT
   return Math.min(Math.max(rounded, INSPECTOR_WIDTH_MIN), widest)

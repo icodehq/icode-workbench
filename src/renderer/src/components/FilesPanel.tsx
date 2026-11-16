@@ -268,10 +268,10 @@ export default function FilesPanel({
   const [listWidth, setListWidth] = useState(settings.listWidth)
   const listWidthRef = useRef(settings.listWidth)
   const listRef = useRef<HTMLDivElement | null>(null)
-  // Leave the editor at least 360px when the tree is beside it.
+  // Leave the editor at least 260px when the tree is beside it.
   const maxListWidth = Math.max(
     FILES_LIST_WIDTH_MIN,
-    Math.min(FILES_LIST_WIDTH_MAX, panelWidth - 360)
+    Math.min(FILES_LIST_WIDTH_MAX, panelWidth - 260)
   )
   const effectiveListWidth = Math.max(
     FILES_LIST_WIDTH_MIN,

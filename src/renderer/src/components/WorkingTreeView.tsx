@@ -70,6 +70,9 @@ import {
   type ScmViewMode
 } from '../scm/resource-tree'
 import {
+  SCM_SIDEBAR_WIDTH_DEFAULT,
+  SCM_SIDEBAR_WIDTH_MAX,
+  SCM_SIDEBAR_WIDTH_MIN,
   loadScmSettings,
   saveScmSettings,
   subscribeScmSettings,
@@ -347,9 +350,15 @@ export default function WorkingTreeView({
   const detailVisible = (detailOpen && !detailDismissed) || statusDetail
   const twoColumn =
     twoColumnAvailable && detailVisible && !listHidden && !statusDetail
-  // Leave the diff at least 360px when the list is beside it.
-  const maxListWidth = Math.max(240, Math.min(560, panelWidth - 360))
-  const listWidth = Math.max(240, Math.min(sidebarWidth, maxListWidth))
+  // Leave the diff at least 260px when the list is beside it.
+  const maxListWidth = Math.max(
+    SCM_SIDEBAR_WIDTH_MIN,
+    Math.min(SCM_SIDEBAR_WIDTH_MAX, panelWidth - 260)
+  )
+  const listWidth = Math.max(
+    SCM_SIDEBAR_WIDTH_MIN,
+    Math.min(sidebarWidth, maxListWidth)
+  )
 
   useEffect(() => {
     setDetailDismissed(false)
@@ -401,7 +410,10 @@ export default function WorkingTreeView({
   }
 
   const persistSidebarWidth = (next: number): void => {
-    const clamped = Math.min(560, Math.max(240, Math.round(next)))
+    const clamped = Math.min(
+      SCM_SIDEBAR_WIDTH_MAX,
+      Math.max(SCM_SIDEBAR_WIDTH_MIN, Math.round(next))
+    )
     setSidebarWidth(clamped)
     sidebarWidthRef.current = clamped
     saveScmSettings({ ...settings, sidebarWidth: clamped })
@@ -411,7 +423,8 @@ export default function WorkingTreeView({
     kind: 'scm-list',
     panelRef: listRef,
     getStartValue: () => sidebarWidthRef.current,
-    clamp: (candidate) => Math.min(maxListWidth, Math.max(240, candidate)),
+    clamp: (candidate) =>
+      Math.min(maxListWidth, Math.max(SCM_SIDEBAR_WIDTH_MIN, candidate)),
     direction: 1,
     axis: 'x',
     disabled: !twoColumn,
@@ -1407,12 +1420,13 @@ export default function WorkingTreeView({
           className="w-1 shrink-0 cursor-col-resize bg-transparent hover:bg-border focus-visible:bg-signal focus-visible:outline-none"
           data-testid="scm-sidebar-resizer"
           {...handleProps}
+          onDoubleClick={() => persistSidebarWidth(SCM_SIDEBAR_WIDTH_DEFAULT)}
           onKeyDown={(event) => {
             if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
             event.preventDefault()
             persistSidebarWidth(
               Math.max(
-                240,
+                SCM_SIDEBAR_WIDTH_MIN,
                 Math.min(
                   maxListWidth,
                   sidebarWidthRef.current + (event.key === 'ArrowLeft' ? -16 : 16)

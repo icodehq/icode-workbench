@@ -24,6 +24,7 @@ import {
   type SplitSide
 } from '../../state/session-split'
 import { isMacPlatform } from '../../lib/platform'
+import { useElementWidth } from '../../lib/use-element-width'
 import SplitTreeView from './SplitTreeView'
 
 const PANE_DRAG_TYPE = 'application/x-icode-pane'
@@ -115,6 +116,12 @@ export default function SessionsSurface({
     pane: 'changes' | 'files'
     nonce: number
   } | null>(null)
+  /*
+   * The row that holds the terminal and the inspector. The inspector's drag
+   * bounds are measured against this space, not the window, so the sidebar and
+   * split layout cannot leave the terminal under its floor.
+   */
+  const [surfaceRowRef, surfaceRowWidth] = useElementWidth<HTMLDivElement>()
 
   useEffect(() => {
     // Below 1280px the inspector yields room to the terminal; below 900px it
@@ -600,7 +607,7 @@ export default function SessionsSurface({
           root={splitRoot}
         />
       ) : null}
-      <div className="relative flex min-h-0 min-w-0 flex-1">
+      <div ref={surfaceRowRef} className="relative flex min-h-0 min-w-0 flex-1">
         <div className="flex min-h-0 min-w-0 flex-1">
           {splitRoot === null || zoomedSession !== null ? (
             workspace(zoomedSession ?? activeSession, splitRoot === null ? null : splitLeafIds)
@@ -647,6 +654,7 @@ export default function SessionsSurface({
                 collapsed={inspectorCollapsed}
                 onToggleCollapsed={() => setInspectorCollapsed((current) => !current)}
                 overlay={narrowViewport}
+                availableWidth={surfaceRowWidth}
               />
             </div>
           </>

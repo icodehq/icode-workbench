@@ -34,7 +34,7 @@ describe('SCM settings', () => {
       smartCommit: 'off',
       untrackedMode: 'separate',
       viewMode: 'list',
-      sidebarWidth: 320,
+      sidebarWidth: 240,
       autoRefresh: true
     })
     expect(loadScmSettings(memoryStorage())).toEqual(DEFAULT_SCM_SETTINGS)
@@ -71,6 +71,23 @@ describe('SCM settings', () => {
         }
       })
     ).toEqual(DEFAULT_SCM_SETTINGS)
+  })
+
+  it('migrates a width saved under the old, wider bounds', () => {
+    const wide = memoryStorage({
+      [SCM_SETTINGS_STORAGE_KEY]: JSON.stringify({
+        sidebarWidth: 560,
+        smartCommit: 'tracked'
+      })
+    })
+    const loadedWide = loadScmSettings(wide)
+    expect(loadedWide.sidebarWidth).toBe(460)
+    expect(loadedWide.smartCommit).toBe('tracked')
+
+    const narrow = memoryStorage({
+      [SCM_SETTINGS_STORAGE_KEY]: JSON.stringify({ sidebarWidth: 100 })
+    })
+    expect(loadScmSettings(narrow).sidebarWidth).toBe(180)
   })
 
   it('saves, notifies subscribers and returns false when storage fails', () => {

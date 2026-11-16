@@ -10,12 +10,22 @@
 
 import { z } from 'zod'
 
+/** Drag bounds for the inspector's changed-files column. */
+export const SCM_SIDEBAR_WIDTH_MIN = 180
+export const SCM_SIDEBAR_WIDTH_MAX = 460
+export const SCM_SIDEBAR_WIDTH_DEFAULT = 240
+
 export const scmSettingsSchema = z.object({
   smartCommit: z.enum(['off', 'all', 'tracked']).default('off'),
   untrackedMode: z.enum(['mixed', 'separate', 'hidden']).default('separate'),
   viewMode: z.enum(['list', 'tree']).default('list'),
   /** SCM sidebar width in CSS pixels; dragging the divider persists it. */
-  sidebarWidth: z.number().int().min(240).max(560).default(320),
+  sidebarWidth: z
+    .number()
+    .int()
+    .min(SCM_SIDEBAR_WIDTH_MIN)
+    .max(SCM_SIDEBAR_WIDTH_MAX)
+    .default(SCM_SIDEBAR_WIDTH_DEFAULT),
   sort: z.enum(['name', 'path', 'status']).default('path'),
   compactFolders: z.boolean().default(true),
   autoReveal: z.boolean().default(true),
@@ -80,7 +90,16 @@ export function loadScmSettings(storage: ReadableStorage | null = browserStorage
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
     return DEFAULT_SCM_SETTINGS
   }
-  const result = scmSettingsSchema.safeParse({ ...DEFAULT_SCM_SETTINGS, ...parsed })
+  const candidate: Record<string, unknown> = { ...DEFAULT_SCM_SETTINGS, ...parsed }
+  // Older builds allowed widths up to 560. Clamp only that field so the rest
+  // of a stored settings object survives the narrower drag bounds.
+  if (typeof candidate.sidebarWidth === 'number' && Number.isFinite(candidate.sidebarWidth)) {
+    candidate.sidebarWidth = Math.min(
+      SCM_SIDEBAR_WIDTH_MAX,
+      Math.max(SCM_SIDEBAR_WIDTH_MIN, Math.round(candidate.sidebarWidth))
+    )
+  }
+  const result = scmSettingsSchema.safeParse(candidate)
   return result.success ? result.data : DEFAULT_SCM_SETTINGS
 }
 

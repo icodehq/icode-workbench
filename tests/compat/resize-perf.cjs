@@ -520,7 +520,7 @@ async function scenarioSidebar(deltaX = 140) {
 async function scenarioInspector() {
   const before = await inspectorState()
   await startProbe()
-  const { mid, seam } = await drag('[data-testid="inspector-resizer"]', -240, 0, inspectorState)
+  const { mid, seam } = await drag('[data-testid="inspector-resizer"]', -360, 0, inspectorState)
   const metrics = await stopProbe()
   const after = await inspectorState()
 
@@ -551,7 +551,7 @@ async function openFileAndResizeList() {
       const column = document.querySelector('[data-testid="session-inspector"] [data-testid="files-list-column"]');
       if (column === null) return false;
       const width = column.getBoundingClientRect().width;
-      return width >= 240 && width <= 420;
+      return width >= 180 && width <= 460;
     })()`,
     'the Files list to settle into its column',
     5_000
@@ -630,7 +630,7 @@ async function scenarioScmList(sessionList) {
       const list = document.querySelector('[data-testid="session-inspector"] [data-testid="working-tree"] [role="tree"]');
       if (list === null) return false;
       const width = list.getBoundingClientRect().width;
-      return width >= 240 && width <= 560;
+      return width >= 180 && width <= 460;
     })()`,
     'the SCM list to settle into its column',
     5_000
@@ -681,7 +681,7 @@ async function scenarioScmList(sessionList) {
 
 async function scenarioInspectorLoaded() {
   // The Files editor and the SCM diff are mounted, with Changes active.
-  // Shrinking back across INSPECTOR_TWO_COLUMN_MIN (760) is the case the width
+  // Shrinking back across INSPECTOR_TWO_COLUMN_MIN (600) is the case the width
   // deferral exists for: the diff pane must not relayout on every pointer
   // frame, only once at release.
   await waitForSelector(
@@ -692,7 +692,7 @@ async function scenarioInspectorLoaded() {
   await startProbe()
   const { mid, seam } = await drag(
     '[data-testid="inspector-resizer"]',
-    240,
+    360,
     0,
     async () => ({
       ...(await inspectorState()),
@@ -721,6 +721,63 @@ async function scenarioInspectorLoaded() {
   assert(afterResizer === false, 'The SCM pane did not flip to one column on release')
 
   return { before, mid, after, afterResizer, metrics, seam }
+}
+
+async function scenarioInspectorBounds() {
+  const read = () => cdp.evaluate(`(() => {
+    const aside = document.querySelector('[data-testid="session-inspector"]');
+    const row = aside === null ? null : aside.parentElement?.parentElement;
+    return {
+      width: aside === null ? 0 : Math.round(aside.getBoundingClientRect().width),
+      expectedMax: row === null ? 0 : Math.max(240, Math.min(2400, Math.floor(row.getBoundingClientRect().width) - 360)),
+      rowProbe: row === null ? null : Math.round(row.getBoundingClientRect().width)
+    };
+  })()`)
+
+  const before = await read()
+  await drag('[data-testid="inspector-resizer"]', 200, 0)
+  const atMin = await read()
+  assert(atMin.width === 240, `Inspector minimum is ${atMin.width}, expected 240`)
+
+  await drag('[data-testid="inspector-resizer"]', -600, 0)
+  const atMax = await read()
+  assert(
+    Math.abs(atMax.width - atMax.expectedMax) <= 1,
+    `Inspector maximum is ${atMax.width}, expected ${atMax.expectedMax} (before=${JSON.stringify(before)}, atMin=${JSON.stringify(atMin)}, atMax=${JSON.stringify(atMax)})`
+  )
+
+  // Back to Termio's default for the split scenario.
+  await drag('[data-testid="inspector-resizer"]', atMax.width - 320, 0)
+  const restored = await read()
+  assert(restored.width === 320, `Inspector did not restore to 320 (${restored.width})`)
+
+  return { before, atMin, atMax, restored }
+}
+
+async function scenarioListBounds(name, panelSelector, seamSelector, columnSelector, selectorTestid) {
+  const read = () => cdp.evaluate(`(() => {
+    const column = document.querySelector(${JSON.stringify(columnSelector)});
+    return Math.round(column.getBoundingClientRect().width);
+  })()`)
+  const expectedMax = await cdp.evaluate(`(() => {
+    const panel = document.querySelector(${JSON.stringify(panelSelector)});
+    return Math.max(180, Math.min(460, Math.floor(panel.getBoundingClientRect().width) - 260));
+  })()`)
+
+  const before = await read()
+  await drag(seamSelector, -400, 0)
+  const atMin = await read()
+  assert(atMin === 180, `${name} minimum is ${atMin}, expected 180`)
+
+  await drag(seamSelector, 400, 0)
+  const atMax = await read()
+  assert(Math.abs(atMax - expectedMax) <= 1, `${name} maximum is ${atMax}, expected ${expectedMax}`)
+
+  await drag(seamSelector, 240 - atMax, 0)
+  const restored = await read()
+  assert(restored === 240, `${name} did not restore to 240 (${restored})`)
+
+  return { testid: selectorTestid, before, atMin, atMax, expectedMax, restored }
 }
 
 async function scenarioSplit() {
@@ -790,9 +847,28 @@ async function main() {
 
   await measureScenario('inspector', scenarioInspector)
   await measureScenario('files-list', openFileAndResizeList)
+  await measureScenario('files-list-bounds', () =>
+    scenarioListBounds(
+      'Files list',
+      '[data-testid="session-inspector"] [data-testid="files-panel"]',
+      '[data-testid="session-inspector"] [data-testid="files-list-resizer"]',
+      '[data-testid="session-inspector"] [data-testid="files-list-column"]',
+      'files-list-resizer'
+    )
+  )
   await measureScenario('scm-list', () => scenarioScmList(sessionList))
+  await measureScenario('scm-list-bounds', () =>
+    scenarioListBounds(
+      'SCM list',
+      '[data-testid="session-inspector"] [data-testid="working-tree"]',
+      '[data-testid="session-inspector"] [data-testid="scm-sidebar-resizer"]',
+      '[data-testid="session-inspector"] [data-testid="working-tree"] [role="tree"]',
+      'scm-sidebar-resizer'
+    )
+  )
   await measureScenario('sidebar-loaded', () => scenarioSidebar(-60))
   await measureScenario('inspector-loaded', scenarioInspectorLoaded)
+  await measureScenario('inspector-bounds', scenarioInspectorBounds)
   await measureScenario('split', scenarioSplit)
 
   await cdp.send('Emulation.clearDeviceMetricsOverride').catch(() => undefined)

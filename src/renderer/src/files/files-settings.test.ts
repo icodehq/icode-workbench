@@ -29,7 +29,7 @@ describe('files settings', () => {
       exclude: ['.DS_Store', 'Thumbs.db'],
       excludeGitIgnore: false,
       useTrash: true,
-      listWidth: 288
+      listWidth: 240
     })
   })
 
