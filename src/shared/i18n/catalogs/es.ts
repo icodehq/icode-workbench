@@ -1823,7 +1823,7 @@ export const es = {
   'settings.appearance.theme': 'Tema',
   'settings.appearance.currently': 'actualmente {theme}',
   'settings.appearance.help':
-    'El sistema sigue la configuración del escritorio. La terminal conserva su propia paleta oscura en ambas apariencias.',
+    'El sistema sigue la configuración del escritorio. La paleta de la terminal cambia con la apariencia.',
   'appTabs.label': "Vistas abiertas",
   'appTabs.close': "Cerrar pestaña {name}",
   'sidebar.workspace': "Barra lateral del espacio de trabajo",

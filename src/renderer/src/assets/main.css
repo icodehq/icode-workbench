@@ -24,8 +24,8 @@
  * `apply-theme.ts` resolves System / Dark / Light before React renders and owns
  * the in-app switch.
  *
- * The terminal is deliberately dark in both appearances. Its xterm palette is
- * defined in `components/TerminalPane.tsx`.
+ * The terminal follows the appearance. Its palettes, the light-only contrast
+ * floor and the live re-theme path live in `terminal/terminal-theme.ts`.
  */
 
 @theme inline {

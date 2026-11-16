@@ -370,7 +370,8 @@ sandboxed behind a typed preload and validated IPC.
 - **Task history**: archive/restore, collapsed retry attempts, and seven-day
   retention for reviewed completions and cancellations.
 - **Themes**: light by default, with System and Dark available, applied before
-  first paint.
+  first paint; terminals follow the same appearance, with a light ANSI palette
+  on the light canvas and the afterglow palette in dark mode.
 - **Configurable workflow**: global and per-project task concurrency, Source
   Control, and Files preferences.
 - **Session diagnostics**: host authority, PTY incarnation, worktree state, and

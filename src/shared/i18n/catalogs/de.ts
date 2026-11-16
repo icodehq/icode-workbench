@@ -1823,7 +1823,7 @@ export const de = {
   'settings.appearance.theme': 'Design',
   'settings.appearance.currently': 'aktuell {theme}',
   'settings.appearance.help':
-    'System folgt der Desktop-Einstellung. Das Terminal behält in beiden Erscheinungsbildern seine eigene dunkle Palette.',
+    'System folgt der Desktop-Einstellung. Die Terminal-Palette wechselt mit dem Erscheinungsbild.',
   'appTabs.label': "Offene Ansichten",
   'appTabs.close': "Tab {name} schließen",
   'sidebar.workspace': "Arbeitsbereich-Seitenleiste",

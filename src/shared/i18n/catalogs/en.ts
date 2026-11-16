@@ -1912,7 +1912,7 @@ export const en = {
   'settings.appearance.theme': 'Theme',
   'settings.appearance.currently': 'currently {theme}',
   'settings.appearance.help':
-    'System follows the desktop setting. The terminal keeps its own dark palette in both appearances.',
+    'System follows the desktop setting. The terminal palette switches with the appearance.',
   'rail.assistantUnread': "{name}, {count} unread",
   'appTabs.label': "Open views",
   'appTabs.close': "Close {name} tab",

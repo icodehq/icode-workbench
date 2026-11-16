@@ -1823,7 +1823,7 @@ export const ptBR = {
   'settings.appearance.theme': 'Tema',
   'settings.appearance.currently': 'atualmente {theme}',
   'settings.appearance.help':
-    'O sistema segue a configuração da área de trabalho. O terminal mantém sua própria paleta escura nas duas aparências.',
+    'O sistema segue a configuração da área de trabalho. A paleta do terminal acompanha a aparência.',
   'appTabs.label': "Visualizações abertas",
   'appTabs.close': "Fechar aba {name}",
   'sidebar.workspace': "Barra lateral do espaço de trabalho",

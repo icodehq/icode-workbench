@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Terminal colors now follow the app appearance. Light mode uses a palette
+  drawn for the light canvas instead of inverting the dark one: ANSI white and
+  bright white map to ink so agent output stays readable, every ANSI color
+  clears 4.5:1, and light themes carry a contrast floor for colors programs set
+  at runtime. Open terminals recolor in place when the appearance changes;
+  dark mode keeps the existing afterglow palette.
+
 ## [0.9.5] - 2026-11-16
 
 ### Added

@@ -1823,7 +1823,7 @@ export const fr = {
   'settings.appearance.theme': 'Thème',
   'settings.appearance.currently': 'actuellement {theme}',
   'settings.appearance.help':
-    'Le système suit le réglage du bureau. Le terminal conserve sa propre palette sombre dans les deux apparences.',
+    'Le système suit le réglage du bureau. La palette du terminal suit l’apparence.',
   'appTabs.label': "Vues ouvertes",
   'appTabs.close': "Fermer l’onglet {name}",
   'sidebar.workspace': "Barre latérale de l’espace de travail",

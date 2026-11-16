@@ -1823,7 +1823,7 @@ export const ja = {
   'settings.appearance.theme': 'テーマ',
   'settings.appearance.currently': '現在: {theme}',
   'settings.appearance.help':
-    'システムはデスクトップ設定に従います。ターミナルはどちらの外観でも独自のダークパレットを維持します。',
+    'システムはデスクトップ設定に従います。ターミナルの配色も外観に合わせて切り替わります。',
   'appTabs.label': "開いているビュー",
   'appTabs.close': "{name} タブを閉じる",
   'sidebar.workspace': "ワークスペースサイドバー",

@@ -13,7 +13,7 @@ import type { AppError } from '../../../shared/domain/errors'
 import type { SessionSummary } from '../../../shared/schemas/ipc'
 import { SessionTerminal, type TerminalStatus } from '../terminal/session-terminal'
 import { rememberTerminalSize } from '../terminal/terminal-size'
-import { TERMINAL_THEMES, currentThemeName } from '../terminal/terminal-theme'
+import { applyTerminalTheme, terminalThemeOptions } from '../terminal/terminal-theme'
 import type { TerminalInstanceLike } from '../terminal/terminal-instance'
 import { useTerminalRegistry } from '../terminal/terminal-provider'
 import { useT } from '../i18n/use-i18n'
@@ -275,7 +275,7 @@ function StandaloneTerminalPane({ session, active, onError, preview = false }: P
       fontSize: preview ? 10 : 12,
       lineHeight: 1.2,
       scrollback: preview ? 1000 : 5000,
-      theme: { ...TERMINAL_THEMES[currentThemeName()] }
+      ...terminalThemeOptions()
     })
     const fitAddon = new FitAddon()
     term.loadAddon(fitAddon)
@@ -347,7 +347,7 @@ function StandaloneTerminalPane({ session, active, onError, preview = false }: P
     scheduleFit()
 
     const themeObserver = new MutationObserver(() => {
-      term.options.theme = { ...TERMINAL_THEMES[currentThemeName()] }
+      applyTerminalTheme(term)
     })
     themeObserver.observe(document.documentElement, {
       attributes: true,

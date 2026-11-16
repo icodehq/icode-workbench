@@ -1823,7 +1823,7 @@ export const ko = {
   'settings.appearance.theme': '테마',
   'settings.appearance.currently': '현재: {theme}',
   'settings.appearance.help':
-    '시스템은 데스크톱 설정을 따릅니다. 터미널은 두 모양 모두에서 자체 다크 팔레트를 유지합니다.',
+    '시스템은 데스크톱 설정을 따릅니다. 터미널 색상도 모양에 따라 전환됩니다.',
   'appTabs.label': "열린 보기",
   'appTabs.close': "{name} 탭 닫기",
   'sidebar.workspace': "작업 공간 사이드바",

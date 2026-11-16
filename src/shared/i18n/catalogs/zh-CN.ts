@@ -1822,7 +1822,7 @@ export const zhCN = {
   'settings.appearance.theme': '主题',
   'settings.appearance.currently': '当前为 {theme}',
   'settings.appearance.help':
-    '系统会跟随桌面设置。终端在两种外观下都保留自己的深色调色板。',
+    '系统会跟随桌面设置。终端配色也会随外观切换。',
   'appTabs.label': "打开的视图",
   'appTabs.close': "关闭 {name} 标签页",
   'sidebar.workspace': "工作区侧边栏",

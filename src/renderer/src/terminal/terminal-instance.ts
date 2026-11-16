@@ -3,7 +3,7 @@ import { Terminal } from '@xterm/xterm'
 import type { AppError } from '../../../shared/domain/errors'
 import { SessionTerminal, type TerminalStatus } from './session-terminal'
 import { rememberTerminalSize } from './terminal-size'
-import { TERMINAL_THEMES, currentThemeName } from './terminal-theme'
+import { applyTerminalTheme, terminalThemeOptions } from './terminal-theme'
 
 /**
  * A renderer-owned terminal: xterm, its controller, status, and the wrapper
@@ -85,7 +85,7 @@ export class TerminalInstance implements TerminalInstanceLike {
       fontSize: 12,
       lineHeight: 1.2,
       scrollback: 5000,
-      theme: { ...TERMINAL_THEMES[currentThemeName()] }
+      ...terminalThemeOptions()
     })
     this.fitAddon = new FitAddon()
     this.term.loadAddon(this.fitAddon)
@@ -129,9 +129,10 @@ export class TerminalInstance implements TerminalInstanceLike {
     this.controller.start()
 
     // xterm compares the theme option by reference, so a fresh object is
-    // required. This updates colours only; buffers and the PTY are untouched.
+    // required. `applyTerminalTheme` also carries the light-only contrast floor
+    // with the palette; buffers and the PTY are untouched.
     this.themeObserver = new MutationObserver(() => {
-      this.term.options.theme = { ...TERMINAL_THEMES[currentThemeName()] }
+      applyTerminalTheme(this.term)
     })
     this.themeObserver.observe(document.documentElement, {
       attributes: true,
