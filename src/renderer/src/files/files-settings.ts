@@ -10,6 +10,11 @@
 import { useSyncExternalStore } from 'react'
 import { z } from 'zod'
 
+/** Drag bounds for the file-tree column when the inspector is two-column. */
+export const FILES_LIST_WIDTH_MIN = 220
+export const FILES_LIST_WIDTH_MAX = 420
+export const FILES_LIST_WIDTH_DEFAULT = 288
+
 export const filesSettingsSchema = z.object({
   sortOrder: z.enum(['name', 'type', 'modified']).default('name'),
   sortDirection: z.enum(['asc', 'desc']).default('asc'),
@@ -24,7 +29,14 @@ export const filesSettingsSchema = z.object({
     .max(200)
     .default(['.DS_Store', 'Thumbs.db']),
   excludeGitIgnore: z.boolean().default(false),
-  useTrash: z.boolean().default(true)
+  useTrash: z.boolean().default(true),
+  /** File-tree column width in the two-column inspector; dragging persists it. */
+  listWidth: z
+    .number()
+    .int()
+    .min(FILES_LIST_WIDTH_MIN)
+    .max(FILES_LIST_WIDTH_MAX)
+    .default(FILES_LIST_WIDTH_DEFAULT)
 })
 
 export type FilesSettings = z.infer<typeof filesSettingsSchema>

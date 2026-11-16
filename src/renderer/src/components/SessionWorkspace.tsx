@@ -8,6 +8,7 @@ import {
   PanelLeftOpen,
   RefreshCw,
   RotateCcw,
+  Search,
   TerminalSquare,
   Trash2
 } from 'lucide-react'
@@ -25,6 +26,7 @@ import type { Notice, PendingAction } from '../state/workspace'
 import TerminalPane from './TerminalPane'
 import ChangesPanel from './ChangesPanel'
 import FilesPanel from './FilesPanel'
+import FilesSearchPanel from './FilesSearchPanel'
 import RemoveSessionDialog from './RemoveSessionDialog'
 import SessionActionsMenu from './SessionActionsMenu'
 import SleepSessionDialog from './SleepSessionDialog'
@@ -339,7 +341,8 @@ export default function SessionWorkspace({
   const unsavedFiles = useFilesDirtyCount(session.id)
   const blocked = worktreeBlocksTerminal(worktree)
   // The view survives re-renders but resets when the active session changes.
-  const [view, setView] = useState<'terminal' | 'changes' | 'files'>('terminal')
+  const [view, setView] = useState<'terminal' | 'changes' | 'files' | 'search'>('terminal')
+  const [filesReloadToken, setFilesReloadToken] = useState(0)
   const [historyRequest, setHistoryRequest] = useState<{ path: string; nonce: number } | null>(null)
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [removeOpen, setRemoveOpen] = useState(false)
@@ -555,6 +558,23 @@ export default function SessionWorkspace({
               <Files size={13} />
               <span className="hidden xl:inline">{t('session.viewFiles')}</span>
             </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === 'search'}
+              aria-label={t('session.viewSearch')}
+              title={t('session.viewSearch')}
+              className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded px-2 text-[11px] ${
+                view === 'search'
+                  ? 'bg-card text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+              onClick={() => setView('search')}
+              data-testid="view-search"
+            >
+              <Search size={13} />
+              <span className="hidden xl:inline">{t('session.viewSearch')}</span>
+            </button>
           </div>
           ) : null}
 
@@ -628,7 +648,7 @@ export default function SessionWorkspace({
       >
         <FilesPanel
           sessionId={session.id}
-          refreshToken={refreshToken}
+          refreshToken={refreshToken + filesReloadToken}
           active={view === 'files'}
           notify={notify}
           openRequest={openRequest}
@@ -665,6 +685,23 @@ export default function SessionWorkspace({
           onChanged={() => onRecheck(session.id)}
           initialHistoryPath={historyRequest}
           onHistoryPathHandled={() => setHistoryRequest(null)}
+        />
+      </div>
+
+      <div
+        className={`flex min-h-0 flex-1 ${view === 'search' ? '' : 'hidden'}`}
+        data-testid="search-view"
+      >
+        <FilesSearchPanel
+          key={session.id}
+          sessionId={session.id}
+          active={view === 'search'}
+          notify={notify}
+          onOpenPath={(path, line) => {
+            setView('files')
+            onRequestOpenInFiles(path, line)
+          }}
+          onReplaced={() => setFilesReloadToken((value) => value + 1)}
         />
       </div>
 

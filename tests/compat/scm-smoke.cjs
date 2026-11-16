@@ -367,7 +367,7 @@ async function run() {
     await waitForSelector('[data-testid="scm-session-strip"]', 10000)
     assert(
       await cdp.evaluate(
-        `Boolean(document.querySelector('[data-testid="working-tree"] aside [data-testid="git-commit-message"]'))`
+        `Boolean(document.querySelector('[data-testid="git-commit-message"]'))`
       ),
       'the commit input is not inside the SCM sidebar'
     )

@@ -30,9 +30,6 @@ export const INSPECTOR_TERMINAL_MIN = 420
  */
 export const INSPECTOR_TWO_COLUMN_MIN = 760
 
-/** Width of the file-tree column when the inspector is in two-column mode. */
-export const FILES_LIST_WIDTH = 288
-
 type ReadableStorage = Pick<Storage, 'getItem'>
 type WritableStorage = Pick<Storage, 'setItem'>
 

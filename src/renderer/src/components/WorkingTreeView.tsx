@@ -19,7 +19,8 @@ import {
   Plus,
   Search,
   TerminalSquare,
-  Trash2
+  Trash2,
+  X
 } from 'lucide-react'
 import { callApi } from '../lib/api'
 import type {
@@ -99,8 +100,6 @@ type Props = {
   diffTick: number
   /** True when main's worktree watcher is driving refreshes. */
   watchActive: boolean
-  /** The SCM sidebar's upper block (repository header and commit input). */
-  sidebarHeader?: React.ReactNode
   /** Replaces the editor/diff area, e.g. with the History pane. */
   editorOverride?: React.ReactNode
   onStage: (path: string) => void
@@ -225,7 +224,6 @@ export default function WorkingTreeView({
   refreshToken,
   diffTick,
   watchActive,
-  sidebarHeader,
   editorOverride,
   onStage,
   onUnstage,
@@ -252,6 +250,10 @@ export default function WorkingTreeView({
     [committedEntries, statusGroups]
   )
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
+  // Termio restores each session's open diff when you return to it; keep the
+  // selected row per session (in memory, like the diff itself).
+  const selectedBySession = useRef(new Map<string, string | null>())
+  const selectionSession = useRef(sessionId)
   /*
    * Master–detail for the Changes pane: the staged/unstaged list is the list,
    * the selected diff is the detail. The detail sits beside the list only when
@@ -354,16 +356,24 @@ export default function WorkingTreeView({
   }, [selectedKey])
 
   useEffect(() => {
-    if (!detailMaximized) return
+    if (!active || (!detailMaximized && !detailVisible)) return
     const onKey = (event: KeyboardEvent): void => {
       if (event.key !== 'Escape') return
+      const target = event.target
+      if (
+        target instanceof HTMLElement &&
+        target.closest('input, textarea, select, [contenteditable="true"]') !== null
+      ) {
+        return
+      }
       event.preventDefault()
       event.stopPropagation()
-      setDetailMaximized(false)
+      if (detailMaximized) setDetailMaximized(false)
+      else setSelectedKey(null)
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [detailMaximized])
+  }, [active, detailMaximized, detailVisible])
 
   // A hidden list only means anything in the two-column layout; dropping below
   // the threshold shows the list again rather than leaving a stale flag.
@@ -457,11 +467,24 @@ export default function WorkingTreeView({
     signatures.current.clear()
     inFlight.current.clear()
     setDiffs({})
-    setSelectedKey(null)
+    setSelectedKey(selectedBySession.current.get(sessionId) ?? null)
+    setDetailDismissed(false)
+    setDetailMaximized(false)
+    setListHidden(false)
     setSelection(EMPTY_SELECTION)
     setQuery('')
     setCollapsed(new Set())
   }, [sessionId])
+
+  useEffect(() => {
+    // The session-change render still carries the old session's selection;
+    // only record once the arriving session's key is the one on screen.
+    if (selectionSession.current !== sessionId) {
+      selectionSession.current = sessionId
+      return
+    }
+    selectedBySession.current.set(sessionId, selectedKey)
+  }, [selectedKey, sessionId])
 
   // Selection keys survive a snapshot refresh only while the row still exists.
   useEffect(() => {
@@ -876,6 +899,16 @@ export default function WorkingTreeView({
       >
         {detailMaximized ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
       </button>
+      <button
+        type="button"
+        className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+        title={t('common.close')}
+        aria-label={t('common.close')}
+        data-testid="scm-detail-close"
+        onClick={() => setSelectedKey(null)}
+      >
+        <X size={12} />
+      </button>
     </span>
   )
 
@@ -949,7 +982,6 @@ export default function WorkingTreeView({
           }
         }}
       >
-        {sidebarHeader}
         {selection.selected.size > 0 ? (
           <div
             className="flex flex-wrap items-center gap-1 border-b border-signal/40 bg-signal-weak px-2 py-1 text-[10px]"

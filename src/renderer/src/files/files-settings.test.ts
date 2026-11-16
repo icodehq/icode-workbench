@@ -28,7 +28,8 @@ describe('files settings', () => {
       autoReveal: true,
       exclude: ['.DS_Store', 'Thumbs.db'],
       excludeGitIgnore: false,
-      useTrash: true
+      useTrash: true,
+      listWidth: 288
     })
   })
 
@@ -36,12 +37,13 @@ describe('files settings', () => {
     const store = storage()
     const next = updateFilesSettings(
       DEFAULT_FILES_SETTINGS,
-      { sortOrder: 'modified', compactFolders: false, exclude: ['*.log'] },
+      { sortOrder: 'modified', compactFolders: false, exclude: ['*.log'], listWidth: 340 },
       store
     )
     expect(loadFilesSettings(store)).toEqual(next)
     expect(next.sortOrder).toBe('modified')
     expect(next.exclude).toEqual(['*.log'])
+    expect(next.listWidth).toBe(340)
   })
 
   it('falls back on malformed storage', () => {

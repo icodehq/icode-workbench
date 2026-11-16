@@ -295,6 +295,8 @@ Source Control is scoped to the session's checkout and lives in the persistent
 inspector, or in a task's full-width Source Control tab. The inspector opens on
 the changed-file list; clicking a file gives its diff the whole panel, and the
 list returns with one toggle (or by drag the inspector wider for both columns).
+A one-line dock keeps the staged/uncommitted counts and the primary action in
+sight while a diff is open; the commit composer expands above it on demand.
 The task Overview also
 summarizes changes against the baseline and opens the full diff. Diffs are
 area-scoped; stage or unstage by file, folder, hunk, or line; discard by file,
@@ -323,9 +325,11 @@ tab keeps the file list and diff readable.*
 Open Files beside the terminal (or in a task's Files tab) and work in the same
 worktree the agent is editing. The explorer supports create, rename, delete,
 duplicate, and move, with app-managed trash and undo; Monaco provides editing,
-quick diffs against HEAD, inline blame, and file history. Search the workspace,
-quick-open files, handle external changes with reload/keep, and keep unsaved
-buffers across an ordinary restart through hot exit.
+quick diffs against HEAD, inline blame, and file history. The inspector's
+Search pane (and the task workbench's Search tab) keeps the tree uncluttered and
+opens results in Files; the tree column is drag-resizable. Quick-open files,
+handle external changes with reload/keep, and keep unsaved buffers across an
+ordinary restart through hot exit.
 
 <p align="center">
   <a href=".github/assets/workbench-files-editor.png"><img src=".github/assets/workbench-files-editor.png" alt="The Files panel with a worktree explorer and Monaco editor open on a TypeScript component" width="100%" /></a>

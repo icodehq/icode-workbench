@@ -15,7 +15,6 @@ import {
   RefreshCw,
   Save,
   Scissors,
-  Search,
   Trash2,
   Undo2,
   X
@@ -24,12 +23,10 @@ import { callApi, errorNotice } from '../lib/api'
 import { shortcutLabel } from '../lib/platform'
 import type {
   FileContentPayload,
-  FileSearchPayload,
   FilesBatchPayload,
   FilesCopyPathsPayload,
   FilesListingPayload,
   FilesMutatePayload,
-  FilesReplacePayload,
   FilesRestoreTrashPayload,
   FilesStatPayload,
   FilesTrashListPayload,
@@ -37,26 +34,24 @@ import type {
   FilesWritePayload,
   GitCheckIgnorePayload,
   GitFileAtRevisionPayload,
-  GitStatusPayload,
-  WorkspaceUnavailablePayload
+  GitStatusPayload
 } from '../../../shared/icode-api'
-import type {
-  FileBatchEntry,
-  FileEntry,
-  FileSearchMatch
-} from '../../../shared/domain/workspace-files'
-import { isExcluded, isSearchPathIncluded } from '../../../shared/domain/glob'
-import { compileTextMatcher } from '../../../shared/domain/text-search'
+import type { FileBatchEntry, FileEntry } from '../../../shared/domain/workspace-files'
+import { isExcluded } from '../../../shared/domain/glob'
 import { clearWorktreeFileIndex } from '../files/file-index'
 import { buildFileDecorations, type FileDecorations } from '../files/file-decorations'
-import { useFilesSettings } from '../files/files-settings'
+import {
+  FILES_LIST_WIDTH_DEFAULT,
+  FILES_LIST_WIDTH_MAX,
+  FILES_LIST_WIDTH_MIN,
+  saveFilesSettings,
+  useFilesSettings
+} from '../files/files-settings'
+import { isGitMetadata, unavailableText } from '../files/search-utils'
 import { translate, translatePlural } from '../i18n/i18n-store'
 import { useT, useTp } from '../i18n/use-i18n'
 import { useElementWidth } from '../lib/use-element-width'
-import {
-  FILES_LIST_WIDTH,
-  INSPECTOR_TWO_COLUMN_MIN
-} from '../state/inspector-layout'
+import { INSPECTOR_TWO_COLUMN_MIN } from '../state/inspector-layout'
 import { buildTreeRows } from '../files/tree-layout'
 import {
   openFilesStore,
@@ -94,7 +89,6 @@ import ContextMenu, { type ContextMenuItem } from './ContextMenu'
 import {
   DeleteFilesDialog,
   MoveFilesDialog,
-  ReplaceFilesDialog,
   SaveConflictDialog,
   UnsavedFilesDialog
 } from './FilesDialogs'
@@ -167,22 +161,6 @@ const basenameOf = (path: string): string => {
 const isUnder = (path: string, parent: string): boolean =>
   parent === '' || path === parent || path.startsWith(`${parent}/`)
 
-/** The worktree's Git link is plumbing, not a file to browse or edit. */
-const isGitMetadata = (path: string): boolean => path.split('/').includes('.git')
-
-const unavailableText = (payload: WorkspaceUnavailablePayload): string => {
-  switch (payload.reason) {
-    case 'worktree-unavailable':
-      return translate('files.unavailable.distro')
-    case 'worktree-missing':
-      return translate('files.unavailable.worktreeMissing')
-    case 'primary-checkout':
-      return translate('files.unavailable.primaryCheckout')
-    default:
-      return payload.detail
-  }
-}
-
 const isDirty = (tab: OpenFileTab): boolean => tab.text !== tab.savedText
 
 /** Applies `.git`/exclude/.gitignore visibility to every loaded directory. */
@@ -205,12 +183,6 @@ function visibleTreeChildren(
 }
 
 const EMPTY_DECORATIONS: FileDecorations = { files: new Map(), folders: new Set() }
-
-const parsePatterns = (value: string): string[] =>
-  value
-    .split(/[\n,]/u)
-    .map((pattern) => pattern.trim())
-    .filter((pattern) => pattern.length > 0)
 
 /**
  * Files, open-file tabs, editor and search for one session's worktree.
@@ -245,26 +217,6 @@ export default function FilesPanel({
   const [rootNote, setRootNote] = useState('')
   const [fileNote, setFileNote] = useState('')
   const [gotoLine, setGotoLine] = useState<number | null>(null)
-  const [query, setQuery] = useState('')
-  const [searching, setSearching] = useState(false)
-  const [results, setResults] = useState<FileSearchPayload | null>(null)
-  const [searchCaseSensitive, setSearchCaseSensitive] = useState(false)
-  const [searchWholeWord, setSearchWholeWord] = useState(false)
-  const [searchRegex, setSearchRegex] = useState(false)
-  const [searchInclude, setSearchInclude] = useState('')
-  const [searchExclude, setSearchExclude] = useState('')
-  const [searchError, setSearchError] = useState<string | null>(null)
-  const [searchNote, setSearchNote] = useState('')
-  const [searchFiltersOpen, setSearchFiltersOpen] = useState(false)
-  const [collapsedSearchFiles, setCollapsedSearchFiles] = useState<Set<string>>(new Set())
-  const [replaceText, setReplaceText] = useState('')
-  const [replacePrompt, setReplacePrompt] = useState<{
-    matches: number
-    files: number
-    paths: string[]
-  } | null>(null)
-  const [replaceBusy, setReplaceBusy] = useState(false)
-  const [replaceReport, setReplaceReport] = useState<Array<{ path: string; reason: string }>>([])
   const [selection, setSelection] = useState<SelectionState>(EMPTY_SELECTION)
   const [collapsedNested, setCollapsedNested] = useState<Set<string>>(new Set())
   const [decorations, setDecorations] = useState<FileDecorations>(EMPTY_DECORATIONS)
@@ -312,6 +264,25 @@ export default function FilesPanel({
   const detailVisible = detailOpen && !detailDismissed
   const twoColumn = twoColumnAvailable && detailVisible && !listHidden
 
+  const [listWidth, setListWidth] = useState(settings.listWidth)
+  const listWidthRef = useRef(settings.listWidth)
+  const listResizeAnchor = useRef<{ startX: number; startWidth: number } | null>(null)
+  const [resizingList, setResizingList] = useState(false)
+  // Leave the editor at least 360px when the tree is beside it.
+  const maxListWidth = Math.max(
+    FILES_LIST_WIDTH_MIN,
+    Math.min(FILES_LIST_WIDTH_MAX, panelWidth - 360)
+  )
+  const effectiveListWidth = Math.max(
+    FILES_LIST_WIDTH_MIN,
+    Math.min(listWidth, maxListWidth)
+  )
+
+  useEffect(() => {
+    setListWidth(settings.listWidth)
+    listWidthRef.current = settings.listWidth
+  }, [settings.listWidth])
+
   useEffect(() => {
     if (detailOpen) return
     setDetailDismissed(false)
@@ -319,16 +290,64 @@ export default function FilesPanel({
   }, [detailOpen])
 
   useEffect(() => {
-    if (!detailMaximized) return
+    if (!active || (!detailMaximized && !detailVisible)) return
     const onKey = (event: KeyboardEvent): void => {
       if (event.key !== 'Escape') return
+      const target = event.target
+      if (
+        target instanceof HTMLElement &&
+        target.closest('input, textarea, select, [contenteditable="true"]') !== null
+      ) {
+        return
+      }
       event.preventDefault()
       event.stopPropagation()
-      setDetailMaximized(false)
+      if (detailMaximized) setDetailMaximized(false)
+      else setDetailDismissed(true)
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [detailMaximized])
+  }, [active, detailMaximized, detailVisible])
+
+  const persistListWidth = (next: number): void => {
+    const clamped = Math.max(
+      FILES_LIST_WIDTH_MIN,
+      Math.min(FILES_LIST_WIDTH_MAX, Math.round(next))
+    )
+    setListWidth(clamped)
+    listWidthRef.current = clamped
+    saveFilesSettings({ ...settings, listWidth: clamped })
+  }
+
+  const beginListResize = (event: React.PointerEvent<HTMLDivElement>): void => {
+    event.preventDefault()
+    event.currentTarget.setPointerCapture(event.pointerId)
+    listResizeAnchor.current = { startX: event.clientX, startWidth: effectiveListWidth }
+    setResizingList(true)
+  }
+
+  const moveListResize = (event: React.PointerEvent<HTMLDivElement>): void => {
+    const anchor = listResizeAnchor.current
+    if (anchor === null) return
+    const next = Math.max(
+      FILES_LIST_WIDTH_MIN,
+      Math.min(maxListWidth, anchor.startWidth + (event.clientX - anchor.startX))
+    )
+    setListWidth(next)
+    listWidthRef.current = next
+  }
+
+  const endListResize = (event: React.PointerEvent<HTMLDivElement>): void => {
+    if (listResizeAnchor.current === null) return
+    listResizeAnchor.current = null
+    setResizingList(false)
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    } catch {
+      // The pointer release may already have happened.
+    }
+    persistListWidth(listWidthRef.current)
+  }
 
   const visibleChildren = useMemo(
     () =>
@@ -362,8 +381,6 @@ export default function FilesPanel({
   const clipboard = useFilesClipboard()
   const clipboardHere = clipboard !== null && clipboard.sessionId === sessionId
 
-  const searchInput = useRef<HTMLInputElement | null>(null)
-  const searchSequence = useRef(0)
   const treeScrollRef = useRef<HTMLDivElement | null>(null)
   const rowsContainerRef = useRef<HTMLDivElement | null>(null)
   const rowsRef = useRef<TreeRow[]>([])
@@ -590,21 +607,17 @@ export default function FilesPanel({
   // A different session means a different checkout: reset the tree and the
   // panel-local surfaces. Open tabs are session-keyed and deliberately survive.
   useEffect(() => {
-    searchSequence.current += 1
+    // The new session's open tabs are its own; never inherit the previous
+    // session's dismissed or maximized detail.
+    setDetailDismissed(false)
+    setDetailMaximized(false)
+    setListHidden(false)
     const persisted = loadTreeState(sessionId)
     const expanded: Record<string, boolean> = { '': true }
     for (const path of persisted?.expanded ?? []) {
       if (path !== '') expanded[path] = true
     }
     setTree({ expanded, children: {}, loading: {} })
-    setResults(null)
-    setQuery('')
-    setSearchError(null)
-    setSearchNote('')
-    setCollapsedSearchFiles(new Set())
-    setReplacePrompt(null)
-    setReplaceBusy(false)
-    setReplaceReport([])
     setIgnoredByDirectory({})
     setIgnoreNote('')
     setDecorations(EMPTY_DECORATIONS)
@@ -669,7 +682,7 @@ export default function FilesPanel({
 
   // Persist the explorer position after the user stops moving for a moment.
   useEffect(() => {
-    if (rootState !== 'ready' || query.trim().length > 0) return
+    if (rootState !== 'ready') return
     const timer = window.setTimeout(() => {
       saveTreeState(sessionId, {
         expanded: Object.keys(tree.expanded).filter(
@@ -682,7 +695,7 @@ export default function FilesPanel({
       })
     }, 300)
     return () => window.clearTimeout(timer)
-  }, [query, rootState, selection, sessionId, tree.expanded, viewport.scrollTop])
+  }, [rootState, selection, sessionId, tree.expanded, viewport.scrollTop])
 
   // A restored scrollTop can only be applied once rows and their heights exist.
   useEffect(() => {
@@ -843,6 +856,22 @@ export default function FilesPanel({
     },
     [notify, sessionId]
   )
+
+  /*
+   * A refresh (the workspace action, or a completed search replace) re-reads
+   * clean editor tabs, so the Files pane never keeps showing pre-replace text.
+   * Dirty tabs are deliberately left alone; their conflict dialog explains the
+   * change.
+   */
+  const reloadFromDiskRef = useRef(reloadFromDisk)
+  reloadFromDiskRef.current = reloadFromDisk
+  const tabsRef = useRef(tabs)
+  tabsRef.current = tabs
+  useEffect(() => {
+    for (const tab of tabsRef.current) {
+      if (tab.load === 'ready' && !isDirty(tab)) void reloadFromDiskRef.current(tab.path, true)
+    }
+  }, [refreshToken])
 
   /** Expands the ancestors of a file so opening it always reveals its row. */
   const revealPath = useCallback(
@@ -2340,178 +2369,6 @@ export default function FilesPanel({
     }
   }
 
-  const searchOptions = useMemo(
-    () => ({
-      caseSensitive: searchCaseSensitive,
-      wholeWord: searchWholeWord,
-      regex: searchRegex,
-      include: parsePatterns(searchInclude),
-      exclude: parsePatterns(searchExclude),
-      limit: 200
-    }),
-    [searchCaseSensitive, searchExclude, searchInclude, searchRegex, searchWholeWord]
-  )
-
-  const runSearch = async (): Promise<void> => {
-    const trimmed = query.trim()
-    if (trimmed.length === 0) {
-      setResults(null)
-      setSearchError(null)
-      return
-    }
-    const matcher = compileTextMatcher(trimmed, searchOptions)
-    if (matcher.error !== null) {
-      // Keep the previous results visible; the error explains why nothing new
-      // is coming without erasing the user's last working scan.
-      setSearchError(translate('files.search.invalidRegex'))
-      return
-    }
-    const sequence = ++searchSequence.current
-    setSearching(true)
-    setSearchError(null)
-    setSearchNote('')
-    setReplaceReport([])
-    const result = await callApi<FileSearchPayload>(
-      window.icode.files.search({ sessionId, query: trimmed, ...searchOptions })
-    )
-    if (searchSequence.current !== sequence) return
-    setSearching(false)
-    if (!result.ok) {
-      notify(errorNotice(result.error))
-      return
-    }
-    const value = result.value
-    if (value.status === 'unavailable') {
-      setResults(value)
-      setSearchNote('')
-      if (value.reason === 'invalid-query') setSearchError(value.detail)
-      else notify({ tone: 'error', message: unavailableText(value) })
-      return
-    }
-    let matches = value.matches.filter(
-      (match) =>
-        !isGitMetadata(match.path) &&
-        isSearchPathIncluded(match.path, [], settings.exclude)
-    )
-    let note = ''
-    if (settings.excludeGitIgnore && matches.length > 0) {
-      const check = await callApi<GitCheckIgnorePayload>(
-        window.icode.git.checkIgnore({
-          sessionId,
-          paths: [...new Set(matches.map((match) => match.path))]
-        })
-      )
-      if (searchSequence.current !== sequence) return
-      if (check.ok && check.value.status === 'ok') {
-        const ignored = new Set(check.value.ignored)
-        matches = matches.filter((match) => !ignored.has(match.path))
-      } else {
-        note = translate('files.notice.ignoreSearchUnavailable')
-      }
-    }
-    if (searchSequence.current !== sequence) return
-    setResults({ ...value, matches })
-    setSearchNote(note)
-  }
-
-  /** Stops the in-flight scan; the backend cancels the current search. */
-  const stopSearch = async (): Promise<void> => {
-    searchSequence.current += 1
-    setSearching(false)
-    setResults(null)
-    setSearchNote(translate('files.notice.searchCancelled'))
-    await callApi<{ cancelled: boolean }>(window.icode.files.cancelSearch({ sessionId }))
-  }
-
-  const requestReplace = (): void => {
-    const trimmed = query.trim()
-    if (trimmed.length === 0) return
-    if (searchRegex) {
-      setSearchError(translate('files.notice.regexReplaceUnsupported'))
-      return
-    }
-    if (results === null || results.status !== 'ok' || results.matches.length === 0) {
-      setSearchNote(translate('files.notice.runSearchFirst'))
-      return
-    }
-    const matcher = compileTextMatcher(trimmed, searchOptions)
-    if (matcher.error !== null) {
-      setSearchError(translate('files.search.invalidRegex'))
-      return
-    }
-    setSearchError(null)
-    const paths = [...new Set(results.matches.map((match) => match.path))]
-    setReplacePrompt({
-      matches: results.matches.length,
-      files: paths.length,
-      paths
-    })
-  }
-
-  const confirmReplace = async (): Promise<void> => {
-    if (replacePrompt === null) return
-    const trimmed = query.trim()
-    if (trimmed.length === 0) return
-    const paths =
-      results !== null && results.status === 'ok'
-        ? [...new Set(results.matches.map((match) => match.path))]
-        : []
-    setReplaceBusy(true)
-    const result = await callApi<FilesReplacePayload>(
-      window.icode.files.replace({
-        sessionId,
-        query: trimmed,
-        replacement: replaceText,
-        caseSensitive: searchCaseSensitive,
-        wholeWord: searchWholeWord,
-        regex: false,
-        include: searchOptions.include,
-        exclude: searchOptions.exclude,
-        paths
-      })
-    )
-    setReplaceBusy(false)
-    setReplacePrompt(null)
-    if (!result.ok) {
-      notify(errorNotice(result.error))
-      return
-    }
-    const value = result.value
-    if (value.status === 'unavailable') {
-      if (value.reason === 'invalid-query') setSearchError(value.detail)
-      else notify({ tone: 'error', message: unavailableText(value) })
-      return
-    }
-    // Open tabs that are clean follow the new disk text; dirty tabs keep the
-    // user's buffer and will surface the change through the conflict dialog.
-    for (const entry of value.results) {
-      if (!entry.ok || entry.replaced === 0) continue
-      const tab = openFilesStore.find(sessionId, entry.path)
-      if (tab !== null && !isDirty(tab)) await reloadFromDisk(entry.path, true)
-    }
-    const skipped = value.results.filter((entry) => !entry.ok).length
-    notify({
-      tone: skipped > 0 ? 'info' : 'success',
-      message:
-        tp('files.notice.replaced', value.replacements, {
-          files: tp('files.summary.files', value.files)
-        }) +
-        (skipped > 0 ? ` · ${t('files.notice.skipped', { count: skipped })}` : '') +
-        (value.truncated ? ` · ${t('files.notice.truncated')}` : '')
-    })
-    await reloadExpanded(true)
-    scheduleDecorationsRef.current?.(0)
-    await runSearch()
-    setReplaceReport(
-      value.results
-        .filter((entry) => !entry.ok)
-        .map((entry) => ({
-          path: entry.path,
-          reason: entry.reason ?? entry.detail ?? 'skipped'
-        }))
-    )
-  }
-
   const saveTabAt = async (
     path: string,
     expectedEtag: string | null | undefined = undefined,
@@ -2692,25 +2549,6 @@ export default function FilesPanel({
     setCloseAfterSave(null)
   }
 
-  const showSearch = query.trim().length > 0
-  const groupedSearch = useMemo((): Array<{ path: string; matches: FileSearchMatch[] }> => {
-    if (results === null || results.status !== 'ok') return []
-    const groups = new Map<string, FileSearchMatch[]>()
-    for (const match of results.matches) {
-      const existing = groups.get(match.path)
-      if (existing === undefined) groups.set(match.path, [match])
-      else existing.push(match)
-    }
-    return [...groups.entries()].map(([path, matches]) => ({ path, matches }))
-  }, [results])
-  const toggleSearchFile = (path: string): void => {
-    setCollapsedSearchFiles((current) => {
-      const next = new Set(current)
-      if (next.has(path)) next.delete(path)
-      else next.add(path)
-      return next
-    })
-  }
   const selectionSummary = summarizeSelection(rows, selection.selected)
   const singleSelectedPath =
     selection.selected.size === 1 ? ([...selection.selected][0] ?? null) : null
@@ -3295,6 +3133,18 @@ export default function FilesPanel({
           >
             {detailMaximized ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
           </button>
+          {activeTab === null ? null : (
+            <button
+              type="button"
+              className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+              title={t('common.close')}
+              aria-label={t('common.close')}
+              data-testid="files-detail-close"
+              onClick={() => requestClose(activeTab.path)}
+            >
+              <X size={12} />
+            </button>
+          )}
         </div>
         <div
           role="tablist"
@@ -3394,52 +3244,30 @@ export default function FilesPanel({
       <div
         className={`flex min-w-0 flex-col bg-card ${
           twoColumn ? 'shrink-0 border-r border-border' : 'flex-1'
-        }`}
-        style={twoColumn ? { width: `${String(FILES_LIST_WIDTH)}px` } : undefined}
+        } ${resizingList ? 'select-none' : ''}`}
+        style={twoColumn ? { width: `${String(effectiveListWidth)}px` } : undefined}
         data-testid="files-list-column"
       >
-        {/* One compact row: search, then the create/refresh/undo verbs as icons.
-            Rename, duplicate and delete appear only when something is selected. */}
+        {/* One compact row: the root, then the create/refresh/undo verbs. */}
         <div className="flex items-center gap-1 border-b border-border px-2 py-1">
-          <Search size={11} className="shrink-0 text-muted-foreground" />
-          <input
-            ref={searchInput}
-            value={query}
-            placeholder={t('files.toolbar.search')}
-            className="min-w-0 flex-1 bg-transparent text-[11.5px] text-foreground outline-none placeholder:text-muted-foreground"
-            data-testid="files-search-input"
-            onChange={(event) => {
-              setQuery(event.target.value)
-              setSearchError(null)
-              setSearchNote('')
-            }}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') void runSearch()
-              if (event.key === 'Escape') {
-                setQuery('')
-                setResults(null)
-                setSearchError(null)
-                setSearchNote('')
-              }
-            }}
-          />
-          {query.length > 0 ? (
-            <button
-              type="button"
-              className="shrink-0 text-muted-foreground hover:text-foreground"
-              onClick={() => {
-                setQuery('')
-                setResults(null)
-                setSearchError(null)
-                setSearchNote('')
-              }}
-              data-testid="files-search-clear"
-              title={t('files.toolbar.clearSearch')}
+          <FolderOpen size={11} className="shrink-0 text-muted-foreground" />
+          <span
+            className="min-w-0 flex-1 truncate text-[10.5px] text-muted-foreground"
+            title={rootNote || t('files.move.root')}
+          >
+            {rootNote || t('files.move.root')}
+          </span>
+          {liveState === 'poll' ? (
+            <span
+              className="shrink-0 text-[9px] text-signal"
+              title={t('files.toolbar.watcherUnavailable')}
             >
-              <X size={11} />
-            </button>
+              {t('files.toolbar.polling')}
+            </span>
           ) : null}
-          <span className="mx-0.5 h-4 w-px shrink-0 bg-border" />
+          {transferBusy ? (
+            <span className="shrink-0 text-[9px] text-signal">{t('files.toolbar.working')}</span>
+          ) : null}
           <button
             type="button"
             className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -3483,116 +3311,6 @@ export default function FilesPanel({
           </button>
         </div>
 
-        {showSearch ? (
-          <div
-            className="border-b border-border px-1.5 py-1"
-            data-testid="files-search-options"
-          >
-            <div className="flex flex-wrap items-center gap-0.5">
-              {(
-                [
-                  ['files-search-case', 'Aa', t('files.toolbar.matchCase'), searchCaseSensitive, setSearchCaseSensitive],
-                  ['files-search-whole-word', 'W', t('files.toolbar.matchWholeWord'), searchWholeWord, setSearchWholeWord],
-                  ['files-search-regex', '.*', t('files.toolbar.useRegex'), searchRegex, setSearchRegex]
-                ] as const
-              ).map(([testId, label, title, active, setter]) => (
-                <button
-                  key={testId}
-                  type="button"
-                  aria-pressed={active}
-                  title={title}
-                  className={`inline-flex h-6 min-w-6 items-center justify-center rounded px-1.5 font-mono text-[10px] ${
-                    active
-                      ? 'bg-accent/15 text-accent'
-                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                  }`}
-                  data-testid={testId}
-                  onClick={() => setter(!active)}
-                >
-                  {label}
-                </button>
-              ))}
-              <button
-                type="button"
-                aria-pressed={searchFiltersOpen}
-                aria-expanded={searchFiltersOpen}
-                title={t('files.toolbar.filtersTitle')}
-                className={`ml-1 inline-flex h-6 items-center rounded px-1.5 text-[10px] ${
-                  searchFiltersOpen
-                    ? 'bg-accent/15 text-accent'
-                    : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                }`}
-                data-testid="files-search-filters"
-                onClick={() => setSearchFiltersOpen((open) => !open)}
-              >
-                {t('files.toolbar.filters')}
-              </button>
-              <span className="ml-auto flex items-center gap-1">
-                {searching ? (
-                  <button
-                    type="button"
-                    className="inline-flex h-6 items-center rounded border border-border px-1.5 text-[10px] text-signal hover:bg-muted"
-                    data-testid="files-search-stop"
-                    onClick={() => void stopSearch()}
-                  >
-                    {t('files.toolbar.stop')}
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  className="inline-flex h-6 items-center rounded border border-border px-1.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
-                  title={
-                    searchRegex
-                      ? t('files.toolbar.regexReplaceTitle')
-                      : t('files.toolbar.replaceAllTitle')
-                  }
-                  disabled={
-                    searchRegex ||
-                    searching ||
-                    results === null ||
-                    results.status !== 'ok' ||
-                    results.matches.length === 0
-                  }
-                  data-testid="files-replace-run"
-                  onClick={requestReplace}
-                >
-                  {t('files.toolbar.replaceAll')}
-                </button>
-              </span>
-            </div>
-            {searchFiltersOpen ? (
-              <div className="mt-1 grid gap-1">
-                <input
-                  value={searchInclude}
-                  placeholder={t('files.toolbar.include')}
-                  className="h-6 rounded border border-border bg-background px-1.5 font-mono text-[10px] text-foreground outline-none placeholder:text-muted-foreground"
-                  data-testid="files-search-include"
-                  onChange={(event) => setSearchInclude(event.target.value)}
-                />
-                <input
-                  value={searchExclude}
-                  placeholder={t('files.toolbar.exclude')}
-                  className="h-6 rounded border border-border bg-background px-1.5 font-mono text-[10px] text-foreground outline-none placeholder:text-muted-foreground"
-                  data-testid="files-search-exclude"
-                  onChange={(event) => setSearchExclude(event.target.value)}
-                />
-              </div>
-            ) : null}
-            <label className="mt-1 flex items-center gap-1">
-              <span className="shrink-0 text-[9.5px] text-muted-foreground">
-                {t('files.toolbar.replaceLabel')}
-              </span>
-              <input
-                value={replaceText}
-                placeholder={t('files.toolbar.replacement')}
-                className="h-6 min-w-0 flex-1 rounded border border-border bg-background px-1.5 font-mono text-[10px] text-foreground outline-none placeholder:text-muted-foreground"
-                data-testid="files-replace-input"
-                onChange={(event) => setReplaceText(event.target.value)}
-              />
-            </label>
-          </div>
-        ) : null}
-
         {hotExitNote.length > 0 ? (
           <div
             className="flex items-center gap-2 border-b border-border bg-signal-weak px-3 py-1 text-[10px] text-signal"
@@ -3633,9 +3351,9 @@ export default function FilesPanel({
 
         <div
           ref={treeScrollRef}
-          role={showSearch ? undefined : 'tree'}
-          aria-label={showSearch ? undefined : t('files.toolbar.worktreeFiles')}
-          aria-multiselectable={showSearch ? undefined : true}
+          role="tree"
+          aria-label={t('files.toolbar.worktreeFiles')}
+          aria-multiselectable={true}
           tabIndex={-1}
           className={`relative min-h-0 flex-1 overflow-auto px-1 py-1 outline-none ${
             dropTarget === '' ? 'bg-accent/5 ring-1 ring-inset ring-accent/40' : ''
@@ -3648,7 +3366,7 @@ export default function FilesPanel({
             )
           }}
           onContextMenu={onTreeContextMenu}
-          onKeyDown={showSearch ? undefined : onTreeKeyDown}
+          onKeyDown={onTreeKeyDown}
           onDragOver={onTreeDragOver}
           onDrop={onTreeDrop}
           onDragLeave={(event) => {
@@ -3689,134 +3407,25 @@ export default function FilesPanel({
             </p>
           ) : null}
 
-          {showSearch ? (
-            <div data-testid="files-search-results">
-              <p className="px-1 py-1 text-[10px] text-muted-foreground" data-testid="files-search-summary">
-                {searching
-                  ? t('files.search.searching')
-                  : results === null
-                    ? t('files.search.pressEnter')
-                    : results.status === 'unavailable'
-                      ? t('files.search.unavailable')
-                      : `${t('files.search.summary', {
-                          matches: results.matches.length,
-                          files: groupedSearch.length,
-                          scanned: results.scannedFiles
-                        })}${results.truncated ? t('files.search.truncated') : ''}${
-                          results.cancelled ? t('files.search.stopped') : ''
-                        }`}
-              </p>
-              {searchError !== null ? (
-                <p
-                  className="px-1 py-1 text-[10px] text-destructive"
-                  data-testid="files-search-error"
-                >
-                  {searchError}
-                </p>
-              ) : null}
-              {searchNote.length > 0 ? (
-                <p
-                  className="px-1 py-1 text-[10px] text-signal"
-                  data-testid="files-search-note"
-                >
-                  {searchNote}
-                </p>
-              ) : null}
-              {replaceReport.length > 0 ? (
-                <ul
-                  className="mx-1 mb-1 rounded border border-signal/40 bg-signal-weak px-2 py-1 text-[9.5px] text-signal"
-                  data-testid="files-replace-report"
-                >
-                  {replaceReport.map((entry) => (
-                    <li key={`${entry.path}:${entry.reason}`} className="truncate" title={entry.path}>
-                      {entry.path}: {entry.reason}
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-              {groupedSearch.map((group) => {
-                const collapsed = collapsedSearchFiles.has(group.path)
-                return (
-                  <div key={group.path} data-testid={`files-search-group-${group.path}`}>
-                    <button
-                      type="button"
-                      className="flex w-full items-center gap-1 rounded px-1 py-0.5 text-left hover:bg-muted/60"
-                      aria-expanded={!collapsed}
-                      data-testid={`files-search-file-${group.path}`}
-                      onClick={() => toggleSearchFile(group.path)}
-                    >
-                      <span className="w-3 shrink-0 text-[9px] text-muted-foreground">
-                        {collapsed ? '▸' : '▾'}
-                      </span>
-                      <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-foreground">
-                        {group.path}
-                      </span>
-                      <span className="shrink-0 text-[9px] text-muted-foreground">
-                        {group.matches.length}
-                      </span>
-                    </button>
-                    {collapsed
-                      ? null
-                      : group.matches.map((match, index) => (
-                          <button
-                            key={`${match.path}:${String(match.line)}:${String(index)}`}
-                            type="button"
-                            className="block w-full rounded px-1 py-0.5 pl-5 text-left hover:bg-muted/60"
-                            onClick={() => void openPath(match.path, match.line)}
-                            data-testid={`files-search-hit-${match.path}-${String(match.line)}`}
-                          >
-                            <span className="block truncate font-mono text-[10px] text-muted-foreground">
-                              {match.line}: {match.text}
-                            </span>
-                          </button>
-                        ))}
-                  </div>
-                )
-              })}
-              {results !== null && results.status === 'unavailable' ? (
-                <p className="px-1 py-1 text-[10px] text-signal">
-                  {unavailableText(results)}
-                </p>
-              ) : null}
-            </div>
-          ) : (
-            <>
-              {rootState === 'ready' ? (
-                <div role="presentation" className="mb-1 flex items-center gap-1 px-1 text-[9px] text-muted-foreground">
-                  <FolderOpen size={9} />
-                  <span className="truncate">{rootNote || t('files.move.root')}</span>
-                  {liveState === 'poll' ? (
-                    <span
-                      className="ml-auto shrink-0 text-signal"
-                      title={t('files.toolbar.watcherUnavailable')}
-                    >
-                      {t('files.toolbar.polling')}
-                    </span>
-                  ) : null}
-                  {transferBusy ? (
-                    <span className="ml-auto shrink-0 text-signal">
-                      {t('files.toolbar.working')}
-                    </span>
-                  ) : null}
-                </div>
-              ) : null}
-              <div
-                ref={rowsContainerRef}
-                style={{
-                  paddingTop: virtualWindow.paddingTop,
-                  paddingBottom: virtualWindow.paddingBottom
-                }}
-                data-testid="files-virtual-rows"
-              >
-                {treeElements}
-              </div>
-              {rootState === 'ready' && rows.length === 0 && edit === null ? (
-                <p role="presentation" className="px-2 py-1 text-[11px] text-muted-foreground" data-testid="files-folder-empty">
-                  {t('files.folderEmpty')}
-                </p>
-              ) : null}
-            </>
-          )}
+          <div
+            ref={rowsContainerRef}
+            style={{
+              paddingTop: virtualWindow.paddingTop,
+              paddingBottom: virtualWindow.paddingBottom
+            }}
+            data-testid="files-virtual-rows"
+          >
+            {treeElements}
+          </div>
+          {rootState === 'ready' && rows.length === 0 && edit === null ? (
+            <p
+              role="presentation"
+              className="px-2 py-1 text-[11px] text-muted-foreground"
+              data-testid="files-folder-empty"
+            >
+              {t('files.folderEmpty')}
+            </p>
+          ) : null}
         </div>
 
         {/* Selection acts live here, at the foot of the list, so the verbs
@@ -3882,6 +3491,32 @@ export default function FilesPanel({
           </div>
         ) : null}
       </div>
+
+      {twoColumn ? (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={t('files.toolbar.resizeList')}
+          title={t('files.toolbar.resizeList')}
+          tabIndex={0}
+          className={`w-1 shrink-0 cursor-col-resize focus-visible:bg-signal focus-visible:outline-none ${
+            resizingList ? 'bg-border' : 'bg-transparent hover:bg-border'
+          }`}
+          data-testid="files-list-resizer"
+          onPointerDown={beginListResize}
+          onPointerMove={moveListResize}
+          onPointerUp={endListResize}
+          onPointerCancel={endListResize}
+          onDoubleClick={() => persistListWidth(FILES_LIST_WIDTH_DEFAULT)}
+          onKeyDown={(event) => {
+            if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+            event.preventDefault()
+            persistListWidth(
+              listWidthRef.current + (event.key === 'ArrowLeft' ? -16 : 16)
+            )
+          }}
+        />
+      ) : null}
 
       <div
         className={
@@ -4099,17 +3734,6 @@ export default function FilesPanel({
             })()
           }}
           onCancel={() => setMovePrompt(null)}
-        />
-      ) : null}
-
-      {replacePrompt !== null ? (
-        <ReplaceFilesDialog
-          matches={replacePrompt.matches}
-          files={replacePrompt.files}
-          paths={replacePrompt.paths}
-          busy={replaceBusy}
-          onConfirm={() => void confirmReplace()}
-          onCancel={() => setReplacePrompt(null)}
         />
       ) : null}
 

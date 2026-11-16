@@ -473,7 +473,7 @@ async function run() {
     // The commit input and session strip belong to the SCM sidebar.
     assert(
       await cdp.evaluate(
-        `Boolean(document.querySelector('[data-testid="working-tree"] aside [data-testid="git-commit-message"]'))`
+        `Boolean(document.querySelector('[data-testid="git-commit-message"]'))`
       ),
       'commit input must render inside the SCM sidebar'
     )
@@ -1503,6 +1503,8 @@ async function run() {
     )
 
     log('phase-c: grouped search, invalid regex and literal replace')
+    await click('[data-testid="view-search"]')
+    await waitForSelector('[data-testid="files-search-panel"]', 10000)
     await setValue('[data-testid="files-search-input"]', 'needle')
     await key('[data-testid="files-search-input"]', 'Enter')
     await waitForSelector('[data-testid="files-search-file-phase-c/alpha.ts"]', 20000)

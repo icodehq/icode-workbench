@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   AlertTriangle,
   ArrowUpRight,
+  ChevronDown,
+  ChevronUp,
   GitBranch,
   GitCommitHorizontal,
   GitMerge,
@@ -149,6 +151,9 @@ export default function ChangesPanel({
   const menuButtonRef = useRef<HTMLButtonElement | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [historyPath, setHistoryPath] = useState('')
+  // The commit composer opens on demand: the list stays review-first, and the
+  // dock keeps the counts and the primary action one click away.
+  const [composerOpen, setComposerOpen] = useState(false)
 
   useEffect(() => {
     setHistoryOpen(false)
@@ -156,6 +161,7 @@ export default function ChangesPanel({
     setCommitMenuOpen(false)
     setMergePopover(null)
     setPushPopover(null)
+    setComposerOpen(false)
   }, [sessionId])
 
   useEffect(() => {
@@ -284,6 +290,11 @@ export default function ChangesPanel({
     message,
     setMessage
   })
+
+  // A generated message that would replace a draft needs a visible choice.
+  useEffect(() => {
+    if (generation.status === 'replace') setComposerOpen(true)
+  }, [generation.status])
 
   // The session page answers one question: what has this worktree changed
   // since the commit the session started from? Committed and uncommitted
@@ -860,27 +871,19 @@ export default function ChangesPanel({
       </div>
     ) : null
 
-  const statusBlock =
+  const commitComposer =
     snapshot !== null ? (
       <div
-        className="shrink-0 border-b border-border bg-card px-2.5 py-2"
-        data-testid="changes-commitbar"
+        className={`shrink-0 border-t border-border bg-card px-2.5 py-2 ${
+          composerOpen ? 'max-h-[45vh] overflow-auto' : 'hidden'
+        }`}
+        data-testid="changes-commit-composer"
       >
-        <div className="flex items-center gap-2">
-          <div className="flex min-w-0 items-baseline gap-2">
-            <strong className="text-[11px] text-foreground" data-testid="staged-count">
-              {t('scm.changes.staged', { count: stagedCount })}
-            </strong>
-            <span className="text-[10px] text-muted-foreground">
-              {t('scm.changes.uncommitted', { count: uncommittedCount })}
-            </span>
-          </div>
-          {isAgentHarness(harness) ? (
+        {isAgentHarness(harness) ? (
+          <div className="flex items-center justify-end">
             <span
-              className="ml-auto shrink-0"
-              title={
-                generation.disabledReason || t('scm.changes.generateTitle')
-              }
+              className="shrink-0"
+              title={generation.disabledReason || t('scm.changes.generateTitle')}
             >
               {generation.status === 'generating' ? (
                 <button
@@ -908,8 +911,8 @@ export default function ChangesPanel({
                 </button>
               )}
             </span>
-          ) : null}
-        </div>
+          </div>
+        ) : null}
         {generation.note.length > 0 ? (
           <p className="mt-1 text-[9.5px] text-add" data-testid="scm-generate-note">
             {generation.note}
@@ -964,7 +967,7 @@ export default function ChangesPanel({
             className="mt-1.5 rounded border border-info/40 bg-info-weak px-2 py-1 text-[9.5px] text-foreground"
             data-testid="scm-generate-replace"
           >
-<p className="truncate">{t('scm.changes.replacePrompt')}</p>
+            <p className="truncate">{t('scm.changes.replacePrompt')}</p>
             <div className="mt-1 flex items-center gap-1">
               <button
                 type="button"
@@ -990,11 +993,44 @@ export default function ChangesPanel({
             {t('scm.changes.partialStaged')}
           </p>
         ) : null}
-        <div className="relative mt-1.5 flex items-center gap-1">
+        <p className="mt-1 text-[10px] leading-snug text-muted-foreground">
+          {t('scm.changes.commitsOnly')} {primary.disabled ? primary.reason : ''}
+        </p>
+      </div>
+    ) : null
+
+  const commitDock =
+    snapshot !== null ? (
+      <div
+        className="flex shrink-0 items-center gap-2 border-t border-border bg-card px-2.5 py-1.5"
+        data-testid="changes-commitbar"
+      >
+        <div className="flex min-w-0 items-baseline gap-2">
+          <strong className="text-[11px] text-foreground" data-testid="staged-count">
+            {t('scm.changes.staged', { count: stagedCount })}
+          </strong>
+          <span className="text-[10px] text-muted-foreground">
+            {t('scm.changes.uncommitted', { count: uncommittedCount })}
+          </span>
+        </div>
+        <span className="ml-auto flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            className="inline-flex h-7 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+            aria-expanded={composerOpen}
+            aria-label={
+              composerOpen ? t('scm.changes.hideComposer') : t('scm.changes.showComposer')
+            }
+            title={composerOpen ? t('scm.changes.hideComposer') : t('scm.changes.showComposer')}
+            data-testid="scm-composer-toggle"
+            onClick={() => setComposerOpen((value) => !value)}
+          >
+            {composerOpen ? <ChevronDown size={12} /> : <ChevronUp size={12} />}
+          </button>
           <button
             ref={primaryButtonRef}
             type="button"
-            className="inline-flex h-7 min-w-0 flex-1 items-center justify-center gap-1 rounded-md border border-add/50 bg-add-weak px-2 text-[11px] text-foreground hover:bg-add/20 disabled:opacity-40"
+            className="inline-flex h-7 min-w-0 items-center justify-center gap-1 rounded-md border border-add/50 bg-add-weak px-2.5 text-[11px] text-foreground hover:bg-add/20 disabled:opacity-40"
             onClick={() => {
               if (primary.kind === 'merge' && !primary.disabled) {
                 openMergePopover(
@@ -1024,7 +1060,7 @@ export default function ChangesPanel({
           <button
             ref={menuButtonRef}
             type="button"
-            className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
             aria-label={t('scm.changes.actions')}
             aria-expanded={commitMenuOpen}
             title={t('scm.changes.actions')}
@@ -1036,19 +1072,16 @@ export default function ChangesPanel({
           >
             <MoreHorizontal size={12} />
           </button>
-        </div>
-        <p className="mt-1 text-[10px] leading-snug text-muted-foreground">
-          {t('scm.changes.commitsOnly')} {primary.disabled ? primary.reason : ''}
-        </p>
+        </span>
       </div>
     ) : loading ? (
-      <div className="flex shrink-0 items-center gap-2 border-b border-border bg-card px-3 py-2.5 text-[10.5px] text-muted-foreground">
+      <div className="flex shrink-0 items-center gap-2 border-t border-border bg-card px-3 py-1.5 text-[10.5px] text-muted-foreground">
         <Loader2 size={11} className="animate-spin" />
         {t('scm.changes.reading')}
       </div>
     ) : (
       <div
-        className="shrink-0 border-b border-border bg-card px-3 py-2.5 text-[10.5px] text-signal"
+        className="shrink-0 border-t border-border bg-card px-3 py-1.5 text-[10.5px] text-signal"
         data-testid="changes-git-unavailable"
       >
         {note || t('scm.changes.unavailable')}
@@ -1117,6 +1150,7 @@ export default function ChangesPanel({
         </div>
       ) : null}
       {discardBar}
+      {operationBanner}
       <WorkingTreeView
         sessionId={sessionId}
         sessionState={sessionState}
@@ -1138,12 +1172,6 @@ export default function ChangesPanel({
         onResolveConflict={(path, text) => resolveConflict(path, text)}
         onOpenPath={onOpenPath}
         onOpenTerminal={onOpenTerminal}
-        sidebarHeader={
-          <>
-            {operationBanner}
-            {statusBlock}
-          </>
-        }
         editorOverride={
           historyOpen ? (
             <ScmHistoryView
@@ -1163,6 +1191,8 @@ export default function ChangesPanel({
         onAddComment={onAddComment}
         onRemoveComment={onRemoveComment}
       />
+      {commitComposer}
+      {commitDock}
 
       {commitMenuOpen && commitMenuAnchor !== null ? (
         <ContextMenu

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { FileDiff, Files, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { FileDiff, Files, PanelLeftClose, PanelLeftOpen, Search } from 'lucide-react'
 import { isAgentHarness } from '../../../../shared/domain/harness'
 import type { SessionSummary } from '../../../../shared/schemas/ipc'
 import type { AgentSendResult } from '../../lib/agent-send'
@@ -13,9 +13,10 @@ import {
 } from '../../state/inspector-layout'
 import ChangesPanel from '../ChangesPanel'
 import FilesPanel from '../FilesPanel'
+import FilesSearchPanel from '../FilesSearchPanel'
 import { useT } from '../../i18n/use-i18n'
 
-type Pane = 'changes' | 'files'
+type Pane = 'changes' | 'files' | 'search'
 
 type Props = {
   session: SessionSummary
@@ -63,7 +64,9 @@ export default function SessionInspector({
 }: Props): React.JSX.Element {
   const t = useT()
   const [pane, setPane] = useState<Pane>('files')
+  const paneMemory = useRef(new Map<string, Pane>())
   const [visited, setVisited] = useState<Set<Pane>>(() => new Set<Pane>(['files']))
+  const [filesReloadToken, setFilesReloadToken] = useState(0)
   const [historyRequest, setHistoryRequest] = useState<{ path: string; nonce: number } | null>(
     null
   )
@@ -143,6 +146,7 @@ export default function SessionInspector({
   }
 
   const selectPane = (next: Pane): void => {
+    paneMemory.current.set(session.id, next)
     setPane(next)
     setVisited((current) => {
       if (current.has(next)) return current
@@ -151,6 +155,19 @@ export default function SessionInspector({
       return updated
     })
   }
+
+  // Termio gives each session its own inspector pane back; do the same. Open
+  // files are already per session in the open-files store.
+  useEffect(() => {
+    const remembered = paneMemory.current.get(session.id) ?? 'files'
+    setPane(remembered)
+    setVisited((current) => {
+      if (current.has(remembered)) return current
+      const updated = new Set(current)
+      updated.add(remembered)
+      return updated
+    })
+  }, [session.id])
 
   useEffect(() => {
     if (!requestedPane) return
@@ -218,30 +235,15 @@ export default function SessionInspector({
       <div className={collapsed ? 'hidden' : 'flex min-h-0 flex-1 flex-col'}>
         <div className="flex h-10 shrink-0 items-center gap-1 border-b border-border px-1.5">
           <nav
-            className="flex min-w-0 flex-1 items-center gap-0.5"
+            className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto"
             role="tablist"
             aria-label={t('session.inspector')}
           >
             <button
               type="button"
               role="tab"
-              aria-selected={pane === 'changes'}
-              className={`inline-flex h-7 items-center gap-1.5 rounded px-2 text-[10.5px] ${
-                pane === 'changes'
-                  ? 'bg-accent/15 text-foreground'
-                  : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
-              }`}
-              onClick={() => selectPane('changes')}
-              data-testid="view-changes"
-            >
-              <FileDiff size={12} />
-              {t('session.viewSourceControl')}
-            </button>
-            <button
-              type="button"
-              role="tab"
               aria-selected={pane === 'files'}
-              className={`inline-flex h-7 items-center gap-1.5 rounded px-2 text-[10.5px] ${
+              className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded px-2 text-[10.5px] ${
                 pane === 'files'
                   ? 'bg-accent/15 text-foreground'
                   : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
@@ -251,6 +253,36 @@ export default function SessionInspector({
             >
               <Files size={12} />
               {t('session.viewFiles')}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={pane === 'search'}
+              className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded px-2 text-[10.5px] ${
+                pane === 'search'
+                  ? 'bg-accent/15 text-foreground'
+                  : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
+              }`}
+              onClick={() => selectPane('search')}
+              data-testid="view-search"
+            >
+              <Search size={12} />
+              {t('session.viewSearch')}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={pane === 'changes'}
+              className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded px-2 text-[10.5px] ${
+                pane === 'changes'
+                  ? 'bg-accent/15 text-foreground'
+                  : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
+              }`}
+              onClick={() => selectPane('changes')}
+              data-testid="view-changes"
+            >
+              <FileDiff size={12} />
+              {t('session.viewSourceControl')}
             </button>
           </nav>
           <button
@@ -273,7 +305,7 @@ export default function SessionInspector({
             {visited.has('files') ? (
               <FilesPanel
                 sessionId={session.id}
-                refreshToken={refreshToken}
+                refreshToken={refreshToken + filesReloadToken}
                 active={!collapsed && pane === 'files'}
                 notify={notify}
                 openRequest={fileRequest ?? openRequest}
@@ -286,6 +318,24 @@ export default function SessionInspector({
                   selectPane('changes')
                 }}
                 editorEngine="monaco"
+              />
+            ) : null}
+          </div>
+          <div
+            className={`h-full min-h-0 ${pane === 'search' ? '' : 'hidden'}`}
+            data-testid="search-view"
+          >
+            {visited.has('search') ? (
+              <FilesSearchPanel
+                key={session.id}
+                sessionId={session.id}
+                active={!collapsed && pane === 'search'}
+                notify={notify}
+                onOpenPath={(path, line) => {
+                  setFileRequest({ path, line, nonce: Date.now() })
+                  selectPane('files')
+                }}
+                onReplaced={() => setFilesReloadToken((value) => value + 1)}
               />
             ) : null}
           </div>

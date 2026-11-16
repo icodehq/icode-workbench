@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Search is its own inspector pane (and a Search tab in the task workbench),
+  so the Files tree is only a tree. A result opens in Files, and a completed
+  replace refreshes the tree and clean editor tabs.
+- Changes is review-first: a one-line dock carries the staged/uncommitted
+  counts and the primary action, and the commit composer expands only when
+  asked. Merge banners and the dock stay visible while a diff is open.
+- The Files tree column is drag-resizable (220–420px), both details have a close
+  button, and Escape backs out of a detail (restoring a maximized one first).
+- Each session remembers its inspector pane and open diff.
+
 ## [0.9.7] - 2026-11-16
 
 ### Changed
