@@ -1847,6 +1847,7 @@ export const fr = {
   'sidebar.expandTasks': "Développer les tâches",
   'sidebar.openSidebar': "Ouvrir la barre latérale de l’espace de travail",
   'sidebar.closeSidebar': "Fermer la barre latérale de l’espace de travail",
+  'sidebar.resize': "Redimensionner la barre latérale de l’espace de travail",
   'sidebar.newWork': "Nouveau travail",
   'rail.assistantUnread': "{name}, {count} non lus",
   'topbar.backToProjects': "Retour aux projets",

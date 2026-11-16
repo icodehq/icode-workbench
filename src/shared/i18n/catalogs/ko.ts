@@ -1847,6 +1847,7 @@ export const ko = {
   'sidebar.expandTasks': "작업 펼치기",
   'sidebar.openSidebar': "작업 공간 사이드바 열기",
   'sidebar.closeSidebar': "작업 공간 사이드바 닫기",
+  'sidebar.resize': "작업 공간 사이드바 크기 조정",
   'sidebar.newWork': "새 작업",
   'rail.assistantUnread': "{name}, 읽지 않음 {count}개",
   'topbar.backToProjects': "프로젝트로 돌아가기",

@@ -67,7 +67,7 @@ export default function AppLayout({
             />
           ) : null}
           <div
-            className={`max-[900px]:fixed max-[900px]:inset-y-0 max-[900px]:left-0 max-[900px]:z-50 max-[900px]:transition-transform max-[900px]:duration-150 min-[900px]:static ${
+            className={`flex max-[900px]:fixed max-[900px]:inset-y-0 max-[900px]:left-0 max-[900px]:z-50 max-[900px]:transition-transform max-[900px]:duration-150 min-[900px]:static ${
               sidebarOpen ? 'max-[900px]:translate-x-0' : 'max-[900px]:-translate-x-full'
             }`}
             data-testid="sidebar-shell"

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The workspace sidebar is drag-resizable (240–400px) and remembered across
+  launches; double-click the seam to reset it. At the narrowest widths the
+  header drops the refresh verb so the brand and traffic lights keep their room.
+
 ## [0.9.8] - 2026-11-16
 
 ### Changed

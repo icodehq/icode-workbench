@@ -1937,6 +1937,7 @@ export const en = {
   'sidebar.expandTasks': "Expand tasks",
   'sidebar.openSidebar': "Open workspace sidebar",
   'sidebar.closeSidebar': "Close workspace sidebar",
+  'sidebar.resize': "Resize workspace sidebar",
   'sidebar.newWork': "New work",
   'topbar.backToProjects': "Back to Projects",
   'topbar.searchPlaceholder': "Search projects, work, files and commands",

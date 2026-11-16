@@ -1846,6 +1846,7 @@ export const zhCN = {
   'sidebar.expandTasks': "展开任务",
   'sidebar.openSidebar': "打开工作区侧边栏",
   'sidebar.closeSidebar': "关闭工作区侧边栏",
+  'sidebar.resize': "调整工作区侧边栏大小",
   'sidebar.newWork': "新建工作",
   'rail.assistantUnread': "{name}，{count} 条未读",
   'topbar.backToProjects': "返回项目",

@@ -1847,6 +1847,7 @@ export const de = {
   'sidebar.expandTasks': "Aufgaben ausklappen",
   'sidebar.openSidebar': "Arbeitsbereich-Seitenleiste öffnen",
   'sidebar.closeSidebar': "Arbeitsbereich-Seitenleiste schließen",
+  'sidebar.resize': "Arbeitsbereich-Seitenleiste anpassen",
   'sidebar.newWork': "Neue Arbeit",
   'rail.assistantUnread': "{name}, {count} ungelesen",
   'topbar.backToProjects': "Zurück zu Projekte",

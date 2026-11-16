@@ -1847,6 +1847,7 @@ export const ja = {
   'sidebar.expandTasks': "タスクを展開",
   'sidebar.openSidebar': "ワークスペースサイドバーを開く",
   'sidebar.closeSidebar': "ワークスペースサイドバーを閉じる",
+  'sidebar.resize': "ワークスペースサイドバーのサイズを変更",
   'sidebar.newWork': "新しい作業",
   'rail.assistantUnread': "{name}、未読 {count} 件",
   'topbar.backToProjects': "プロジェクトに戻る",

@@ -1847,6 +1847,7 @@ export const ptBR = {
   'sidebar.expandTasks': "Expandir tarefas",
   'sidebar.openSidebar': "Abrir barra lateral do espaço de trabalho",
   'sidebar.closeSidebar': "Fechar barra lateral do espaço de trabalho",
+  'sidebar.resize': "Redimensionar a barra lateral do espaço de trabalho",
   'sidebar.newWork': "Novo trabalho",
   'rail.assistantUnread': "{name}, {count} não lidas",
   'topbar.backToProjects': "Voltar aos Projetos",

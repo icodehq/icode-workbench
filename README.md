@@ -59,10 +59,11 @@ made.
 
 ### One sidebar, two surfaces
 
-The sidebar is the only navigation and the portfolio view. Its top row holds
-search, new work, notifications and refresh. **Pinned** projects, sessions and
-tasks are shortcuts above the complete **Projects** tree, not replacements for
-it. A project row expands to its direct sessions, grouped by worktree branch,
+The sidebar is the only navigation and the portfolio view. It is drag-resizable
+between 240 and 400px and remembers its width; double-click the seam to reset it.
+Its top row holds search, new work, notifications and refresh (refresh moves to
+the status bar at the narrowest widths). **Pinned** projects, sessions and tasks
+are shortcuts above the complete **Projects** tree, not replacements for it. A project row expands to its direct sessions, grouped by worktree branch,
 with state and agent activity on each row. Task-owned sessions never appear
 there.
 

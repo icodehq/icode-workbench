@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Bell,
   ChevronRight,
@@ -29,7 +29,7 @@ import ProjectMaintenanceDialog from '../sessions/ProjectMaintenanceDialog'
 import RepositorySettingsDialog from '../RepositorySettingsDialog'
 import AssistantAvatar from '../AssistantAvatar'
 import { repositoryPreparationView } from '../../lib/repository-preparation'
-import { shortcutLabel } from '../../lib/platform'
+import { isMacPlatform, shortcutLabel } from '../../lib/platform'
 import {
   pruneSidebarPins,
   readSidebarPins,
@@ -45,6 +45,14 @@ import {
   type WorktreeSessionGroup
 } from './sidebar-model'
 import { sidebarBrandInset } from './window-chrome'
+import {
+  SIDEBAR_WIDTH_DEFAULT,
+  SIDEBAR_WIDTH_MAX,
+  SIDEBAR_WIDTH_MIN,
+  clampSidebarWidth,
+  loadSidebarWidth,
+  saveSidebarWidth
+} from '../../state/sidebar-layout'
 import { taskAttention, taskStatusLabel } from '../task-status'
 import {
   activityDotClass,
@@ -166,6 +174,14 @@ export default function WorkspaceSidebar({
   footerStatus
 }: Props): React.JSX.Element {
   const t = useT()
+  const [width, setWidth] = useState<number>(() => loadSidebarWidth())
+  // On macOS the traffic lights take the header's leading inset, so the
+  // narrowest widths need to drop the refresh verb (the status bar still has
+  // one) rather than squeeze the brand into the controls.
+  const compactHeader = width < (isMacPlatform(platform) ? 280 : 240)
+  const widthRef = useRef(width)
+  const [resizing, setResizing] = useState(false)
+  const resizeAnchor = useRef<{ startX: number; startWidth: number } | null>(null)
   const [pins, setPins] = useState<SidebarPins>(() => readSidebarPins())
   const [projectsCollapsed, setProjectsCollapsed] = useState(false)
   const [tasksCollapsed, setTasksCollapsed] = useState(false)
@@ -202,6 +218,44 @@ export default function WorkspaceSidebar({
       return next
     })
   }, [archivedTasks, repos, sessions, tasks])
+
+  useEffect(() => {
+    widthRef.current = width
+  }, [width])
+
+  const persistWidth = (next: number): void => {
+    const clamped = clampSidebarWidth(next)
+    setWidth(clamped)
+    widthRef.current = clamped
+    saveSidebarWidth(clamped)
+  }
+
+  const beginResize = (event: React.PointerEvent<HTMLDivElement>): void => {
+    event.preventDefault()
+    event.currentTarget.setPointerCapture(event.pointerId)
+    resizeAnchor.current = { startX: event.clientX, startWidth: widthRef.current }
+    setResizing(true)
+  }
+
+  const moveResize = (event: React.PointerEvent<HTMLDivElement>): void => {
+    const anchor = resizeAnchor.current
+    if (anchor === null) return
+    const next = clampSidebarWidth(anchor.startWidth + (event.clientX - anchor.startX))
+    setWidth(next)
+    widthRef.current = next
+  }
+
+  const endResize = (event: React.PointerEvent<HTMLDivElement>): void => {
+    if (resizeAnchor.current === null) return
+    resizeAnchor.current = null
+    setResizing(false)
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    } catch {
+      // The pointer release may already have happened.
+    }
+    saveSidebarWidth(widthRef.current)
+  }
 
   const { pinned } = useMemo(
     () => pinnedProjectsFirst(repos, pins.projects),
@@ -732,10 +786,15 @@ export default function WorkspaceSidebar({
   }
 
   return (
+    <>
     <aside
-      className="flex h-full w-[300px] shrink-0 flex-col border-r border-border bg-card"
+      className={`flex h-full shrink-0 flex-col border-r border-border bg-card ${
+        resizing ? 'select-none' : ''
+      }`}
+      style={{ width: `${String(width)}px`, maxWidth: '85vw' }}
       aria-label={t('sidebar.workspace')}
       data-testid="workspace-sidebar"
+      data-width={width}
     >
       <div
         className="icode-titlebar flex h-12 shrink-0 items-center gap-1 border-b border-border px-2"
@@ -796,16 +855,18 @@ export default function WorkspaceSidebar({
             </span>
           ) : null}
         </button>
-        <button
-          type="button"
-          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
-          onClick={onRefresh}
-          aria-label={t('status.refreshTitle')}
-          title={t('status.refreshTitle')}
-          data-testid="sidebar-refresh"
-        >
-          <RefreshCw size={13} />
-        </button>
+        {compactHeader ? null : (
+          <button
+            type="button"
+            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+            onClick={onRefresh}
+            aria-label={t('status.refreshTitle')}
+            title={t('status.refreshTitle')}
+            data-testid="sidebar-refresh"
+          >
+            <RefreshCw size={13} />
+          </button>
+        )}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
@@ -1152,5 +1213,32 @@ export default function WorkspaceSidebar({
         />
       ) : null}
     </aside>
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={t('sidebar.resize')}
+      aria-valuemin={SIDEBAR_WIDTH_MIN}
+      aria-valuemax={SIDEBAR_WIDTH_MAX}
+      aria-valuenow={width}
+      title={t('sidebar.resize')}
+      tabIndex={0}
+      className="w-1.5 shrink-0 cursor-col-resize bg-transparent hover:bg-accent/40 focus-visible:bg-signal focus-visible:outline-none max-[900px]:hidden"
+      data-testid="sidebar-resizer"
+      onPointerDown={beginResize}
+      onPointerMove={moveResize}
+      onPointerUp={endResize}
+      onPointerCancel={endResize}
+      onDoubleClick={() => persistWidth(SIDEBAR_WIDTH_DEFAULT)}
+      onKeyDown={(event) => {
+        if (event.key === 'ArrowLeft') {
+          event.preventDefault()
+          persistWidth(widthRef.current - 16)
+        } else if (event.key === 'ArrowRight') {
+          event.preventDefault()
+          persistWidth(widthRef.current + 16)
+        }
+      }}
+    />
+    </>
   )
 }
