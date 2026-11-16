@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.11] - 2026-11-16
+
+### Changed
+
+- Panel resize bounds now match Termio's. The inspector's minimum is 240px and
+  its default is 320px; its maximum is measured against the session surface,
+  keeping 360px for the terminal. The Files and Changes list columns use
+  180–460px with a 240px default, leave 260px for the detail, and switch to
+  two columns at 600px.
+- The Changes list divider double-clicks back to the default width, like the
+  Files divider.
+
+### Fixed
+
+- The inspector's available-width measurement attaches when the session
+  surface mounts, instead of only on first render, so its drag maximum is no
+  longer computed from the whole window.
+
 ## [0.9.10] - 2026-11-16
 
 ### Changed
