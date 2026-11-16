@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.10] - 2026-11-16
+
+### Changed
+
+- Panel resizing is smooth across all five seams: workspace sidebar,
+  inspector, Files list, Changes list, and split dividers. Live geometry is
+  written straight to the DOM and React/persistence commits once on release,
+  instead of re-rendering each panel's subtree on every pointer frame.
+- Inspector panes re-measure once when a drag ends, so Files and Changes get
+  one layout update rather than one per frame; the one/two-column switch now
+  happens on release.
+- Terminals follow a drag with a throttled refit and send the PTY a single
+  settled resize on release, instead of resizing the shell throughout the
+  drag.
+
+### Added
+
+- `pnpm perf:resize` drives all five seams with trusted CDP input and records
+  frame-interval and long-task metrics in `artifacts/resize-perf/report.json`.
+
 ## [0.9.9] - 2026-11-16
 
 ### Changed
