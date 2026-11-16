@@ -7,6 +7,8 @@ import {
   FolderGit2,
   GitBranch,
   History,
+  ListPlus,
+  ListTodo,
   MoreHorizontal,
   Pin,
   Plus,
@@ -14,7 +16,9 @@ import {
   Search,
   Settings,
   Settings2,
-  TerminalSquare
+  SquarePlus,
+  TerminalSquare,
+  Trash2
 } from 'lucide-react'
 import type { TaskRecordPayload } from '../../../../shared/icode-api'
 import type {
@@ -26,6 +30,7 @@ import type {
 import type { Notice } from '../../state/workspace'
 import ContextMenu, { type ContextMenuItem, type MenuAnchor } from '../ContextMenu'
 import ProjectMaintenanceDialog from '../sessions/ProjectMaintenanceDialog'
+import RemoveRepositoryDialog from '../RemoveRepositoryDialog'
 import RepositorySettingsDialog from '../RepositorySettingsDialog'
 import AssistantAvatar from '../AssistantAvatar'
 import { repositoryPreparationView } from '../../lib/repository-preparation'
@@ -72,6 +77,8 @@ type Props = {
   activeRepoId: string | null
   activeSessionId: string | null
   activeTaskId: string | null
+  /** Which view the active project is showing, for the menu's checked items. */
+  activeProjectSurface: 'sessions' | 'tasks' | null
   branches: OwnedBranchSummary[]
   orphans: OrphanedHostSession[]
   assistantName: string
@@ -145,6 +152,7 @@ export default function WorkspaceSidebar({
   activeRepoId,
   activeSessionId,
   activeTaskId,
+  activeProjectSurface,
   branches,
   orphans,
   assistantName,
@@ -192,6 +200,7 @@ export default function WorkspaceSidebar({
   const [collapsedWorktrees, setCollapsedWorktrees] = useState<Set<string>>(() => new Set())
   const [maintenanceRepo, setMaintenanceRepo] = useState<RepositorySummary | null>(null)
   const [settingsRepo, setSettingsRepo] = useState<RepositorySummary | null>(null)
+  const [removeRepo, setRemoveRepo] = useState<RepositorySummary | null>(null)
   const [projectMenu, setProjectMenu] = useState<ProjectMenuRequest | null>(null)
   const [worktreeMenu, setWorktreeMenu] = useState<WorktreeMenuRequest | null>(null)
   const [newMenu, setNewMenu] = useState<{
@@ -368,32 +377,60 @@ export default function WorkspaceSidebar({
 
   const projectMenuItems = (repo: RepositorySummary): ContextMenuItem[] => {
     const preparation = repositoryPreparationView(repo)
+    const blockedReason = preparation?.label
+    const sessionsChecked = repo.id === activeRepoId && activeProjectSurface === 'sessions'
+    const tasksChecked = repo.id === activeRepoId && activeProjectSurface === 'tasks'
     return [
+      // The one action that unblocks a failed project leads the menu.
+      ...(preparation?.kind === 'failed'
+        ? [
+            {
+              id: 'retry',
+              label: t('projects.menu.retry'),
+              icon: <RefreshCw size={12} />,
+              testId: `sidebar-project-${repo.id}-retry`,
+              onSelect: () => onRetryPreparation(repo.id)
+            } satisfies ContextMenuItem
+          ]
+        : []),
+      // Creation is what the row click cannot do, so it comes first. The
+      // dialogs enforce the same preparation and host rules the app-wide New
+      // work menu does; disabling here avoids a dead-end dialog.
+      {
+        id: 'new-session',
+        label: t('sessions.newSession'),
+        icon: <SquarePlus size={12} />,
+        disabled: hostUnreachable || preparation !== null,
+        reason: hostUnreachable ? t('topbar.hostUnreachable') : blockedReason,
+        testId: `sidebar-project-${repo.id}-new-session`,
+        onSelect: () => onNewSessionInRepo(repo.id)
+      },
+      {
+        id: 'queue-task',
+        label: t('topbar.queueTask'),
+        icon: <ListPlus size={12} />,
+        disabled: preparation !== null,
+        reason: blockedReason,
+        testId: `sidebar-project-${repo.id}-queue-task`,
+        onSelect: () => onQueueTaskInRepo(repo.id)
+      },
+      // Navigation is a radio pair: a check says which view is open.
       {
         id: 'open-sessions',
         label: t('projectHeader.sessions'),
         icon: <TerminalSquare size={12} />,
+        checked: sessionsChecked,
+        separatorBefore: true,
         testId: `sidebar-project-${repo.id}-sessions`,
         onSelect: () => onOpenProject(repo.id, 'sessions')
       },
       {
         id: 'open-tasks',
         label: t('projectHeader.tasks'),
-        icon: <FolderGit2 size={12} />,
+        icon: <ListTodo size={12} />,
+        checked: tasksChecked,
         testId: `sidebar-project-${repo.id}-tasks`,
         onSelect: () => onOpenProject(repo.id, 'tasks')
-      },
-      {
-        id: 'new-session',
-        label: t('sessions.newSession'),
-        icon: <TerminalSquare size={12} />,
-        onSelect: () => onNewSessionInRepo(repo.id)
-      },
-      {
-        id: 'queue-task',
-        label: t('topbar.queueTask'),
-        separatorBefore: true,
-        onSelect: () => onQueueTaskInRepo(repo.id)
       },
       {
         id: 'pin',
@@ -401,6 +438,7 @@ export default function WorkspaceSidebar({
           ? t('projects.row.unpin')
           : t('projects.row.pin'),
         icon: <Pin size={12} />,
+        separatorBefore: true,
         testId: `pin-project-${repo.id}`,
         onSelect: () => toggleProjectPin(repo.id)
       },
@@ -408,12 +446,16 @@ export default function WorkspaceSidebar({
         id: 'copy-path',
         label: t('projects.menu.copyPath'),
         icon: <Copy size={12} />,
+        testId: `sidebar-project-${repo.id}-copy-path`,
         onSelect: () => {
-          const write = navigator.clipboard?.writeText(repo.path)
-          if (write === undefined) return
-          void write.then(
-            () => onNotify({ tone: 'success', message: t('projects.menu.copyPath') }),
-            () => undefined
+          const clipboard = navigator.clipboard
+          if (clipboard === undefined) {
+            onNotify({ tone: 'error', message: t('projects.notice.clipboardUnavailable') })
+            return
+          }
+          void clipboard.writeText(repo.path).then(
+            () => onNotify({ tone: 'success', message: t('projects.notice.pathCopied') }),
+            () => onNotify({ tone: 'error', message: t('projects.notice.clipboardUnavailable') })
           )
         }
       },
@@ -424,31 +466,21 @@ export default function WorkspaceSidebar({
         testId: `repository-settings-${repo.id}`,
         onSelect: () => setSettingsRepo(repo)
       },
-      ...(preparation?.kind === 'failed'
-        ? [
-            {
-              id: 'retry',
-              label: t('projects.menu.retry'),
-              icon: <RefreshCw size={12} />,
-              onSelect: () => onRetryPreparation(repo.id)
-            } satisfies ContextMenuItem
-          ]
-        : []),
       {
         id: 'maintenance',
-        label: t('sidebar.maintenance'),
+        label: t('projects.menu.maintenance'),
         icon: <GitBranch size={12} />,
-        separatorBefore: true,
         testId: 'project-maintenance-open',
         onSelect: () => setMaintenanceRepo(repo)
       },
       {
         id: 'remove',
         label: t('projects.menu.remove'),
+        icon: <Trash2 size={12} />,
         danger: true,
         separatorBefore: true,
         testId: `repository-remove-${repo.id}`,
-        onSelect: () => onRemoveRepository(repo.id)
+        onSelect: () => setRemoveRepo(repo)
       }
     ]
   }
@@ -457,6 +489,19 @@ export default function WorkspaceSidebar({
     repo: RepositorySummary,
     request: Omit<ProjectMenuRequest, 'repo'>
   ): void => setProjectMenu({ repo, ...request })
+
+  /** Sessions and worktrees a removal takes with it, including task sessions. */
+  const removalImpact = (repoId: string): { sessions: number; worktrees: number } => {
+    const repoTasks = [...tasks, ...archivedTasks].filter((task) => task.repoId === repoId)
+    const repoSessions = sessions.filter((session) => session.repoId === repoId)
+    return {
+      sessions:
+        repoSessions.length + repoTasks.filter((task) => task.sessionId !== null).length,
+      worktrees:
+        repoSessions.filter((session) => session.worktree !== null).length +
+        repoTasks.filter((task) => task.worktreePath !== null).length
+    }
+  }
 
   const newMenuItems: ContextMenuItem[] = [
     {
@@ -579,9 +624,26 @@ export default function WorkspaceSidebar({
     const sessionCount = directSessionCount.get(repo.id) ?? 0
     const expanded = !collapsedRepos.has(repo.id)
     const groups = groupDirectSessions(repoSessions)
+    const menuOpen = projectMenu?.repo.id === repo.id
     if (compact) {
       return (
-        <div key={`pin-${repo.id}`} className="flex h-7 min-w-0 items-center rounded-md">
+        <div
+          key={`pin-${repo.id}`}
+          className={`flex h-7 min-w-0 items-center rounded-md ${
+            menuOpen && !isActive ? 'bg-hover' : ''
+          }`}
+          data-menu-open={menuOpen ? 'true' : undefined}
+          onContextMenu={(event) => {
+            event.preventDefault()
+            requestProjectMenu(repo, {
+              x: event.clientX,
+              y: event.clientY,
+              returnFocus: event.currentTarget.querySelector<HTMLElement>(
+                `[data-testid="pinned-project-${repo.id}"]`
+              )
+            })
+          }}
+        >
           <button
             type="button"
             className={`flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 text-left text-[10px] ${
@@ -590,14 +652,8 @@ export default function WorkspaceSidebar({
                 : 'text-muted-foreground hover:bg-hover hover:text-foreground'
             }`}
             onClick={() => onOpenProject(repo.id, 'sessions')}
-            onContextMenu={(event) => {
-              event.preventDefault()
-              requestProjectMenu(repo, {
-                x: event.clientX,
-                y: event.clientY,
-                returnFocus: event.currentTarget
-              })
-            }}
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
             title={repo.path}
             data-testid={`pinned-project-${repo.id}`}
             data-active={isActive ? 'true' : 'false'}
@@ -622,10 +678,23 @@ export default function WorkspaceSidebar({
           className={`group flex h-8 min-w-0 items-center rounded-md pr-1 ${
             isActive
               ? 'bg-sel text-foreground shadow-[inset_2px_0_0_var(--icode-accent)]'
-              : 'text-muted-foreground hover:bg-hover hover:text-foreground'
+              : menuOpen
+                ? 'bg-hover text-foreground'
+                : 'text-muted-foreground hover:bg-hover hover:text-foreground'
           }`}
           data-testid={`sidebar-project-${repo.id}`}
           data-active={isActive ? 'true' : 'false'}
+          data-menu-open={menuOpen ? 'true' : undefined}
+          onContextMenu={(event) => {
+            event.preventDefault()
+            requestProjectMenu(repo, {
+              x: event.clientX,
+              y: event.clientY,
+              returnFocus: event.currentTarget.querySelector<HTMLElement>(
+                `[data-testid="project-row-${repo.id}"]`
+              )
+            })
+          }}
         >
           {repoSessions.length > 0 ? (
             <button
@@ -654,14 +723,7 @@ export default function WorkspaceSidebar({
             data-testid={`project-row-${repo.id}`}
             onClick={() => onOpenProject(repo.id, 'sessions')}
             aria-current={isActive ? 'page' : undefined}
-            onContextMenu={(event) => {
-              event.preventDefault()
-              requestProjectMenu(repo, {
-                x: event.clientX,
-                y: event.clientY,
-                returnFocus: event.currentTarget
-              })
-            }}
+            aria-haspopup="menu"
             title={repo.path}
           >
             <FolderGit2 size={12} className="shrink-0" />
@@ -690,11 +752,17 @@ export default function WorkspaceSidebar({
           <button
             type="button"
             className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
-            aria-label={t('sidebar.projectMenu')}
-            title={t('sidebar.projectMenu')}
+            aria-label={t('projects.row.actionsAria', { name: repo.displayName })}
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            title={t('projects.row.actions')}
             data-testid={`sidebar-project-menu-${repo.id}`}
             onClick={(event) => {
               event.stopPropagation()
+              if (projectMenu?.repo.id === repo.id) {
+                setProjectMenu(null)
+                return
+              }
               requestProjectMenu(repo, {
                 anchor: menuAnchor(event.currentTarget),
                 returnFocus: event.currentTarget,
@@ -1153,7 +1221,7 @@ export default function WorkspaceSidebar({
       {projectMenu !== null ? (
         <ContextMenu
           items={projectMenuItems(projectMenu.repo)}
-          ariaLabel={t('sidebar.projectMenu')}
+          ariaLabel={t('projects.row.actionsAria', { name: projectMenu.repo.displayName })}
           testId="sidebar-project-menu"
           width={228}
           x={projectMenu.x}
@@ -1203,6 +1271,19 @@ export default function WorkspaceSidebar({
           repoId={settingsRepo.id}
           repoName={settingsRepo.displayName}
           onClose={() => setSettingsRepo(null)}
+        />
+      ) : null}
+      {removeRepo !== null ? (
+        <RemoveRepositoryDialog
+          repo={removeRepo}
+          sessionCount={removalImpact(removeRepo.id).sessions}
+          worktreeCount={removalImpact(removeRepo.id).worktrees}
+          onClose={() => setRemoveRepo(null)}
+          onConfirm={() => {
+            const repoId = removeRepo.id
+            setRemoveRepo(null)
+            onRemoveRepository(repoId)
+          }}
         />
       ) : null}
     </aside>

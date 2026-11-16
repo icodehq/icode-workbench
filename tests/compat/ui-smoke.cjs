@@ -282,6 +282,8 @@ async function openProjectMenu(repoId) {
 async function removeRepositoryFromSidebar(repoId) {
   await openProjectMenu(repoId)
   await click(`[data-testid="repository-remove-${repoId}"]`)
+  await waitForSelector('[data-testid="remove-repository-dialog"]', 10000)
+  await click('[data-testid="confirm-remove-repo"]')
 }
 
 async function activeState() {
@@ -1199,7 +1201,7 @@ async function main() {
     return { detections }
   })
 
-  await step('remove a repository without a confirmation dialog', async () => {
+  await step('remove a repository after confirming', async () => {
     port = nextPort++
     await launch('final', { ICODE_HOST_DIR: HOST_DIR, ICODE_HOST_SOCKET: SOCKET }, port)
     await waitFor(
@@ -1218,6 +1220,17 @@ async function main() {
       'Right-click menu is missing Remove repository'
     )
     assert(rightClickMenuText.includes('Copy path'), 'Right-click menu is missing Copy path')
+    const viewItems = await cdp.evaluate(`(() => {
+      const menu = document.querySelector('[data-testid="sidebar-project-menu"]');
+      return Array.from(menu.querySelectorAll('[role="menuitemradio"]')).map((element) => ({
+        text: element.innerText,
+        checked: element.getAttribute('aria-checked')
+      }));
+    })()`)
+    assert(
+      viewItems.length === 2 && viewItems.some((entry) => entry.checked === 'true'),
+      `Project menu did not mark the open view: ${JSON.stringify(viewItems)}`
+    )
     assert(
       await cdp.evaluate(`Boolean(document.querySelector('[data-testid="sessions-surface"]'))`),
       'Right-click opened the project instead of its menu'
@@ -1248,7 +1261,8 @@ async function main() {
     }
 
     await removeRepositoryFromSidebar(repoId)
-    // Instant removal: the row disappears optimistically and no modal appears.
+    // The confirmation closes before removal starts, then the row disappears
+    // optimistically.
     await waitFor(
       `!document.querySelector('[data-testid="project-row-${repoId}"]')`,
       'repository removed from All projects',
@@ -1256,9 +1270,9 @@ async function main() {
     )
     assert(
       await cdp.evaluate(
-        `!document.querySelector('[data-testid="confirm-remove-repo"]')`
+        `!document.querySelector('[data-testid="remove-repository-dialog"]')`
       ),
-      'Removal still opened a confirmation dialog'
+      'Removal dialog stayed open after confirming'
     )
     await waitForSelector('[data-testid="empty-workspace"]', 20000)
     assert(

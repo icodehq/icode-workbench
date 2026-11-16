@@ -6,6 +6,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
+import { Check } from 'lucide-react'
 import {
   menuPosition,
   type MenuAnchor,
@@ -24,6 +25,8 @@ export type ContextMenuItem = {
   reason?: string
   danger?: boolean
   separatorBefore?: boolean
+  /** Renders as a radio item and shows a check in the leading column. */
+  checked?: boolean
   /** Stable selector for real-Electron smoke coverage. */
   testId?: string
   onSelect: () => void
@@ -53,6 +56,8 @@ const DEFAULT_MENU_WIDTH = 248
 const MAX_MENU_HEIGHT = 480
 const MARGIN = 8
 const GAP = 4
+const MENU_ITEM_SELECTOR =
+  '[role="menuitem"]:not([aria-disabled="true"]), [role="menuitemradio"]:not([aria-disabled="true"])'
 
 export default function ContextMenu({
   items,
@@ -97,7 +102,7 @@ export default function ContextMenu({
         gap: GAP
       })
     )
-    const first = element.querySelector<HTMLElement>('[role="menuitem"]:not([aria-disabled="true"])')
+    const first = element.querySelector<HTMLElement>(MENU_ITEM_SELECTOR)
     first?.focus({ preventScroll: true })
   }, [x, y, width, align, anchor?.left, anchor?.right, anchor?.top, anchor?.bottom])
 
@@ -123,7 +128,7 @@ export default function ContextMenu({
         return
       }
       if (!menu.current) return
-      const entries = [...menu.current.querySelectorAll<HTMLElement>('[role="menuitem"]:not([aria-disabled="true"])')]
+      const entries = [...menu.current.querySelectorAll<HTMLElement>(MENU_ITEM_SELECTOR)]
       if (entries.length === 0) return
       const current = entries.indexOf(document.activeElement as HTMLElement)
       const focus = (index: number): void => {
@@ -188,16 +193,16 @@ export default function ContextMenu({
           {item.separatorBefore ? <div className="my-1 h-px bg-line" role="separator" /> : null}
           <button
             type="button"
-            role="menuitem"
+            role={item.checked === undefined ? 'menuitem' : 'menuitemradio'}
+            aria-checked={item.checked === undefined ? undefined : item.checked}
             aria-disabled={item.disabled === true}
-            disabled={item.disabled}
             title={item.disabled ? item.reason : undefined}
             data-testid={item.testId}
-            className={`flex min-h-6 w-full items-center gap-2 rounded-md px-2 py-1 text-left text-[11px] leading-4 ${
+            className={`flex min-h-6 w-full items-center gap-2 rounded-md px-2 py-1 text-left text-[11px] leading-4 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-signal/60 ${
               item.danger
-                ? 'text-destructive hover:bg-destructive/10 disabled:text-muted-foreground'
-                : 'text-foreground hover:bg-menu-hover disabled:text-muted-foreground'
-            } disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent`}
+                ? 'text-destructive hover:bg-destructive/10 focus-visible:bg-destructive/10 aria-disabled:text-muted-foreground'
+                : 'text-foreground hover:bg-menu-hover focus-visible:bg-menu-hover aria-disabled:text-muted-foreground'
+            } aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:hover:bg-transparent`}
             onClick={() => {
               if (item.disabled) return
               onClose()
@@ -206,10 +211,14 @@ export default function ContextMenu({
           >
             <span
               className={`flex w-3.5 shrink-0 items-center justify-center ${
-                item.danger && item.disabled !== true ? 'text-destructive' : 'text-muted-foreground'
+                item.checked === true
+                  ? 'text-accent'
+                  : item.danger && item.disabled !== true
+                    ? 'text-destructive'
+                    : 'text-muted-foreground'
               }`}
             >
-              {item.icon}
+              {item.checked === true ? <Check size={12} /> : item.icon}
             </span>
             <span className="min-w-0 flex-1 truncate">{item.label}</span>
             {item.shortcut ? (

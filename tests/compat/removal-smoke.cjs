@@ -286,6 +286,8 @@ async function removeRepositoryFromSidebar(repoId) {
   await click(`[data-testid="sidebar-project-menu-${repoId}"]`)
   await waitForSelector(`[data-testid="repository-remove-${repoId}"]`, 20000)
   await click(`[data-testid="repository-remove-${repoId}"]`)
+  await waitForSelector('[data-testid="remove-repository-dialog"]', 20000)
+  await click('[data-testid="confirm-remove-repo"]')
 }
 
 function makeRepo(path) {
@@ -327,9 +329,9 @@ async function main() {
     )
     assert(
       await cdp.evaluate(
-        `!document.querySelector('[data-testid="confirm-remove-repo"]')`
+        `!document.querySelector('[data-testid="remove-repository-dialog"]')`
       ),
-      'Removal opened a confirmation dialog'
+      'Removal dialog stayed open after confirming'
     )
     await waitForSelector('[data-testid="cleanup-indicator"]', 20000)
     await click('[data-testid="cleanup-indicator"]')

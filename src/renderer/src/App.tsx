@@ -618,6 +618,9 @@ export default function App(): React.JSX.Element {
           activeRepoId={state.activeRepoId}
           activeSessionId={state.activeSessionId}
           activeTaskId={activeTaskId}
+          activeProjectSurface={
+            displaySurface === 'sessions' || displaySurface === 'tasks' ? displaySurface : null
+          }
           branches={state.branches}
           orphans={state.orphans}
           assistantName={assistant.personaName}
