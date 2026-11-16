@@ -189,7 +189,7 @@ function RegistryTerminalPane({
     if (instance === null) return
     const container = containerRef.current
     if (container === null) return
-    const observer = new ResizeObserver(() => instance.fit())
+    const observer = new ResizeObserver(() => instance.scheduleFit())
     observer.observe(container)
     return () => observer.disconnect()
   }, [instance])

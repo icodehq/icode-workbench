@@ -26,6 +26,7 @@ class FakeInstance implements TerminalInstanceLike {
   }
   setActive(): void {}
   fit(): void {}
+  scheduleFit(): void {}
   focus(): void {}
   retry(): void {}
   dispose(): void {

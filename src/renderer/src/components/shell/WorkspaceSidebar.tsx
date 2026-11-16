@@ -53,6 +53,7 @@ import {
   loadSidebarWidth,
   saveSidebarWidth
 } from '../../state/sidebar-layout'
+import { usePanelResize } from '../../lib/use-panel-resize'
 import { taskAttention, taskStatusLabel } from '../task-status'
 import {
   activityDotClass,
@@ -180,8 +181,8 @@ export default function WorkspaceSidebar({
   // one) rather than squeeze the brand into the controls.
   const compactHeader = width < (isMacPlatform(platform) ? 280 : 240)
   const widthRef = useRef(width)
-  const [resizing, setResizing] = useState(false)
-  const resizeAnchor = useRef<{ startX: number; startWidth: number } | null>(null)
+  const asideRef = useRef<HTMLElement | null>(null)
+  const resizerRef = useRef<HTMLDivElement | null>(null)
   const [pins, setPins] = useState<SidebarPins>(() => readSidebarPins())
   const [projectsCollapsed, setProjectsCollapsed] = useState(false)
   const [tasksCollapsed, setTasksCollapsed] = useState(false)
@@ -230,32 +231,26 @@ export default function WorkspaceSidebar({
     saveSidebarWidth(clamped)
   }
 
-  const beginResize = (event: React.PointerEvent<HTMLDivElement>): void => {
-    event.preventDefault()
-    event.currentTarget.setPointerCapture(event.pointerId)
-    resizeAnchor.current = { startX: event.clientX, startWidth: widthRef.current }
-    setResizing(true)
-  }
-
-  const moveResize = (event: React.PointerEvent<HTMLDivElement>): void => {
-    const anchor = resizeAnchor.current
-    if (anchor === null) return
-    const next = clampSidebarWidth(anchor.startWidth + (event.clientX - anchor.startX))
-    setWidth(next)
-    widthRef.current = next
-  }
-
-  const endResize = (event: React.PointerEvent<HTMLDivElement>): void => {
-    if (resizeAnchor.current === null) return
-    resizeAnchor.current = null
-    setResizing(false)
-    try {
-      event.currentTarget.releasePointerCapture(event.pointerId)
-    } catch {
-      // The pointer release may already have happened.
-    }
-    saveSidebarWidth(widthRef.current)
-  }
+  const { handleProps } = usePanelResize({
+    kind: 'sidebar',
+    panelRef: asideRef,
+    getStartValue: () => widthRef.current,
+    clamp: clampSidebarWidth,
+    direction: 1,
+    axis: 'x',
+    cursor: 'col-resize',
+    onLive: (next) => {
+      const aside = asideRef.current
+      if (aside === null) return
+      const widthText = String(Math.round(next))
+      if (aside.dataset.width !== widthText) aside.dataset.width = widthText
+      const compact = next < (isMacPlatform(platform) ? 280 : 240)
+      const compactText = compact ? 'true' : 'false'
+      if (aside.dataset.compact !== compactText) aside.dataset.compact = compactText
+      resizerRef.current?.setAttribute('aria-valuenow', widthText)
+    },
+    onCommit: persistWidth
+  })
 
   const { pinned } = useMemo(
     () => pinnedProjectsFirst(repos, pins.projects),
@@ -788,13 +783,13 @@ export default function WorkspaceSidebar({
   return (
     <>
     <aside
-      className={`flex h-full shrink-0 flex-col border-r border-border bg-card ${
-        resizing ? 'select-none' : ''
-      }`}
+      ref={asideRef}
+      className="workspace-sidebar flex h-full shrink-0 flex-col border-r border-border bg-card"
       style={{ width: `${String(width)}px`, maxWidth: '85vw' }}
       aria-label={t('sidebar.workspace')}
       data-testid="workspace-sidebar"
       data-width={width}
+      data-compact={compactHeader ? 'true' : 'false'}
     >
       <div
         className="icode-titlebar flex h-12 shrink-0 items-center gap-1 border-b border-border px-2"
@@ -855,18 +850,16 @@ export default function WorkspaceSidebar({
             </span>
           ) : null}
         </button>
-        {compactHeader ? null : (
-          <button
-            type="button"
-            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
-            onClick={onRefresh}
-            aria-label={t('status.refreshTitle')}
-            title={t('status.refreshTitle')}
-            data-testid="sidebar-refresh"
-          >
-            <RefreshCw size={13} />
-          </button>
-        )}
+        <button
+          type="button"
+          className="workspace-sidebar-refresh inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+          onClick={onRefresh}
+          aria-label={t('status.refreshTitle')}
+          title={t('status.refreshTitle')}
+          data-testid="sidebar-refresh"
+        >
+          <RefreshCw size={13} />
+        </button>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
@@ -1214,6 +1207,7 @@ export default function WorkspaceSidebar({
       ) : null}
     </aside>
     <div
+      ref={resizerRef}
       role="separator"
       aria-orientation="vertical"
       aria-label={t('sidebar.resize')}
@@ -1224,10 +1218,7 @@ export default function WorkspaceSidebar({
       tabIndex={0}
       className="w-1.5 shrink-0 cursor-col-resize bg-transparent hover:bg-accent/40 focus-visible:bg-signal focus-visible:outline-none max-[900px]:hidden"
       data-testid="sidebar-resizer"
-      onPointerDown={beginResize}
-      onPointerMove={moveResize}
-      onPointerUp={endResize}
-      onPointerCancel={endResize}
+      {...handleProps}
       onDoubleClick={() => persistWidth(SIDEBAR_WIDTH_DEFAULT)}
       onKeyDown={(event) => {
         if (event.key === 'ArrowLeft') {

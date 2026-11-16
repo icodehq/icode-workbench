@@ -11,6 +11,7 @@ import {
   loadInspectorWidth,
   saveInspectorWidth
 } from '../../state/inspector-layout'
+import { usePanelResize } from '../../lib/use-panel-resize'
 import ChangesPanel from '../ChangesPanel'
 import FilesPanel from '../FilesPanel'
 import FilesSearchPanel from '../FilesSearchPanel'
@@ -81,8 +82,7 @@ export default function SessionInspector({
   const [viewportWidth, setViewportWidth] = useState<number>(() =>
     typeof window === 'undefined' ? 1600 : window.innerWidth
   )
-  const [resizing, setResizing] = useState(false)
-  const resizeAnchor = useRef<{ startX: number; startWidth: number } | null>(null)
+  const asideRef = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
     preferredRef.current = preferredWidth
@@ -103,35 +103,20 @@ export default function SessionInspector({
     setPreferredWidth(next)
   }
 
-  const beginResize = (event: React.PointerEvent<HTMLDivElement>): void => {
-    if (collapsed || overlay) return
-    event.preventDefault()
-    event.currentTarget.setPointerCapture(event.pointerId)
-    resizeAnchor.current = { startX: event.clientX, startWidth: width }
-    setResizing(true)
-  }
-
-  const moveResize = (event: React.PointerEvent<HTMLDivElement>): void => {
-    const anchor = resizeAnchor.current
-    if (anchor === null) return
-    // The inspector sits on the right, so dragging its leading seam left
-    // widens it.
-    setWidth(
-      clampInspectorWidth(anchor.startWidth - (event.clientX - anchor.startX), viewportWidth)
-    )
-  }
-
-  const endResize = (event: React.PointerEvent<HTMLDivElement>): void => {
-    if (resizeAnchor.current === null) return
-    resizeAnchor.current = null
-    setResizing(false)
-    try {
-      event.currentTarget.releasePointerCapture(event.pointerId)
-    } catch {
-      // The pointer release may already have happened.
+  const { handleProps } = usePanelResize({
+    kind: 'inspector',
+    panelRef: asideRef,
+    getStartValue: () => width,
+    clamp: (candidate) => clampInspectorWidth(candidate, viewportWidth),
+    direction: -1,
+    axis: 'x',
+    disabled: collapsed || overlay,
+    cursor: 'col-resize',
+    onCommit: (next) => {
+      setWidth(next)
+      saveInspectorWidth(next)
     }
-    saveInspectorWidth(preferredRef.current)
-  }
+  })
 
   const nudgeWidth = (delta: number): void => {
     const next = clampInspectorWidth(preferredRef.current + delta, viewportWidth)
@@ -183,9 +168,10 @@ export default function SessionInspector({
 
   return (
     <aside
+      ref={asideRef}
       className={`relative flex h-full shrink-0 flex-col border-l border-border bg-background ${
         collapsed ? 'w-9' : ''
-      } ${resizing ? 'select-none' : ''} ${overlay && !collapsed ? 'shadow-2xl' : ''}`}
+      } ${overlay && !collapsed ? 'shadow-2xl' : ''}`}
       style={collapsed ? undefined : { width: `${String(width)}px`, maxWidth: '85vw' }}
       aria-label={t('session.inspector')}
       data-testid="session-inspector"
@@ -200,10 +186,7 @@ export default function SessionInspector({
           tabIndex={0}
           className="absolute inset-y-0 left-0 z-20 w-1.5 cursor-col-resize bg-transparent hover:bg-accent/40 focus-visible:bg-signal focus-visible:outline-none"
           data-testid="inspector-resizer"
-          onPointerDown={beginResize}
-          onPointerMove={moveResize}
-          onPointerUp={endResize}
-          onPointerCancel={endResize}
+          {...handleProps}
           onDoubleClick={resetWidth}
           onKeyDown={(event) => {
             if (event.key === 'ArrowLeft') {

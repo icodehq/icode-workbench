@@ -22,6 +22,7 @@ const { connect } = require('./ui-cdp.cjs')
 
 const APP_DIR = resolve(__dirname, '..', '..')
 const ELECTRON = require('electron')
+const IS_WINDOWS = process.platform === 'win32'
 const ARTIFACT_DIR = join(APP_DIR, 'artifacts', 'work6')
 const RUN_DIR = mkdtempSync(join(tmpdir(), 'icode-work6-smoke-'))
 const REPO_DIR = join(RUN_DIR, 'repo')
@@ -466,6 +467,19 @@ function hostMeta() {
   }
 }
 
+/**
+ * The host endpoint must be derived on Windows: `listen()` only accepts a
+ * named pipe there, and an explicit POSIX-style path fails with EACCES. The
+ * POSIX runs pin the socket under the isolated host directory.
+ */
+function hostEnv(extra = {}) {
+  return {
+    ICODE_HOST_DIR: HOST_DIR,
+    ...(IS_WINDOWS ? {} : { ICODE_HOST_SOCKET: SOCKET }),
+    ...extra
+  }
+}
+
 function pidAlive(pid) {
   if (!pid) return false
   try {
@@ -492,7 +506,7 @@ async function main() {
   let port = nextPort++
 
   await step('boot empty workspace and detect Harnesses', async () => {
-    await launch('initial', { ICODE_HOST_DIR: HOST_DIR, ICODE_HOST_SOCKET: SOCKET }, port)
+    await launch('initial', hostEnv(), port)
     const empty = await bodyText()
     assert(empty.includes('Add a project'), 'First-run empty state is missing')
     assert((await sessions()).length === 0, 'Expected no sessions on first run')
@@ -996,10 +1010,12 @@ async function main() {
     await quitApp()
     await sleep(1000)
     assert(pidAlive(hostPid), 'Terminal host died with the iCode app')
-    assert(existsSync(SOCKET), 'Terminal host socket disappeared with the iCode app')
+    if (!IS_WINDOWS) {
+      assert(existsSync(SOCKET), 'Terminal host socket disappeared with the iCode app')
+    }
 
     port = nextPort++
-    await launch('relaunch', { ICODE_HOST_DIR: HOST_DIR, ICODE_HOST_SOCKET: SOCKET }, port)
+    await launch('relaunch', hostEnv(), port)
     await openProjectSessions()
     await waitFor(
       `new Set(Array.from(document.querySelectorAll('[data-session-id]')).map((el) => el.dataset.sessionId)).size === 2`,
@@ -1098,7 +1114,7 @@ async function main() {
   await step('restore Host and stop the surviving sessions', async () => {
     await quitApp()
     port = nextPort++
-    await launch('restored', { ICODE_HOST_DIR: HOST_DIR, ICODE_HOST_SOCKET: SOCKET }, port)
+    await launch('restored', hostEnv(), port)
     await waitFor(
       `document.querySelector('[data-testid="host-status"]')?.dataset.hostStatus === 'reachable'`,
       'reachable Host status',
@@ -1135,8 +1151,7 @@ async function main() {
     await launch(
       'no-harnesses',
       {
-        ICODE_HOST_DIR: HOST_DIR,
-        ICODE_HOST_SOCKET: SOCKET,
+        ...hostEnv(),
         // Hide agent executables and the user shell from Harness detection.
         PATH: EMPTY_BIN,
         SHELL: join(EMPTY_BIN, 'no-shell')

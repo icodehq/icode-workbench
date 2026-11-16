@@ -1,11 +1,13 @@
-import { useRef, useState, type ReactNode } from 'react'
+import { useRef, type ReactNode } from 'react'
 import {
   SPLIT_MAX_RATIO,
   SPLIT_MIN_RATIO,
+  clampedRatio,
   type SplitBranch,
   type SplitNode
 } from '../../state/session-split'
 import { useT } from '../../i18n/use-i18n'
+import { usePanelResize } from '../../lib/use-panel-resize'
 
 type Props = {
   node: SplitNode
@@ -34,46 +36,39 @@ function SplitBranchView({
 }): React.JSX.Element {
   const t = useT()
   const containerRef = useRef<HTMLDivElement | null>(null)
-  const dragRatioRef = useRef<number | null>(null)
-  const [dragRatio, setDragRatio] = useState<number | null>(null)
+  const firstRef = useRef<HTMLDivElement | null>(null)
+  const dividerRef = useRef<HTMLDivElement | null>(null)
   const horizontal = node.direction === 'horizontal'
-  // The live divider position stays local until release, so the tree state and
-  // its persisted copy only change once per drag.
-  const ratio = dragRatio ?? node.ratio
+  const ratio = node.ratio
 
-  const ratioAt = (clientX: number, clientY: number): number | null => {
-    const rect = containerRef.current?.getBoundingClientRect()
-    if (rect === undefined || rect.width <= 0 || rect.height <= 0) return null
-    return horizontal ? (clientX - rect.left) / rect.width : (clientY - rect.top) / rect.height
-  }
-
-  const updateDrag = (clientX: number, clientY: number): void => {
-    const next = ratioAt(clientX, clientY)
-    if (next === null) return
-    dragRatioRef.current = next
-    setDragRatio(next)
-  }
-
-  const beginResize = (event: React.PointerEvent<HTMLDivElement>): void => {
-    event.preventDefault()
-    event.currentTarget.setPointerCapture(event.pointerId)
-    updateDrag(event.clientX, event.clientY)
-  }
-
-  const moveResize = (event: React.PointerEvent<HTMLDivElement>): void => {
-    if (!event.currentTarget.hasPointerCapture(event.pointerId)) return
-    updateDrag(event.clientX, event.clientY)
-  }
-
-  const endResize = (event: React.PointerEvent<HTMLDivElement>): void => {
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId)
-    }
-    const committed = dragRatioRef.current
-    dragRatioRef.current = null
-    setDragRatio(null)
-    if (committed !== null) onResize(node.id, committed)
-  }
+  /*
+   * The live divider position is written straight to the first child's
+   * flex-basis; the tree state (and its persisted copy) changes once per drag.
+   */
+  const { handleProps, lastValueRef } = usePanelResize({
+    kind: 'split',
+    panelRef: containerRef,
+    getStartValue: () => node.ratio,
+    getScale: () => {
+      const rect = containerRef.current?.getBoundingClientRect()
+      if (rect === undefined) return 0
+      const span = horizontal ? rect.width : rect.height
+      return span > 0 ? 1 / span : 0
+    },
+    clamp: clampedRatio,
+    direction: 1,
+    axis: horizontal ? 'x' : 'y',
+    cursor: horizontal ? 'col-resize' : 'row-resize',
+    apply: (next) => {
+      if (firstRef.current !== null) {
+        firstRef.current.style.flexBasis = `${next * 100}%`
+      }
+    },
+    onLive: (next) => {
+      dividerRef.current?.setAttribute('aria-valuenow', String(Math.round(next * 100)))
+    },
+    onCommit: (next) => onResize(node.id, next)
+  })
 
   const negativeKey = horizontal ? 'ArrowLeft' : 'ArrowUp'
   const positiveKey = horizontal ? 'ArrowRight' : 'ArrowDown'
@@ -85,12 +80,14 @@ function SplitBranchView({
       style={{ flexDirection: horizontal ? 'row' : 'column' }}
     >
       <div
+        ref={firstRef}
         className="flex min-h-0 min-w-0 flex-col"
         style={{ flexGrow: 0, flexShrink: 0, flexBasis: `${ratio * 100}%` }}
       >
         <SplitTreeView node={node.first} renderLeaf={renderLeaf} onResize={onResize} />
       </div>
       <div
+        ref={dividerRef}
         role="separator"
         aria-orientation={horizontal ? 'vertical' : 'horizontal'}
         aria-label={t('session.resizeSplit')}
@@ -101,18 +98,16 @@ function SplitBranchView({
         className={`shrink-0 bg-border/70 transition-colors hover:bg-accent/60 focus-visible:bg-accent focus-visible:outline-none ${
           horizontal ? 'w-[3px] cursor-col-resize' : 'h-[3px] cursor-row-resize'
         }`}
-        onPointerDown={beginResize}
-        onPointerMove={moveResize}
-        onPointerUp={endResize}
-        onPointerCancel={endResize}
-        onKeyDown={(event) => {
-          if (event.key !== negativeKey && event.key !== positiveKey) return
-          event.preventDefault()
-          onResize(node.id, ratio + (event.key === positiveKey ? 0.02 : -0.02))
-        }}
         data-testid="session-split-divider"
         data-branch-id={node.id}
         data-direction={node.direction}
+        {...handleProps}
+        onKeyDown={(event) => {
+          if (event.key !== negativeKey && event.key !== positiveKey) return
+          event.preventDefault()
+          const current = lastValueRef.current ?? ratio
+          onResize(node.id, current + (event.key === positiveKey ? 0.02 : -0.02))
+        }}
       />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <SplitTreeView node={node.second} renderLeaf={renderLeaf} onResize={onResize} />

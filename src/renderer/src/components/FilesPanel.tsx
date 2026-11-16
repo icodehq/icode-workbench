@@ -51,6 +51,7 @@ import { isGitMetadata, unavailableText } from '../files/search-utils'
 import { translate, translatePlural } from '../i18n/i18n-store'
 import { useT, useTp } from '../i18n/use-i18n'
 import { useElementWidth } from '../lib/use-element-width'
+import { usePanelResize } from '../lib/use-panel-resize'
 import { INSPECTOR_TWO_COLUMN_MIN } from '../state/inspector-layout'
 import { buildTreeRows } from '../files/tree-layout'
 import {
@@ -266,8 +267,7 @@ export default function FilesPanel({
 
   const [listWidth, setListWidth] = useState(settings.listWidth)
   const listWidthRef = useRef(settings.listWidth)
-  const listResizeAnchor = useRef<{ startX: number; startWidth: number } | null>(null)
-  const [resizingList, setResizingList] = useState(false)
+  const listRef = useRef<HTMLDivElement | null>(null)
   // Leave the editor at least 360px when the tree is beside it.
   const maxListWidth = Math.max(
     FILES_LIST_WIDTH_MIN,
@@ -319,35 +319,18 @@ export default function FilesPanel({
     saveFilesSettings({ ...settings, listWidth: clamped })
   }
 
-  const beginListResize = (event: React.PointerEvent<HTMLDivElement>): void => {
-    event.preventDefault()
-    event.currentTarget.setPointerCapture(event.pointerId)
-    listResizeAnchor.current = { startX: event.clientX, startWidth: effectiveListWidth }
-    setResizingList(true)
-  }
-
-  const moveListResize = (event: React.PointerEvent<HTMLDivElement>): void => {
-    const anchor = listResizeAnchor.current
-    if (anchor === null) return
-    const next = Math.max(
-      FILES_LIST_WIDTH_MIN,
-      Math.min(maxListWidth, anchor.startWidth + (event.clientX - anchor.startX))
-    )
-    setListWidth(next)
-    listWidthRef.current = next
-  }
-
-  const endListResize = (event: React.PointerEvent<HTMLDivElement>): void => {
-    if (listResizeAnchor.current === null) return
-    listResizeAnchor.current = null
-    setResizingList(false)
-    try {
-      event.currentTarget.releasePointerCapture(event.pointerId)
-    } catch {
-      // The pointer release may already have happened.
-    }
-    persistListWidth(listWidthRef.current)
-  }
+  const { handleProps } = usePanelResize({
+    kind: 'files-list',
+    panelRef: listRef,
+    getStartValue: () => effectiveListWidth,
+    clamp: (candidate) =>
+      Math.max(FILES_LIST_WIDTH_MIN, Math.min(maxListWidth, candidate)),
+    direction: 1,
+    axis: 'x',
+    disabled: !twoColumn,
+    cursor: 'col-resize',
+    onCommit: persistListWidth
+  })
 
   const visibleChildren = useMemo(
     () =>
@@ -3242,9 +3225,10 @@ export default function FilesPanel({
       data-busy={transferBusy ? 'true' : 'false'}
     >
       <div
+        ref={listRef}
         className={`flex min-w-0 flex-col bg-card ${
           twoColumn ? 'shrink-0 border-r border-border' : 'flex-1'
-        } ${resizingList ? 'select-none' : ''}`}
+        }`}
         style={twoColumn ? { width: `${String(effectiveListWidth)}px` } : undefined}
         data-testid="files-list-column"
       >
@@ -3499,14 +3483,9 @@ export default function FilesPanel({
           aria-label={t('files.toolbar.resizeList')}
           title={t('files.toolbar.resizeList')}
           tabIndex={0}
-          className={`w-1 shrink-0 cursor-col-resize focus-visible:bg-signal focus-visible:outline-none ${
-            resizingList ? 'bg-border' : 'bg-transparent hover:bg-border'
-          }`}
+          className="w-1 shrink-0 cursor-col-resize bg-transparent hover:bg-border focus-visible:bg-signal focus-visible:outline-none data-resizing:bg-border"
           data-testid="files-list-resizer"
-          onPointerDown={beginListResize}
-          onPointerMove={moveListResize}
-          onPointerUp={endListResize}
-          onPointerCancel={endListResize}
+          {...handleProps}
           onDoubleClick={() => persistListWidth(FILES_LIST_WIDTH_DEFAULT)}
           onKeyDown={(event) => {
             if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return

@@ -76,6 +76,7 @@ import {
   type ScmSettings
 } from '../scm/scm-settings'
 import { useElementWidth } from '../lib/use-element-width'
+import { usePanelResize } from '../lib/use-panel-resize'
 import { INSPECTOR_TWO_COLUMN_MIN } from '../state/inspector-layout'
 
 type DiffState = {
@@ -276,8 +277,8 @@ export default function WorkingTreeView({
   const [viewMode, setViewMode] = useState<ScmViewMode>(settings.viewMode)
   const [sort, setSort] = useState<ScmSortKey>(settings.sort)
   const [sidebarWidth, setSidebarWidth] = useState(settings.sidebarWidth)
-  const resizing = useRef<{ startX: number; startWidth: number } | null>(null)
   const sidebarWidthRef = useRef(settings.sidebarWidth)
+  const listRef = useRef<HTMLElement | null>(null)
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [query, setQuery] = useState('')
   const [diffs, setDiffs] = useState<Record<string, DiffState>>({})
@@ -406,32 +407,17 @@ export default function WorkingTreeView({
     saveScmSettings({ ...settings, sidebarWidth: clamped })
   }
 
-  const beginResize = (event: React.PointerEvent<HTMLDivElement>): void => {
-    event.preventDefault()
-    event.currentTarget.setPointerCapture(event.pointerId)
-    resizing.current = { startX: event.clientX, startWidth: sidebarWidthRef.current }
-  }
-
-  const moveResize = (event: React.PointerEvent<HTMLDivElement>): void => {
-    if (resizing.current === null) return
-    const next = Math.min(
-      maxListWidth,
-      Math.max(240, resizing.current.startWidth + event.clientX - resizing.current.startX)
-    )
-    setSidebarWidth(next)
-    sidebarWidthRef.current = next
-  }
-
-  const endResize = (event: React.PointerEvent<HTMLDivElement>): void => {
-    if (resizing.current === null) return
-    resizing.current = null
-    try {
-      event.currentTarget.releasePointerCapture(event.pointerId)
-    } catch {
-      // The pointer release may already have happened.
-    }
-    saveScmSettings({ ...settings, sidebarWidth: sidebarWidthRef.current })
-  }
+  const { handleProps } = usePanelResize({
+    kind: 'scm-list',
+    panelRef: listRef,
+    getStartValue: () => sidebarWidthRef.current,
+    clamp: (candidate) => Math.min(maxListWidth, Math.max(240, candidate)),
+    direction: 1,
+    axis: 'x',
+    disabled: !twoColumn,
+    cursor: 'col-resize',
+    onCommit: persistSidebarWidth
+  })
 
   useEffect(() => {
     const next = new Map<string, string>()
@@ -920,6 +906,7 @@ export default function WorkingTreeView({
       data-session-state={sessionState}
     >
       <aside
+        ref={listRef}
         className={`flex min-w-0 flex-col bg-card ${
           twoColumn ? 'shrink-0 border-r border-border' : 'flex-1'
         }`}
@@ -1419,10 +1406,7 @@ export default function WorkingTreeView({
           tabIndex={0}
           className="w-1 shrink-0 cursor-col-resize bg-transparent hover:bg-border focus-visible:bg-signal focus-visible:outline-none"
           data-testid="scm-sidebar-resizer"
-          onPointerDown={beginResize}
-          onPointerMove={moveResize}
-          onPointerUp={endResize}
-          onPointerCancel={endResize}
+          {...handleProps}
           onKeyDown={(event) => {
             if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
             event.preventDefault()

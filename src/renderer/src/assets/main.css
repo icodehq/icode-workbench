@@ -619,3 +619,26 @@ select option {
   content-visibility: auto;
   contain-intrinsic-size: auto 34px;
 }
+
+/*
+ * Panel drags write geometry straight to the DOM. Disabling selection keeps
+ * the pointer from painting text in the pane underneath, and the full-window
+ * scrim keeps hover targets (terminals especially) from reacting mid-drag.
+ */
+body.icode-resizing,
+body.icode-resizing * {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+
+.icode-resize-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  touch-action: none;
+}
+
+/* The narrow sidebar drops the refresh verb; the status bar still has one. */
+.workspace-sidebar[data-compact='true'] .workspace-sidebar-refresh {
+  display: none;
+}
