@@ -39,6 +39,8 @@ type Props = {
   ) => Promise<{ ok: boolean; message?: string }>
   /** Writes and stages a resolved conflict. */
   onResolveConflict?: (text: string) => Promise<{ ok: boolean; message?: string }>
+  /** Inspector controls (list toggle, maximize) shown at the header's leading edge. */
+  leading?: React.ReactNode
 }
 
 type SideRead = { ok: true; text: string } | { ok: false; error: string }
@@ -176,7 +178,8 @@ export default function WorkingDiffView({
   onAddComment,
   onRemoveComment,
   onApplyHunk,
-  onResolveConflict
+  onResolveConflict,
+  leading
 }: Props): React.JSX.Element {
   const t = useT()
   const tp = useTp()
@@ -253,6 +256,20 @@ export default function WorkingDiffView({
   const toggle = useMemo(
     () => <LayoutToggle mode={mode} onChange={onModeChange} />,
     [mode, onModeChange]
+  )
+  // The inspector's controls ride the detail's own header, so the detail adds
+  // no second chrome row.
+  const detailActions = useMemo(
+    () =>
+      leading === undefined ? (
+        toggle
+      ) : (
+        <>
+          {leading}
+          {toggle}
+        </>
+      ),
+    [leading, toggle]
   )
 
   const hunkMode: 'stage' | 'unstage' | null =
@@ -366,6 +383,7 @@ export default function WorkingDiffView({
           path={path}
           onResolve={onResolveConflict}
           onShowDiff={() => setConflictMode('diff')}
+          leading={leading}
         />
       )
     }
@@ -379,15 +397,20 @@ export default function WorkingDiffView({
         onRemoveComment={onRemoveComment}
         scopeLabel={scopeLabel}
         headerActions={
-          diff !== null && onResolveConflict !== undefined ? (
-            <button
-              type="button"
-              className="rounded border border-border bg-card px-1.5 py-0.5 text-[9.5px] text-foreground hover:bg-muted"
-              data-testid="merge-open"
-              onClick={() => setConflictMode('merge')}
-            >
-              {t('diff.mergeEditor')}
-            </button>
+          leading !== undefined || (diff !== null && onResolveConflict !== undefined) ? (
+            <>
+              {leading}
+              {diff !== null && onResolveConflict !== undefined ? (
+                <button
+                  type="button"
+                  className="rounded border border-border bg-card px-1.5 py-0.5 text-[9.5px] text-foreground hover:bg-muted"
+                  data-testid="merge-open"
+                  onClick={() => setConflictMode('merge')}
+                >
+                  {t('diff.mergeEditor')}
+                </button>
+              ) : null}
+            </>
           ) : undefined
         }
         notice={hunkError ?? undefined}
@@ -405,7 +428,8 @@ export default function WorkingDiffView({
         onAddComment={onAddComment}
         onRemoveComment={onRemoveComment}
         scopeLabel={scopeLabel}
-        headerActions={diff === null ? undefined : toggle}
+        headerActions={toggle}
+        leading={leading}
         hunkAction={hunkAction}
         notice={hunkError ?? undefined}
       />
@@ -437,6 +461,7 @@ export default function WorkingDiffView({
         onRemoveComment={onRemoveComment}
         scopeLabel={scopeLabel}
         headerActions={toggle}
+        leading={leading}
         hunkAction={hunkAction}
         notice={
           diff.binary || diff.symlink === true
@@ -458,6 +483,7 @@ export default function WorkingDiffView({
         onRemoveComment={onRemoveComment}
         scopeLabel={scopeLabel}
         headerActions={toggle}
+        leading={leading}
         hunkAction={hunkAction}
         notice={
           hunkError !== null
@@ -475,7 +501,7 @@ export default function WorkingDiffView({
         diff={diff}
         stale={state.phase === 'ready' && state.stale === true}
         scopeLabel={scopeLabel}
-        headerActions={toggle}
+        headerActions={detailActions}
       />
       {hunkError !== null ? (
         <div

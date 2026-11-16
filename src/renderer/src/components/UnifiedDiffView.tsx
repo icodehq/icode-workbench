@@ -57,6 +57,8 @@ type Props = {
   onRemoveComment?: (id: string) => void
   /** Extra header controls, e.g. the working-tree split/unified toggle. */
   headerActions?: React.ReactNode
+  /** Controls at the header's leading edge, e.g. the inspector's list toggle. */
+  leading?: React.ReactNode
   /** A non-blocking explanation shown below the header. */
   notice?: string
   /** Stage/unstage action rendered on every hunk header. */
@@ -472,36 +474,54 @@ export default function UnifiedDiffView({
   onAddComment,
   onRemoveComment,
   headerActions,
+  leading,
   notice,
   hunkAction
 }: Props): React.JSX.Element {
   const t = useT()
+  // The inspector's controls must outlive a diff that is loading or failed —
+  // otherwise the covered list would have no way back.
+  const leadingBar =
+    leading === undefined ? null : (
+      <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border px-3">
+        {leading}
+        <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-foreground/90">
+          {path}
+        </span>
+      </div>
+    )
   if (state.phase === 'loading' || state.phase === 'idle') {
     return (
-      <div className="flex h-full items-center justify-center text-[11px] text-muted-foreground">
-        {t('diff.loading')}
+      <div className="flex h-full min-h-0 flex-col">
+        {leadingBar}
+        <div className="flex flex-1 items-center justify-center text-[11px] text-muted-foreground">
+          {t('diff.loading')}
+        </div>
       </div>
     )
   }
   if (state.phase === 'error') {
     return (
-      <div className="flex h-full items-center justify-center p-6">
-        <div className="w-full max-w-md rounded-md border border-destructive/40 bg-card p-4">
-          <p className="text-[12px] font-medium text-destructive">{t('diff.readError')}</p>
-          <p className="mt-1 text-[11px] text-muted-foreground">{state.error.message}</p>
-          {state.error.detail ? (
-            <p className="mt-1 break-words font-mono text-[10.5px] text-muted-foreground">
-              {state.error.detail}
-            </p>
-          ) : null}
-          <button
-            type="button"
-            className="mt-3 rounded-md border border-border px-2.5 py-1.5 text-[11px] hover:bg-muted"
-            onClick={onRetry}
-            data-testid="review-diff-retry"
-          >
-            {t('diff.retry')}
-          </button>
+      <div className="flex h-full min-h-0 flex-col">
+        {leadingBar}
+        <div className="flex flex-1 items-center justify-center p-6">
+          <div className="w-full max-w-md rounded-md border border-destructive/40 bg-card p-4">
+            <p className="text-[12px] font-medium text-destructive">{t('diff.readError')}</p>
+            <p className="mt-1 text-[11px] text-muted-foreground">{state.error.message}</p>
+            {state.error.detail ? (
+              <p className="mt-1 break-words font-mono text-[10.5px] text-muted-foreground">
+                {state.error.detail}
+              </p>
+            ) : null}
+            <button
+              type="button"
+              className="mt-3 rounded-md border border-border px-2.5 py-1.5 text-[11px] hover:bg-muted"
+              onClick={onRetry}
+              data-testid="review-diff-retry"
+            >
+              {t('diff.retry')}
+            </button>
+          </div>
         </div>
       </div>
     )
@@ -516,6 +536,7 @@ export default function UnifiedDiffView({
       onAddComment={onAddComment}
       onRemoveComment={onRemoveComment}
       headerActions={headerActions}
+      leading={leading}
       notice={notice}
       hunkAction={hunkAction}
     />
@@ -533,19 +554,22 @@ export function DiffHeader({
   stale,
   scopeLabel,
   headerActions,
+  leading,
   notice
 }: {
   diff: FileDiffPayload
   stale: boolean
   scopeLabel?: string
   headerActions?: React.ReactNode
+  leading?: React.ReactNode
   notice?: string
 }): React.JSX.Element {
   const t = useT()
   return (
     <>
       <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-1.5">
-        <span className="truncate font-mono text-[11px] text-foreground/90">
+        {leading}
+        <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-foreground/90">
           {diff.oldPath ? `${diff.oldPath} → ${diff.path}` : diff.path}
         </span>
         <span className="rounded-sm border border-border px-1 text-[9px] uppercase text-muted-foreground">
@@ -595,6 +619,7 @@ export function DiffBody({
   onAddComment,
   onRemoveComment,
   headerActions,
+  leading,
   notice,
   showHeader = true,
   hunkAction
@@ -607,6 +632,7 @@ export function DiffBody({
   onAddComment?: (comment: Omit<LineComment, 'id'>) => void
   onRemoveComment?: (id: string) => void
   headerActions?: React.ReactNode
+  leading?: React.ReactNode
   notice?: string
   /** False when a parent already rendered the shared header, e.g. in a split view. */
   showHeader?: boolean
@@ -625,6 +651,7 @@ export function DiffBody({
           stale={stale}
           scopeLabel={scopeLabel}
           headerActions={headerActions}
+          leading={leading}
           notice={notice}
         />
       ) : null}

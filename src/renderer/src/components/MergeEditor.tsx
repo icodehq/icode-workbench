@@ -20,6 +20,8 @@ type Props = {
   /** Writes the result and stages the resolved path; refreshes Source Control. */
   onResolve: (text: string) => Promise<{ ok: boolean; message?: string }>
   onShowDiff: () => void
+  /** Inspector controls (list toggle, maximize) shown at the header's leading edge. */
+  leading?: React.ReactNode
 }
 
 type Sides = {
@@ -34,7 +36,8 @@ export default function MergeEditor({
   sessionId,
   path,
   onResolve,
-  onShowDiff
+  onShowDiff,
+  leading
 }: Props): React.JSX.Element {
   const t = useT()
   const tp = useTp()
@@ -154,6 +157,7 @@ export default function MergeEditor({
 
   const header = (
     <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-3 py-1.5">
+      {leading}
       <span className="min-w-0 truncate font-mono text-[11px] text-foreground">{path}</span>
       <span
         className="rounded-sm border border-destructive/40 bg-destructive/10 px-1 text-[9px] font-semibold uppercase text-destructive"

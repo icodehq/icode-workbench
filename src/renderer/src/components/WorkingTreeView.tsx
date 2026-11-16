@@ -10,8 +10,12 @@ import {
   List,
   ListTree,
   Loader2,
+  Maximize2,
+  Minimize2,
   Minus,
   MoreHorizontal,
+  PanelLeftClose,
+  PanelLeftOpen,
   Plus,
   Search,
   TerminalSquare,
@@ -70,6 +74,8 @@ import {
   subscribeScmSettings,
   type ScmSettings
 } from '../scm/scm-settings'
+import { useElementWidth } from '../lib/use-element-width'
+import { INSPECTOR_TWO_COLUMN_MIN } from '../state/inspector-layout'
 
 type DiffState = {
   phase: 'idle' | 'loading' | 'ready' | 'error'
@@ -246,6 +252,16 @@ export default function WorkingTreeView({
     [committedEntries, statusGroups]
   )
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
+  /*
+   * Master–detail for the Changes pane: the staged/unstaged list is the list,
+   * the selected diff is the detail. The detail sits beside the list only when
+   * the panel is wide enough; otherwise it covers the list, which stays mounted
+   * underneath so its scroll and group state survive.
+   */
+  const [panelRef, panelWidth] = useElementWidth<HTMLDivElement>()
+  const [listHidden, setListHidden] = useState(false)
+  const [detailDismissed, setDetailDismissed] = useState(false)
+  const [detailMaximized, setDetailMaximized] = useState(false)
   const rowButtonRefs = useRef(new Map<string, HTMLButtonElement>())
   const [selection, setSelection] = useState<ScmSelection>(EMPTY_SELECTION)
   const [menu, setMenu] = useState<{
@@ -306,7 +322,60 @@ export default function WorkingTreeView({
     () => rows.filter((row) => row.kind === 'resource').map((row) => row.entry),
     [rows]
   )
-  const selected = visibleEntries.find((entry) => entry.key === selectedKey) ?? visibleEntries[0] ?? null
+  // No fallback to the first row: opening Changes shows the list, and a click
+  // opens that file's diff. Auto-opening the first diff would cover the list
+  // the moment the pane appears.
+  const selected =
+    selectedKey === null
+      ? null
+      : (visibleEntries.find((entry) => entry.key === selectedKey) ?? null)
+  // The History pane replaces the detail area through `editorOverride`, so it
+  // counts as a detail for layout too.
+  const overrideOpen = editorOverride !== undefined && editorOverride !== null
+  const uncommittedTotal =
+    groups.conflicts.length + groups.staged.length + groups.unstaged.length + groups.untracked.length
+  const hasAnyChanges = uncommittedTotal + committedEntries.length > 0
+  // Loading, failure and "no changes" are full-pane states, not list rows:
+  // they keep the detail slot so those messages are never hidden behind the
+  // list.
+  const statusDetail = snapshot === null || !hasAnyChanges
+  const detailOpen = selected !== null || overrideOpen || statusDetail
+  const twoColumnAvailable = panelWidth >= INSPECTOR_TWO_COLUMN_MIN
+  const detailVisible = (detailOpen && !detailDismissed) || statusDetail
+  const twoColumn =
+    twoColumnAvailable && detailVisible && !listHidden && !statusDetail
+  // Leave the diff at least 360px when the list is beside it.
+  const maxListWidth = Math.max(240, Math.min(560, panelWidth - 360))
+  const listWidth = Math.max(240, Math.min(sidebarWidth, maxListWidth))
+
+  useEffect(() => {
+    setDetailDismissed(false)
+    if (selectedKey === null) setDetailMaximized(false)
+  }, [selectedKey])
+
+  useEffect(() => {
+    if (!detailMaximized) return
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      event.stopPropagation()
+      setDetailMaximized(false)
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [detailMaximized])
+
+  // A hidden list only means anything in the two-column layout; dropping below
+  // the threshold shows the list again rather than leaving a stale flag.
+  useEffect(() => {
+    if (!twoColumnAvailable) setListHidden(false)
+  }, [twoColumnAvailable])
+
+  // Opening History is a detail action too, even when the row selection did
+  // not change; it must not inherit a dismissed narrow detail.
+  useEffect(() => {
+    if (overrideOpen) setDetailDismissed(false)
+  }, [overrideOpen])
 
   const updateViewMode = (mode: ScmViewMode): void => {
     setViewMode(mode)
@@ -336,7 +405,7 @@ export default function WorkingTreeView({
   const moveResize = (event: React.PointerEvent<HTMLDivElement>): void => {
     if (resizing.current === null) return
     const next = Math.min(
-      560,
+      maxListWidth,
       Math.max(240, resizing.current.startWidth + event.clientX - resizing.current.startX)
     )
     setSidebarWidth(next)
@@ -764,15 +833,64 @@ export default function WorkingTreeView({
   const selectedState =
     selected !== null && selected.area !== 'committed' ? diffs[selected.key] : undefined
 
-  const uncommittedTotal =
-    groups.conflicts.length + groups.staged.length + groups.unstaged.length + groups.untracked.length
-  const hasAnyChanges = uncommittedTotal + committedEntries.length > 0
+  // Rides the diff's own header, so the detail adds no second chrome row.
+  const detailChrome = (
+    <span className="flex items-center gap-0.5">
+      {detailMaximized ? null : (
+        <button
+          type="button"
+          className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+          title={
+            twoColumnAvailable && !listHidden ? t('session.hideList') : t('session.showList')
+          }
+          aria-label={
+            twoColumnAvailable && !listHidden ? t('session.hideList') : t('session.showList')
+          }
+          data-testid="scm-list-toggle"
+          onClick={() => {
+            if (listHidden) {
+              setListHidden(false)
+            } else if (twoColumnAvailable) {
+              setListHidden(true)
+            } else {
+              setSelectedKey(null)
+            }
+          }}
+        >
+          {twoColumnAvailable && !listHidden ? (
+            <PanelLeftClose size={12} />
+          ) : (
+            <PanelLeftOpen size={12} />
+          )}
+        </button>
+      )}
+      <button
+        type="button"
+        className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+        title={detailMaximized ? t('session.restoreDetail') : t('session.maximizeDetail')}
+        aria-label={
+          detailMaximized ? t('session.restoreDetail') : t('session.maximizeDetail')
+        }
+        data-testid="scm-detail-maximize"
+        onClick={() => setDetailMaximized((value) => !value)}
+      >
+        {detailMaximized ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+      </button>
+    </span>
+  )
 
   return (
-    <div className="flex min-h-0 flex-1" data-testid="working-tree" data-session-state={sessionState}>
+    <div
+      ref={panelRef}
+      className="relative flex min-h-0 flex-1"
+      data-testid="working-tree"
+      data-session-state={sessionState}
+    >
       <aside
-        className="flex shrink-0 flex-col border-r border-border bg-card"
-        style={{ width: `${String(sidebarWidth)}px` }}
+        className={`flex min-w-0 flex-col bg-card ${
+          twoColumn ? 'shrink-0 border-r border-border' : 'flex-1'
+        }`}
+        style={twoColumn ? { width: `${String(listWidth)}px` } : undefined}
         role="tree"
         aria-label={t('scm.worktree.changedFilesAria')}
         aria-multiselectable="true"
@@ -1260,25 +1378,45 @@ export default function WorkingTreeView({
         </div>
         )}
       </aside>
+      {twoColumn ? (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={t('scm.worktree.resizeAria')}
+          title={t('scm.worktree.resizeTitle')}
+          tabIndex={0}
+          className="w-1 shrink-0 cursor-col-resize bg-transparent hover:bg-border focus-visible:bg-signal focus-visible:outline-none"
+          data-testid="scm-sidebar-resizer"
+          onPointerDown={beginResize}
+          onPointerMove={moveResize}
+          onPointerUp={endResize}
+          onPointerCancel={endResize}
+          onKeyDown={(event) => {
+            if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+            event.preventDefault()
+            persistSidebarWidth(
+              Math.max(
+                240,
+                Math.min(
+                  maxListWidth,
+                  sidebarWidthRef.current + (event.key === 'ArrowLeft' ? -16 : 16)
+                )
+              )
+            )
+          }}
+        />
+      ) : null}
       <div
-        role="separator"
-        aria-orientation="vertical"
-        aria-label={t('scm.worktree.resizeAria')}
-        title={t('scm.worktree.resizeTitle')}
-        tabIndex={0}
-        className="w-1 shrink-0 cursor-col-resize bg-transparent hover:bg-border focus-visible:bg-signal focus-visible:outline-none"
-        data-testid="scm-sidebar-resizer"
-        onPointerDown={beginResize}
-        onPointerMove={moveResize}
-        onPointerUp={endResize}
-        onPointerCancel={endResize}
-        onKeyDown={(event) => {
-          if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
-          event.preventDefault()
-          persistSidebarWidth(sidebarWidthRef.current + (event.key === 'ArrowLeft' ? -16 : 16))
-        }}
-      />
-      <div className="min-w-0 flex-1">
+        className={
+          detailVisible
+            ? detailMaximized
+              ? 'fixed inset-0 z-50 flex min-w-0 flex-col bg-background'
+              : twoColumn
+                ? 'flex min-w-0 flex-1 flex-col'
+                : 'absolute inset-0 z-10 flex min-w-0 flex-col bg-background'
+            : 'hidden'
+        }
+      >
         {editorOverride !== undefined && editorOverride !== null ? (
           editorOverride
         ) : snapshot === null ? (
@@ -1317,11 +1455,17 @@ export default function WorkingTreeView({
           selected.area === 'committed' &&
           selected.range !== undefined &&
           baseOid !== null ? (
-            <CommittedFileDiff sessionId={sessionId} baseOid={baseOid} file={selected.range} />
+            <CommittedFileDiff
+              sessionId={sessionId}
+              baseOid={baseOid}
+              file={selected.range}
+              leading={detailChrome}
+            />
           ) : (
             <WorkingDiffView
               sessionId={sessionId}
               entry={selected}
+              leading={detailChrome}
               state={diffViewState(selectedState)}
               onRetry={() => loadDiff(selected, true)}
               comments={comments.filter((comment) => comment.path === selected.entry.path)}

@@ -379,6 +379,9 @@ function prepareRunDir() {
   mkdirSync(ARTIFACT_DIR, { recursive: true })
   mkdirSync(REPO_DIR, { recursive: true })
   mkdirSync(USER_DATA, { recursive: true })
+  // The smoke asserts English copy; pin the isolated profile so a non-English
+  // system locale cannot fail the run before it starts.
+  writeFileSync(join(USER_DATA, 'preferences.json'), '{"locale":"en"}\n')
   mkdirSync(HOST_DIR, { recursive: true, mode: 0o700 })
   mkdirSync(EMPTY_BIN, { recursive: true })
   execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: REPO_DIR })

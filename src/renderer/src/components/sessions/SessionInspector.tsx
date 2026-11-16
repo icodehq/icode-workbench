@@ -1,10 +1,16 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { FileDiff, Files, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { isAgentHarness } from '../../../../shared/domain/harness'
-import type { RepositorySummary, SessionSummary } from '../../../../shared/schemas/ipc'
+import type { SessionSummary } from '../../../../shared/schemas/ipc'
 import type { AgentSendResult } from '../../lib/agent-send'
 import type { WorkbenchDraftStore } from '../../review/drafts'
 import type { Notice } from '../../state/workspace'
+import {
+  INSPECTOR_WIDTH_DEFAULT,
+  clampInspectorWidth,
+  loadInspectorWidth,
+  saveInspectorWidth
+} from '../../state/inspector-layout'
 import ChangesPanel from '../ChangesPanel'
 import FilesPanel from '../FilesPanel'
 import { useT } from '../../i18n/use-i18n'
@@ -13,7 +19,6 @@ type Pane = 'changes' | 'files'
 
 type Props = {
   session: SessionSummary
-  repo: RepositorySummary | null
   refreshToken: number
   openRequest: { path: string; line: number; nonce: number } | null
   onOpenRequestHandled: () => void
@@ -35,10 +40,14 @@ type Props = {
  * Terminal stays in the center; Files and Changes live here. Both panes stay
  * mounted once visited, and collapse only hides the shell so editor state and
  * SCM polling survive.
+ *
+ * One row carries the pane switch and collapse control: the old eyebrow +
+ * repo/branch header only repeated what the session header already shows.
+ * The left edge is a drag seam, and the width is remembered, so the panel can
+ * grow when a diff or an editor needs the room.
  */
 export default function SessionInspector({
   session,
-  repo,
   refreshToken,
   openRequest,
   onOpenRequestHandled,
@@ -64,6 +73,75 @@ export default function SessionInspector({
     nonce: number
   } | null>(null)
 
+  const [preferredWidth, setPreferredWidth] = useState<number>(() => loadInspectorWidth())
+  const preferredRef = useRef(preferredWidth)
+  const [viewportWidth, setViewportWidth] = useState<number>(() =>
+    typeof window === 'undefined' ? 1600 : window.innerWidth
+  )
+  const [resizing, setResizing] = useState(false)
+  const resizeAnchor = useRef<{ startX: number; startWidth: number } | null>(null)
+
+  useEffect(() => {
+    preferredRef.current = preferredWidth
+  }, [preferredWidth])
+
+  useEffect(() => {
+    const onResize = (): void => setViewportWidth(window.innerWidth)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+
+  const width = overlay
+    ? Math.min(360, Math.round(viewportWidth * 0.85))
+    : clampInspectorWidth(preferredWidth, viewportWidth)
+
+  const setWidth = (next: number): void => {
+    preferredRef.current = next
+    setPreferredWidth(next)
+  }
+
+  const beginResize = (event: React.PointerEvent<HTMLDivElement>): void => {
+    if (collapsed || overlay) return
+    event.preventDefault()
+    event.currentTarget.setPointerCapture(event.pointerId)
+    resizeAnchor.current = { startX: event.clientX, startWidth: width }
+    setResizing(true)
+  }
+
+  const moveResize = (event: React.PointerEvent<HTMLDivElement>): void => {
+    const anchor = resizeAnchor.current
+    if (anchor === null) return
+    // The inspector sits on the right, so dragging its leading seam left
+    // widens it.
+    setWidth(
+      clampInspectorWidth(anchor.startWidth - (event.clientX - anchor.startX), viewportWidth)
+    )
+  }
+
+  const endResize = (event: React.PointerEvent<HTMLDivElement>): void => {
+    if (resizeAnchor.current === null) return
+    resizeAnchor.current = null
+    setResizing(false)
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    } catch {
+      // The pointer release may already have happened.
+    }
+    saveInspectorWidth(preferredRef.current)
+  }
+
+  const nudgeWidth = (delta: number): void => {
+    const next = clampInspectorWidth(preferredRef.current + delta, viewportWidth)
+    setWidth(next)
+    saveInspectorWidth(next)
+  }
+
+  const resetWidth = (): void => {
+    const next = clampInspectorWidth(INSPECTOR_WIDTH_DEFAULT, viewportWidth)
+    setWidth(next)
+    saveInspectorWidth(next)
+  }
+
   const selectPane = (next: Pane): void => {
     setPane(next)
     setVisited((current) => {
@@ -88,17 +166,40 @@ export default function SessionInspector({
 
   return (
     <aside
-      className={`flex h-full shrink-0 flex-col border-l border-border bg-background ${
-        collapsed
-          ? 'w-9'
-          : overlay
-            ? 'w-[360px] max-w-[85vw] shadow-2xl'
-            : 'w-[640px] max-w-[calc(100vw-420px)]'
-      }`}
+      className={`relative flex h-full shrink-0 flex-col border-l border-border bg-background ${
+        collapsed ? 'w-9' : ''
+      } ${resizing ? 'select-none' : ''} ${overlay && !collapsed ? 'shadow-2xl' : ''}`}
+      style={collapsed ? undefined : { width: `${String(width)}px`, maxWidth: '85vw' }}
       aria-label={t('session.inspector')}
       data-testid="session-inspector"
       data-collapsed={collapsed ? 'true' : 'false'}
     >
+      {!collapsed && !overlay ? (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={t('session.resizeInspector')}
+          title={t('session.resizeInspector')}
+          tabIndex={0}
+          className="absolute inset-y-0 left-0 z-20 w-1.5 cursor-col-resize bg-transparent hover:bg-accent/40 focus-visible:bg-signal focus-visible:outline-none"
+          data-testid="inspector-resizer"
+          onPointerDown={beginResize}
+          onPointerMove={moveResize}
+          onPointerUp={endResize}
+          onPointerCancel={endResize}
+          onDoubleClick={resetWidth}
+          onKeyDown={(event) => {
+            if (event.key === 'ArrowLeft') {
+              event.preventDefault()
+              nudgeWidth(16)
+            } else if (event.key === 'ArrowRight') {
+              event.preventDefault()
+              nudgeWidth(-16)
+            }
+          }}
+        />
+      ) : null}
+
       {collapsed ? (
         <button
           type="button"
@@ -115,33 +216,9 @@ export default function SessionInspector({
         </button>
       ) : null}
       <div className={collapsed ? 'hidden' : 'flex min-h-0 flex-1 flex-col'}>
-          <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border px-2">
-            <div className="min-w-0 flex-1">
-              <div className="text-[8px] uppercase tracking-[0.12em] text-muted-foreground">
-                {t('session.inspector')}
-              </div>
-              <div className="truncate text-[10px] text-foreground" title={worktree?.path}>
-                {repo?.displayName ?? t('worktree.workspace')}
-                <span className="text-muted-foreground"> / </span>
-                <span className="font-mono">
-                  {worktree?.branch ?? t('worktree.primaryCheckout')}
-                </span>
-              </div>
-            </div>
-            <button
-              type="button"
-              className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
-              onClick={onToggleCollapsed}
-              aria-label={t('session.hideInspector')}
-              title={t('session.hideInspector')}
-              data-testid="inspector-collapse"
-            >
-              <PanelLeftClose size={12} />
-            </button>
-          </div>
-
+        <div className="flex h-10 shrink-0 items-center gap-1 border-b border-border px-1.5">
           <nav
-            className="flex h-9 shrink-0 items-center gap-0.5 border-b border-border px-2"
+            className="flex min-w-0 flex-1 items-center gap-0.5"
             role="tablist"
             aria-label={t('session.inspector')}
           >
@@ -149,10 +226,10 @@ export default function SessionInspector({
               type="button"
               role="tab"
               aria-selected={pane === 'changes'}
-              className={`inline-flex h-8 items-center gap-1.5 border-b-2 px-2 text-[10.5px] ${
+              className={`inline-flex h-7 items-center gap-1.5 rounded px-2 text-[10.5px] ${
                 pane === 'changes'
-                  ? 'border-accent text-foreground'
-                  : 'border-transparent text-muted-foreground hover:text-foreground'
+                  ? 'bg-accent/15 text-foreground'
+                  : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
               }`}
               onClick={() => selectPane('changes')}
               data-testid="view-changes"
@@ -164,10 +241,10 @@ export default function SessionInspector({
               type="button"
               role="tab"
               aria-selected={pane === 'files'}
-              className={`inline-flex h-8 items-center gap-1.5 border-b-2 px-2 text-[10.5px] ${
+              className={`inline-flex h-7 items-center gap-1.5 rounded px-2 text-[10.5px] ${
                 pane === 'files'
-                  ? 'border-accent text-foreground'
-                  : 'border-transparent text-muted-foreground hover:text-foreground'
+                  ? 'bg-accent/15 text-foreground'
+                  : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
               }`}
               onClick={() => selectPane('files')}
               data-testid="view-files"
@@ -176,60 +253,71 @@ export default function SessionInspector({
               {t('session.viewFiles')}
             </button>
           </nav>
+          <button
+            type="button"
+            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+            onClick={onToggleCollapsed}
+            aria-label={t('session.hideInspector')}
+            title={t('session.hideInspector')}
+            data-testid="inspector-collapse"
+          >
+            <PanelLeftClose size={12} />
+          </button>
+        </div>
 
-          <div className="relative min-h-0 flex-1">
-            <div
-              className={`h-full min-h-0 ${pane === 'files' ? '' : 'hidden'}`}
-              data-testid="files-view"
-            >
-              {visited.has('files') ? (
-                <FilesPanel
-                  sessionId={session.id}
-                  refreshToken={refreshToken}
-                  active={!collapsed && pane === 'files'}
-                  notify={notify}
-                  openRequest={fileRequest ?? openRequest}
-                  onOpenRequestHandled={() => {
-                    setFileRequest(null)
-                    onOpenRequestHandled()
-                  }}
-                  onOpenHistory={(path) => {
-                    setHistoryRequest({ path, nonce: Date.now() })
-                    selectPane('changes')
-                  }}
-                  editorEngine="monaco"
-                />
-              ) : null}
-            </div>
-            <div
-              className={`h-full min-h-0 ${pane === 'changes' ? '' : 'hidden'}`}
-              data-testid="changes-view"
-            >
-              {visited.has('changes') ? (
-                <ChangesPanel
-                  sessionId={session.id}
-                  sessionState={session.state}
-                  repoId={session.repoId}
-                  harness={session.harness}
-                  baseOid={worktree?.baseOid ?? null}
-                  refreshToken={refreshToken}
-                  active={!collapsed && pane === 'changes'}
-                  notify={notify}
-                  onOpenPath={(path) => {
-                    setFileRequest({ path, line: 1, nonce: Date.now() })
-                    selectPane('files')
-                  }}
-                  onOpenTerminal={() => onOpenTerminal?.()}
-                  onSendToAgent={onSendToAgent}
-                  canSendToAgent={session.state === 'live' && isAgentHarness(session.harness)}
-                  drafts={drafts}
-                  onChanged={onRecheck}
-                  initialHistoryPath={historyRequest}
-                  onHistoryPathHandled={() => setHistoryRequest(null)}
-                />
-              ) : null}
-            </div>
+        <div className="relative min-h-0 flex-1">
+          <div
+            className={`h-full min-h-0 ${pane === 'files' ? '' : 'hidden'}`}
+            data-testid="files-view"
+          >
+            {visited.has('files') ? (
+              <FilesPanel
+                sessionId={session.id}
+                refreshToken={refreshToken}
+                active={!collapsed && pane === 'files'}
+                notify={notify}
+                openRequest={fileRequest ?? openRequest}
+                onOpenRequestHandled={() => {
+                  setFileRequest(null)
+                  onOpenRequestHandled()
+                }}
+                onOpenHistory={(path) => {
+                  setHistoryRequest({ path, nonce: Date.now() })
+                  selectPane('changes')
+                }}
+                editorEngine="monaco"
+              />
+            ) : null}
           </div>
+          <div
+            className={`h-full min-h-0 ${pane === 'changes' ? '' : 'hidden'}`}
+            data-testid="changes-view"
+          >
+            {visited.has('changes') ? (
+              <ChangesPanel
+                sessionId={session.id}
+                sessionState={session.state}
+                repoId={session.repoId}
+                harness={session.harness}
+                baseOid={worktree?.baseOid ?? null}
+                refreshToken={refreshToken}
+                active={!collapsed && pane === 'changes'}
+                notify={notify}
+                onOpenPath={(path) => {
+                  setFileRequest({ path, line: 1, nonce: Date.now() })
+                  selectPane('files')
+                }}
+                onOpenTerminal={() => onOpenTerminal?.()}
+                onSendToAgent={onSendToAgent}
+                canSendToAgent={session.state === 'live' && isAgentHarness(session.harness)}
+                drafts={drafts}
+                onChanged={onRecheck}
+                initialHistoryPath={historyRequest}
+                onHistoryPathHandled={() => setHistoryRequest(null)}
+              />
+            ) : null}
+          </div>
+        </div>
       </div>
     </aside>
   )

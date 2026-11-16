@@ -14,6 +14,8 @@ type Props = {
   sessionId: string
   baseOid: string
   file: GitRangeFile
+  /** Inspector controls (list toggle, maximize) shown at the header's leading edge. */
+  leading?: React.ReactNode
 }
 
 type Sides = { original: string; modified: string }
@@ -39,7 +41,8 @@ function readText(
 export default function CommittedFileDiff({
   sessionId,
   baseOid,
-  file
+  file,
+  leading
 }: Props): React.JSX.Element {
   const [state, setState] = useState<DiffViewState>({ phase: 'loading' })
   const [sides, setSides] = useState<Sides | null>(null)
@@ -92,6 +95,7 @@ export default function CommittedFileDiff({
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="scm-committed-diff">
       <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border bg-card px-3">
+        {leading}
         <span
           className={`w-3 shrink-0 text-center font-mono text-[10px] font-semibold ${statusTone(file.status)}`}
         >

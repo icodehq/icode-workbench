@@ -47,8 +47,9 @@ made.
   the main surfaces; Mira, Settings and Schedules are temporary app tabs.
 - **Parallel by default.** Every session gets its own branch and Git worktree;
   keep several in sight with session tabs and a resizable, nested split view.
-- **Review in place.** Source Control and Files live in a persistent inspector
-  beside the terminal, or in the task workbench for queued work.
+- **Review in place.** Source Control and Files live in a persistent, resizable
+  inspector beside the terminal, or in the task workbench for queued work. A
+  file or diff takes the panel; the list is one toggle away.
 - **Mira across projects.** One conversation for the real queue, blockers, and
   cross-project actions.
 - **Terminals that outlive the app.** A detached host owns the PTYs, so closing
@@ -291,7 +292,10 @@ its attempts and its review record.*
 ### Review where the agent worked
 
 Source Control is scoped to the session's checkout and lives in the persistent
-inspector, or in a task's full-width Source Control tab. The task Overview also
+inspector, or in a task's full-width Source Control tab. The inspector opens on
+the changed-file list; clicking a file gives its diff the whole panel, and the
+list returns with one toggle (or by drag the inspector wider for both columns).
+The task Overview also
 summarizes changes against the baseline and opens the full diff. Diffs are
 area-scoped; stage or unstage by file, folder, hunk, or line; discard by file,
 folder, or hunk; and a three-way merge editor handles conflicts. Add notes to
@@ -328,8 +332,9 @@ buffers across an ordinary restart through hot exit.
 </p>
 
 *Files and Monaco in the task's worktree. The explorer and editor keep their
-full width in the task surface; the session inspector uses the same panel beside
-the terminal.*
+full width in the task surface. In the session inspector the tree is the list:
+an open file takes the panel, and widening the inspector brings the tree back
+beside it.*
 
 ### Run where your code lives
 

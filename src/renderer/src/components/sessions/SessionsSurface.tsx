@@ -635,7 +635,6 @@ export default function SessionsSurface({
             >
               <SessionInspector
                 session={activeSession}
-                repo={repo}
                 refreshToken={refreshToken}
                 openRequest={openRequest}
                 onOpenRequestHandled={onClearOpenRequest}

@@ -7,6 +7,10 @@ import {
   FolderOpen,
   FolderPlus,
   History,
+  Maximize2,
+  Minimize2,
+  PanelLeftClose,
+  PanelLeftOpen,
   Pencil,
   RefreshCw,
   Save,
@@ -48,6 +52,11 @@ import { buildFileDecorations, type FileDecorations } from '../files/file-decora
 import { useFilesSettings } from '../files/files-settings'
 import { translate, translatePlural } from '../i18n/i18n-store'
 import { useT, useTp } from '../i18n/use-i18n'
+import { useElementWidth } from '../lib/use-element-width'
+import {
+  FILES_LIST_WIDTH,
+  INSPECTOR_TWO_COLUMN_MIN
+} from '../state/inspector-layout'
 import { buildTreeRows } from '../files/tree-layout'
 import {
   openFilesStore,
@@ -286,6 +295,40 @@ export default function FilesPanel({
   const [closeAfterSave, setCloseAfterSave] = useState<string | null>(null)
   const [liveState, setLiveState] = useState<LiveState>('off')
   const [viewport, setViewport] = useState({ scrollTop: 0, height: 600, rowsTop: 0 })
+
+  /*
+   * Master–detail, the way Termio's inspector works: the tree is the list and
+   * the open file is the detail. The detail sits beside the tree only when the
+   * panel can carry both columns; otherwise it covers the tree, which stays
+   * mounted underneath so expansion and scroll survive. `detailDismissed` is
+   * the narrow layout's way back to the tree without closing the tab.
+   */
+  const [panelRef, panelWidth] = useElementWidth<HTMLDivElement>()
+  const [listHidden, setListHidden] = useState(false)
+  const [detailDismissed, setDetailDismissed] = useState(false)
+  const [detailMaximized, setDetailMaximized] = useState(false)
+  const detailOpen = activeTab !== null
+  const twoColumnAvailable = panelWidth >= INSPECTOR_TWO_COLUMN_MIN
+  const detailVisible = detailOpen && !detailDismissed
+  const twoColumn = twoColumnAvailable && detailVisible && !listHidden
+
+  useEffect(() => {
+    if (detailOpen) return
+    setDetailDismissed(false)
+    setDetailMaximized(false)
+  }, [detailOpen])
+
+  useEffect(() => {
+    if (!detailMaximized) return
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      event.stopPropagation()
+      setDetailMaximized(false)
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [detailMaximized])
 
   const visibleChildren = useMemo(
     () =>
@@ -922,6 +965,7 @@ export default function FilesPanel({
 
   const openPath = useCallback(
     async (path: string, line = 1): Promise<void> => {
+      setDetailDismissed(false)
       setFileNote('')
       if (isGitMetadata(path)) {
         setEditorMode('tab')
@@ -3211,6 +3255,47 @@ export default function FilesPanel({
   const tabStrip =
     tabs.length === 0 ? null : (
       <div className="flex h-8 shrink-0 items-center border-b border-border bg-card">
+        <div className="flex shrink-0 items-center gap-0.5 pl-1">
+          {detailMaximized ? null : (
+            <button
+              type="button"
+              className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+              title={
+                twoColumnAvailable && !listHidden ? t('session.hideList') : t('session.showList')
+              }
+              aria-label={
+                twoColumnAvailable && !listHidden ? t('session.hideList') : t('session.showList')
+              }
+              data-testid="files-list-toggle"
+              onClick={() => {
+                if (twoColumnAvailable) {
+                  setListHidden((hidden) => !hidden)
+                } else {
+                  setDetailMaximized(false)
+                  setDetailDismissed(true)
+                }
+              }}
+            >
+              {twoColumnAvailable && !listHidden ? (
+                <PanelLeftClose size={12} />
+              ) : (
+                <PanelLeftOpen size={12} />
+              )}
+            </button>
+          )}
+          <button
+            type="button"
+            className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+            title={detailMaximized ? t('session.restoreDetail') : t('session.maximizeDetail')}
+            aria-label={
+              detailMaximized ? t('session.restoreDetail') : t('session.maximizeDetail')
+            }
+            data-testid="files-detail-maximize"
+            onClick={() => setDetailMaximized((value) => !value)}
+          >
+            {detailMaximized ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+          </button>
+        </div>
         <div
           role="tablist"
           aria-label={t('files.tabs.openFiles')}
@@ -3300,13 +3385,22 @@ export default function FilesPanel({
 
   return (
     <div
-      className="flex h-full min-h-0 flex-1"
+      ref={panelRef}
+      className="relative flex h-full min-h-0 flex-1"
       data-testid="files-panel"
       data-live-mode={liveState}
       data-busy={transferBusy ? 'true' : 'false'}
     >
-      <div className="flex w-[312px] shrink-0 flex-col border-r border-border bg-card">
-        <div className="flex items-center gap-1 border-b border-border px-2 py-1.5">
+      <div
+        className={`flex min-w-0 flex-col bg-card ${
+          twoColumn ? 'shrink-0 border-r border-border' : 'flex-1'
+        }`}
+        style={twoColumn ? { width: `${String(FILES_LIST_WIDTH)}px` } : undefined}
+        data-testid="files-list-column"
+      >
+        {/* One compact row: search, then the create/refresh/undo verbs as icons.
+            Rename, duplicate and delete appear only when something is selected. */}
+        <div className="flex items-center gap-1 border-b border-border px-2 py-1">
           <Search size={11} className="shrink-0 text-muted-foreground" />
           <input
             ref={searchInput}
@@ -3332,7 +3426,7 @@ export default function FilesPanel({
           {query.length > 0 ? (
             <button
               type="button"
-              className="text-muted-foreground hover:text-foreground"
+              className="shrink-0 text-muted-foreground hover:text-foreground"
               onClick={() => {
                 setQuery('')
                 setResults(null)
@@ -3345,6 +3439,48 @@ export default function FilesPanel({
               <X size={11} />
             </button>
           ) : null}
+          <span className="mx-0.5 h-4 w-px shrink-0 bg-border" />
+          <button
+            type="button"
+            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+            title={t('files.toolbar.newFile')}
+            aria-label={t('files.toolbar.newFile')}
+            data-testid="files-new-file"
+            onClick={() => beginCreate('create-file', createParent())}
+          >
+            <FilePlus2 size={11} />
+          </button>
+          <button
+            type="button"
+            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+            title={t('files.toolbar.newFolder')}
+            aria-label={t('files.toolbar.newFolder')}
+            data-testid="files-new-directory"
+            onClick={() => beginCreate('create-directory', createParent())}
+          >
+            <FolderPlus size={11} />
+          </button>
+          <button
+            type="button"
+            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+            title={t('files.toolbar.refresh')}
+            aria-label={t('files.toolbar.refreshAria')}
+            data-testid="files-refresh"
+            onClick={() => void reloadExpanded(false, true)}
+          >
+            <RefreshCw size={11} />
+          </button>
+          <button
+            type="button"
+            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
+            title={undoLabel(peekUndo(undoStack))}
+            aria-label={t('files.toolbar.undo')}
+            disabled={undoStack.length === 0 || undoing || transferBusy}
+            data-testid="files-undo"
+            onClick={() => void undoLast()}
+          >
+            <Undo2 size={11} />
+          </button>
         </div>
 
         {showSearch ? (
@@ -3456,119 +3592,6 @@ export default function FilesPanel({
             </label>
           </div>
         ) : null}
-
-        <div className="flex flex-wrap items-center gap-0.5 border-b border-border px-1 py-1">
-          <button
-            type="button"
-            className="inline-flex h-7 items-center gap-1 rounded px-2 text-[10.5px] text-muted-foreground hover:bg-muted hover:text-foreground"
-            title={t('files.toolbar.newFile')}
-            data-testid="files-new-file"
-            onClick={() => beginCreate('create-file', createParent())}
-          >
-            <FilePlus2 size={10} />
-            {t('files.toolbar.newFile')}
-          </button>
-          <button
-            type="button"
-            className="inline-flex h-7 items-center gap-1 rounded px-2 text-[10.5px] text-muted-foreground hover:bg-muted hover:text-foreground"
-            title={t('files.toolbar.newFolder')}
-            data-testid="files-new-directory"
-            onClick={() => beginCreate('create-directory', createParent())}
-          >
-            <FolderPlus size={10} />
-            {t('files.toolbar.newFolder')}
-          </button>
-          <button
-            type="button"
-            className="inline-flex h-7 items-center gap-1 rounded px-2 text-[10.5px] text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
-            title={t('files.toolbar.rename')}
-            disabled={selectionSummary.total !== 1 || singleSelectedEntry === null || transferBusy}
-            data-testid="files-rename"
-            onClick={() => {
-              const path = [...selection.selected][0]
-              if (path !== undefined) beginRename(path)
-            }}
-          >
-            <Pencil size={10} />
-            {t('files.toolbar.rename')}
-          </button>
-          <button
-            type="button"
-            className="inline-flex h-7 items-center gap-1 rounded px-2 text-[10.5px] text-destructive hover:bg-destructive/10 disabled:opacity-30"
-            title={t('files.toolbar.delete')}
-            disabled={selectionSummary.total === 0 || transferBusy}
-            data-testid="files-delete"
-            onClick={() => requestDelete(selectedPaths())}
-          >
-            <Trash2 size={10} />
-            {t('files.toolbar.delete')}
-          </button>
-          <button
-            type="button"
-            className="ml-auto rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
-            title={undoLabel(peekUndo(undoStack))}
-            aria-label={t('files.toolbar.undo')}
-            disabled={undoStack.length === 0 || undoing || transferBusy}
-            data-testid="files-undo"
-            onClick={() => void undoLast()}
-          >
-            <Undo2 size={11} />
-          </button>
-          <button
-            type="button"
-            className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
-            title={t('files.toolbar.duplicate')}
-            aria-label={t('files.toolbar.duplicate')}
-            disabled={selectionSummary.total === 0 || transferBusy}
-            data-testid="files-duplicate"
-            onClick={() => void duplicateSelection()}
-          >
-            <Copy size={11} />
-          </button>
-          <button
-            type="button"
-            className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-            title={t('files.toolbar.refresh')}
-            aria-label={t('files.toolbar.refreshAria')}
-            data-testid="files-refresh"
-            onClick={() => void reloadExpanded(false, true)}
-          >
-            <RefreshCw size={11} />
-          </button>
-        </div>
-
-        <div
-          className="border-b border-border bg-card px-3 py-1.5 text-[10px] text-muted-foreground"
-          data-testid="files-selection"
-        >
-          {selectionSummary.total === 0 ? (
-            t('files.selection.hint')
-          ) : selectionSummary.total === 1 ? (
-            <>
-              {t('files.selection.selected', {
-                path: singleSelectedPath ?? '',
-                kind:
-                  singleSelectedEntry?.kind === 'directory'
-                    ? t('files.selection.folder')
-                    : t('files.selection.file')
-              })}
-            </>
-          ) : (
-            <>
-              {t('files.selection.summary', {
-                total: selectionSummary.total,
-                files: tp('files.selection.files', selectionSummary.files),
-                folders: tp('files.selection.folders', selectionSummary.directories)
-              })}
-            </>
-          )}
-          {liveState === 'poll' ? (
-            <span className="ml-1 text-signal" title={t('files.toolbar.watcherUnavailable')}>
-              {t('files.toolbar.polling')}
-            </span>
-          ) : null}
-          {transferBusy ? <span className="ml-1 text-signal">{t('files.toolbar.working')}</span> : null}
-        </div>
 
         {hotExitNote.length > 0 ? (
           <div
@@ -3762,6 +3785,19 @@ export default function FilesPanel({
                 <div role="presentation" className="mb-1 flex items-center gap-1 px-1 text-[9px] text-muted-foreground">
                   <FolderOpen size={9} />
                   <span className="truncate">{rootNote || t('files.move.root')}</span>
+                  {liveState === 'poll' ? (
+                    <span
+                      className="ml-auto shrink-0 text-signal"
+                      title={t('files.toolbar.watcherUnavailable')}
+                    >
+                      {t('files.toolbar.polling')}
+                    </span>
+                  ) : null}
+                  {transferBusy ? (
+                    <span className="ml-auto shrink-0 text-signal">
+                      {t('files.toolbar.working')}
+                    </span>
+                  ) : null}
                 </div>
               ) : null}
               <div
@@ -3782,9 +3818,82 @@ export default function FilesPanel({
             </>
           )}
         </div>
+
+        {/* Selection acts live here, at the foot of the list, so the verbs
+            appear only when there is a selection to act on. */}
+        {selectionSummary.total > 0 ? (
+          <div
+            className="flex shrink-0 items-center gap-1 border-t border-border bg-card px-2 py-1 text-[10px] text-muted-foreground"
+            data-testid="files-selection"
+          >
+            <span className="min-w-0 flex-1 truncate">
+              {selectionSummary.total === 1
+                ? t('files.selection.selected', {
+                    path: singleSelectedPath ?? '',
+                    kind:
+                      singleSelectedEntry?.kind === 'directory'
+                        ? t('files.selection.folder')
+                        : t('files.selection.file')
+                  })
+                : t('files.selection.summary', {
+                    total: selectionSummary.total,
+                    files: tp('files.selection.files', selectionSummary.files),
+                    folders: tp('files.selection.folders', selectionSummary.directories)
+                  })}
+            </span>
+            <button
+              type="button"
+              className="inline-flex h-6 shrink-0 items-center gap-1 rounded px-1.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
+              title={t('files.toolbar.rename')}
+              disabled={
+                selectionSummary.total !== 1 || singleSelectedEntry === null || transferBusy
+              }
+              data-testid="files-rename"
+              onClick={() => {
+                const path = [...selection.selected][0]
+                if (path !== undefined) beginRename(path)
+              }}
+            >
+              <Pencil size={10} />
+              {t('files.toolbar.rename')}
+            </button>
+            <button
+              type="button"
+              className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
+              title={t('files.toolbar.duplicate')}
+              aria-label={t('files.toolbar.duplicate')}
+              disabled={transferBusy}
+              data-testid="files-duplicate"
+              onClick={() => void duplicateSelection()}
+            >
+              <Copy size={10} />
+            </button>
+            <button
+              type="button"
+              className="inline-flex h-6 shrink-0 items-center gap-1 rounded px-1.5 text-[10px] text-destructive hover:bg-destructive/10 disabled:opacity-30"
+              title={t('files.toolbar.delete')}
+              disabled={transferBusy}
+              data-testid="files-delete"
+              onClick={() => requestDelete(selectedPaths())}
+            >
+              <Trash2 size={10} />
+              {t('files.toolbar.delete')}
+            </button>
+          </div>
+        ) : null}
       </div>
 
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div
+        className={
+          detailVisible
+            ? detailMaximized
+              ? 'fixed inset-0 z-50 flex min-h-0 min-w-0 flex-col bg-background'
+              : twoColumn
+                ? 'flex min-h-0 min-w-0 flex-1 flex-col'
+                : 'absolute inset-0 z-10 flex min-h-0 min-w-0 flex-col bg-background'
+            : 'hidden'
+        }
+      >
         {tabStrip}
         {fileNote ? (
           <p className="border-b border-border px-3 py-2 text-[10px] text-signal" data-testid="files-file-note">

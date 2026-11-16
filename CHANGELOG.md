@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The right inspector is now a master–detail surface, matching Termio's right
+  panel. Files and Changes each get the full panel for their list, and an open
+  file or diff takes the whole panel instead of sharing it with a 312px tree.
+  The list is one toggle away; both columns return once the inspector is wider
+  than 760px.
+- The inspector width is drag-resizable (360–1000px) and remembered across
+  launches; double-click the seam to reset it. Its old eyebrow and repo/branch
+  header row is merged with the pane switch, and the detail can maximize to the
+  window with Escape to restore.
+- The Files tree header is one compact row with icon actions; rename, delete and
+  duplicate appear only while something is selected.
+- Changes opens on the changed-file list instead of auto-opening the first
+  diff, so a diff never covers the list unbidden.
+
 ## [0.9.6] - 2026-11-16
 
 ### Changed
