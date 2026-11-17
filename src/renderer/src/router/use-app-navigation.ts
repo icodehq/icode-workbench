@@ -123,14 +123,16 @@ export function useAppNavigation({
 
   const repo = activeRepo(state)
   const active = activeSession(state)
+  // Archived tasks keep their sessions too: History is a filter over the queue,
+  // not a reason for a task-owned session to appear under its project.
   const taskSessionIds = useMemo(
     () =>
       new Set(
-        tasks.tasks
+        [...tasks.tasks, ...tasks.archivedTasks]
           .map((task) => task.sessionId)
           .filter((id): id is string => id !== null)
       ),
-    [tasks.tasks]
+    [tasks.tasks, tasks.archivedTasks]
   )
 
   const directSessions = useMemo(

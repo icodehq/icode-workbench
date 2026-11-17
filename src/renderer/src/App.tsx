@@ -749,7 +749,7 @@ export default function App(): React.JSX.Element {
             open: paletteOpen,
             repos: state.repos,
             sessions: state.sessions,
-            tasks: tasks.tasks,
+            tasks: [...tasks.tasks, ...tasks.archivedTasks],
             fileSession: quickOpenSession,
             canStartSession: !hostUnreachable,
             resolvedTheme: theme.resolved,
