@@ -7,6 +7,7 @@ import {
   directSessionsByRepo,
   groupDirectSessions,
   pinnedProjectsFirst,
+  repositoryRemovalImpact,
   sidebarTaskRank,
   sortSidebarTasks
 } from './sidebar-model'
@@ -66,6 +67,43 @@ function task(
     ...overrides
   } as TaskRecordPayload
 }
+
+describe('repository removal impact', () => {
+  it('counts direct sessions and task sessions, including archived tasks', () => {
+    const sessions = [
+      session('s1', 'repo-a', 'branch-a'),
+      session('s2', 'repo-a'),
+      session('s3', 'repo-b', 'branch-b')
+    ]
+    const tasks = [
+      task('t1', 'repo-a', 'completed', {
+        sessionId: 'session-t1',
+        worktreePath: '/tmp/wt/t1'
+      }),
+      task('t2', 'repo-a', 'completed', {
+        sessionId: 'session-t2',
+        worktreePath: null,
+        archivedAt: 1
+      }),
+      task('t3', 'repo-b', 'completed', {
+        sessionId: 'session-t3',
+        worktreePath: '/tmp/wt/t3'
+      })
+    ]
+
+    expect(repositoryRemovalImpact('repo-a', sessions, tasks)).toEqual({
+      sessions: 4,
+      worktrees: 2
+    })
+  })
+
+  it('counts nothing for a repository with no sessions or tasks', () => {
+    expect(repositoryRemovalImpact('repo-empty', [], [])).toEqual({
+      sessions: 0,
+      worktrees: 0
+    })
+  })
+})
 
 describe('sidebar model', () => {
   it('excludes task-owned sessions from the direct-session map', () => {

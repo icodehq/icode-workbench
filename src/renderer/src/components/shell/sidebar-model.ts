@@ -145,3 +145,20 @@ export function pinnedProjectsFirst(
     rest: repos.filter((repo) => !pinned.has(repo.id))
   }
 }
+
+/** Sessions and worktrees a repository removal takes with it, including task sessions. */
+export function repositoryRemovalImpact(
+  repoId: string,
+  sessions: readonly SessionSummary[],
+  tasks: readonly TaskRecordPayload[]
+): { sessions: number; worktrees: number } {
+  const repoTasks = tasks.filter((task) => task.repoId === repoId)
+  const repoSessions = sessions.filter((session) => session.repoId === repoId)
+  return {
+    sessions:
+      repoSessions.length + repoTasks.filter((task) => task.sessionId !== null).length,
+    worktrees:
+      repoSessions.filter((session) => session.worktree !== null).length +
+      repoTasks.filter((task) => task.worktreePath !== null).length
+  }
+}

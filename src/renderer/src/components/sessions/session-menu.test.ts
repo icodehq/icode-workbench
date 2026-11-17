@@ -3,7 +3,9 @@ import type { SessionSummary } from '../../../../shared/schemas/ipc'
 import type { PendingAction } from '../../state/workspace'
 import {
   sessionActionState,
+  sessionHeaderMenuEntries,
   sessionMenuEntries,
+  worktreeIsShared,
   type SessionMenuEntry
 } from './session-menu'
 
@@ -57,6 +59,75 @@ function byId(entries: SessionMenuEntry[], id: SessionMenuEntry['id']): SessionM
   if (entry === undefined) throw new Error(`Missing ${id}`)
   return entry
 }
+
+describe('sessionHeaderMenuEntries', () => {
+  it('mirrors the live lifecycle without the sidebar-only pin entry', () => {
+    const entries = sessionHeaderMenuEntries(
+      sessionActionState(session(), null, true),
+      true
+    )
+    expect(ids(entries)).toEqual(['details', 'sleep', 'restart', 'remove'])
+    expect(separators(entries)).toEqual(['remove'])
+    expect(entries.every((entry) => entry.disabled === false)).toBe(true)
+  })
+
+  it('offers wake instead of sleep and restart on a sleeping session', () => {
+    const entries = sessionHeaderMenuEntries(
+      sessionActionState(session({ sleeping: true, state: 'exited' }), null, true),
+      true
+    )
+    expect(ids(entries)).toEqual(['details', 'wake', 'remove'])
+  })
+
+  it('keeps a disabled restart for a sleeping session when sleep is not allowed', () => {
+    const state = sessionActionState(session({ sleeping: true, state: 'exited' }), null, false)
+    const entries = sessionHeaderMenuEntries(state, false)
+    expect(ids(entries)).toEqual(['details', 'restart', 'remove'])
+    expect(byId(entries, 'restart')).toMatchObject({ disabled: true })
+    expect(byId(entries, 'restart').reason).toBeUndefined()
+  })
+
+  it('carries pending reasons to the header menu', () => {
+    const entries = sessionHeaderMenuEntries(
+      sessionActionState(session(), 'restarting', true),
+      true
+    )
+    expect(byId(entries, 'sleep')).toMatchObject({ disabled: true, reason: 'pending' })
+    expect(byId(entries, 'restart')).toMatchObject({
+      disabled: true,
+      reason: 'restarting'
+    })
+    expect(byId(entries, 'remove')).toMatchObject({ disabled: true, reason: 'pending' })
+  })
+})
+
+describe('worktreeIsShared', () => {
+  it('detects another session in the same worktree, but not the session itself', () => {
+    const one = session()
+    const two = session({ id: 'session-2' })
+    expect(worktreeIsShared(one, [one])).toBe(false)
+    expect(worktreeIsShared(one, [one, two])).toBe(true)
+  })
+
+  it('does not match sessions in different worktrees or without a worktree', () => {
+    const one = session()
+    const other = session({
+      id: 'session-2',
+      worktree: {
+        id: 'wt-2',
+        path: '/tmp/wt-2',
+        branch: 'icode/session-2',
+        baseOid: 'def',
+        state: 'ready',
+        status: 'active',
+        error: null
+      }
+    })
+    const bare = session({ id: 'session-3', worktree: null })
+    expect(worktreeIsShared(one, [one, other])).toBe(false)
+    expect(worktreeIsShared(bare, [bare, one])).toBe(false)
+  })
+})
 
 describe('sessionMenuEntries', () => {
   it('offers the full lifecycle on a live session', () => {

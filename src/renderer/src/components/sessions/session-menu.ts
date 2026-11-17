@@ -112,6 +112,67 @@ export function sessionActionState(
   }
 }
 
+export function worktreeIsShared(
+  session: SessionSummary,
+  sessions: readonly SessionSummary[]
+): boolean {
+  return (
+    session.worktree !== null &&
+    sessions.some(
+      (candidate) =>
+        candidate.id !== session.id && candidate.worktree?.id === session.worktree?.id
+    )
+  )
+}
+
+/**
+ * The header menu's plan. It deliberately omits Pin: the header is about the
+ * session on screen, while Pin is a sidebar arrangement action.
+ *
+ * `allowSleep` is a surface projection, not a session fact. Surfaces that never
+ * sleep a session still show Restart on a sleeping one, disabled, exactly as
+ * the old flattened props did.
+ */
+export function sessionHeaderMenuEntries(
+  state: SessionActionState,
+  allowSleep: boolean
+): SessionMenuEntry[] {
+  const entries: SessionMenuEntry[] = [
+    { id: 'details', separatorBefore: false, disabled: false }
+  ]
+  if (state.showSleep) {
+    entries.push({
+      id: 'sleep',
+      separatorBefore: false,
+      disabled: !state.canSleep,
+      ...(state.sleepReason === null ? {} : { reason: state.sleepReason })
+    })
+  }
+  if (state.showWake) {
+    entries.push({
+      id: 'wake',
+      separatorBefore: false,
+      disabled: !state.canWake,
+      ...(state.wakeReason === null ? {} : { reason: state.wakeReason })
+    })
+  }
+  if (!allowSleep || !state.sleeping) {
+    entries.push({
+      id: 'restart',
+      separatorBefore: false,
+      disabled: !state.canRestart,
+      ...(state.restartReason === null ? {} : { reason: state.restartReason })
+    })
+  }
+  entries.push({
+    id: 'remove',
+    separatorBefore: true,
+    disabled: !state.canRemove,
+    ...(state.removeReason === null ? {} : { reason: state.removeReason })
+  })
+  return entries
+}
+
 export function sessionMenuEntries(state: SessionActionState): SessionMenuEntry[] {
   const entries: SessionMenuEntry[] = [
     { id: 'details', separatorBefore: false, disabled: false }

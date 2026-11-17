@@ -58,6 +58,7 @@ import {
   buildSidebarTaskGroups,
   groupDirectSessions,
   pinnedProjectsFirst,
+  repositoryRemovalImpact,
   type WorktreeSessionGroup
 } from './sidebar-model'
 import { sidebarBrandInset } from './window-chrome'
@@ -574,18 +575,8 @@ export default function WorkspaceSidebar({
     open(menuAnchor(event.currentTarget))
   }
 
-  /** Sessions and worktrees a removal takes with it, including task sessions. */
-  const removalImpact = (repoId: string): { sessions: number; worktrees: number } => {
-    const repoTasks = [...tasks, ...archivedTasks].filter((task) => task.repoId === repoId)
-    const repoSessions = sessions.filter((session) => session.repoId === repoId)
-    return {
-      sessions:
-        repoSessions.length + repoTasks.filter((task) => task.sessionId !== null).length,
-      worktrees:
-        repoSessions.filter((session) => session.worktree !== null).length +
-        repoTasks.filter((task) => task.worktreePath !== null).length
-    }
-  }
+  const removalImpact = (repoId: string): { sessions: number; worktrees: number } =>
+    repositoryRemovalImpact(repoId, sessions, [...tasks, ...archivedTasks])
 
   const newMenuItems: ContextMenuItem[] = [
     {

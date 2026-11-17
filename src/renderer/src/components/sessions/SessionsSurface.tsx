@@ -13,6 +13,7 @@ import SessionInspector from '../sessions/SessionInspector'
 import SessionStatusStrip from '../sessions/SessionStatusStrip'
 import SessionTabStrip from '../sessions/SessionTabStrip'
 import { moveSessionTab, orderSessionTabIds } from '../sessions/session-tab-order'
+import { worktreeIsShared } from '../sessions/session-menu'
 import SessionWorkspace from '../SessionWorkspace'
 import { useT } from '../../i18n/use-i18n'
 import { useSessionSplit } from '../../state/use-session-split'
@@ -545,14 +546,7 @@ export default function SessionsSurface({
           // Hidden tabs keep their terminals mounted in the focused pane.
           return target.id === activeSession.id
         })}
-        worktreeShared={
-          target.worktree !== null &&
-          sessions.some(
-            (candidate) =>
-              candidate.id !== target.id &&
-              candidate.worktree?.id === target.worktree?.id
-          )
-        }
+        worktreeShared={worktreeIsShared(target, sessions)}
         allowSleep
         refreshToken={refreshToken}
         openRequest={null}
