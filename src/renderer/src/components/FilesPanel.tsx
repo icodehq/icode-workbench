@@ -32,18 +32,14 @@ import type {
   FilesTrashListPayload,
   FilesTrashPayload,
   FilesWritePayload,
-  GitFileAtRevisionPayload,
-  GitStatusPayload
+  GitFileAtRevisionPayload
 } from '../../../shared/icode-api'
 import type { FileBatchEntry, FileEntry } from '../../../shared/domain/workspace-files'
 import { clearWorktreeFileIndex } from '../files/file-index'
-import {
-  EMPTY_DECORATIONS,
-  buildFileDecorations,
-  type FileDecorations
-} from '../files/file-decorations'
+import { EMPTY_DECORATIONS } from '../files/file-decorations'
 import { basenameOf, isUnder, parentPathOf } from '../files/file-paths'
 import { filesMenuEntries, type FilesMenuReason } from '../files/files-menu'
+import { useFilesDecorations, useFilesWatch } from '../files/use-files-live'
 import { useFilesLayout } from '../files/use-files-layout'
 import { useFilesTree } from '../files/use-files-tree'
 import { useFilesViewport } from '../files/use-files-viewport'
@@ -130,8 +126,6 @@ type ConflictPrompt = {
   detail: string
 }
 
-type LiveState = 'off' | 'watch' | 'poll'
-
 /**
  * Files, open-file tabs, editor and search for one session's worktree.
  *
@@ -190,7 +184,6 @@ export default function FilesPanel({
   } = useFilesTree({ sessionId, refreshToken, settings, notify })
   const [fileNote, setFileNote] = useState('')
   const [gotoLine, setGotoLine] = useState<number | null>(null)
-  const [decorations, setDecorations] = useState<FileDecorations>(EMPTY_DECORATIONS)
   const [editorMode, setEditorMode] = useState<'tab' | 'folder'>('tab')
   const [edit, setEdit] = useState<InlineEdit | null>(null)
   const [editValue, setEditValue] = useState('')
@@ -212,7 +205,6 @@ export default function FilesPanel({
   const [conflict, setConflict] = useState<ConflictPrompt | null>(null)
   const [dialogBusy, setDialogBusy] = useState(false)
   const [closeAfterSave, setCloseAfterSave] = useState<string | null>(null)
-  const [liveState, setLiveState] = useState<LiveState>('off')
   /*
    * Master–detail, the way Termio's inspector works: the tree is the list and
    * the open file is the detail. The detail sits beside the tree only when the
@@ -292,15 +284,6 @@ export default function FilesPanel({
   const reloadExpandedRef = useRef<
     (quiet?: boolean, discover?: boolean) => Promise<void>
   >(async () => undefined)
-  const decorationTimer = useRef<number | null>(null)
-  const decorationBusy = useRef(false)
-  const decorationAgain = useRef(false)
-  const decorationsEnabled = useRef(settings.gitDecorations)
-  const sessionIdRef = useRef(sessionId)
-  sessionIdRef.current = sessionId
-  const activeRef = useRef(active)
-  activeRef.current = active
-  const scheduleDecorationsRef = useRef<((delay?: number) => void) | null>(null)
 
   const refreshTrash = useCallback(async (): Promise<void> => {
     const result = await callApi<FilesTrashListPayload>(
@@ -449,67 +432,11 @@ export default function FilesPanel({
   )
   reloadExpandedRef.current = reloadExpanded
 
-  /**
-   * Git decorations are a lightweight status read while Files is visible. The
-   * Files watcher schedules a debounced refresh; there is no second watcher.
-   */
-  const fetchDecorations = useCallback(async (): Promise<void> => {
-    if (!decorationsEnabled.current || !activeRef.current) return
-    if (decorationBusy.current) {
-      decorationAgain.current = true
-      return
-    }
-    decorationBusy.current = true
-    const requestSession = sessionId
-    const result = await callApi<GitStatusPayload>(
-      window.icode.git.status({ sessionId })
-    )
-    decorationBusy.current = false
-    if (
-      requestSession !== sessionIdRef.current ||
-      !decorationsEnabled.current ||
-      !activeRef.current
-    ) {
-      return
-    }
-    if (result.ok && result.value.status === 'ok') {
-      setDecorations(buildFileDecorations(result.value.snapshot))
-    } else {
-      setDecorations(EMPTY_DECORATIONS)
-    }
-    if (decorationAgain.current) {
-      decorationAgain.current = false
-      scheduleDecorationsRef.current?.()
-    }
-  }, [sessionId])
-
-  const scheduleDecorations = useCallback(
-    (delay = 400): void => {
-      if (!decorationsEnabled.current || !activeRef.current) return
-      if (decorationTimer.current !== null) window.clearTimeout(decorationTimer.current)
-      decorationTimer.current = window.setTimeout(() => {
-        decorationTimer.current = null
-        void fetchDecorations()
-      }, delay)
-    },
-    [fetchDecorations]
-  )
-  scheduleDecorationsRef.current = scheduleDecorations
-
-  useEffect(() => {
-    decorationsEnabled.current = settings.gitDecorations
-    if (!active || !settings.gitDecorations) {
-      setDecorations(EMPTY_DECORATIONS)
-      return
-    }
-    void fetchDecorations()
-    return () => {
-      if (decorationTimer.current !== null) {
-        window.clearTimeout(decorationTimer.current)
-        decorationTimer.current = null
-      }
-    }
-  }, [active, fetchDecorations, settings.gitDecorations])
+  const { decorations, setDecorations, scheduleDecorationsRef } = useFilesDecorations({
+    sessionId,
+    active,
+    gitDecorations: settings.gitDecorations
+  })
 
   // Toggling .gitignore filtering re-checks the directories already on screen;
   // disabling it drops the cached answers instead of leaving hidden rows.
@@ -709,131 +636,12 @@ export default function FilesPanel({
     onOpenRequestHandled()
   }, [onOpenRequestHandled, openPath, openRequest])
 
-  /**
-   * Watches the worktree only while Files is visible. A watcher that cannot
-   * start (ext4 guest today) falls back to a two-second stat/list poll; a
-   * failed watch does the same from its `failed` event.
-   */
-  useEffect(() => {
-    if (!active) {
-      setLiveState('off')
-      return
-    }
-    let cancelled = false
-    let pollTimer: number | null = null
-
-    const reloadCleanTab = async (path: string): Promise<void> => {
-      const read = await callApi<FileContentPayload>(
-        window.icode.files.read({ sessionId, path })
-      )
-      if (cancelled || openFilesStore.find(sessionId, path) === null) return
-      if (!read.ok) return
-      const value = read.value
-      if (value.status === 'unavailable') {
-        if (value.reason === 'not-found') openFilesStore.markDiskDeleted(sessionId, path)
-        return
-      }
-      if (value.binary || value.tooLarge) {
-        openFilesStore.markDiskChanged(sessionId, path)
-        return
-      }
-      // The user may have typed while the read was in flight. Never replace a
-      // buffer that became dirty after the clean check.
-      const current = openFilesStore.find(sessionId, path)
-      if (current === null) return
-      if (isDirty(current)) {
-        openFilesStore.markDiskChanged(sessionId, path)
-        return
-      }
-      openFilesStore.setContent(sessionId, path, { text: value.text, etag: value.etag })
-    }
-
-    let reconciling = false
-    let reconcileAgain = false
-
-    const reconcile = async (): Promise<void> => {
-      if (cancelled || rootStateRef.current !== 'ready') return
-      if (reconciling) {
-        reconcileAgain = true
-        return
-      }
-      reconciling = true
-      try {
-        await reloadExpandedRef.current(true)
-        clearWorktreeFileIndex(sessionId)
-        const state = openFilesStore.get(sessionId)
-        for (const tab of state.tabs) {
-          if (cancelled) return
-          if (tab.load !== 'ready') continue
-          const stat = await callApi<FilesStatPayload>(
-            window.icode.files.stat({ sessionId, path: tab.path })
-          )
-          if (cancelled) return
-          if (!stat.ok) continue
-          const value = stat.value
-          if (value.status === 'unavailable') {
-            if (value.reason === 'not-found') {
-              openFilesStore.markDiskDeleted(sessionId, tab.path)
-            }
-            continue
-          }
-          if (value.etag === tab.etag) {
-            openFilesStore.markDiskCurrent(sessionId, tab.path)
-            continue
-          }
-          const current = openFilesStore.find(sessionId, tab.path)
-          if (current === null) continue
-          if (isDirty(current)) openFilesStore.markDiskChanged(sessionId, current.path)
-          else await reloadCleanTab(current.path)
-        }
-      } finally {
-        reconciling = false
-        if (reconcileAgain && !cancelled) {
-          reconcileAgain = false
-          void reconcile()
-        }
-      }
-    }
-
-    const startPolling = (): void => {
-      if (cancelled || pollTimer !== null) return
-      setLiveState('poll')
-      pollTimer = window.setInterval(() => {
-        void reconcile()
-      }, 2000)
-    }
-
-    const unsubscribe = window.icode.files.onChanged((event) => {
-      if (event.sessionId !== sessionId) return
-      if (event.failed) {
-        startPolling()
-        return
-      }
-      setLiveState('watch')
-      void reconcile()
-    })
-
-    void reconcile()
-    void window.icode.files
-      .watch({ sessionId, active: true })
-      .then((result) => {
-        if (cancelled) return
-        if (!result.ok || !result.value.watching) {
-          startPolling()
-          return
-        }
-        setLiveState('watch')
-        void reconcile()
-      })
-
-    return () => {
-      cancelled = true
-      unsubscribe()
-      if (pollTimer !== null) window.clearInterval(pollTimer)
-      setLiveState('off')
-      void window.icode.files.watch({ sessionId, active: false })
-    }
-  }, [active, sessionId])
+  const { liveState } = useFilesWatch({
+    sessionId,
+    active,
+    rootStateRef,
+    reloadExpandedRef
+  })
 
   const setActiveTab = (path: string): void => {
     openFilesStore.setActive(sessionId, path)
