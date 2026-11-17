@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react'
 import { AlertTriangle, GitBranch, Loader2, X } from 'lucide-react'
 import type { SessionCleanupPrompt } from '../state/workspace'
 import { useT } from '../i18n/use-i18n'
@@ -27,8 +26,9 @@ function blockerTitle(prompt: SessionCleanupPrompt, t: ReturnType<typeof useT>):
 }
 
 /**
- * Removal is blocked, not confirmable, when work is at risk. The only
- * destructive path is a separate discard that requires the exact branch name.
+ * Removal is blocked, not confirmable, when work is at risk. The destructive
+ * path is one warning and one click: the affected files or the retained branch
+ * are named, and the exact branch is still sent to the backend as its guard.
  */
 export default function WorktreeCleanupDialog({
   prompt,
@@ -38,15 +38,10 @@ export default function WorktreeCleanupDialog({
   onRecover
 }: Props): React.JSX.Element {
   const t = useT()
-  const [typed, setTyped] = useState('')
   const blocker = prompt.blocker
-  const discardable = blocker?.kind === 'dirty' || blocker?.kind === 'unmerged'
+  const dirty = blocker?.kind === 'dirty'
+  const unmerged = blocker?.kind === 'unmerged'
   const recoverable = blocker?.kind === 'missing'
-  const confirmMatches = typed.trim() === prompt.branch
-
-  useEffect(() => {
-    setTyped('')
-  }, [prompt.sessionId, prompt.branch])
 
   return (
     <div
@@ -55,6 +50,7 @@ export default function WorktreeCleanupDialog({
       aria-modal="true"
       aria-label={t('scm.cleanup.aria')}
       data-testid="worktree-cleanup-dialog"
+      data-blocker={blocker?.kind ?? 'unknown'}
     >
       <div className="icode-modal w-full max-w-lg rounded-lg border border-border bg-card p-6 shadow-2xl">
         <div className="flex items-start justify-between">
@@ -73,9 +69,9 @@ export default function WorktreeCleanupDialog({
         </div>
 
         <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground">
-          {blocker?.kind === 'dirty'
+          {dirty
             ? t('scm.cleanup.body.dirty')
-            : blocker?.kind === 'unmerged'
+            : unmerged
               ? t('scm.cleanup.body.unmerged')
               : blocker?.kind === 'missing'
                 ? t('scm.cleanup.body.missing')
@@ -130,7 +126,7 @@ export default function WorktreeCleanupDialog({
           </button>
         ) : null}
 
-        {discardable ? (
+        {dirty ? (
           <div className="mt-4 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-3">
             <p className="text-[12px] font-medium text-destructive">
               {t('scm.cleanup.discardTitle')}
@@ -138,23 +134,36 @@ export default function WorktreeCleanupDialog({
             <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
               {t('scm.cleanup.discardBody', { branch: prompt.branch })}
             </p>
-            <input
-              className="mt-2 w-full rounded-md border border-border bg-background px-3 py-2 font-mono text-[12px] outline-none focus:border-destructive"
-              value={typed}
-              onChange={(event) => setTyped(event.target.value)}
-              placeholder={prompt.branch}
-              spellCheck={false}
-              data-testid="discard-confirm-input"
-            />
             <button
               type="button"
               className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-destructive px-2.5 py-1.5 text-[12px] font-medium text-black hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
               onClick={() => void onDiscard(prompt.branch)}
-              disabled={!confirmMatches || busy}
+              disabled={busy}
               data-testid="discard-confirm"
             >
               {busy ? <Loader2 size={12} className="animate-spin" /> : null}
               {t('scm.cleanup.discard')}
+            </button>
+          </div>
+        ) : null}
+
+        {unmerged ? (
+          <div className="mt-4 rounded-md border border-border bg-muted/20 px-3 py-3">
+            <p className="text-[12px] font-medium text-foreground">
+              {t('scm.cleanup.removeCheckoutTitle')}
+            </p>
+            <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
+              {t('scm.cleanup.removeCheckoutBody', { branch: prompt.branch })}
+            </p>
+            <button
+              type="button"
+              className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1.5 text-[12px] font-medium hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
+              onClick={() => void onDiscard(prompt.branch)}
+              disabled={busy}
+              data-testid="remove-checkout-confirm"
+            >
+              {busy ? <Loader2 size={12} className="animate-spin" /> : null}
+              {t('scm.cleanup.removeCheckout')}
             </button>
           </div>
         ) : null}
