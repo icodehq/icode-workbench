@@ -17,7 +17,7 @@ export type FileDecorations = {
   folders: Set<string>
 }
 
-const EMPTY: FileDecorations = { files: new Map(), folders: new Set() }
+export const EMPTY_DECORATIONS: FileDecorations = { files: new Map(), folders: new Set() }
 
 function decorationFor(entry: GitStatusEntry): FileDecoration {
   switch (entry.status) {
@@ -57,7 +57,7 @@ function ancestorsOf(path: string): string[] {
  * unstaged `M` it still has in the editor.
  */
 export function buildFileDecorations(snapshot: GitWorkspaceStatus | null): FileDecorations {
-  if (snapshot === null) return EMPTY
+  if (snapshot === null) return EMPTY_DECORATIONS
   const files = new Map<string, FileDecoration>()
   const apply = (entries: readonly GitStatusEntry[]): void => {
     for (const entry of entries) files.set(entry.path, decorationFor(entry))

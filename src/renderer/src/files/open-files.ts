@@ -140,7 +140,7 @@ export function createIndexedDbPersistence(): OpenFilesPersistence | null {
   }
 }
 
-function isDirty(tab: OpenFileTab): boolean {
+export function isDirty(tab: OpenFileTab): boolean {
   return tab.text !== tab.savedText
 }
 

@@ -37,9 +37,14 @@ import type {
   GitStatusPayload
 } from '../../../shared/icode-api'
 import type { FileBatchEntry, FileEntry } from '../../../shared/domain/workspace-files'
-import { isExcluded } from '../../../shared/domain/glob'
 import { clearWorktreeFileIndex } from '../files/file-index'
-import { buildFileDecorations, type FileDecorations } from '../files/file-decorations'
+import {
+  EMPTY_DECORATIONS,
+  buildFileDecorations,
+  type FileDecorations
+} from '../files/file-decorations'
+import { basenameOf, isUnder, parentPathOf } from '../files/file-paths'
+import { visibleTreeChildren } from '../files/visible-tree'
 import {
   FILES_LIST_WIDTH_DEFAULT,
   FILES_LIST_WIDTH_MAX,
@@ -54,11 +59,7 @@ import { useElementWidth } from '../lib/use-element-width'
 import { usePanelResize } from '../lib/use-panel-resize'
 import { INSPECTOR_TWO_COLUMN_MIN } from '../state/inspector-layout'
 import { buildTreeRows } from '../files/tree-layout'
-import {
-  openFilesStore,
-  useSessionFiles,
-  type OpenFileTab
-} from '../files/open-files'
+import { isDirty, openFilesStore, useSessionFiles } from '../files/open-files'
 import {
   EMPTY_SELECTION,
   collapseSelectedPaths,
@@ -148,42 +149,6 @@ type ConflictPrompt = {
 }
 
 type LiveState = 'off' | 'watch' | 'poll'
-
-const parentPathOf = (path: string): string => {
-  const index = path.lastIndexOf('/')
-  return index === -1 ? '' : path.slice(0, index)
-}
-
-const basenameOf = (path: string): string => {
-  const index = path.lastIndexOf('/')
-  return index === -1 ? path : path.slice(index + 1)
-}
-
-const isUnder = (path: string, parent: string): boolean =>
-  parent === '' || path === parent || path.startsWith(`${parent}/`)
-
-const isDirty = (tab: OpenFileTab): boolean => tab.text !== tab.savedText
-
-/** Applies `.git`/exclude/.gitignore visibility to every loaded directory. */
-function visibleTreeChildren(
-  children: Record<string, FileEntry[]>,
-  exclude: readonly string[],
-  respectGitIgnore: boolean,
-  ignoredByDirectory: Record<string, ReadonlySet<string>>
-): Record<string, FileEntry[]> {
-  const result: Record<string, FileEntry[]> = {}
-  for (const [directory, entries] of Object.entries(children)) {
-    const ignored = respectGitIgnore ? ignoredByDirectory[directory] : undefined
-    result[directory] = entries.filter((entry) => {
-      if (isGitMetadata(entry.path)) return false
-      if (ignored?.has(entry.path) === true) return false
-      return !isExcluded(entry.path, entry.kind === 'directory', exclude)
-    })
-  }
-  return result
-}
-
-const EMPTY_DECORATIONS: FileDecorations = { files: new Map(), folders: new Set() }
 
 /**
  * Files, open-file tabs, editor and search for one session's worktree.

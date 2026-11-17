@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   FILES_MAX_BUFFERED_CHARS,
   OpenFilesStore,
+  isDirty,
   parsePersistedOpenFiles,
   type OpenFilesPersistence
 } from './open-files'
@@ -18,6 +19,17 @@ function memoryPersistence(initial: unknown = null) {
 }
 
 describe('open files store', () => {
+  it('reports a tab as dirty only when its text differs from the saved text', () => {
+    const store = new OpenFilesStore()
+    store.open('ses_a', 'one.ts')
+    store.setContent('ses_a', 'one.ts', { text: 'const one = 1\n', etag: '1:12' })
+
+    expect(isDirty(store.find('ses_a', 'one.ts')!)).toBe(false)
+
+    store.updateText('ses_a', 'one.ts', 'const one = 2\n')
+    expect(isDirty(store.find('ses_a', 'one.ts')!)).toBe(true)
+  })
+
   it('keeps tabs per session and preserves unsaved text', () => {
     const store = new OpenFilesStore()
     store.open('ses_a', 'one.ts')
