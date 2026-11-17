@@ -35,14 +35,8 @@ import type {
   SessionSummary
 } from '../../../../shared/schemas/ipc'
 import type { Notice, PendingAction } from '../../state/workspace'
-import ContextMenu, { type ContextMenuItem, type MenuAnchor } from '../ContextMenu'
+import { type ContextMenuItem, type MenuAnchor } from '../ContextMenu'
 import type { TaskAction } from '../TaskWorkbench'
-import ProjectMaintenanceDialog from '../sessions/ProjectMaintenanceDialog'
-import RemoveRepositoryDialog from '../RemoveRepositoryDialog'
-import RemoveSessionDialog from '../RemoveSessionDialog'
-import RepositorySettingsDialog from '../RepositorySettingsDialog'
-import SessionDetailsDrawer from '../SessionDetailsDrawer'
-import SleepSessionDialog from '../SleepSessionDialog'
 import AssistantAvatar from '../AssistantAvatar'
 import { repositoryPreparationView } from '../../lib/repository-preparation'
 import { isMacPlatform, shortcutLabel } from '../../lib/platform'
@@ -61,6 +55,7 @@ import {
   repositoryRemovalImpact,
   type WorktreeSessionGroup
 } from './sidebar-model'
+import WorkspaceSidebarDialogs from './WorkspaceSidebarDialogs'
 import { sidebarBrandInset } from './window-chrome'
 import { taskMenuEntries, type TaskMenuEntryId } from './task-menu'
 import {
@@ -78,7 +73,6 @@ import {
   saveSidebarWidth
 } from '../../state/sidebar-layout'
 import { usePanelResize } from '../../lib/use-panel-resize'
-import { useFilesDirtyCount } from '../../files/open-files'
 import { taskAttention, taskStatusLabel } from '../task-status'
 import {
   activityDotClass,
@@ -182,40 +176,6 @@ function taskDotClass(task: TaskRecordPayload): string {
 function menuAnchor(element: Element): MenuAnchor {
   const rect = element.getBoundingClientRect()
   return { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right }
-}
-
-/**
- * The remove dialog needs the target session's open-file state, which is a
- * hook, so it lives in its own component rather than inside the sidebar body.
- */
-function SessionRemoveConfirm({
-  session,
-  sessions,
-  onClose,
-  onConfirm
-}: {
-  session: SessionSummary
-  sessions: SessionSummary[]
-  onClose: () => void
-  onConfirm: () => void
-}): React.JSX.Element {
-  const unsavedCount = useFilesDirtyCount(session.id)
-  const sharedWorktree =
-    session.worktree !== null &&
-    sessions.some(
-      (candidate) =>
-        candidate.id !== session.id &&
-        candidate.worktree?.id === session.worktree?.id
-    )
-  return (
-    <RemoveSessionDialog
-      session={session}
-      unsavedCount={unsavedCount}
-      sharedWorktree={sharedWorktree}
-      onClose={onClose}
-      onConfirm={onConfirm}
-    />
-  )
 }
 
 export default function WorkspaceSidebar({
@@ -1444,133 +1404,159 @@ export default function WorkspaceSidebar({
         </button>
       </footer>
 
-      {projectMenu !== null ? (
-        <ContextMenu
-          items={projectMenuItems(projectMenu.repo)}
-          ariaLabel={t('projects.row.actionsAria', { name: projectMenu.repo.displayName })}
-          testId="sidebar-project-menu"
-          width={228}
-          x={projectMenu.x}
-          y={projectMenu.y}
-          anchor={projectMenu.anchor}
-          align="start"
-          returnFocus={projectMenu.returnFocus}
-          opener={projectMenu.opener}
-          onClose={() => setProjectMenu(null)}
-        />
-      ) : null}
-      {worktreeMenu !== null ? (
-        <ContextMenu
-          items={worktreeMenuItems(worktreeMenu)}
-          ariaLabel={t('sidebar.worktreeMenu')}
-          testId="sidebar-worktree-menu"
-          width={208}
-          x={worktreeMenu.x}
-          y={worktreeMenu.y}
-          returnFocus={worktreeMenu.returnFocus}
-          onClose={() => setWorktreeMenu(null)}
-        />
-      ) : null}
-      {taskMenu !== null ? (
-        <ContextMenu
-          items={taskMenuItems(taskMenu.task)}
-          ariaLabel={t('task.actions')}
-          testId="sidebar-task-menu"
-          width={208}
-          x={taskMenu.x}
-          y={taskMenu.y}
-          anchor={taskMenu.anchor}
-          align="start"
-          returnFocus={taskMenu.returnFocus}
-          onClose={() => setTaskMenu(null)}
-        />
-      ) : null}
-      {sessionMenu !== null ? (
-        <ContextMenu
-          items={sessionMenuItems(sessionMenu.session)}
-          ariaLabel={t('session.actions')}
-          testId="sidebar-session-menu"
-          width={208}
-          x={sessionMenu.x}
-          y={sessionMenu.y}
-          anchor={sessionMenu.anchor}
-          align="start"
-          returnFocus={sessionMenu.returnFocus}
-          onClose={() => setSessionMenu(null)}
-        />
-      ) : null}
-      {newMenu !== null ? (
-        <ContextMenu
-          items={newMenuItems}
-          ariaLabel={t('sidebar.newWork')}
-          testId="sidebar-new-work-menu"
-          width={208}
-          anchor={newMenu.anchor}
-          returnFocus={newMenu.returnFocus}
-          opener={newMenu.opener}
-          onClose={() => setNewMenu(null)}
-        />
-      ) : null}
-      {maintenanceRepo !== null ? (
-        <ProjectMaintenanceDialog
-          repo={maintenanceRepo}
-          branches={branches}
-          orphans={orphans}
-          onRemoveBranch={onRemoveBranch}
-          onClose={() => setMaintenanceRepo(null)}
-        />
-      ) : null}
-      {settingsRepo !== null ? (
-        <RepositorySettingsDialog
-          repoId={settingsRepo.id}
-          repoName={settingsRepo.displayName}
-          onClose={() => setSettingsRepo(null)}
-        />
-      ) : null}
-      {removeRepo !== null ? (
-        <RemoveRepositoryDialog
-          repo={removeRepo}
-          sessionCount={removalImpact(removeRepo.id).sessions}
-          worktreeCount={removalImpact(removeRepo.id).worktrees}
-          onClose={() => setRemoveRepo(null)}
-          onConfirm={() => {
-            const repoId = removeRepo.id
-            setRemoveRepo(null)
-            onRemoveRepository(repoId)
-          }}
-        />
-      ) : null}
-      {detailsSession !== null ? (
-        <SessionDetailsDrawer
-          session={detailsSession}
-          repo={repos.find((repo) => repo.id === detailsSession.repoId) ?? null}
-          notify={onNotify}
-          onClose={() => setDetailsSession(null)}
-        />
-      ) : null}
-      {sleepSession !== null ? (
-        <SleepSessionDialog
-          session={sleepSession}
-          onClose={() => setSleepSession(null)}
-          onConfirm={() => {
-            const sessionId = sleepSession.id
-            setSleepSession(null)
-            onSleepSession(sessionId)
-          }}
-        />
-      ) : null}
-      {removeSession !== null ? (
-        <SessionRemoveConfirm
-          session={removeSession}
-          sessions={sessions}
-          onClose={() => setRemoveSession(null)}
-          onConfirm={() => {
-            const sessionId = removeSession.id
-            setRemoveSession(null)
-            onRemoveSession(sessionId)
-          }}
-        />
-      ) : null}
+      <WorkspaceSidebarDialogs
+        projectMenu={
+          projectMenu === null
+            ? null
+            : {
+                items: projectMenuItems(projectMenu.repo),
+                ariaLabel: t('projects.row.actionsAria', {
+                  name: projectMenu.repo.displayName
+                }),
+                testId: 'sidebar-project-menu',
+                width: 228,
+                x: projectMenu.x,
+                y: projectMenu.y,
+                anchor: projectMenu.anchor,
+                align: 'start',
+                returnFocus: projectMenu.returnFocus,
+                opener: projectMenu.opener,
+                onClose: () => setProjectMenu(null)
+              }
+        }
+        worktreeMenu={
+          worktreeMenu === null
+            ? null
+            : {
+                items: worktreeMenuItems(worktreeMenu),
+                ariaLabel: t('sidebar.worktreeMenu'),
+                testId: 'sidebar-worktree-menu',
+                width: 208,
+                x: worktreeMenu.x,
+                y: worktreeMenu.y,
+                returnFocus: worktreeMenu.returnFocus,
+                onClose: () => setWorktreeMenu(null)
+              }
+        }
+        taskMenu={
+          taskMenu === null
+            ? null
+            : {
+                items: taskMenuItems(taskMenu.task),
+                ariaLabel: t('task.actions'),
+                testId: 'sidebar-task-menu',
+                width: 208,
+                x: taskMenu.x,
+                y: taskMenu.y,
+                anchor: taskMenu.anchor,
+                align: 'start',
+                returnFocus: taskMenu.returnFocus,
+                onClose: () => setTaskMenu(null)
+              }
+        }
+        sessionMenu={
+          sessionMenu === null
+            ? null
+            : {
+                items: sessionMenuItems(sessionMenu.session),
+                ariaLabel: t('session.actions'),
+                testId: 'sidebar-session-menu',
+                width: 208,
+                x: sessionMenu.x,
+                y: sessionMenu.y,
+                anchor: sessionMenu.anchor,
+                align: 'start',
+                returnFocus: sessionMenu.returnFocus,
+                onClose: () => setSessionMenu(null)
+              }
+        }
+        newMenu={
+          newMenu === null
+            ? null
+            : {
+                items: newMenuItems,
+                ariaLabel: t('sidebar.newWork'),
+                testId: 'sidebar-new-work-menu',
+                width: 208,
+                anchor: newMenu.anchor,
+                returnFocus: newMenu.returnFocus,
+                opener: newMenu.opener,
+                onClose: () => setNewMenu(null)
+              }
+        }
+        maintenance={
+          maintenanceRepo === null
+            ? null
+            : {
+                repo: maintenanceRepo,
+                branches,
+                orphans,
+                onRemoveBranch,
+                onClose: () => setMaintenanceRepo(null)
+              }
+        }
+        repositorySettings={
+          settingsRepo === null
+            ? null
+            : {
+                repoId: settingsRepo.id,
+                repoName: settingsRepo.displayName,
+                onClose: () => setSettingsRepo(null)
+              }
+        }
+        removeRepository={
+          removeRepo === null
+            ? null
+            : {
+                repo: removeRepo,
+                sessionCount: removalImpact(removeRepo.id).sessions,
+                worktreeCount: removalImpact(removeRepo.id).worktrees,
+                onClose: () => setRemoveRepo(null),
+                onConfirm: () => {
+                  const repoId = removeRepo.id
+                  setRemoveRepo(null)
+                  onRemoveRepository(repoId)
+                }
+              }
+        }
+        details={
+          detailsSession === null
+            ? null
+            : {
+                session: detailsSession,
+                repo: repos.find((repo) => repo.id === detailsSession.repoId) ?? null,
+                notify: onNotify,
+                onClose: () => setDetailsSession(null)
+              }
+        }
+        sleep={
+          sleepSession === null
+            ? null
+            : {
+                session: sleepSession,
+                onClose: () => setSleepSession(null),
+                onConfirm: () => {
+                  const sessionId = sleepSession.id
+                  setSleepSession(null)
+                  onSleepSession(sessionId)
+                }
+              }
+        }
+        removeSession={
+          removeSession === null
+            ? null
+            : {
+                session: removeSession,
+                sessions,
+                onClose: () => setRemoveSession(null),
+                onConfirm: () => {
+                  const sessionId = removeSession.id
+                  setRemoveSession(null)
+                  onRemoveSession(sessionId)
+                }
+              }
+        }
+      />
     </aside>
     <div
       ref={resizerRef}
