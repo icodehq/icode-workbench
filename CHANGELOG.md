@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.15] - 2026-11-17
+
+### Added
+
+- Session rows now offer Details, Sleep/Wake, Restart, and Remove in their
+  right-click/Menu-key menu, alongside Pin. Lifecycle actions apply to the
+  row's session without opening it, so a stuck, sleeping, or finished session
+  can be restarted, put to sleep, inspected, or cleaned up from the sidebar.
+  The session header menu and the row menu share one availability plan, and a
+  row now shows its in-flight state while an action runs.
+
 ## [0.9.14] - 2026-11-17
 
 ### Added
