@@ -7,13 +7,8 @@ import {
   FolderOpen,
   FolderPlus,
   History,
-  Maximize2,
-  Minimize2,
-  PanelLeftClose,
-  PanelLeftOpen,
   Pencil,
   RefreshCw,
-  Save,
   Scissors,
   Trash2,
   Undo2,
@@ -54,6 +49,9 @@ import { computeVirtualWindow, FILES_ROW_HEIGHT } from '../files/virtual-window'
 import { loadTreeState, saveTreeState } from '../files/tree-state'
 import type { Notice } from '../state/workspace'
 import CodeEditor from './CodeEditor'
+import FilesFolderCard from './files/FilesFolderCard'
+import FilesSelectionCard from './files/FilesSelectionCard'
+import FilesTabStrip from './files/FilesTabStrip'
 import ContextMenu, { type ContextMenuItem } from './ContextMenu'
 import {
   DeleteFilesDialog,
@@ -1471,149 +1469,6 @@ export default function FilesPanel({
       </div>
     ) : null
 
-  const tabStrip =
-    tabs.length === 0 ? null : (
-      <div className="flex h-8 shrink-0 items-center border-b border-border bg-card">
-        <div className="flex shrink-0 items-center gap-0.5 pl-1">
-          {detailMaximized ? null : (
-            <button
-              type="button"
-              className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
-              title={
-                twoColumnAvailable && !listHidden ? t('session.hideList') : t('session.showList')
-              }
-              aria-label={
-                twoColumnAvailable && !listHidden ? t('session.hideList') : t('session.showList')
-              }
-              data-testid="files-list-toggle"
-              onClick={() => {
-                if (twoColumnAvailable) {
-                  setListHidden((hidden) => !hidden)
-                } else {
-                  setDetailMaximized(false)
-                  setDetailDismissed(true)
-                }
-              }}
-            >
-              {twoColumnAvailable && !listHidden ? (
-                <PanelLeftClose size={12} />
-              ) : (
-                <PanelLeftOpen size={12} />
-              )}
-            </button>
-          )}
-          <button
-            type="button"
-            className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
-            title={detailMaximized ? t('session.restoreDetail') : t('session.maximizeDetail')}
-            aria-label={
-              detailMaximized ? t('session.restoreDetail') : t('session.maximizeDetail')
-            }
-            data-testid="files-detail-maximize"
-            onClick={() => setDetailMaximized((value) => !value)}
-          >
-            {detailMaximized ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
-          </button>
-          {activeTab === null ? null : (
-            <button
-              type="button"
-              className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
-              title={t('common.close')}
-              aria-label={t('common.close')}
-              data-testid="files-detail-close"
-              onClick={() => requestClose(activeTab.path)}
-            >
-              <X size={12} />
-            </button>
-          )}
-        </div>
-        <div
-          role="tablist"
-          aria-label={t('files.tabs.openFiles')}
-          className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto px-1"
-          data-testid="files-tabs"
-        >
-        {tabs.map((tab, index) => {
-          const selectedTab = tab.path === sessionFiles.activePath
-          return (
-            <div
-              key={tab.path}
-              ref={(element) => {
-                if (element === null) tabRefs.current.delete(tab.path)
-                else tabRefs.current.set(tab.path, element)
-              }}
-              role="tab"
-              aria-selected={selectedTab}
-              tabIndex={selectedTab ? 0 : -1}
-              title={tab.path}
-              className={`group flex h-6 shrink-0 items-center gap-1 rounded px-1.5 text-[10.5px] outline-none ${
-                selectedTab
-                  ? 'bg-background text-foreground shadow-sm'
-                  : 'text-muted-foreground hover:bg-muted/60'
-              } ${tab.load === 'failed' ? 'text-destructive' : ''}`}
-              onClick={() => setActiveTab(tab.path)}
-              onKeyDown={(event) => onTabKeyDown(event, index, tab.path)}
-              data-testid={`files-tab-${tab.path}`}
-            >
-              {tab.load === 'loading' ? (
-                <span className="text-[9px]">…</span>
-              ) : isDirty(tab) ? (
-                <span
-                  role="img"
-                  aria-label={t('files.tabs.unsavedChanges')}
-                  className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent"
-                  data-testid="files-tab-dirty"
-                />
-              ) : null}
-              <span className="max-w-[180px] truncate">{basenameOf(tab.path)}</span>
-              <button
-                type="button"
-                className="ml-0.5 rounded p-0.5 text-muted-foreground opacity-0 hover:bg-muted hover:text-foreground group-hover:opacity-100 focus:opacity-100"
-                aria-label={t('files.tabs.close', { path: tab.path })}
-                onClick={(event) => {
-                  event.stopPropagation()
-                  requestClose(tab.path)
-                }}
-                data-testid={`files-tab-close-${tab.path}`}
-              >
-                <X size={9} />
-              </button>
-            </div>
-          )
-        })}
-        </div>
-        <div className="flex shrink-0 items-center gap-0.5 px-1">
-          {dirtyCount > 0 ? (
-            <span className="px-1 text-[9px] text-muted-foreground" data-testid="files-dirty-count">
-              {t('files.tabs.unsaved', { count: dirtyCount })}
-            </span>
-          ) : null}
-          <button
-            type="button"
-            className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
-            title={t('files.toolbar.saveAll')}
-            aria-label={t('files.toolbar.saveAll')}
-            disabled={dirtyCount === 0}
-            onClick={() => void saveAllTabs()}
-            data-testid="files-save-all"
-          >
-            <Save size={10} />
-          </button>
-          <button
-            type="button"
-            className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
-            title={t('files.toolbar.closeAll')}
-            aria-label={t('files.toolbar.closeAll')}
-            disabled={tabs.length === 0}
-            onClick={requestCloseAll}
-            data-testid="files-close-all"
-          >
-            <X size={10} />
-          </button>
-        </div>
-      </div>
-    )
-
   return (
     <div
       ref={panelRef}
@@ -1906,7 +1761,32 @@ export default function FilesPanel({
             : 'hidden'
         }
       >
-        {tabStrip}
+        <FilesTabStrip
+          tabs={tabs}
+          activePath={sessionFiles.activePath}
+          dirtyCount={dirtyCount}
+          detailMaximized={detailMaximized}
+          twoColumnAvailable={twoColumnAvailable}
+          listHidden={listHidden}
+          tabRefs={tabRefs}
+          onToggleList={() => {
+            if (twoColumnAvailable) {
+              setListHidden((hidden) => !hidden)
+            } else {
+              setDetailMaximized(false)
+              setDetailDismissed(true)
+            }
+          }}
+          onToggleMaximize={() => setDetailMaximized((value) => !value)}
+          onCloseActive={() => {
+            if (activeTab !== null) requestClose(activeTab.path)
+          }}
+          onActivate={setActiveTab}
+          onClose={requestClose}
+          onTabKeyDown={onTabKeyDown}
+          onSaveAll={() => void saveAllTabs()}
+          onCloseAll={requestCloseAll}
+        />
         {fileNote ? (
           <p className="border-b border-border px-3 py-2 text-[10px] text-signal" data-testid="files-file-note">
             {fileNote}
@@ -1914,91 +1794,23 @@ export default function FilesPanel({
         ) : null}
         {diskBanner}
         {editorMode === 'folder' && selectionSummary.total > 1 ? (
-          <div className="flex flex-1 items-center justify-center p-6" data-testid="files-selection-card">
-            <div className="w-full max-w-sm rounded-lg border border-border bg-card p-4">
-              <h2 className="text-[13px] font-semibold">
-                {selectionSummary.total} items selected
-              </h2>
-              <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-                {t('files.selectionSummary', {
-                  files: tp('files.summary.files', selectionSummary.files),
-                  directories: tp('files.summary.directories', selectionSummary.directories)
-                })}
-              </p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[10px] text-foreground hover:bg-muted"
-                  data-testid="files-selection-copy-path"
-                  onClick={() => void copyPathsToClipboard('absolute', selectedPaths())}
-                >
-                  <Copy size={10} />
-                  {t('files.menu.copyPath')}
-                </button>
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[10px] text-foreground hover:bg-muted"
-                  data-testid="files-selection-copy-relative-path"
-                  onClick={() => void copyPathsToClipboard('relative', selectedPaths())}
-                >
-                  <Copy size={10} />
-                  {t('files.menu.copyRelativePath')}
-                </button>
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1 rounded border border-destructive/60 px-2 py-1 text-[10px] text-destructive hover:bg-destructive/10"
-                  data-testid="files-selection-delete"
-                  onClick={() => requestDelete(selectedPaths())}
-                >
-                  <Trash2 size={10} />
-                  {t('files.menu.deleteEllipsis')}
-                </button>
-              </div>
-            </div>
-          </div>
+          <FilesSelectionCard
+            total={selectionSummary.total}
+            files={selectionSummary.files}
+            directories={selectionSummary.directories}
+            onCopyPath={() => void copyPathsToClipboard('absolute', selectedPaths())}
+            onCopyRelativePath={() => void copyPathsToClipboard('relative', selectedPaths())}
+            onDelete={() => requestDelete(selectedPaths())}
+          />
         ) : editorMode === 'folder' && singleFolder !== null ? (
-          <div className="flex flex-1 items-center justify-center p-6">
-            <div className="w-full max-w-sm rounded-lg border border-border bg-card p-4">
-              <h2 className="text-[13px] font-semibold">{singleFolder.name}</h2>
-              <p className="mt-1 break-all font-mono text-[10px] text-muted-foreground">
-                {singleFolder.path}
-              </p>
-              <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-                {t('files.folderRenameNote')}
-              </p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {onOpenHistory ? (
-                  <button
-                    type="button"
-                    className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[10px] text-foreground hover:bg-muted"
-                    data-testid="files-folder-history"
-                    onClick={() => onOpenHistory(singleFolder.path)}
-                  >
-                    <History size={10} />
-                    {t('files.menu.history')}
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[10px] text-foreground hover:bg-muted"
-                  data-testid="files-folder-rename"
-                  onClick={() => beginRename(singleFolder.path)}
-                >
-                  <Pencil size={10} />
-                  {t('files.menu.renameEllipsis')}
-                </button>
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1 rounded border border-destructive/60 px-2 py-1 text-[10px] text-destructive hover:bg-destructive/10"
-                  data-testid="files-folder-delete"
-                  onClick={() => requestDelete([singleFolder.path])}
-                >
-                  <Trash2 size={10} />
-                  {t('files.deleteFolder')}
-                </button>
-              </div>
-            </div>
-          </div>
+          <FilesFolderCard
+            name={singleFolder.name}
+            path={singleFolder.path}
+            canOpenHistory={onOpenHistory !== undefined}
+            onOpenHistory={() => onOpenHistory?.(singleFolder.path)}
+            onRename={() => beginRename(singleFolder.path)}
+            onDelete={() => requestDelete([singleFolder.path])}
+          />
         ) : activeTab === null ? (
           <div className="flex flex-1 items-center justify-center p-6 text-center">
             <p className="max-w-sm text-[11.5px] leading-relaxed text-muted-foreground" data-testid="files-empty">
