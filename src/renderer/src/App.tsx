@@ -620,6 +620,7 @@ export default function App(): React.JSX.Element {
           activeTaskId={activeTaskId}
           branches={state.branches}
           orphans={state.orphans}
+          pending={state.pending}
           assistantName={assistant.personaName}
           assistantUnread={assistant.unread}
           assistantStatus={assistant.status}
@@ -641,6 +642,10 @@ export default function App(): React.JSX.Element {
             void runTaskWorkbenchAction(task, action)
             if (action === 'retry' || action === 'resume') setSidebarOpen(false)
           }}
+          onSleepSession={(sessionId) => void workspace.sleepSession(sessionId)}
+          onWakeSession={(sessionId) => void workspace.wakeSession(sessionId)}
+          onRestartSession={(sessionId) => void workspace.restartSession(sessionId)}
+          onRemoveSession={(sessionId) => void workspace.requestRemoveSession(sessionId)}
           onNewSession={() => {
             openNewSession()
             setSidebarOpen(false)

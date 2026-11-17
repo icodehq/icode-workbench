@@ -176,7 +176,10 @@ export default function SessionDetailsDrawer({
         <div className="flex items-start gap-3 border-b border-border px-4 py-3">
           <div className="min-w-0 flex-1">
             <h2 className="text-[15px] font-semibold">{t('session.details')}</h2>
-            <p className="mt-1 truncate font-mono text-[10.5px] text-muted-foreground">
+            <p className="mt-0.5 truncate text-[12px] font-medium text-foreground">
+              {session.title}
+            </p>
+            <p className="mt-0.5 truncate font-mono text-[10.5px] text-muted-foreground">
               {worktree?.branch ?? t('session.primaryCheckout')} · {repo?.displayName ?? t('sessionDetails.unknownProject')}
             </p>
           </div>

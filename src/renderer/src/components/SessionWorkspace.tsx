@@ -31,6 +31,12 @@ import RemoveSessionDialog from './RemoveSessionDialog'
 import SessionActionsMenu from './SessionActionsMenu'
 import SleepSessionDialog from './SleepSessionDialog'
 import SessionDetailsDrawer from './SessionDetailsDrawer'
+import {
+  hostUnavailable,
+  sessionActionState,
+  sessionMenuReasonLabel,
+  worktreeBlocksTerminal
+} from './sessions/session-menu'
 import { translate } from '../i18n/i18n-store'
 import { useLocale, useT } from '../i18n/use-i18n'
 import { useFilesDirtyCount } from '../files/open-files'
@@ -126,18 +132,6 @@ const WORKTREE_STATUS_TONE: Record<WorktreeSummary['status'], string> = {
   missing: 'text-destructive',
   inconsistent: 'text-destructive',
   failed: 'text-destructive'
-}
-
-function worktreeBlocksTerminal(worktree: WorktreeSummary | null): boolean {
-  return worktree !== null && (worktree.status === 'missing' || worktree.status === 'inconsistent')
-}
-
-function hostUnavailable(session: SessionSummary): boolean {
-  return (
-    session.authority === 'unreachable' ||
-    session.reason === 'host_unreachable' ||
-    session.reason === 'host_unreachable_history'
-  )
 }
 
 function WorktreePanel({
@@ -369,23 +363,7 @@ export default function SessionWorkspace({
   // header with. Details explains why it is absent.
   const knownActivity = isKnownActivity(activity) ? activity : null
   const activePane = !blocked && panes.some((candidate) => paneActive(session, candidate))
-  const sleeping = session.sleeping === true
-  const live = session.state === 'live'
-  const canSleep = allowSleep && live && !sleeping && pending === null
-  const canWake = allowSleep && sleeping && pending === null
-  const sleepDisabledReason =
-    pending !== null
-      ? t('session.actionPending')
-      : t('session.onlyLiveCanSleep')
-  const canRestart = pending === null && !blocked && !hostUnavailable(session)
-  const restartReason =
-    pending === 'restarting'
-      ? t('session.restartInProgress')
-      : hostUnavailable(session)
-        ? t('session.hostUnreachable')
-        : blocked
-          ? t('session.worktreeBlocked')
-          : t('session.restartDescription')
+  const actions = sessionActionState(session, pending, allowSleep)
 
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -592,17 +570,27 @@ export default function SessionWorkspace({
           ) : null}
 
           <SessionActionsMenu
-            live={allowSleep && live}
-            sleeping={allowSleep && sleeping}
-            canSleep={canSleep}
-            canWake={canWake}
+            live={allowSleep && actions.live}
+            sleeping={allowSleep && actions.sleeping}
+            canSleep={actions.canSleep}
+            canWake={actions.canWake}
             wakeDescription={wakeDescription(session.harness, locale)}
-            sleepDisabledReason={sleepDisabledReason}
-            restartDisabled={!canRestart}
-            restartReason={restartReason}
-            removeDisabled={pending !== null}
+            sleepDisabledReason={
+              actions.sleepReason === null
+                ? t('session.onlyLiveCanSleep')
+                : sessionMenuReasonLabel(actions.sleepReason)
+            }
+            restartDisabled={!actions.canRestart}
+            restartReason={
+              actions.restartReason === null
+                ? t('session.restartDescription')
+                : sessionMenuReasonLabel(actions.restartReason)
+            }
+            removeDisabled={!actions.canRemove}
             removeReason={
-              pending !== null ? t('session.actionPending') : t('session.removeReason')
+              actions.removeReason === null
+                ? t('session.removeReason')
+                : sessionMenuReasonLabel(actions.removeReason)
             }
             onDetails={() => setDetailsOpen(true)}
             onSleep={() => setSleepOpen(true)}

@@ -10,16 +10,20 @@ import {
   FolderGit2,
   GitBranch,
   History,
+  Info,
   ListPlus,
+  Moon,
   MoreHorizontal,
   Pin,
   Play,
   Plus,
   RefreshCw,
+  RotateCcw,
   Search,
   Settings,
   Settings2,
   SquarePlus,
+  Sunrise,
   TerminalSquare,
   Trash2
 } from 'lucide-react'
@@ -30,12 +34,15 @@ import type {
   RepositorySummary,
   SessionSummary
 } from '../../../../shared/schemas/ipc'
-import type { Notice } from '../../state/workspace'
+import type { Notice, PendingAction } from '../../state/workspace'
 import ContextMenu, { type ContextMenuItem, type MenuAnchor } from '../ContextMenu'
 import type { TaskAction } from '../TaskWorkbench'
 import ProjectMaintenanceDialog from '../sessions/ProjectMaintenanceDialog'
 import RemoveRepositoryDialog from '../RemoveRepositoryDialog'
+import RemoveSessionDialog from '../RemoveSessionDialog'
 import RepositorySettingsDialog from '../RepositorySettingsDialog'
+import SessionDetailsDrawer from '../SessionDetailsDrawer'
+import SleepSessionDialog from '../SleepSessionDialog'
 import AssistantAvatar from '../AssistantAvatar'
 import { repositoryPreparationView } from '../../lib/repository-preparation'
 import { isMacPlatform, shortcutLabel } from '../../lib/platform'
@@ -56,6 +63,12 @@ import {
 import { sidebarBrandInset } from './window-chrome'
 import { taskMenuEntries, type TaskMenuEntryId } from './task-menu'
 import {
+  sessionActionState,
+  sessionMenuEntries,
+  sessionMenuReasonLabel,
+  type SessionMenuEntryId
+} from '../sessions/session-menu'
+import {
   SIDEBAR_WIDTH_DEFAULT,
   SIDEBAR_WIDTH_MAX,
   SIDEBAR_WIDTH_MIN,
@@ -64,6 +77,7 @@ import {
   saveSidebarWidth
 } from '../../state/sidebar-layout'
 import { usePanelResize } from '../../lib/use-panel-resize'
+import { useFilesDirtyCount } from '../../files/open-files'
 import { taskAttention, taskStatusLabel } from '../task-status'
 import {
   activityDotClass,
@@ -84,6 +98,8 @@ type Props = {
   activeTaskId: string | null
   branches: OwnedBranchSummary[]
   orphans: OrphanedHostSession[]
+  /** Per-session in-flight action, so the row and its menu match the header. */
+  pending: Record<string, PendingAction>
   assistantName: string
   assistantUnread: number
   assistantStatus: 'working' | 'idle' | 'offline' | 'error'
@@ -93,6 +109,10 @@ type Props = {
   onOpenSession: (sessionId: string) => void
   onOpenTask: (task: TaskRecordPayload) => void
   onTaskAction: (task: TaskRecordPayload, action: TaskAction) => void
+  onSleepSession: (sessionId: string) => void
+  onWakeSession: (sessionId: string) => void
+  onRestartSession: (sessionId: string) => void
+  onRemoveSession: (sessionId: string) => void
   onNewSession: () => void
   onNewSessionInRepo: (repoId: string) => void
   /** Start another session in an existing worktree, from its sidebar group. */
@@ -163,6 +183,40 @@ function menuAnchor(element: Element): MenuAnchor {
   return { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right }
 }
 
+/**
+ * The remove dialog needs the target session's open-file state, which is a
+ * hook, so it lives in its own component rather than inside the sidebar body.
+ */
+function SessionRemoveConfirm({
+  session,
+  sessions,
+  onClose,
+  onConfirm
+}: {
+  session: SessionSummary
+  sessions: SessionSummary[]
+  onClose: () => void
+  onConfirm: () => void
+}): React.JSX.Element {
+  const unsavedCount = useFilesDirtyCount(session.id)
+  const sharedWorktree =
+    session.worktree !== null &&
+    sessions.some(
+      (candidate) =>
+        candidate.id !== session.id &&
+        candidate.worktree?.id === session.worktree?.id
+    )
+  return (
+    <RemoveSessionDialog
+      session={session}
+      unsavedCount={unsavedCount}
+      sharedWorktree={sharedWorktree}
+      onClose={onClose}
+      onConfirm={onConfirm}
+    />
+  )
+}
+
 export default function WorkspaceSidebar({
   repos,
   sessions,
@@ -173,6 +227,7 @@ export default function WorkspaceSidebar({
   activeTaskId,
   branches,
   orphans,
+  pending,
   assistantName,
   assistantUnread,
   assistantStatus,
@@ -182,6 +237,10 @@ export default function WorkspaceSidebar({
   onOpenSession,
   onOpenTask,
   onTaskAction,
+  onSleepSession,
+  onWakeSession,
+  onRestartSession,
+  onRemoveSession,
   onNewSession,
   onNewSessionInRepo,
   onNewSessionInWorktree,
@@ -224,6 +283,9 @@ export default function WorkspaceSidebar({
   const [worktreeMenu, setWorktreeMenu] = useState<WorktreeMenuRequest | null>(null)
   const [taskMenu, setTaskMenu] = useState<TaskMenuRequest | null>(null)
   const [sessionMenu, setSessionMenu] = useState<SessionMenuRequest | null>(null)
+  const [detailsSession, setDetailsSession] = useState<SessionSummary | null>(null)
+  const [sleepSession, setSleepSession] = useState<SessionSummary | null>(null)
+  const [removeSession, setRemoveSession] = useState<SessionSummary | null>(null)
   const [newMenu, setNewMenu] = useState<{
     anchor: MenuAnchor
     returnFocus: HTMLElement | null
@@ -499,6 +561,9 @@ export default function WorkspaceSidebar({
   const requestSessionMenu = (session: SessionSummary, request: RowMenuRequest): void =>
     setSessionMenu({ session, ...request })
 
+  const pendingFor = (session: SessionSummary): PendingAction | null =>
+    pending[session.id] ?? null
+
   /** The menu key opens the same menu a right-click does, anchored to the row. */
   const openRowMenuFromKey = (
     event: React.KeyboardEvent<HTMLElement>,
@@ -607,19 +672,67 @@ export default function WorkspaceSidebar({
   }
 
   /**
-   * Session lifecycle stays in the header menu, where every action carries a
-   * description and its blocked reason. Pinning is the one row-level action
-   * that belongs on the row, so the row menu holds it alone.
+   * Session lifecycle is a row-level action: the row menu is the fast path for
+   * any session, including one that is not open. The header menu stays the
+   * descriptive surface; both read the plan in `sessions/session-menu`.
    */
-  const sessionMenuItems = (session: SessionSummary): ContextMenuItem[] => [
-    {
-      id: 'pin',
-      label: t(pins.sessions.includes(session.id) ? 'projects.row.unpin' : 'projects.row.pin'),
-      icon: <Pin size={12} />,
-      testId: `sidebar-session-${session.id}-pin`,
-      onSelect: () => toggleSessionPin(session.id)
+  const sessionMenuItems = (session: SessionSummary): ContextMenuItem[] => {
+    const build: Record<SessionMenuEntryId, () => ContextMenuItem> = {
+      details: () => ({
+        id: 'details',
+        label: t('session.details'),
+        icon: <Info size={12} />,
+        testId: `sidebar-session-${session.id}-details`,
+        onSelect: () => setDetailsSession(session)
+      }),
+      sleep: () => ({
+        id: 'sleep',
+        label: t('session.sleep'),
+        icon: <Moon size={12} />,
+        testId: `sidebar-session-${session.id}-sleep`,
+        onSelect: () => setSleepSession(session)
+      }),
+      wake: () => ({
+        id: 'wake',
+        label: t('session.wake'),
+        icon: <Sunrise size={12} />,
+        testId: `sidebar-session-${session.id}-wake`,
+        onSelect: () => onWakeSession(session.id)
+      }),
+      restart: () => ({
+        id: 'restart',
+        label: t('session.restart'),
+        icon: <RotateCcw size={12} />,
+        testId: `sidebar-session-${session.id}-restart`,
+        onSelect: () => onRestartSession(session.id)
+      }),
+      pin: () => ({
+        id: 'pin',
+        label: t(pins.sessions.includes(session.id) ? 'projects.row.unpin' : 'projects.row.pin'),
+        icon: <Pin size={12} />,
+        testId: `sidebar-session-${session.id}-pin`,
+        onSelect: () => toggleSessionPin(session.id)
+      }),
+      remove: () => ({
+        id: 'remove',
+        label: t('session.remove'),
+        icon: <Trash2 size={12} />,
+        danger: true,
+        testId: `sidebar-session-${session.id}-remove`,
+        onSelect: () => setRemoveSession(session)
+      })
     }
-  ]
+    return sessionMenuEntries(
+      sessionActionState(session, pendingFor(session), true)
+    ).map((entry) => ({
+      ...build[entry.id](),
+      separatorBefore: entry.separatorBefore,
+      disabled: entry.disabled,
+      ...(entry.reason === undefined
+        ? {}
+        : { reason: sessionMenuReasonLabel(entry.reason) })
+    }))
+  }
 
   const sessionRow = (session: SessionSummary): React.JSX.Element => {
     const active = session.id === activeSessionId
@@ -661,18 +774,19 @@ export default function WorkspaceSidebar({
           data-session-state={session.state}
           data-session-role={session.role}
           data-session-sleeping={String(session.sleeping === true)}
+          data-session-pending={pendingFor(session) ?? ''}
           data-session-incarnation={session.incarnationId ?? ''}
           data-session-activity={session.activity?.state ?? 'unknown'}
           data-session-activity-unread={String(session.activity?.unread ?? false)}
           data-active={active ? 'true' : 'false'}
         >
           <span
-            className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${sessionStateDotClass(session, null)}`}
+            className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${sessionStateDotClass(session, pendingFor(session))}`}
           />
           <span className="min-w-0 flex-1">
             <span className="block truncate text-[10px]">{session.title}</span>
             <span className="block truncate font-mono text-[7.5px] text-muted-foreground">
-              {sessionStateLabelFor(session, null)}
+              {sessionStateLabelFor(session, pendingFor(session))}
               {session.worktree
                 ? ` · ${
                     session.worktree.branch.length > 22
@@ -1062,9 +1176,10 @@ export default function WorkspaceSidebar({
                       aria-expanded={menuOpen}
                       title={session.title}
                       data-testid={`pinned-session-${session.id}`}
+                      data-session-pending={pendingFor(session) ?? ''}
                     >
                       <span
-                        className={`h-1.5 w-1.5 shrink-0 rounded-full ${sessionStateDotClass(session, null)}`}
+                        className={`h-1.5 w-1.5 shrink-0 rounded-full ${sessionStateDotClass(session, pendingFor(session))}`}
                       />
                       <span className="min-w-0 flex-1 truncate text-[10px]">{session.title}</span>
                       <span className="max-w-[110px] shrink-0 truncate font-mono text-[7.5px] text-muted-foreground">
@@ -1431,6 +1546,37 @@ export default function WorkspaceSidebar({
             const repoId = removeRepo.id
             setRemoveRepo(null)
             onRemoveRepository(repoId)
+          }}
+        />
+      ) : null}
+      {detailsSession !== null ? (
+        <SessionDetailsDrawer
+          session={detailsSession}
+          repo={repos.find((repo) => repo.id === detailsSession.repoId) ?? null}
+          notify={onNotify}
+          onClose={() => setDetailsSession(null)}
+        />
+      ) : null}
+      {sleepSession !== null ? (
+        <SleepSessionDialog
+          session={sleepSession}
+          onClose={() => setSleepSession(null)}
+          onConfirm={() => {
+            const sessionId = sleepSession.id
+            setSleepSession(null)
+            onSleepSession(sessionId)
+          }}
+        />
+      ) : null}
+      {removeSession !== null ? (
+        <SessionRemoveConfirm
+          session={removeSession}
+          sessions={sessions}
+          onClose={() => setRemoveSession(null)}
+          onConfirm={() => {
+            const sessionId = removeSession.id
+            setRemoveSession(null)
+            onRemoveSession(sessionId)
           }}
         />
       ) : null}
