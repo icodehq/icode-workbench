@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.14] - 2026-11-17
+
+### Added
+
+- Session and task rows now answer a right-click, or the Menu key, with their
+  own actions. Session rows offer Pin/Unpin. Task rows offer Retry, Continue,
+  Cancel, Archive, Restore, and Pin as the task's state allows, so retrying a
+  failed task or cleaning up a finished one no longer requires opening it
+  first. Review decisions stay in the task view, where the proposal and diff
+  are visible.
+
+### Changed
+
+- Pin/unpin is now only a menu action. The hover pin buttons on session and
+  task rows, the unpin buttons in the Pinned section, and the accent pin
+  marker on pinned project rows are gone, so a row click can no longer toggle
+  pinning by accident.
+
 ## [0.9.13] - 2026-11-17
 
 ### Changed
