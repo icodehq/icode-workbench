@@ -21,7 +21,7 @@
 </p>
 
 <p align="center">
-  <img src=".github/assets/workbench-shell.png" alt="iCode Workbench 工作台：项目与任务侧边栏、会话标签页、实时终端和变更检查器" width="960" />
+  <img src=".github/assets/workbench-0916-shell.png" alt="iCode Workbench 工作台：项目与任务侧边栏、应用与会话标签页、实时终端，以及检查器中的 Source Control 差异" width="960" />
 </p>
 
 ## 为什么选择 iCode Workbench？
@@ -30,10 +30,18 @@
   适配器模型可以继续接入更多 harness。
 - **支持所有平台。** Linux（WSL2/WSLg）、Windows x64、macOS x64 / arm64。
 - **默认并行。** 每个会话都有独立的分支和 Git 工作树。
+- **每个会话行都是操作面板。** 无需打开会话，右键即可查看详情、休眠或唤醒、重启、
+  固定和移除。移除无需输入分支名，会列明受影响的改动，并始终保留分支。
 - **跨项目的 Mira。** 一个对话覆盖任务队列、阻塞事项和跨项目操作。
-- **在智能体工作的地方审查。** 任务 diff、源代码管理和 Monaco 编辑器都在同一个
+- **在智能体工作的地方审查。** 任务 diff、文件、搜索和 Source Control 都在同一个
   session checkout 中。
 - **一个侧边栏掌握全部工作。** 项目、直连会话、置顶项和跨项目任务队列始终可见；Mira、设置和计划以标签页打开。
+
+<p align="center">
+  <a href=".github/assets/workbench-0916-session-menu.png"><img src=".github/assets/workbench-0916-session-menu.png" alt="会话行右键菜单：会话详情、休眠会话、重启会话、固定到顶部、移除会话" width="100%" /></a>
+</p>
+
+*即使没有打开会话，它的整行也承载完整的生命周期操作。*
 
 ## 当前支持
 

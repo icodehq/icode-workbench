@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- A task-owned session stays out of its project's session list after the task is
+  archived.
+- The terminal's leftover viewport strip uses the terminal background, so the
+  light theme no longer shows a black bar below the last rendered row.
+- Mira's conversation selector formats its timestamp in the app language rather
+  than the operating-system locale.
+
+### Changed
+
+- README screenshots are refreshed for the current workbench, with new figures
+  for the session row menu and the warning-only removal dialog.
+
 ## [0.9.16] - 2026-11-17
 
 ### Changed

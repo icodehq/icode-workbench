@@ -22,7 +22,7 @@
 </p>
 
 <p align="center">
-  <img src=".github/assets/workbench-shell.png" alt="Die iCode-Workbench mit Projekt- und Aufgaben-Seitenleiste, Sitzungs-Tabs, Live-Terminal und Changes-Inspektor" width="960" />
+  <img src=".github/assets/workbench-0916-shell.png" alt="Die iCode-Workbench mit Projekt- und Aufgaben-Seitenleiste, App- und Sitzungs-Tabs, Live-Terminal und einem Source-Control-Diff im Inspektor" width="960" />
 </p>
 
 ## Warum iCode Workbench?
@@ -31,11 +31,22 @@
   Adaptermodell ist für weitere Harnesses ausgelegt.
 - **Jede Plattform.** Linux (WSL2/WSLg), Windows x64 und macOS x64 / arm64.
 - **Standardmäßig parallel.** Jede Sitzung erhält ihren eigenen Branch und Git-Worktree.
+- **Jede Sitzungszeile ist eine Steuerfläche.** Rechtsklick auf eine Sitzung öffnet
+  Details, Schlafen oder Aufwecken, Neustart, Anheften und Entfernen, ohne die Sitzung
+  zu öffnen. Das Entfernen verlangt keinen Branch-Namen, nennt gefährdete Änderungen
+  und behält den Branch.
 - **Mira über Projekte hinweg.** Eine Unterhaltung für Warteschlange, Blocker und
   projektübergreifende Aktionen.
-- **Prüfen, wo der Agent gearbeitet hat.** Task-Diffs, Source Control und Monaco im
-  selben Session-Checkout.
+- **Prüfen, wo der Agent gearbeitet hat.** Task-Diffs, Dateien, Suche und Source Control
+  im selben Session-Checkout.
 - **Alle Arbeit in einer Seitenleiste.** Projekte, direkte Sitzungen, angeheftete Elemente und die projektübergreifende Aufgabenwarteschlange bleiben sichtbar; Mira, Einstellungen und Zeitpläne öffnen als Tabs.
+
+<p align="center">
+  <a href=".github/assets/workbench-0916-session-menu.png"><img src=".github/assets/workbench-0916-session-menu.png" alt="Kontextmenü einer Sitzungszeile mit Sitzungsdetails, Sitzung in Ruhezustand versetzen, Sitzung neu starten, Oben anheften und Sitzung entfernen" width="100%" /></a>
+</p>
+
+*Jede Sitzungszeile trägt ihren vollständigen Lebenszyklus — auch für eine Sitzung,
+die gerade nicht geöffnet ist.*
 
 ## Aktuell unterstützt
 

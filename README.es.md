@@ -22,7 +22,7 @@
 </p>
 
 <p align="center">
-  <img src=".github/assets/workbench-shell.png" alt="El workbench de iCode con la barra lateral de proyectos y tareas, pestañas de sesión, terminal en vivo e inspector de cambios" width="960" />
+  <img src=".github/assets/workbench-0916-shell.png" alt="El workbench de iCode con la barra lateral de proyectos y tareas, pestañas de app y sesión, terminal en vivo y un diff de Source Control en el inspector" width="960" />
 </p>
 
 ## ¿Por qué iCode Workbench?
@@ -31,11 +31,21 @@
   el modelo de adaptadores está preparado para añadir más harness.
 - **Todas las plataformas.** Linux (WSL2/WSLg), Windows x64 y macOS x64 / arm64.
 - **Paralelo por defecto.** Cada sesión tiene su propia rama y worktree de Git.
+- **Cada fila de sesión es un panel de control.** Haz clic derecho en una sesión para
+  ver sus detalles, dormirla o despertarla, reiniciarla, fijarla o eliminarla sin
+  abrirla. La eliminación no pide el nombre de la rama, nombra los cambios en riesgo
+  y conserva la rama.
 - **Mira entre proyectos.** Una conversación para la cola, los bloqueos y las acciones
   entre proyectos.
-- **Revisión donde trabajó el agente.** Diffs de tareas, Source Control y Monaco en el
-  mismo checkout de la sesión.
+- **Revisión donde trabajó el agente.** Diffs de tareas, archivos, búsqueda y Source
+  Control en el mismo checkout de la sesión.
 - **Todo el trabajo en una barra lateral.** Proyectos, sesiones directas, elementos fijados y la cola de tareas entre proyectos siempre visibles; Mira, Ajustes y Programaciones se abren en pestañas.
+
+<p align="center">
+  <a href=".github/assets/workbench-0916-session-menu.png"><img src=".github/assets/workbench-0916-session-menu.png" alt="Menú contextual de una fila de sesión con Detalles de la sesión, Dormir sesión, Reiniciar sesión, Fijar arriba y Eliminar sesión" width="100%" /></a>
+</p>
+
+*Cada fila de sesión lleva todo su ciclo de vida, incluso cuando la sesión no está abierta.*
 
 ## Compatibilidad actual
 

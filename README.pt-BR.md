@@ -22,7 +22,7 @@
 </p>
 
 <p align="center">
-  <img src=".github/assets/workbench-shell.png" alt="O workbench do iCode com a barra lateral de projetos e tarefas, abas de sessão, terminal ao vivo e inspetor de alterações" width="960" />
+  <img src=".github/assets/workbench-0916-shell.png" alt="O workbench do iCode com a barra lateral de projetos e tarefas, abas de aplicativo e sessão, terminal ao vivo e um diff de Source Control no inspetor" width="960" />
 </p>
 
 ## Por que iCode Workbench?
@@ -31,10 +31,20 @@
   adaptadores foi feito para adicionar mais harnesses.
 - **Todas as plataformas.** Linux (WSL2/WSLg), Windows x64 e macOS x64 / arm64.
 - **Paralelo por padrão.** Cada sessão recebe sua própria branch e worktree do Git.
+- **Cada linha de sessão é um painel de controle.** Clique com o botão direito em uma
+  sessão para ver detalhes, colocar em repouso ou despertar, reiniciar, fixar e remover
+  sem abri-la. A remoção não pede o nome da branch, nomeia as alterações em risco e
+  mantém a branch.
 - **Mira entre projetos.** Uma conversa para a fila, os bloqueios e as ações entre projetos.
-- **Revisão onde o agente trabalhou.** Diffs de tarefas, Source Control e Monaco no mesmo
-  checkout da sessão.
+- **Revisão onde o agente trabalhou.** Diffs de tarefas, arquivos, busca e Source Control
+  no mesmo checkout da sessão.
 - **Todo o trabalho em uma barra lateral.** Projetos, sessões diretas, itens fixados e a fila de tarefas entre projetos sempre visíveis; Mira, Configurações e Agendamentos abrem em abas.
+
+<p align="center">
+  <a href=".github/assets/workbench-0916-session-menu.png"><img src=".github/assets/workbench-0916-session-menu.png" alt="Menu de contexto de uma linha de sessão com Detalhes da sessão, Colocar sessão em repouso, Reiniciar sessão, Fixar no topo e Remover sessão" width="100%" /></a>
+</p>
+
+*Cada linha de sessão carrega todo o seu ciclo de vida, mesmo quando a sessão não está aberta.*
 
 ## Suporte atual
 

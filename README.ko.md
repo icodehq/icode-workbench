@@ -22,7 +22,7 @@
 </p>
 
 <p align="center">
-  <img src=".github/assets/workbench-shell.png" alt="iCode Workbench 워크벤치: 프로젝트 및 작업 사이드바, 세션 탭, 라이브 터미널, Changes 인스펙터" width="960" />
+  <img src=".github/assets/workbench-0916-shell.png" alt="iCode Workbench 워크벤치: 프로젝트 및 작업 사이드바, 앱 및 세션 탭, 라이브 터미널, 인스펙터의 Source Control diff" width="960" />
 </p>
 
 ## iCode Workbench를 선택하는 이유
@@ -31,10 +31,19 @@
   지원하며, 어댑터 모델로 더 많은 harness를 추가할 수 있습니다.
 - **모든 플랫폼.** Linux(WSL2/WSLg), Windows x64, macOS x64 / arm64.
 - **기본이 병렬 실행.** 모든 세션은 자체 브랜치와 Git 워크트리를 받습니다.
+- **모든 세션 행이 제어판입니다.** 세션을 열지 않고 마우스 오른쪽 버튼으로 세부 정보,
+  대기/깨우기, 재시작, 고정, 제거를 실행할 수 있습니다. 제거 시 브랜치 이름을 입력하지
+  않으며, 위험한 변경을 알려주고 브랜치는 항상 유지됩니다.
 - **프로젝트를 넘나드는 Mira.** 대기열, 블로커, 프로젝트 간 작업을 하나의 대화에서.
-- **에이전트가 작업한 곳에서 리뷰.** 작업 diff, Source Control, Monaco가 같은
+- **에이전트가 작업한 곳에서 리뷰.** 작업 diff, 파일, 검색, Source Control이 같은
   세션 체크아웃에 있습니다.
 - **하나의 사이드바에서 모든 작업을 파악합니다.** 프로젝트, 직접 세션, 고정 항목, 프로젝트 간 작업 대기열이 항상 보이고 Mira·설정·일정은 탭으로 열립니다.
+
+<p align="center">
+  <a href=".github/assets/workbench-0916-session-menu.png"><img src=".github/assets/workbench-0916-session-menu.png" alt="세션 행 컨텍스트 메뉴: 세션 세부 정보, 세션 대기, 세션 다시 시작, 상단에 고정, 세션 제거" width="100%" /></a>
+</p>
+
+*세션이 열려 있지 않아도 그 행에서 전체 수명 주기를 제어할 수 있습니다.*
 
 ## 현재 지원
 

@@ -25,7 +25,7 @@
 <h3 align="center"><a href="#install"><ins>Get started</ins></a></h3>
 
 <p align="center">
-  <img src=".github/assets/workbench-shell.png" alt="The iCode Workbench with a project and task sidebar, session and app tabs, a live terminal and a Source Control inspector" width="960" />
+  <img src=".github/assets/workbench-0916-shell.png" alt="The iCode Workbench with a project and task sidebar, app and session tabs, a live terminal, and a Source Control diff in the inspector" width="960" />
 </p>
 
 <p align="center">
@@ -47,9 +47,14 @@ made.
   the main surfaces; Mira, Settings and Schedules are temporary app tabs.
 - **Parallel by default.** Every session gets its own branch and Git worktree;
   keep several in sight with session tabs and a resizable, nested split view.
-- **Review in place.** Source Control and Files live in a persistent, resizable
-  inspector beside the terminal, or in the task workbench for queued work. A
-  file or diff takes the panel; the list is one toggle away.
+- **Review in place.** Files, Search, and Source Control live in a persistent,
+  resizable inspector beside the terminal; the task workbench gives Files and
+  Source Control their own full-width tabs. A file or diff takes the panel; the
+  list is one toggle away.
+- **Every session row is a control surface.** Right-click any session for
+  details, sleep or wake, restart, pin, and remove without opening it. Removal
+  never asks for the branch name, names the files or commits at risk, and keeps
+  the branch.
 - **Mira across projects.** One conversation for the real queue, blockers, and
   cross-project actions.
 - **Terminals that outlive the app.** A detached host owns the PTYs, so closing
@@ -76,8 +81,9 @@ in view; Mira and Settings sit below it.
 The main column has two work surfaces:
 
 - **Sessions** — one tab per direct session, a resizable nested split view, and
-  a persistent Source Control/Files inspector on the right. A compact strip under
-  the terminal carries branch, ahead/behind, conflicts and caret blame.
+  a persistent Files/Search/Source Control inspector on the right. A compact
+  strip under the terminal carries branch, ahead/behind, conflicts and caret
+  blame.
 - **Task workbench** — Overview, Terminal, Source Control and Files for one task,
   selected from the sidebar rather than opened as a tab.
 
@@ -87,6 +93,20 @@ last auxiliary tab returns to Sessions. A task workbench is never an app tab. Th
 project menu holds new session, queue task, pin, copy path, repository settings,
 **Sessions & branches**, and remove. Before the first repository, the main column
 is just the welcome card and **Add project**.
+
+Project, session, and task rows each have their own right-click menu. A session
+row carries its whole lifecycle — **Session details**, **Sleep** or **Wake**,
+**Restart**, **Pin**, and **Remove** — targeting that row's session without
+switching to it first. Details opens the drawer, Sleep asks once, Restart and
+Wake act immediately, Remove confirms and then names any work at risk, and an
+unavailable action explains why it is disabled.
+
+<p align="center">
+  <a href=".github/assets/workbench-0916-session-menu.png"><img src=".github/assets/workbench-0916-session-menu.png" alt="A session row context menu with Session details, Sleep session, Restart session, Pin to top, and Remove session" width="100%" /></a>
+</p>
+
+*Right-click any session row, including one you are not viewing, to reach its
+lifecycle actions. The menu stays out of the way until it is needed.*
 
 The shell adapts rather than shrinking the terminal forever. Below 1280px the
 inspector collapses to a rail; below 900px the sidebar becomes a drawer and an
@@ -127,12 +147,12 @@ one project, and she is not a terminal: one conversation spans every repository.
   keep it from becoming noise.
 
 <p align="center">
-  <a href=".github/assets/workbench-mira.png"><img src=".github/assets/workbench-mira.png" alt="Mira open as an auxiliary tab beside Sessions, with the project and task sidebar visible" width="100%" /></a>
+  <a href=".github/assets/workbench-0916-mira.png"><img src=".github/assets/workbench-0916-mira.png" alt="Mira answering a cross-project question with a Needs a decision and In flight summary, beside the live project and task sidebar" width="100%" /></a>
 </p>
 
-*Mira opens beside the pinned Sessions tab. The sidebar keeps projects, sessions
-and the task queue visible while she answers; unread messages surface on the
-sidebar button and on her app tab.*
+*Mira reads the real queue: finished work waiting for review, a running task,
+and uncommitted session changes. The sidebar keeps every project and the task
+queue visible while she answers.*
 
 Mira is configured in **Settings → Mira**: persona name, run target (this machine,
 a WSL distro, or auto), preferred harness, auto-dispatch policy, and notification
@@ -164,20 +184,31 @@ it belongs to, and a session outside every layout opens full-width. Layouts and
 divider ratios persist per project. Restart a session without
 moving its worktree; sleep a direct session to stop the process while keeping the
 checkout and resume token; wake it to continue the harness conversation where
-the harness supports it.
+the harness supports it. Every one of these actions is also on the session row's
+right-click menu, so a stuck or finished session does not need to be opened.
 
 Session removal is guarded by live PTYs, host reachability, uncommitted changes,
-unmerged commits, and missing worktrees; a clean removal deletes the checkout
-and keeps the branch. The **Sessions & branches** dialog in the project menu
-lists retained branches and any terminals the host still owns, and branch
-deletion is a separate action.
+unmerged commits, and missing worktrees. If work is at risk, the final
+confirmation is a single consequence-specific warning: uncommitted changes list
+the affected files, unmerged commits name the retained branch, and one click
+completes the removal. Nothing needs to be typed or copied, and the branch is
+kept even when the checkout is removed — an explicit **Accept & merge…** or
+branch deletion stays a separate decision. The **Sessions & branches** dialog in
+the project menu lists retained branches and any terminals the host still owns.
 
 <p align="center">
-  <a href=".github/assets/workbench-session-split.png"><img src=".github/assets/workbench-session-split.png" alt="Two direct sessions side by side in the iCode split view, each with its own terminal and branch" width="100%" /></a>
+  <a href=".github/assets/workbench-0916-session-split.png"><img src=".github/assets/workbench-0916-session-split.png" alt="Two direct sessions side by side in the iCode split view, each with its own terminal and branch" width="100%" /></a>
 </p>
 
 *Two direct sessions side by side. The divider is resizable and each pane keeps
 its own PTY; the inspector collapses to give the terminals more room.*
+
+<p align="center">
+  <a href=".github/assets/workbench-0916-session-removal.png"><img src=".github/assets/workbench-0916-session-removal.png" alt="The session removal dialog naming an uncommitted file with a single Delete changes and remove button" width="100%" /></a>
+</p>
+
+*Work that would be lost is named once. The branch is retained, the modified
+files are listed, and there is no branch name to copy or type.*
 
 ### Terminals that survive the app
 
@@ -189,7 +220,7 @@ serialized snapshot with scrollback and alternate-screen state, and flow control
 keeps a slow UI from blocking the agent's process.
 
 <p align="center">
-  <a href=".github/assets/workbench-session-terminal.png"><img src=".github/assets/workbench-session-terminal.png" alt="A direct session with its tab strip, branch header and a live shell showing recent commits" width="100%" /></a>
+  <a href=".github/assets/workbench-0916-session-terminal.png"><img src=".github/assets/workbench-0916-session-terminal.png" alt="A direct session with its tab strip, branch header and a live shell showing recent commits" width="100%" /></a>
 </p>
 
 *A real PTY in the session worktree; the detached host keeps it alive. The tab
@@ -247,21 +278,22 @@ Schedules create ordinary queued tasks on a cadence — once, daily, weekdays,
 weekly, or every few hours — with queue-or-skip overlap handling and run-now.
 
 <p align="center">
-  <a href=".github/assets/workbench-tasks.png"><img src=".github/assets/workbench-tasks.png" alt="The task workbench showing a review-pending task with its session, changes against the baseline, and a review recommendation" width="100%" /></a>
+  <a href=".github/assets/workbench-0916-tasks.png"><img src=".github/assets/workbench-0916-tasks.png" alt="The task workbench showing a finished task waiting for review, its changes against the baseline, and the review decision" width="100%" /></a>
 </p>
 
 *Task workbench: the instruction, the session, changes against the task
-baseline, and a review decision. The sidebar stays on the project and its queue.*
+baseline, and a review decision. Execution and review are separate; the sidebar
+stays on the project and its queue.*
 
 <p align="center">
-  <a href=".github/assets/workbench-schedules.png"><img src=".github/assets/workbench-schedules.png" alt="The Schedules tab with an enabled daily audit and a paused six-hour refresh" width="100%" /></a>
+  <a href=".github/assets/workbench-0916-schedules.png"><img src=".github/assets/workbench-0916-schedules.png" alt="The Schedules tab with an enabled nightly dependency audit and a paused six-hour provider refresh" width="100%" /></a>
 </p>
 
 *Recurring tasks with queue-or-skip overlap handling. Schedules open as an
 auxiliary tab and create ordinary queued tasks.*
 
 <p align="center">
-  <a href=".github/assets/workbench-task-composer.png"><img src=".github/assets/workbench-task-composer.png" alt="The task composer with a harness picker, prompt, blockers, start-from branch and chain branch" width="100%" /></a>
+  <a href=".github/assets/workbench-0916-task-composer.png"><img src=".github/assets/workbench-0916-task-composer.png" alt="The task composer with a harness picker, prompt, blocker, start-from branch and chain branch" width="100%" /></a>
 </p>
 
 *Queue unattended work with a harness, optional blockers, a start point and a
@@ -284,7 +316,7 @@ Mira’s context and notifications, but remain queryable as history. There is
 deliberately no hard-delete action.
 
 <p align="center">
-  <a href=".github/assets/workbench-task-history.png"><img src=".github/assets/workbench-task-history.png" alt="The sidebar Tasks history with an archived task open in the workbench and a Restore action" width="100%" /></a>
+  <a href=".github/assets/workbench-0916-task-history.png"><img src=".github/assets/workbench-0916-task-history.png" alt="The sidebar Tasks history with an archived task open in the workbench and a Restore action" width="100%" /></a>
 </p>
 
 *History keeps finished work out of the working list while preserving the task,
@@ -293,9 +325,10 @@ its attempts and its review record.*
 ### Review where the agent worked
 
 Source Control is scoped to the session's checkout and lives in the persistent
-inspector, or in a task's full-width Source Control tab. The inspector opens on
-the changed-file list; clicking a file gives its diff the whole panel, and the
-list returns with one toggle (or by drag the inspector wider for both columns).
+inspector, or in a task's full-width Source Control tab. The inspector switches
+between Files, Search, and Source Control; Source Control opens on the
+changed-file list, clicking a file gives its diff the whole panel, and the list
+returns with one toggle (or by drag the inspector wider for both columns).
 A one-line dock keeps the staged/uncommitted counts and the primary action in
 sight while a diff is open; the commit composer expands above it on demand.
 The task Overview also
@@ -309,17 +342,18 @@ actions. Draft a commit message with the installed harness in one-shot mode; the
 result only fills the draft.
 
 <p align="center">
-  <a href=".github/assets/workbench-task-review.png"><img src=".github/assets/workbench-task-review.png" alt="Source Control in the task workbench showing an untracked rate-limit source file with a unified diff" width="100%" /></a>
+  <a href=".github/assets/workbench-0916-task-review.png"><img src=".github/assets/workbench-0916-task-review.png" alt="Source Control in the task workbench showing a committed rate-limit source file as a side-by-side diff" width="100%" /></a>
 </p>
 
-*Review, stage, and commit in the task's worktree. The full-width Source Control
-tab keeps the file list and diff readable.*
+*Review and stage in the task's worktree. The full-width Source Control tab
+gives the diff both columns; the file list stays one toggle away.*
 
 <p align="center">
-  <a href=".github/assets/workbench-history.png"><img src=".github/assets/workbench-history.png" alt="Source Control history in the task workbench with a commit selected" width="100%" /></a>
+  <a href=".github/assets/workbench-0916-history.png"><img src=".github/assets/workbench-0916-history.png" alt="Source Control history in the task workbench with the task commit selected and its changed files listed" width="100%" /></a>
 </p>
 
-*Commit history, scoped to the task's session and its chain branch.*
+*Commit history, scoped to the task's branch, with branch labels and the files
+behind each commit.*
 
 ### Edit in the same checkout
 
@@ -327,13 +361,13 @@ Open Files beside the terminal (or in a task's Files tab) and work in the same
 worktree the agent is editing. The explorer supports create, rename, delete,
 duplicate, and move, with app-managed trash and undo; Monaco provides editing,
 quick diffs against HEAD, inline blame, and file history. The inspector's
-Search pane (and the task workbench's Search tab) keeps the tree uncluttered and
-opens results in Files; the tree column is drag-resizable. Quick-open files,
+Search pane keeps the tree uncluttered and opens results in Files; the tree
+column is drag-resizable. Quick-open files,
 handle external changes with reload/keep, and keep unsaved buffers across an
 ordinary restart through hot exit.
 
 <p align="center">
-  <a href=".github/assets/workbench-files-editor.png"><img src=".github/assets/workbench-files-editor.png" alt="The Files panel with a worktree explorer and Monaco editor open on a TypeScript component" width="100%" /></a>
+  <a href=".github/assets/workbench-0916-files-editor.png"><img src=".github/assets/workbench-0916-files-editor.png" alt="The task Files tab with a worktree explorer and Monaco editor open on the new rate-limit source file" width="100%" /></a>
 </p>
 
 *Files and Monaco in the task's worktree. The explorer and editor keep their
@@ -386,13 +420,16 @@ sandboxed behind a typed preload and validated IPC.
   Control, and Files preferences.
 - **Session diagnostics**: host authority, PTY incarnation, worktree state, and
   exit codes in Session details.
-- **Retained branches**: iCode-owned branches survive session removal; deletion
-  is separate and requires the exact name when unmerged.
+- **Session row actions**: details, sleep or wake, restart, pin and remove from
+  any session row without switching to it.
+- **Warning-only removal**: dirty or unmerged work is named before anything is
+  deleted, no branch name is typed, and iCode-owned branches survive session
+  removal; deletion is separate and requires the exact name when unmerged.
 - **Native window chrome**: native traffic lights on macOS; custom controls on
   Windows and Linux.
 
 <p align="center">
-  <a href=".github/assets/workbench-settings.png"><img src=".github/assets/workbench-settings.png" alt="The Settings tab with appearance, language, Mira, host, and Source Control sections" width="100%" /></a>
+  <a href=".github/assets/workbench-0916-settings.png"><img src=".github/assets/workbench-0916-settings.png" alt="The Settings tab with appearance, language, Mira, host and runtime, and Source Control sections" width="100%" /></a>
 </p>
 
 *Settings open as an auxiliary tab. Appearance, language, Mira, task execution,
@@ -426,8 +463,9 @@ one page.*
 7. **Finish safely.** Removing a project is instant: the row disappears and a
    background cleanup job stops its sessions, snapshots dirty worktrees to
    recovery refs, and reports progress with Retry/Discard in the sidebar footer.
-   Removing an individual session still stops the PTY, blocks on uncommitted or
-   unmerged work, and keeps the branch even when the checkout is removed.
+   Removing an individual session stops the PTY and asks for confirmation; if
+   work is at risk, the files or commits are named before anything is deleted,
+   and the checkout is removed while the branch is kept.
 
 > **iCode is the environment, not the agent.** It does not call model APIs or
 > answer permission prompts. Your harness keeps its TUI, credentials, and
@@ -659,10 +697,15 @@ the moment of the action:
 |---|---|
 | Live or starting PTY | Blocked |
 | Host unreachable | Blocked; everything preserved |
-| Uncommitted changes | Blocked; files listed |
-| Unmerged commits | Blocked; commit count shown |
+| Uncommitted changes | One warning lists the files; confirming deletes them |
+| Unmerged commits | One warning shows the commit count; the branch is retained |
 | Missing or unregistered worktree | Blocked; explicit recovery only |
 | Clean and merged | Checkout removed, **branch retained** |
+
+The confirmation is a warning, not a typed guard: the branch is always kept, and
+the exact branch name is still sent to the backend so removal can never delete a
+branch. Branch deletion stays a separate action that still requires the exact
+name when the branch is unmerged.
 
 Session creation is refused for an unborn repository or while a merge, rebase,
 cherry-pick, revert, or bisect is in progress, because no trustworthy baseline
