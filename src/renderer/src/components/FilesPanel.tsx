@@ -19,15 +19,13 @@ import {
   Undo2,
   X
 } from 'lucide-react'
-import { callApi } from '../lib/api'
 import { shortcutLabel } from '../lib/platform'
-import type { FilesMutatePayload } from '../../../shared/icode-api'
 import type { FileEntry } from '../../../shared/domain/workspace-files'
-import { clearWorktreeFileIndex } from '../files/file-index'
 import { EMPTY_DECORATIONS } from '../files/file-decorations'
 import { basenameOf, isUnder, parentPathOf } from '../files/file-paths'
 import { filesMenuEntries, type FilesMenuReason } from '../files/files-menu'
 import { useFilesDecorations, useFilesWatch } from '../files/use-files-live'
+import { useFilesEditing } from '../files/use-files-editing'
 import { useFilesLayout } from '../files/use-files-layout'
 import { useFilesOperations } from '../files/use-files-operations'
 import { useFilesTabs } from '../files/use-files-tabs'
@@ -35,7 +33,7 @@ import { useFilesTree } from '../files/use-files-tree'
 import { useFilesViewport } from '../files/use-files-viewport'
 import { visibleTreeChildren } from '../files/visible-tree'
 import { FILES_LIST_WIDTH_DEFAULT, useFilesSettings } from '../files/files-settings'
-import { isGitMetadata, unavailableText } from '../files/search-utils'
+import { isGitMetadata } from '../files/search-utils'
 import { translate } from '../i18n/i18n-store'
 import { useT, useTp } from '../i18n/use-i18n'
 import { buildTreeRows } from '../files/tree-layout'
@@ -49,7 +47,7 @@ import {
   summarizeSelection,
   type TreeRow
 } from '../files/selection'
-import { checkEntryName, nameSelectionRange } from '../files/name-validation'
+import { checkEntryName } from '../files/name-validation'
 import { filesClipboardStore, useFilesClipboard } from '../files/files-clipboard'
 import { peekUndo, undoLabel } from '../files/undo-stack'
 import { computeVirtualWindow, FILES_ROW_HEIGHT } from '../files/virtual-window'
@@ -79,12 +77,6 @@ export type FilesPanelProps = {
   /** `monaco` opts into the bundled editor; the default keeps the textarea. */
   editorEngine?: 'monaco' | 'plain'
 }
-
-/** The row-level inline editor for create and rename. */
-type InlineEdit =
-  | { kind: 'rename'; path: string; initial: string }
-  | { kind: 'create-file'; parent: string }
-  | { kind: 'create-directory'; parent: string }
 
 type ContextTarget =
   | { kind: 'file'; path: string }
@@ -153,10 +145,6 @@ export default function FilesPanel({
     selectOnly,
     expandFolder
   } = useFilesTree({ sessionId, refreshToken, settings, notify })
-  const [edit, setEdit] = useState<InlineEdit | null>(null)
-  const [editValue, setEditValue] = useState('')
-  const [editError, setEditError] = useState<string | null>(null)
-  const [editWarning, setEditWarning] = useState<string | null>(null)
   const [context, setContext] = useState<ContextState | null>(null)
   const [dropTarget, setDropTarget] = useState<string | null>(null)
   /*
@@ -227,8 +215,6 @@ export default function FilesPanel({
     scrollRowIndexIntoView,
     focusRowElement
   } = useFilesViewport(rows)
-  const editInput = useRef<HTMLInputElement | null>(null)
-  const ignoreEditBlur = useRef(false)
   const typeahead = useRef<{ text: string; at: number } | null>(null)
   const dragExpandTimer = useRef<number | null>(null)
   const dragExpandPath = useRef<string | null>(null)
@@ -508,141 +494,6 @@ export default function FilesPanel({
     reloadExpandedRef
   })
 
-  const beginCreate = (kind: 'create-file' | 'create-directory', parent: string): void => {
-    ignoreEditBlur.current = false
-    setEdit({ kind, parent })
-    setEditValue('')
-    setEditError(null)
-    setEditWarning(null)
-    if (parent !== '') {
-      setTree((current) => ({
-        ...current,
-        expanded: { ...current.expanded, [parent]: true }
-      }))
-      if (tree.children[parent] === undefined) void loadDirectory(parent)
-    }
-    window.requestAnimationFrame(() => editInput.current?.focus())
-  }
-
-  const beginRename = (path: string): void => {
-    const entry = findEntry(path)
-    if (entry === null || isGitMetadata(path)) return
-    ignoreEditBlur.current = false
-    setEdit({ kind: 'rename', path, initial: entry.name })
-    setEditValue(entry.name)
-    setEditError(null)
-    setEditWarning(null)
-    window.requestAnimationFrame(() => {
-      const input = editInput.current
-      if (input === null) return
-      input.focus()
-      const [start, end] = nameSelectionRange(entry.name, entry.kind === 'directory')
-      input.setSelectionRange(start, end)
-    })
-  }
-
-  const cancelEdit = (): void => {
-    ignoreEditBlur.current = true
-    setEdit(null)
-    setEditValue('')
-    setEditError(null)
-    setEditWarning(null)
-  }
-
-  const commitEdit = async (): Promise<void> => {
-    if (edit === null) return
-    const value = editValue
-    const parent = edit.kind === 'rename' ? parentPathOf(edit.path) : edit.parent
-    const previousName = edit.kind === 'rename' ? basenameOf(edit.path) : undefined
-    const check = checkEntryName(value, {
-      siblings: siblingsOf(parent),
-      ...(previousName === undefined ? {} : { previousName })
-    })
-    setEditWarning(check.warning)
-    if (check.error !== null) {
-      setEditError(check.error)
-      return
-    }
-    setEditError(null)
-
-    if (edit.kind === 'rename') {
-      if (value === edit.initial) {
-        cancelEdit()
-        return
-      }
-      const to = parent === '' ? value : `${parent}/${value}`
-      if (isGitMetadata(edit.path) || isGitMetadata(to)) {
-        setEditError(translate('files.gitMetadataRename'))
-        return
-      }
-      const result = await callApi<FilesMutatePayload>(
-        window.icode.files.rename({ sessionId, from: edit.path, to })
-      )
-      if (!result.ok) {
-        setEditError(result.error.message)
-        return
-      }
-      if (result.value.status === 'unavailable') {
-        setEditError(unavailableText(result.value))
-        return
-      }
-      openFilesStore.renamePath(sessionId, edit.path, to)
-      selectOnly(to)
-      cancelEdit()
-      pushUndoEntry({ kind: 'rename', from: edit.path, to, at: Date.now() })
-      notify({
-        tone: 'success',
-        message: t('files.notice.renamed', { path: to }),
-        action: { label: translate('files.undo'), run: () => void undoLast() }
-      })
-      clearWorktreeFileIndex(sessionId)
-      await reloadExpanded()
-      window.requestAnimationFrame(() => {
-        const index = rowsRef.current.findIndex((row) => row.entry.path === to)
-        if (index !== -1) scrollRowIndexIntoView(index)
-        focusRowElement(to)
-      })
-      return
-    }
-
-    const path = edit.parent === '' ? value : `${edit.parent}/${value}`
-    if (isGitMetadata(path)) {
-      setEditError(translate('files.gitMetadataCreate'))
-      return
-    }
-    const kind = edit.kind === 'create-directory' ? 'directory' : 'file'
-    const result = await callApi<FilesMutatePayload>(
-      window.icode.files.create({ sessionId, path, kind })
-    )
-    if (!result.ok) {
-      setEditError(result.error.message)
-      return
-    }
-    if (result.value.status === 'unavailable') {
-      setEditError(unavailableText(result.value))
-      return
-    }
-    cancelEdit()
-    pushUndoEntry({
-      kind: 'create',
-      path,
-      etag: result.value.etag ?? null,
-      at: Date.now()
-    })
-    notify({
-      tone: 'success',
-      message: `Created ${path}`,
-      action: { label: translate('files.undo'), run: () => void undoLast() }
-    })
-    clearWorktreeFileIndex(sessionId)
-    await reloadExpanded()
-    if (kind === 'file') {
-      await openPath(path, 1)
-    } else {
-      selectOnly(path)
-      setEditorMode('folder')
-    }
-  }
 
 
   const {
@@ -684,6 +535,41 @@ export default function FilesPanel({
     expandFolder,
     reloadExpanded,
     scheduleDecorationsRef
+  })
+
+  const {
+    edit,
+    setEdit,
+    editValue,
+    setEditValue,
+    editError,
+    setEditError,
+    editWarning,
+    setEditWarning,
+    editInput,
+    ignoreEditBlur,
+    beginCreate,
+    beginRename,
+    cancelEdit,
+    commitEdit
+  } = useFilesEditing({
+    sessionId,
+    notify,
+    t,
+    setTree,
+    tree,
+    loadDirectory,
+    findEntry,
+    siblingsOf,
+    selectOnly,
+    pushUndoEntry,
+    undoLast,
+    openPath,
+    reloadExpanded,
+    setEditorMode,
+    rowsRef,
+    scrollRowIndexIntoView,
+    focusRowElement
   })
 
   const toggleEntry = async (entry: FileEntry): Promise<void> => {
