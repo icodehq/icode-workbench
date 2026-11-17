@@ -1,31 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Archive,
-  ArchiveRestore,
   Bell,
   ChevronRight,
-  CircleX,
-  Copy,
   Filter,
   FolderGit2,
   GitBranch,
   History,
-  Info,
-  ListPlus,
-  Moon,
   MoreHorizontal,
   Pin,
-  Play,
   Plus,
   RefreshCw,
-  RotateCcw,
   Search,
   Settings,
-  Settings2,
-  SquarePlus,
-  Sunrise,
-  TerminalSquare,
-  Trash2
+  TerminalSquare
 } from 'lucide-react'
 import type { TaskRecordPayload } from '../../../../shared/icode-api'
 import type {
@@ -36,7 +23,7 @@ import type {
 } from '../../../../shared/schemas/ipc'
 import type { Notice, PendingAction } from '../../state/workspace'
 import type { SidebarSessionActions } from '../../state/session-actions'
-import { type ContextMenuItem, type MenuAnchor } from '../ContextMenu'
+import type { MenuAnchor } from '../ContextMenu'
 import type { TaskAction } from '../TaskWorkbench'
 import AssistantAvatar from '../AssistantAvatar'
 import { repositoryPreparationView } from '../../lib/repository-preparation'
@@ -57,14 +44,8 @@ import {
   type WorktreeSessionGroup
 } from './sidebar-model'
 import WorkspaceSidebarDialogs from './WorkspaceSidebarDialogs'
+import { createSidebarMenuItems } from './sidebar-menu-items'
 import { sidebarBrandInset } from './window-chrome'
-import { taskMenuEntries, type TaskMenuEntryId } from './task-menu'
-import {
-  sessionActionState,
-  sessionMenuEntries,
-  sessionMenuReasonLabel,
-  type SessionMenuEntryId
-} from '../sessions/session-menu'
 import {
   SIDEBAR_WIDTH_DEFAULT,
   SIDEBAR_WIDTH_MAX,
@@ -348,63 +329,6 @@ export default function WorkspaceSidebar({
     })
   }
 
-  const worktreeMenuItems = (request: WorktreeMenuRequest): ContextMenuItem[] => {
-    const { repo, group } = request
-    const status = group.sessions[0]?.worktree?.status
-    // A checkout Git cannot hand to a PTY must not offer a session.
-    const canAdd = status === 'ready-to-start' || status === 'active'
-    const collapsed = collapsedWorktrees.has(group.worktreeId)
-    const items: ContextMenuItem[] = [
-      {
-        id: 'new-session',
-        label: t('sessions.newSession'),
-        icon: <TerminalSquare size={12} />,
-        disabled: !canAdd,
-        reason: canAdd ? undefined : t('newSession.worktreeUnavailable'),
-        testId: `sidebar-worktree-${group.worktreeId}-new-session`,
-        onSelect: () => onNewSessionInWorktree(repo.id, group.worktreeId)
-      },
-      {
-        id: 'copy-path',
-        label: t('projects.menu.copyPath'),
-        icon: <Copy size={12} />,
-        testId: `sidebar-worktree-${group.worktreeId}-copy-path`,
-        onSelect: () => {
-          const write = navigator.clipboard?.writeText(group.path)
-          if (write === undefined) return
-          void write.then(
-            () => onNotify({ tone: 'success', message: t('projects.menu.copyPath') }),
-            () => undefined
-          )
-        }
-      },
-      {
-        id: 'toggle',
-        label: collapsed ? t('sidebar.expandWorktree') : t('sidebar.collapseWorktree'),
-        icon: (
-          <ChevronRight
-            size={12}
-            className={collapsed ? '' : 'rotate-90'}
-          />
-        ),
-        separatorBefore: true,
-        testId: `sidebar-worktree-${group.worktreeId}-toggle`,
-        onSelect: () => toggleWorktreeCollapsed(group.worktreeId)
-      }
-    ]
-    const firstSession = group.sessions[0]
-    if (status === 'missing' && firstSession !== undefined) {
-      items.push({
-        id: 'recover',
-        label: t('sidebar.recoverWorktree'),
-        icon: <RefreshCw size={12} />,
-        separatorBefore: true,
-        testId: `sidebar-worktree-${group.worktreeId}-recover`,
-        onSelect: () => sessionActions.recoverWorktree(firstSession.id)
-      })
-    }
-    return items
-  }
   const toggleSessionPin = (sessionId: string): void => {
     updatePins((current) => ({ ...current, sessions: togglePin(current.sessions, sessionId) }))
   }
@@ -412,97 +336,38 @@ export default function WorkspaceSidebar({
     updatePins((current) => ({ ...current, tasks: togglePin(current.tasks, taskId) }))
   }
 
-  const projectMenuItems = (repo: RepositorySummary): ContextMenuItem[] => {
-    const preparation = repositoryPreparationView(repo)
-    const blockedReason = preparation?.label
-    return [
-      // The one action that unblocks a failed project leads the menu.
-      ...(preparation?.kind === 'failed'
-        ? [
-            {
-              id: 'retry',
-              label: t('projects.menu.retry'),
-              icon: <RefreshCw size={12} />,
-              testId: `sidebar-project-${repo.id}-retry`,
-              onSelect: () => onRetryPreparation(repo.id)
-            } satisfies ContextMenuItem
-          ]
-        : []),
-      // Creation is what the row click cannot do, so it comes first. The
-      // dialogs enforce the same preparation and host rules the app-wide New
-      // work menu does; disabling here avoids a dead-end dialog.
-      {
-        id: 'new-session',
-        label: t('sessions.newSession'),
-        icon: <SquarePlus size={12} />,
-        disabled: hostUnreachable || preparation !== null,
-        reason: hostUnreachable ? t('topbar.hostUnreachable') : blockedReason,
-        testId: `sidebar-project-${repo.id}-new-session`,
-        onSelect: () => onNewSessionInRepo(repo.id)
-      },
-      {
-        id: 'queue-task',
-        label: t('topbar.queueTask'),
-        icon: <ListPlus size={12} />,
-        disabled: preparation !== null,
-        reason: blockedReason,
-        testId: `sidebar-project-${repo.id}-queue-task`,
-        onSelect: () => onQueueTaskInRepo(repo.id)
-      },
-      // Navigation is not repeated here: clicking the row opens the project's
-      // sessions and clicking a task row opens its tasks view.
-      {
-        id: 'pin',
-        label: pins.projects.includes(repo.id)
-          ? t('projects.row.unpin')
-          : t('projects.row.pin'),
-        icon: <Pin size={12} />,
-        separatorBefore: true,
-        testId: `pin-project-${repo.id}`,
-        onSelect: () => toggleProjectPin(repo.id)
-      },
-      {
-        id: 'copy-path',
-        label: t('projects.menu.copyPath'),
-        icon: <Copy size={12} />,
-        testId: `sidebar-project-${repo.id}-copy-path`,
-        onSelect: () => {
-          const clipboard = navigator.clipboard
-          if (clipboard === undefined) {
-            onNotify({ tone: 'error', message: t('projects.notice.clipboardUnavailable') })
-            return
-          }
-          void clipboard.writeText(repo.path).then(
-            () => onNotify({ tone: 'success', message: t('projects.notice.pathCopied') }),
-            () => onNotify({ tone: 'error', message: t('projects.notice.clipboardUnavailable') })
-          )
-        }
-      },
-      {
-        id: 'repository-settings',
-        label: t('projects.menu.repositorySettings'),
-        icon: <Settings2 size={12} />,
-        testId: `repository-settings-${repo.id}`,
-        onSelect: () => setSettingsRepo(repo)
-      },
-      {
-        id: 'maintenance',
-        label: t('projects.menu.maintenance'),
-        icon: <GitBranch size={12} />,
-        testId: 'project-maintenance-open',
-        onSelect: () => setMaintenanceRepo(repo)
-      },
-      {
-        id: 'remove',
-        label: t('projects.menu.remove'),
-        icon: <Trash2 size={12} />,
-        danger: true,
-        separatorBefore: true,
-        testId: `repository-remove-${repo.id}`,
-        onSelect: () => setRemoveRepo(repo)
-      }
-    ]
-  }
+  const menuItems = createSidebarMenuItems({
+    t,
+    pins,
+    hostUnreachable,
+    hostUnreachableReason: t('topbar.hostUnreachable'),
+    collapsedWorktrees,
+    preparationFor: (repo) => repositoryPreparationView(repo),
+    pendingFor: (session) => pending[session.id] ?? null,
+    notify: onNotify,
+    onRetryPreparation,
+    onNewSessionInRepo,
+    onQueueTaskInRepo,
+    onNewSessionInWorktree,
+    onRecoverWorktree: sessionActions.recoverWorktree,
+    onNewSession,
+    onQueueTask,
+    onAddProject,
+    onOpenSchedules,
+    onTaskAction,
+    onWakeSession: sessionActions.wake,
+    onRestartSession: sessionActions.restart,
+    toggleProjectPin,
+    toggleTaskPin,
+    toggleSessionPin,
+    toggleWorktreeCollapsed,
+    setSettingsRepo,
+    setMaintenanceRepo,
+    setRemoveRepo,
+    setDetailsSession,
+    setSleepSession,
+    setRemoveSession
+  })
 
   const requestProjectMenu = (
     repo: RepositorySummary,
@@ -531,153 +396,16 @@ export default function WorkspaceSidebar({
   const removalImpact = (repoId: string): { sessions: number; worktrees: number } =>
     repositoryRemovalImpact(repoId, sessions, [...tasks, ...archivedTasks])
 
-  const newMenuItems: ContextMenuItem[] = [
-    {
-      id: 'new-session',
-      label: t('sessions.newSession'),
-      icon: <TerminalSquare size={12} />,
-      testId: 'new-session-open',
-      disabled: hostUnreachable,
-      reason: hostUnreachable ? t('topbar.hostUnreachable') : undefined,
-      onSelect: onNewSession
-    },
-    {
-      id: 'queue-task',
-      label: t('topbar.queueTask'),
-      testId: 'queue-task-open',
-      onSelect: onQueueTask
-    },
-    {
-      id: 'add-project',
-      label: t('projects.addProject'),
-      icon: <Plus size={12} />,
-      separatorBefore: true,
-      testId: 'add-project',
-      onSelect: onAddProject
-    },
-    {
-      id: 'schedules',
-      label: t('rail.schedules'),
-      testId: 'schedules-open',
-      onSelect: onOpenSchedules
-    }
-  ]
-
   /**
    * Actions for one task row. The row click opens the task, so the menu holds
    * only lifecycle actions it cannot perform. The plan lives in `task-menu` so
    * the ordering and availability rules are unit-tested.
    */
-  const taskMenuItems = (task: TaskRecordPayload): ContextMenuItem[] => {
-    const build: Record<TaskMenuEntryId, () => ContextMenuItem> = {
-      continue: () => ({
-        id: 'continue',
-        label: t('tasks.row.continue'),
-        icon: <Play size={12} />,
-        onSelect: () => onTaskAction(task, 'resume')
-      }),
-      retry: () => ({
-        id: 'retry',
-        label: t('tasks.row.retry'),
-        icon: <RefreshCw size={12} />,
-        onSelect: () => onTaskAction(task, 'retry')
-      }),
-      archive: () => ({
-        id: 'archive',
-        label: t('tasks.row.archive'),
-        icon: <Archive size={12} />,
-        onSelect: () => onTaskAction(task, 'archive')
-      }),
-      unarchive: () => ({
-        id: 'unarchive',
-        label: t('tasks.row.restore'),
-        icon: <ArchiveRestore size={12} />,
-        onSelect: () => onTaskAction(task, 'unarchive')
-      }),
-      pin: () => ({
-        id: 'pin',
-        label: t(pins.tasks.includes(task.id) ? 'projects.row.unpin' : 'projects.row.pin'),
-        icon: <Pin size={12} />,
-        onSelect: () => toggleTaskPin(task.id)
-      }),
-      cancel: () => ({
-        id: 'cancel',
-        label: t('tasks.row.cancel'),
-        icon: <CircleX size={12} />,
-        danger: true,
-        onSelect: () => onTaskAction(task, 'cancel')
-      })
-    }
-    return taskMenuEntries(task).map((entry) => ({
-      ...build[entry.id](),
-      separatorBefore: entry.separatorBefore,
-      testId: `sidebar-task-${task.id}-${entry.id}`
-    }))
-  }
-
   /**
    * Session lifecycle is a row-level action: the row menu is the fast path for
    * any session, including one that is not open. The header menu stays the
    * descriptive surface; both read the plan in `sessions/session-menu`.
    */
-  const sessionMenuItems = (session: SessionSummary): ContextMenuItem[] => {
-    const build: Record<SessionMenuEntryId, () => ContextMenuItem> = {
-      details: () => ({
-        id: 'details',
-        label: t('session.details'),
-        icon: <Info size={12} />,
-        testId: `sidebar-session-${session.id}-details`,
-        onSelect: () => setDetailsSession(session)
-      }),
-      sleep: () => ({
-        id: 'sleep',
-        label: t('session.sleep'),
-        icon: <Moon size={12} />,
-        testId: `sidebar-session-${session.id}-sleep`,
-        onSelect: () => setSleepSession(session)
-      }),
-      wake: () => ({
-        id: 'wake',
-        label: t('session.wake'),
-        icon: <Sunrise size={12} />,
-        testId: `sidebar-session-${session.id}-wake`,
-        onSelect: () => sessionActions.wake(session.id)
-      }),
-      restart: () => ({
-        id: 'restart',
-        label: t('session.restart'),
-        icon: <RotateCcw size={12} />,
-        testId: `sidebar-session-${session.id}-restart`,
-        onSelect: () => sessionActions.restart(session.id)
-      }),
-      pin: () => ({
-        id: 'pin',
-        label: t(pins.sessions.includes(session.id) ? 'projects.row.unpin' : 'projects.row.pin'),
-        icon: <Pin size={12} />,
-        testId: `sidebar-session-${session.id}-pin`,
-        onSelect: () => toggleSessionPin(session.id)
-      }),
-      remove: () => ({
-        id: 'remove',
-        label: t('session.remove'),
-        icon: <Trash2 size={12} />,
-        danger: true,
-        testId: `sidebar-session-${session.id}-remove`,
-        onSelect: () => setRemoveSession(session)
-      })
-    }
-    return sessionMenuEntries(
-      sessionActionState(session, pendingFor(session), true)
-    ).map((entry) => ({
-      ...build[entry.id](),
-      separatorBefore: entry.separatorBefore,
-      disabled: entry.disabled,
-      ...(entry.reason === undefined
-        ? {}
-        : { reason: sessionMenuReasonLabel(entry.reason) })
-    }))
-  }
-
   const sessionRow = (session: SessionSummary): React.JSX.Element => {
     const active = session.id === activeSessionId
     const suffix = activitySuffix(session.activity)
@@ -1402,7 +1130,7 @@ export default function WorkspaceSidebar({
           projectMenu === null
             ? null
             : {
-                items: projectMenuItems(projectMenu.repo),
+                items: menuItems.project(projectMenu.repo),
                 ariaLabel: t('projects.row.actionsAria', {
                   name: projectMenu.repo.displayName
                 }),
@@ -1421,7 +1149,7 @@ export default function WorkspaceSidebar({
           worktreeMenu === null
             ? null
             : {
-                items: worktreeMenuItems(worktreeMenu),
+                items: menuItems.worktree(worktreeMenu),
                 ariaLabel: t('sidebar.worktreeMenu'),
                 testId: 'sidebar-worktree-menu',
                 width: 208,
@@ -1435,7 +1163,7 @@ export default function WorkspaceSidebar({
           taskMenu === null
             ? null
             : {
-                items: taskMenuItems(taskMenu.task),
+                items: menuItems.task(taskMenu.task),
                 ariaLabel: t('task.actions'),
                 testId: 'sidebar-task-menu',
                 width: 208,
@@ -1451,7 +1179,7 @@ export default function WorkspaceSidebar({
           sessionMenu === null
             ? null
             : {
-                items: sessionMenuItems(sessionMenu.session),
+                items: menuItems.session(sessionMenu.session),
                 ariaLabel: t('session.actions'),
                 testId: 'sidebar-session-menu',
                 width: 208,
@@ -1467,7 +1195,7 @@ export default function WorkspaceSidebar({
           newMenu === null
             ? null
             : {
-                items: newMenuItems,
+                items: menuItems.newWork(),
                 ariaLabel: t('sidebar.newWork'),
                 testId: 'sidebar-new-work-menu',
                 width: 208,
