@@ -151,8 +151,6 @@ export const zhCN = {
   'projects.row.retryAria': "重试 {name} 的准备",
   'projects.row.pin': "固定到顶部",
   'projects.row.unpin': "取消固定",
-  'projects.row.pinAria': "固定 {name}",
-  'projects.row.unpinAria': "取消固定 {name}",
   'projects.row.actions': "项目操作",
   'projects.row.actionsAria': "{name} 的项目操作",
   'projects.menu.open': "打开项目",

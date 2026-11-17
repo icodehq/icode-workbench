@@ -5,6 +5,7 @@ import {
   sortQueuedTasks,
   taskAttention,
   taskAttentionCounts,
+  taskCanCancel,
   taskGroup,
   taskStatusLabel
 } from './task-status'
@@ -154,5 +155,21 @@ describe('task attention and lifecycle', () => {
     ).toEqual(['old', 'new'])
     expect(taskStatusLabel(task({ status: 'waiting' }))).toBe('Needs input')
     expect(taskStatusLabel(task({ status: 'completed', reviewDecision: 'pending' }))).toBe('Review')
+  })
+})
+
+describe('taskCanCancel', () => {
+  it('offers cancel for work that is queued or running', () => {
+    expect(taskCanCancel(task({ status: 'queued' }))).toBe(true)
+    expect(taskCanCancel(task({ status: 'dispatching' }))).toBe(true)
+    expect(taskCanCancel(task({ status: 'running' }))).toBe(true)
+    expect(taskCanCancel(task({ status: 'waiting' }))).toBe(true)
+  })
+
+  it('withholds cancel from proposals and from work that already ended', () => {
+    expect(taskCanCancel(task({ status: 'queued', canApprove: true }))).toBe(false)
+    expect(taskCanCancel(task({ status: 'completed' }))).toBe(false)
+    expect(taskCanCancel(task({ status: 'failed' }))).toBe(false)
+    expect(taskCanCancel(task({ status: 'cancelled' }))).toBe(false)
   })
 })

@@ -151,8 +151,6 @@ export const ko = {
   'projects.row.retryAria': "{name} 준비 다시 시도",
   'projects.row.pin': "상단에 고정",
   'projects.row.unpin': "고정 해제",
-  'projects.row.pinAria': "{name} 고정",
-  'projects.row.unpinAria': "{name} 고정 해제",
   'projects.row.actions': "프로젝트 작업",
   'projects.row.actionsAria': "{name} 프로젝트 작업",
   'projects.menu.open': "프로젝트 열기",

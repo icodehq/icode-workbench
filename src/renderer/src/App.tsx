@@ -637,6 +637,10 @@ export default function App(): React.JSX.Element {
             commands.openTask(task)
             setSidebarOpen(false)
           }}
+          onTaskAction={(task, action) => {
+            void runTaskWorkbenchAction(task, action)
+            if (action === 'retry' || action === 'resume') setSidebarOpen(false)
+          }}
           onNewSession={() => {
             openNewSession()
             setSidebarOpen(false)

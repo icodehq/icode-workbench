@@ -151,8 +151,6 @@ export const ja = {
   'projects.row.retryAria': "{name} の準備を再試行",
   'projects.row.pin': "先頭にピン留め",
   'projects.row.unpin': "ピン留めを解除",
-  'projects.row.pinAria': "{name} をピン留め",
-  'projects.row.unpinAria': "{name} のピン留めを解除",
   'projects.row.actions': "プロジェクト操作",
   'projects.row.actionsAria': "{name} のプロジェクト操作",
   'projects.menu.open': "プロジェクトを開く",

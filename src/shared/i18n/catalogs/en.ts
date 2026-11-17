@@ -154,8 +154,6 @@ export const en = {
   'projects.row.retryAria': "Retry preparation for {name}",
   'projects.row.pin': "Pin to top",
   'projects.row.unpin': "Unpin from top",
-  'projects.row.pinAria': "Pin {name}",
-  'projects.row.unpinAria': "Unpin {name}",
   'projects.row.actions': "Project actions",
   'projects.row.actionsAria': "Project actions for {name}",
   'projects.menu.open': "Open project",

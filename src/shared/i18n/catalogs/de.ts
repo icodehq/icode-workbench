@@ -151,8 +151,6 @@ export const de = {
   'projects.row.retryAria': "Einrichtung von {name} erneut versuchen",
   'projects.row.pin': "Oben anheften",
   'projects.row.unpin': "Nicht mehr anheften",
-  'projects.row.pinAria': "{name} anheften",
-  'projects.row.unpinAria': "{name} nicht mehr anheften",
   'projects.row.actions': "Projektaktionen",
   'projects.row.actionsAria': "Projektaktionen für {name}",
   'projects.menu.open': "Projekt öffnen",

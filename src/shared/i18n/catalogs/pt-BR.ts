@@ -151,8 +151,6 @@ export const ptBR = {
   'projects.row.retryAria': "Tentar novamente a preparação de {name}",
   'projects.row.pin': "Fixar no topo",
   'projects.row.unpin': "Desafixar",
-  'projects.row.pinAria': "Fixar {name}",
-  'projects.row.unpinAria': "Desafixar {name}",
   'projects.row.actions': "Ações do projeto",
   'projects.row.actionsAria': "Ações do projeto {name}",
   'projects.menu.open': "Abrir projeto",

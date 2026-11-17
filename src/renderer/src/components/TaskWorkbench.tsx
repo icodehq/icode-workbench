@@ -23,6 +23,7 @@ import TaskOverview from './TaskOverview'
 import { useT } from '../i18n/use-i18n'
 import { sessionStateLabel, stateDotClass } from './status'
 import {
+  taskCanCancel,
   taskPillClass,
   taskStatusLabel
 } from './task-status'
@@ -242,10 +243,7 @@ export default function TaskWorkbench({
         onSelect: () => onTaskAction('retry')
       })
     }
-    if (
-      !task.canApprove &&
-      (task.status === 'queued' || task.status === 'running' || task.status === 'dispatching' || task.status === 'waiting')
-    ) {
+    if (taskCanCancel(task)) {
       menuItems.push({
         id: 'cancel',
         label: t('tasks.row.cancel'),

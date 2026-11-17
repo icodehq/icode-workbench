@@ -67,6 +67,18 @@ export function taskIsActive(task: TaskRecordPayload): boolean {
   return task.status === 'dispatching' || task.status === 'running' || task.status === 'waiting'
 }
 
+/**
+ * Whether Cancel may be offered for a task.
+ *
+ * A queued proposal is withdrawn by rejecting it, not by cancelling the task,
+ * so the two must never appear together. Shared by the task view and the
+ * sidebar row menu so both surfaces answer the same question the same way.
+ */
+export function taskCanCancel(task: TaskRecordPayload): boolean {
+  if (task.canApprove === true) return false
+  return task.status === 'queued' || taskIsActive(task)
+}
+
 export type TaskLifecycleGroup = 'proposal' | 'running' | 'queued' | 'finished'
 
 export function taskGroup(task: TaskRecordPayload): TaskLifecycleGroup {

@@ -151,8 +151,6 @@ export const es = {
   'projects.row.retryAria': "Reintentar la preparación de {name}",
   'projects.row.pin': "Fijar arriba",
   'projects.row.unpin': "Dejar de fijar",
-  'projects.row.pinAria': "Fijar {name}",
-  'projects.row.unpinAria': "Dejar de fijar {name}",
   'projects.row.actions': "Acciones del proyecto",
   'projects.row.actionsAria': "Acciones del proyecto {name}",
   'projects.menu.open': "Abrir proyecto",

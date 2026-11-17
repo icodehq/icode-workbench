@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
+  Archive,
+  ArchiveRestore,
   Bell,
   ChevronRight,
+  CircleX,
   Copy,
   Filter,
   FolderGit2,
@@ -10,6 +13,7 @@ import {
   ListPlus,
   MoreHorizontal,
   Pin,
+  Play,
   Plus,
   RefreshCw,
   Search,
@@ -28,6 +32,7 @@ import type {
 } from '../../../../shared/schemas/ipc'
 import type { Notice } from '../../state/workspace'
 import ContextMenu, { type ContextMenuItem, type MenuAnchor } from '../ContextMenu'
+import type { TaskAction } from '../TaskWorkbench'
 import ProjectMaintenanceDialog from '../sessions/ProjectMaintenanceDialog'
 import RemoveRepositoryDialog from '../RemoveRepositoryDialog'
 import RepositorySettingsDialog from '../RepositorySettingsDialog'
@@ -49,6 +54,7 @@ import {
   type WorktreeSessionGroup
 } from './sidebar-model'
 import { sidebarBrandInset } from './window-chrome'
+import { taskMenuEntries, type TaskMenuEntryId } from './task-menu'
 import {
   SIDEBAR_WIDTH_DEFAULT,
   SIDEBAR_WIDTH_MAX,
@@ -86,6 +92,7 @@ type Props = {
   onOpenProject: (repoId: string, mode?: 'sessions' | 'tasks') => void
   onOpenSession: (sessionId: string) => void
   onOpenTask: (task: TaskRecordPayload) => void
+  onTaskAction: (task: TaskRecordPayload, action: TaskAction) => void
   onNewSession: () => void
   onNewSessionInRepo: (repoId: string) => void
   /** Start another session in an existing worktree, from its sidebar group. */
@@ -125,6 +132,21 @@ type WorktreeMenuRequest = {
   returnFocus: HTMLElement | null
 }
 
+/**
+ * A menu requested from a row. Pointer opens carry cursor coordinates; the
+ * keyboard opens against the row's rectangle so the menu has a stable anchor.
+ */
+type RowMenuRequest = {
+  anchor?: MenuAnchor
+  x?: number
+  y?: number
+  returnFocus: HTMLElement | null
+}
+
+type TaskMenuRequest = RowMenuRequest & { task: TaskRecordPayload }
+
+type SessionMenuRequest = RowMenuRequest & { session: SessionSummary }
+
 function taskDotClass(task: TaskRecordPayload): string {
   const attention = taskAttention(task)
   if (attention === 'Review') return 'bg-info'
@@ -159,6 +181,7 @@ export default function WorkspaceSidebar({
   onOpenProject,
   onOpenSession,
   onOpenTask,
+  onTaskAction,
   onNewSession,
   onNewSessionInRepo,
   onNewSessionInWorktree,
@@ -199,6 +222,8 @@ export default function WorkspaceSidebar({
   const [removeRepo, setRemoveRepo] = useState<RepositorySummary | null>(null)
   const [projectMenu, setProjectMenu] = useState<ProjectMenuRequest | null>(null)
   const [worktreeMenu, setWorktreeMenu] = useState<WorktreeMenuRequest | null>(null)
+  const [taskMenu, setTaskMenu] = useState<TaskMenuRequest | null>(null)
+  const [sessionMenu, setSessionMenu] = useState<SessionMenuRequest | null>(null)
   const [newMenu, setNewMenu] = useState<{
     anchor: MenuAnchor
     returnFocus: HTMLElement | null
@@ -468,6 +493,22 @@ export default function WorkspaceSidebar({
     request: Omit<ProjectMenuRequest, 'repo'>
   ): void => setProjectMenu({ repo, ...request })
 
+  const requestTaskMenu = (task: TaskRecordPayload, request: RowMenuRequest): void =>
+    setTaskMenu({ task, ...request })
+
+  const requestSessionMenu = (session: SessionSummary, request: RowMenuRequest): void =>
+    setSessionMenu({ session, ...request })
+
+  /** The menu key opens the same menu a right-click does, anchored to the row. */
+  const openRowMenuFromKey = (
+    event: React.KeyboardEvent<HTMLElement>,
+    open: (anchor: MenuAnchor) => void
+  ): void => {
+    if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
+    event.preventDefault()
+    open(menuAnchor(event.currentTarget))
+  }
+
   /** Sessions and worktrees a removal takes with it, including task sessions. */
   const removalImpact = (repoId: string): { sessions: number; worktrees: number } => {
     const repoTasks = [...tasks, ...archivedTasks].filter((task) => task.repoId === repoId)
@@ -513,12 +554,83 @@ export default function WorkspaceSidebar({
     }
   ]
 
+  /**
+   * Actions for one task row. The row click opens the task, so the menu holds
+   * only lifecycle actions it cannot perform. The plan lives in `task-menu` so
+   * the ordering and availability rules are unit-tested.
+   */
+  const taskMenuItems = (task: TaskRecordPayload): ContextMenuItem[] => {
+    const build: Record<TaskMenuEntryId, () => ContextMenuItem> = {
+      continue: () => ({
+        id: 'continue',
+        label: t('tasks.row.continue'),
+        icon: <Play size={12} />,
+        onSelect: () => onTaskAction(task, 'resume')
+      }),
+      retry: () => ({
+        id: 'retry',
+        label: t('tasks.row.retry'),
+        icon: <RefreshCw size={12} />,
+        onSelect: () => onTaskAction(task, 'retry')
+      }),
+      archive: () => ({
+        id: 'archive',
+        label: t('tasks.row.archive'),
+        icon: <Archive size={12} />,
+        onSelect: () => onTaskAction(task, 'archive')
+      }),
+      unarchive: () => ({
+        id: 'unarchive',
+        label: t('tasks.row.restore'),
+        icon: <ArchiveRestore size={12} />,
+        onSelect: () => onTaskAction(task, 'unarchive')
+      }),
+      pin: () => ({
+        id: 'pin',
+        label: t(pins.tasks.includes(task.id) ? 'projects.row.unpin' : 'projects.row.pin'),
+        icon: <Pin size={12} />,
+        onSelect: () => toggleTaskPin(task.id)
+      }),
+      cancel: () => ({
+        id: 'cancel',
+        label: t('tasks.row.cancel'),
+        icon: <CircleX size={12} />,
+        danger: true,
+        onSelect: () => onTaskAction(task, 'cancel')
+      })
+    }
+    return taskMenuEntries(task).map((entry) => ({
+      ...build[entry.id](),
+      separatorBefore: entry.separatorBefore,
+      testId: `sidebar-task-${task.id}-${entry.id}`
+    }))
+  }
+
+  /**
+   * Session lifecycle stays in the header menu, where every action carries a
+   * description and its blocked reason. Pinning is the one row-level action
+   * that belongs on the row, so the row menu holds it alone.
+   */
+  const sessionMenuItems = (session: SessionSummary): ContextMenuItem[] => [
+    {
+      id: 'pin',
+      label: t(pins.sessions.includes(session.id) ? 'projects.row.unpin' : 'projects.row.pin'),
+      icon: <Pin size={12} />,
+      testId: `sidebar-session-${session.id}-pin`,
+      onSelect: () => toggleSessionPin(session.id)
+    }
+  ]
+
   const sessionRow = (session: SessionSummary): React.JSX.Element => {
     const active = session.id === activeSessionId
-    const pinned = pins.sessions.includes(session.id)
     const suffix = activitySuffix(session.activity)
+    const menuOpen = sessionMenu?.session.id === session.id
     return (
-      <div key={session.id} className="group/session flex min-h-7 items-center rounded-md">
+      <div
+        key={session.id}
+        className={`flex min-h-7 items-center rounded-md ${menuOpen ? 'bg-hover' : ''}`}
+        data-menu-open={menuOpen ? 'true' : undefined}
+      >
         <button
           type="button"
           className={`flex min-h-7 min-w-0 flex-1 items-start gap-1.5 rounded-md px-1.5 py-1 text-left ${
@@ -527,7 +639,22 @@ export default function WorkspaceSidebar({
               : 'text-muted-foreground hover:bg-hover hover:text-foreground'
           }`}
           onClick={() => onOpenSession(session.id)}
+          onContextMenu={(event) => {
+            event.preventDefault()
+            requestSessionMenu(session, {
+              x: event.clientX,
+              y: event.clientY,
+              returnFocus: event.currentTarget
+            })
+          }}
+          onKeyDown={(event) =>
+            openRowMenuFromKey(event, (anchor) =>
+              requestSessionMenu(session, { anchor, returnFocus: event.currentTarget })
+            )
+          }
           aria-current={active ? 'true' : undefined}
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
           title={session.title}
           data-testid={`session-item-${session.id}`}
           data-session-id={session.id}
@@ -570,20 +697,6 @@ export default function WorkspaceSidebar({
               </span>
             )}
           </span>
-        </button>
-        <button
-          type="button"
-          className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground ${
-            pinned ? 'text-accent opacity-100' : 'opacity-0 focus-visible:opacity-100 group-hover/session:opacity-100'
-          }`}
-          onClick={() => toggleSessionPin(session.id)}
-          aria-label={t(pinned ? 'projects.row.unpinAria' : 'projects.row.pinAria', {
-            name: session.title
-          })}
-          title={t(pinned ? 'projects.row.unpin' : 'projects.row.pin')}
-          data-testid={`session-pin-${session.id}`}
-        >
-          <Pin size={9} />
         </button>
       </div>
     )
@@ -645,7 +758,6 @@ export default function WorkspaceSidebar({
                 {needs}
               </span>
             ) : null}
-            <Pin size={9} className="shrink-0 text-accent" />
           </button>
         </div>
       )
@@ -920,14 +1032,34 @@ export default function WorkspaceSidebar({
               {pinnedSessions.map((session) => {
                 const repo = repos.find((entry) => entry.id === session.repoId)
                 const active = session.id === activeSessionId
+                const menuOpen = sessionMenu?.session.id === session.id
                 return (
-                  <div key={`pin-session-${session.id}`} className="group/pin flex min-h-7 items-center rounded-md">
+                  <div
+                    key={`pin-session-${session.id}`}
+                    className={`flex min-h-7 items-center rounded-md ${menuOpen ? 'bg-hover' : ''}`}
+                    data-menu-open={menuOpen ? 'true' : undefined}
+                  >
                     <button
                       type="button"
                       className={`flex min-h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 py-1 text-left ${
                         active ? 'bg-sel text-foreground' : 'text-muted-foreground hover:bg-hover hover:text-foreground'
                       }`}
                       onClick={() => onOpenSession(session.id)}
+                      onContextMenu={(event) => {
+                        event.preventDefault()
+                        requestSessionMenu(session, {
+                          x: event.clientX,
+                          y: event.clientY,
+                          returnFocus: event.currentTarget
+                        })
+                      }}
+                      onKeyDown={(event) =>
+                        openRowMenuFromKey(event, (anchor) =>
+                          requestSessionMenu(session, { anchor, returnFocus: event.currentTarget })
+                        )
+                      }
+                      aria-haspopup="menu"
+                      aria-expanded={menuOpen}
                       title={session.title}
                       data-testid={`pinned-session-${session.id}`}
                     >
@@ -940,29 +1072,40 @@ export default function WorkspaceSidebar({
                         {session.worktree ? ` / ${session.worktree.branch.split('/').pop()}` : ''}
                       </span>
                     </button>
-                    <button
-                      type="button"
-                      className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-accent hover:bg-muted"
-                      onClick={() => toggleSessionPin(session.id)}
-                      aria-label={t('projects.row.unpinAria', { name: session.title })}
-                      title={t('projects.row.unpin')}
-                    >
-                      <Pin size={9} />
-                    </button>
                   </div>
                 )
               })}
               {pinnedTasks.map((task) => {
                 const repo = repos.find((entry) => entry.id === task.repoId)
                 const active = task.id === activeTaskId
+                const menuOpen = taskMenu?.task.id === task.id
                 return (
-                  <div key={`pin-task-${task.id}`} className="group/pin flex min-h-7 items-center rounded-md">
+                  <div
+                    key={`pin-task-${task.id}`}
+                    className={`flex min-h-7 items-center rounded-md ${menuOpen ? 'bg-hover' : ''}`}
+                    data-menu-open={menuOpen ? 'true' : undefined}
+                  >
                     <button
                       type="button"
                       className={`flex min-h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 py-1 text-left ${
                         active ? 'bg-sel text-foreground' : 'text-muted-foreground hover:bg-hover hover:text-foreground'
                       }`}
                       onClick={() => onOpenTask(task)}
+                      onContextMenu={(event) => {
+                        event.preventDefault()
+                        requestTaskMenu(task, {
+                          x: event.clientX,
+                          y: event.clientY,
+                          returnFocus: event.currentTarget
+                        })
+                      }}
+                      onKeyDown={(event) =>
+                        openRowMenuFromKey(event, (anchor) =>
+                          requestTaskMenu(task, { anchor, returnFocus: event.currentTarget })
+                        )
+                      }
+                      aria-haspopup="menu"
+                      aria-expanded={menuOpen}
                       title={task.title}
                       data-testid={`pinned-task-${task.id}`}
                     >
@@ -971,15 +1114,6 @@ export default function WorkspaceSidebar({
                       <span className="max-w-[110px] shrink-0 truncate font-mono text-[7.5px] text-muted-foreground">
                         {repo?.displayName ?? task.repoId}
                       </span>
-                    </button>
-                    <button
-                      type="button"
-                      className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-accent hover:bg-muted"
-                      onClick={() => toggleTaskPin(task.id)}
-                      aria-label={t('projects.row.unpinAria', { name: task.title })}
-                      title={t('projects.row.unpin')}
-                    >
-                      <Pin size={9} />
                     </button>
                   </div>
                 )
@@ -1119,15 +1253,37 @@ export default function WorkspaceSidebar({
                   </div>
                   {group.tasks.map((task) => {
                     const active = task.id === activeTaskId
-                    const pinned = pins.tasks.includes(task.id)
+                    const menuOpen = taskMenu?.task.id === task.id
                     return (
-                      <div key={task.id} className="group/task flex min-h-7 items-center rounded-md">
+                      <div
+                        key={task.id}
+                        className={`flex min-h-7 items-center rounded-md ${menuOpen ? 'bg-hover' : ''}`}
+                        data-menu-open={menuOpen ? 'true' : undefined}
+                      >
                         <button
                           type="button"
                           className={`flex min-h-7 min-w-0 flex-1 items-start gap-1.5 rounded-md px-1.5 py-1 text-left ${
                             active ? 'bg-sel text-foreground shadow-[inset_2px_0_0_var(--icode-accent)]' : 'text-muted-foreground hover:bg-hover hover:text-foreground'
                           }`}
                           onClick={() => onOpenTask(task)}
+                          onContextMenu={(event) => {
+                            event.preventDefault()
+                            requestTaskMenu(task, {
+                              x: event.clientX,
+                              y: event.clientY,
+                              returnFocus: event.currentTarget
+                            })
+                          }}
+                          onKeyDown={(event) =>
+                            openRowMenuFromKey(event, (anchor) =>
+                              requestTaskMenu(task, {
+                                anchor,
+                                returnFocus: event.currentTarget
+                              })
+                            )
+                          }
+                          aria-haspopup="menu"
+                          aria-expanded={menuOpen}
                           title={task.title}
                           data-testid={`sidebar-task-${task.id}`}
                           aria-current={active ? 'true' : undefined}
@@ -1142,20 +1298,6 @@ export default function WorkspaceSidebar({
                               {task.attempt ? ` · ${t('task.attempt', { count: task.attempt })}` : ''}
                             </span>
                           </span>
-                        </button>
-                        <button
-                          type="button"
-                          className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground ${
-                            pinned ? 'text-accent opacity-100' : 'opacity-0 focus-visible:opacity-100 group-hover/task:opacity-100'
-                          }`}
-                          onClick={() => toggleTaskPin(task.id)}
-                          aria-label={t(pinned ? 'projects.row.unpinAria' : 'projects.row.pinAria', {
-                            name: task.title
-                          })}
-                          title={t(pinned ? 'projects.row.unpin' : 'projects.row.pin')}
-                          data-testid={`task-pin-${task.id}`}
-                        >
-                          <Pin size={9} />
                         </button>
                       </div>
                     )
@@ -1221,6 +1363,34 @@ export default function WorkspaceSidebar({
           y={worktreeMenu.y}
           returnFocus={worktreeMenu.returnFocus}
           onClose={() => setWorktreeMenu(null)}
+        />
+      ) : null}
+      {taskMenu !== null ? (
+        <ContextMenu
+          items={taskMenuItems(taskMenu.task)}
+          ariaLabel={t('task.actions')}
+          testId="sidebar-task-menu"
+          width={208}
+          x={taskMenu.x}
+          y={taskMenu.y}
+          anchor={taskMenu.anchor}
+          align="start"
+          returnFocus={taskMenu.returnFocus}
+          onClose={() => setTaskMenu(null)}
+        />
+      ) : null}
+      {sessionMenu !== null ? (
+        <ContextMenu
+          items={sessionMenuItems(sessionMenu.session)}
+          ariaLabel={t('session.actions')}
+          testId="sidebar-session-menu"
+          width={208}
+          x={sessionMenu.x}
+          y={sessionMenu.y}
+          anchor={sessionMenu.anchor}
+          align="start"
+          returnFocus={sessionMenu.returnFocus}
+          onClose={() => setSessionMenu(null)}
         />
       ) : null}
       {newMenu !== null ? (
