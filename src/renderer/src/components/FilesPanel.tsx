@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ClipboardPaste,
   Copy,
@@ -44,20 +44,14 @@ import {
   type FileDecorations
 } from '../files/file-decorations'
 import { basenameOf, isUnder, parentPathOf } from '../files/file-paths'
+import { filesMenuEntries, type FilesMenuReason } from '../files/files-menu'
+import { useFilesLayout } from '../files/use-files-layout'
+import { useFilesViewport } from '../files/use-files-viewport'
 import { visibleTreeChildren } from '../files/visible-tree'
-import {
-  FILES_LIST_WIDTH_DEFAULT,
-  FILES_LIST_WIDTH_MAX,
-  FILES_LIST_WIDTH_MIN,
-  saveFilesSettings,
-  useFilesSettings
-} from '../files/files-settings'
+import { FILES_LIST_WIDTH_DEFAULT, useFilesSettings } from '../files/files-settings'
 import { isGitMetadata, unavailableText } from '../files/search-utils'
 import { translate, translatePlural } from '../i18n/i18n-store'
 import { useT, useTp } from '../i18n/use-i18n'
-import { useElementWidth } from '../lib/use-element-width'
-import { usePanelResize } from '../lib/use-panel-resize'
-import { INSPECTOR_TWO_COLUMN_MIN } from '../state/inspector-layout'
 import { buildTreeRows } from '../files/tree-layout'
 import { isDirty, openFilesStore, useSessionFiles } from '../files/open-files'
 import {
@@ -79,11 +73,7 @@ import {
   undoLabel,
   type FileUndoEntry
 } from '../files/undo-stack'
-import {
-  computeVirtualWindow,
-  scrollTopForRow,
-  FILES_ROW_HEIGHT
-} from '../files/virtual-window'
+import { computeVirtualWindow, FILES_ROW_HEIGHT } from '../files/virtual-window'
 import { loadTreeState, saveTreeState } from '../files/tree-state'
 import type { Notice } from '../state/workspace'
 import CodeEditor from './CodeEditor'
@@ -212,8 +202,6 @@ export default function FilesPanel({
   const [dialogBusy, setDialogBusy] = useState(false)
   const [closeAfterSave, setCloseAfterSave] = useState<string | null>(null)
   const [liveState, setLiveState] = useState<LiveState>('off')
-  const [viewport, setViewport] = useState({ scrollTop: 0, height: 600, rowsTop: 0 })
-
   /*
    * Master–detail, the way Termio's inspector works: the tree is the list and
    * the open file is the detail. The detail sits beside the tree only when the
@@ -221,81 +209,23 @@ export default function FilesPanel({
    * mounted underneath so expansion and scroll survive. `detailDismissed` is
    * the narrow layout's way back to the tree without closing the tab.
    */
-  const [panelRef, panelWidth] = useElementWidth<HTMLDivElement>()
-  const [listHidden, setListHidden] = useState(false)
-  const [detailDismissed, setDetailDismissed] = useState(false)
-  const [detailMaximized, setDetailMaximized] = useState(false)
   const detailOpen = activeTab !== null
-  const twoColumnAvailable = panelWidth >= INSPECTOR_TWO_COLUMN_MIN
-  const detailVisible = detailOpen && !detailDismissed
-  const twoColumn = twoColumnAvailable && detailVisible && !listHidden
-
-  const [listWidth, setListWidth] = useState(settings.listWidth)
-  const listWidthRef = useRef(settings.listWidth)
-  const listRef = useRef<HTMLDivElement | null>(null)
-  // Leave the editor at least 260px when the tree is beside it.
-  const maxListWidth = Math.max(
-    FILES_LIST_WIDTH_MIN,
-    Math.min(FILES_LIST_WIDTH_MAX, panelWidth - 260)
-  )
-  const effectiveListWidth = Math.max(
-    FILES_LIST_WIDTH_MIN,
-    Math.min(listWidth, maxListWidth)
-  )
-
-  useEffect(() => {
-    setListWidth(settings.listWidth)
-    listWidthRef.current = settings.listWidth
-  }, [settings.listWidth])
-
-  useEffect(() => {
-    if (detailOpen) return
-    setDetailDismissed(false)
-    setDetailMaximized(false)
-  }, [detailOpen])
-
-  useEffect(() => {
-    if (!active || (!detailMaximized && !detailVisible)) return
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.key !== 'Escape') return
-      const target = event.target
-      if (
-        target instanceof HTMLElement &&
-        target.closest('input, textarea, select, [contenteditable="true"]') !== null
-      ) {
-        return
-      }
-      event.preventDefault()
-      event.stopPropagation()
-      if (detailMaximized) setDetailMaximized(false)
-      else setDetailDismissed(true)
-    }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  }, [active, detailMaximized, detailVisible])
-
-  const persistListWidth = (next: number): void => {
-    const clamped = Math.max(
-      FILES_LIST_WIDTH_MIN,
-      Math.min(FILES_LIST_WIDTH_MAX, Math.round(next))
-    )
-    setListWidth(clamped)
-    listWidthRef.current = clamped
-    saveFilesSettings({ ...settings, listWidth: clamped })
-  }
-
-  const { handleProps } = usePanelResize({
-    kind: 'files-list',
-    panelRef: listRef,
-    getStartValue: () => effectiveListWidth,
-    clamp: (candidate) =>
-      Math.max(FILES_LIST_WIDTH_MIN, Math.min(maxListWidth, candidate)),
-    direction: 1,
-    axis: 'x',
-    disabled: !twoColumn,
-    cursor: 'col-resize',
-    onCommit: persistListWidth
-  })
+  const {
+    panelRef,
+    listRef,
+    listWidthRef,
+    effectiveListWidth,
+    listHidden,
+    setListHidden,
+    setDetailDismissed,
+    detailMaximized,
+    setDetailMaximized,
+    detailVisible,
+    twoColumnAvailable,
+    twoColumn,
+    persistListWidth,
+    handleProps
+  } = useFilesLayout({ active, detailOpen, settings })
 
   const visibleChildren = useMemo(
     () =>
@@ -329,13 +259,18 @@ export default function FilesPanel({
   const clipboard = useFilesClipboard()
   const clipboardHere = clipboard !== null && clipboard.sessionId === sessionId
 
-  const treeScrollRef = useRef<HTMLDivElement | null>(null)
-  const rowsContainerRef = useRef<HTMLDivElement | null>(null)
-  const rowsRef = useRef<TreeRow[]>([])
-  const viewportRef = useRef(viewport)
-  const restoreScroll = useRef<number | null>(null)
+  const {
+    treeScrollRef,
+    rowsContainerRef,
+    rowRefs,
+    rowsRef,
+    viewport,
+    setViewport,
+    restoreScroll,
+    scrollRowIndexIntoView,
+    focusRowElement
+  } = useFilesViewport(rows)
   const tabRefs = useRef(new Map<string, HTMLDivElement>())
-  const rowRefs = useRef(new Map<string, HTMLDivElement>())
   const editInput = useRef<HTMLInputElement | null>(null)
   const ignoreEditBlur = useRef(false)
   const typeahead = useRef<{ text: string; at: number } | null>(null)
@@ -364,60 +299,7 @@ export default function FilesPanel({
   const scheduleDecorationsRef = useRef<((delay?: number) => void) | null>(null)
   const rootStateRef = useRef(rootState)
   rootStateRef.current = rootState
-  rowsRef.current = rows
-  viewportRef.current = viewport
 
-  const scrollRowIndexIntoView = useCallback((index: number): void => {
-    const element = treeScrollRef.current
-    if (element === null) return
-    const rowsTop = viewportRef.current.rowsTop
-    const localScroll = Math.max(0, element.scrollTop - rowsTop)
-    const next = scrollTopForRow({
-      index,
-      rowCount: Math.max(index + 1, rowsRef.current.length),
-      scrollTop: localScroll,
-      viewportHeight: element.clientHeight
-    })
-    element.scrollTop = Math.max(0, rowsTop + next)
-  }, [])
-
-  const focusRowElement = useCallback((path: string, attempt = 0): void => {
-    const element = rowRefs.current.get(path)
-    if (element !== undefined) {
-      element.focus({ preventScroll: true })
-      return
-    }
-    if (attempt >= 12) return
-    window.setTimeout(() => focusRowElement(path, attempt + 1), 16)
-  }, [])
-
-  useLayoutEffect(() => {
-    const element = treeScrollRef.current
-    if (element === null) return
-    const height = element.clientHeight
-    const rowsTop = rowsContainerRef.current?.offsetTop ?? 0
-    setViewport((current) =>
-      current.height === height && current.rowsTop === rowsTop
-        ? current
-        : { ...current, height, rowsTop }
-    )
-  })
-
-  useEffect(() => {
-    const element = treeScrollRef.current
-    if (element === null || typeof ResizeObserver === 'undefined') return
-    const observer = new ResizeObserver(() => {
-      const rowsTop = rowsContainerRef.current?.offsetTop ?? 0
-      const height = element.clientHeight
-      setViewport((current) =>
-        current.height === height && current.rowsTop === rowsTop
-          ? current
-          : { ...current, height, rowsTop }
-      )
-    })
-    observer.observe(element)
-    return () => observer.disconnect()
-  }, [])
   /** Invalidates in-flight directory reads when the session or refresh key changes. */
   const treeGeneration = useRef(0)
   const treeResetKey = useRef('')
@@ -2781,176 +2663,182 @@ export default function FilesPanel({
     if (row !== undefined) treeElements.push(renderRow(row))
   }
 
+  const menuReasonText = (reason: FilesMenuReason): string => {
+    switch (reason) {
+      case 'busy':
+        return translate('files.reason.busy')
+      case 'other-session':
+        return translate('files.reason.otherSession')
+      case 'copy-first':
+        return translate('files.reason.copyFirst')
+      case 'select-cut':
+        return translate('files.reason.selectCut')
+      case 'select-copy':
+        return translate('files.reason.selectCopy')
+      case 'select-duplicate':
+        return translate('files.reason.selectDuplicate')
+      case 'select-one-rename':
+        return translate('files.reason.selectOneRename')
+      case 'select-delete':
+        return translate('files.reason.selectDelete')
+    }
+  }
+
   const buildContextItems = (): ContextMenuItem[] => {
     if (context === null) return []
     const target = context.target
     const paths = contextPaths(target)
-    const targetIsFolder = target.kind === 'directory' || target.kind === 'root'
-    const canPaste = clipboardHere && clipboard !== null
-    const items: ContextMenuItem[] = []
-
-    if (target.kind === 'file') {
-      items.push({
-        id: 'open',
-        label: translate('files.menu.open'),
-        icon: <FileText size={12} />,
-        shortcut: 'Enter',
-        testId: 'files-menu-open',
-        onSelect: () => void openPath(target.path, 1)
-      })
-    }
-    if (targetIsFolder) {
-      items.push({
-        id: 'new-file',
-        label: translate('files.menu.newFile'),
-        icon: <FilePlus2 size={12} />,
-        testId: 'files-menu-new-file',
-        onSelect: () => beginCreate('create-file', target.path)
-      })
-      items.push({
-        id: 'new-folder',
-        label: translate('files.menu.newFolder'),
-        icon: <FolderPlus size={12} />,
-        testId: 'files-menu-new-folder',
-        onSelect: () => beginCreate('create-directory', target.path)
-      })
-      items.push({
-        id: 'paste',
-        label: translate('files.menu.paste'),
-        icon: <ClipboardPaste size={12} />,
-        shortcut: shortcutLabel('V'),
-        disabled: !canPaste || transferBusy,
-        reason: transferBusy
-          ? translate('files.reason.busy')
-          : clipboard !== null && !clipboardHere
-            ? translate('files.reason.otherSession')
-            : translate('files.reason.copyFirst'),
-        testId: 'files-menu-paste',
-        onSelect: () => void pasteInto(target.path)
-      })
-    }
-
-    items.push(
-      {
-        id: 'cut',
-        label: translate('files.menu.cut'),
-        icon: <Scissors size={12} />,
-        shortcut: shortcutLabel('X'),
-        separatorBefore: true,
-        disabled: paths.length === 0,
-        reason: translate('files.reason.selectCut'),
-        testId: 'files-menu-cut',
-        onSelect: () => copySelection('cut', paths)
-      },
-      {
-        id: 'copy',
-        label: translate('files.menu.copy'),
-        icon: <Copy size={12} />,
-        shortcut: shortcutLabel('C'),
-        disabled: paths.length === 0,
-        reason: translate('files.reason.selectCopy'),
-        testId: 'files-menu-copy',
-        onSelect: () => copySelection('copy', paths)
-      },
-      {
-        id: 'duplicate',
-        label: translate('files.menu.duplicate'),
-        icon: <Copy size={12} />,
-        disabled: paths.length === 0 || transferBusy,
-        reason: transferBusy
-          ? translate('files.reason.busy')
-          : translate('files.reason.selectDuplicate'),
-        testId: 'files-menu-duplicate',
-        onSelect: () => void duplicateSelection(paths)
-      },
-      {
-        id: 'copy-path',
-        label:
-        paths.length > 1 ? translate('files.menu.copyPaths') : translate('files.menu.copyPath'),
-        icon: <Copy size={12} />,
-        disabled: paths.length === 0,
-        reason: translate('files.reason.selectCopy'),
-        testId: 'files-menu-copy-path',
-        onSelect: () => void copyPathsToClipboard('absolute', paths)
-      },
-      {
-        id: 'copy-relative-path',
-        label:
-        paths.length > 1
-          ? translate('files.menu.copyRelativePaths')
-          : translate('files.menu.copyRelativePath'),
-        icon: <Copy size={12} />,
-        disabled: paths.length === 0,
-        reason: translate('files.reason.selectCopy'),
-        testId: 'files-menu-copy-relative-path',
-        onSelect: () => void copyPathsToClipboard('relative', paths)
-      },
-      {
-        id: 'rename',
-        label: translate('files.menu.rename'),
-        icon: <Pencil size={12} />,
-        shortcut: 'F2',
-        separatorBefore: true,
-        disabled: paths.length !== 1 || transferBusy,
-        reason: transferBusy
-          ? translate('files.reason.busy')
-          : translate('files.reason.selectOneRename'),
-        testId: 'files-menu-rename',
-        onSelect: () => {
-          const path = paths[0]
-          if (path !== undefined) beginRename(path)
-        }
-      },
-      {
-        id: 'delete',
-        label: settings.useTrash
-        ? translate('files.menu.moveToTrash')
-        : translate('files.menu.delete'),
-        icon: <Trash2 size={12} />,
-        shortcut: 'Del',
-        danger: true,
-        disabled: paths.length === 0 || transferBusy,
-        reason: transferBusy
-          ? translate('files.reason.busy')
-          : translate('files.reason.selectDelete'),
-        testId: 'files-menu-delete',
-        onSelect: () => requestDelete(paths)
+    const entries = filesMenuEntries({
+      targetKind: target.kind,
+      pathCount: paths.length,
+      canPaste: clipboardHere && clipboard !== null,
+      clipboardElsewhere: clipboard !== null && !clipboardHere,
+      transferBusy,
+      canOpenHistory: onOpenHistory !== undefined && target.path !== ''
+    })
+    return entries.map((entry): ContextMenuItem => {
+      const item = {
+        id: entry.id,
+        separatorBefore: entry.separatorBefore,
+        disabled: entry.disabled,
+        ...(entry.reason === undefined ? {} : { reason: menuReasonText(entry.reason) })
       }
-    )
-
-    if (onOpenHistory !== undefined && target.path !== '') {
-      items.push({
-        id: 'history',
-        label: translate('files.menu.history'),
-        icon: <History size={12} />,
-        separatorBefore: true,
-        testId: 'files-menu-history',
-        onSelect: () => onOpenHistory(target.path)
-      })
-    }
-    if (target.kind === 'root') {
-      items.push(
-        {
-          id: 'select-all',
-          label: translate('files.menu.selectAll'),
-          shortcut: shortcutLabel('A'),
-          separatorBefore: true,
-          testId: 'files-menu-select-all',
-          onSelect: () => {
-            setSelection(selectAll(rows))
-            setEditorMode(rows.length > 1 ? 'folder' : 'tab')
+      switch (entry.id) {
+        case 'open':
+          return {
+            ...item,
+            label: translate('files.menu.open'),
+            icon: <FileText size={12} />,
+            shortcut: 'Enter',
+            testId: 'files-menu-open',
+            onSelect: () => void openPath(target.path, 1)
           }
-        },
-        {
-          id: 'refresh',
-          label: translate('files.menu.refresh'),
-          icon: <RefreshCw size={12} />,
-          testId: 'files-menu-refresh',
-          onSelect: () => void reloadExpanded(false, true)
-        }
-      )
-    }
-    return items
+        case 'new-file':
+          return {
+            ...item,
+            label: translate('files.menu.newFile'),
+            icon: <FilePlus2 size={12} />,
+            testId: 'files-menu-new-file',
+            onSelect: () => beginCreate('create-file', target.path)
+          }
+        case 'new-folder':
+          return {
+            ...item,
+            label: translate('files.menu.newFolder'),
+            icon: <FolderPlus size={12} />,
+            testId: 'files-menu-new-folder',
+            onSelect: () => beginCreate('create-directory', target.path)
+          }
+        case 'paste':
+          return {
+            ...item,
+            label: translate('files.menu.paste'),
+            icon: <ClipboardPaste size={12} />,
+            shortcut: shortcutLabel('V'),
+            testId: 'files-menu-paste',
+            onSelect: () => void pasteInto(target.path)
+          }
+        case 'cut':
+          return {
+            ...item,
+            label: translate('files.menu.cut'),
+            icon: <Scissors size={12} />,
+            shortcut: shortcutLabel('X'),
+            testId: 'files-menu-cut',
+            onSelect: () => copySelection('cut', paths)
+          }
+        case 'copy':
+          return {
+            ...item,
+            label: translate('files.menu.copy'),
+            icon: <Copy size={12} />,
+            shortcut: shortcutLabel('C'),
+            testId: 'files-menu-copy',
+            onSelect: () => copySelection('copy', paths)
+          }
+        case 'duplicate':
+          return {
+            ...item,
+            label: translate('files.menu.duplicate'),
+            icon: <Copy size={12} />,
+            testId: 'files-menu-duplicate',
+            onSelect: () => void duplicateSelection(paths)
+          }
+        case 'copy-path':
+          return {
+            ...item,
+            label:
+              paths.length > 1
+                ? translate('files.menu.copyPaths')
+                : translate('files.menu.copyPath'),
+            icon: <Copy size={12} />,
+            testId: 'files-menu-copy-path',
+            onSelect: () => void copyPathsToClipboard('absolute', paths)
+          }
+        case 'copy-relative-path':
+          return {
+            ...item,
+            label:
+              paths.length > 1
+                ? translate('files.menu.copyRelativePaths')
+                : translate('files.menu.copyRelativePath'),
+            icon: <Copy size={12} />,
+            testId: 'files-menu-copy-relative-path',
+            onSelect: () => void copyPathsToClipboard('relative', paths)
+          }
+        case 'rename':
+          return {
+            ...item,
+            label: translate('files.menu.rename'),
+            icon: <Pencil size={12} />,
+            shortcut: 'F2',
+            testId: 'files-menu-rename',
+            onSelect: () => {
+              const path = paths[0]
+              if (path !== undefined) beginRename(path)
+            }
+          }
+        case 'delete':
+          return {
+            ...item,
+            label: settings.useTrash
+              ? translate('files.menu.moveToTrash')
+              : translate('files.menu.delete'),
+            icon: <Trash2 size={12} />,
+            shortcut: 'Del',
+            danger: true,
+            testId: 'files-menu-delete',
+            onSelect: () => requestDelete(paths)
+          }
+        case 'history':
+          return {
+            ...item,
+            label: translate('files.menu.history'),
+            icon: <History size={12} />,
+            testId: 'files-menu-history',
+            onSelect: () => onOpenHistory?.(target.path)
+          }
+        case 'select-all':
+          return {
+            ...item,
+            label: translate('files.menu.selectAll'),
+            shortcut: shortcutLabel('A'),
+            testId: 'files-menu-select-all',
+            onSelect: () => {
+              setSelection(selectAll(rows))
+              setEditorMode(rows.length > 1 ? 'folder' : 'tab')
+            }
+          }
+        case 'refresh':
+          return {
+            ...item,
+            label: translate('files.menu.refresh'),
+            icon: <RefreshCw size={12} />,
+            testId: 'files-menu-refresh',
+            onSelect: () => void reloadExpanded(false, true)
+          }
+      }
+    })
   }
 
   const focusTab = (index: number): void => {
