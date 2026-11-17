@@ -8,7 +8,6 @@ import {
   GitBranch,
   History,
   ListPlus,
-  ListTodo,
   MoreHorizontal,
   Pin,
   Plus,
@@ -77,8 +76,6 @@ type Props = {
   activeRepoId: string | null
   activeSessionId: string | null
   activeTaskId: string | null
-  /** Which view the active project is showing, for the menu's checked items. */
-  activeProjectSurface: 'sessions' | 'tasks' | null
   branches: OwnedBranchSummary[]
   orphans: OrphanedHostSession[]
   assistantName: string
@@ -152,7 +149,6 @@ export default function WorkspaceSidebar({
   activeRepoId,
   activeSessionId,
   activeTaskId,
-  activeProjectSurface,
   branches,
   orphans,
   assistantName,
@@ -378,8 +374,6 @@ export default function WorkspaceSidebar({
   const projectMenuItems = (repo: RepositorySummary): ContextMenuItem[] => {
     const preparation = repositoryPreparationView(repo)
     const blockedReason = preparation?.label
-    const sessionsChecked = repo.id === activeRepoId && activeProjectSurface === 'sessions'
-    const tasksChecked = repo.id === activeRepoId && activeProjectSurface === 'tasks'
     return [
       // The one action that unblocks a failed project leads the menu.
       ...(preparation?.kind === 'failed'
@@ -414,24 +408,8 @@ export default function WorkspaceSidebar({
         testId: `sidebar-project-${repo.id}-queue-task`,
         onSelect: () => onQueueTaskInRepo(repo.id)
       },
-      // Navigation is a radio pair: a check says which view is open.
-      {
-        id: 'open-sessions',
-        label: t('projectHeader.sessions'),
-        icon: <TerminalSquare size={12} />,
-        checked: sessionsChecked,
-        separatorBefore: true,
-        testId: `sidebar-project-${repo.id}-sessions`,
-        onSelect: () => onOpenProject(repo.id, 'sessions')
-      },
-      {
-        id: 'open-tasks',
-        label: t('projectHeader.tasks'),
-        icon: <ListTodo size={12} />,
-        checked: tasksChecked,
-        testId: `sidebar-project-${repo.id}-tasks`,
-        onSelect: () => onOpenProject(repo.id, 'tasks')
-      },
+      // Navigation is not repeated here: clicking the row opens the project's
+      // sessions and clicking a task row opens its tasks view.
       {
         id: 'pin',
         label: pins.projects.includes(repo.id)

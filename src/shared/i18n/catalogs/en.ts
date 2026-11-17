@@ -202,7 +202,6 @@ export const en = {
   'projectHeader.noBranch': "no branch",
   'projectHeader.mode': "Project mode",
   'projectHeader.sessions': "Sessions",
-  'projectHeader.tasks': "Tasks",
   'projectHeader.needsCount': "{count} need you",
   'projectHeader.assistantOpen': "Talk to {name} about this project",
   'projectHeader.assistantLocked': "{name} unlocks when the first commit finishes.",

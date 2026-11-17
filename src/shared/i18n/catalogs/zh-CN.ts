@@ -198,7 +198,6 @@ export const zhCN = {
   'projectHeader.noBranch': "无分支",
   'projectHeader.mode': "项目模式",
   'projectHeader.sessions': "会话",
-  'projectHeader.tasks': "任务",
   'projectHeader.needsCount': "{count} 个需要你",
   'projectHeader.assistantOpen': "与 {name} 讨论此项目",
   'projectHeader.assistantLocked': "首次提交完成后 {name} 即可使用。",

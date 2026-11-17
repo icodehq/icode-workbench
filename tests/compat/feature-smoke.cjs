@@ -299,9 +299,12 @@ async function openSessionWorkspace() {
 }
 
 async function openProjectTasks() {
-  await click(`[data-testid="sidebar-project-menu-${repoId}"]`)
-  await waitForSelector(`[data-testid="sidebar-project-${repoId}-tasks"]`, 10000)
-  await click(`[data-testid="sidebar-project-${repoId}-tasks"]`)
+  await waitForSelector('button[data-testid^="sidebar-task-"]', 10000)
+  const taskId = await cdp.evaluate(
+    `document.querySelector('button[data-testid^="sidebar-task-"]')?.getAttribute('data-testid')?.replace('sidebar-task-', '') ?? null`
+  )
+  assert(taskId, 'No task row to open the Tasks view')
+  await click(`[data-testid="sidebar-task-${taskId}"]`)
   await waitForSelector('[data-testid="tasks-surface"]', 20000)
 }
 

@@ -1220,17 +1220,6 @@ async function main() {
       'Right-click menu is missing Remove repository'
     )
     assert(rightClickMenuText.includes('Copy path'), 'Right-click menu is missing Copy path')
-    const viewItems = await cdp.evaluate(`(() => {
-      const menu = document.querySelector('[data-testid="sidebar-project-menu"]');
-      return Array.from(menu.querySelectorAll('[role="menuitemradio"]')).map((element) => ({
-        text: element.innerText,
-        checked: element.getAttribute('aria-checked')
-      }));
-    })()`)
-    assert(
-      viewItems.length === 2 && viewItems.some((entry) => entry.checked === 'true'),
-      `Project menu did not mark the open view: ${JSON.stringify(viewItems)}`
-    )
     assert(
       await cdp.evaluate(`Boolean(document.querySelector('[data-testid="sessions-surface"]'))`),
       'Right-click opened the project instead of its menu'

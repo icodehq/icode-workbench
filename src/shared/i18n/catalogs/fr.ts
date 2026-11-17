@@ -198,7 +198,6 @@ export const fr = {
   'projectHeader.noBranch': "aucune branche",
   'projectHeader.mode': "Mode du projet",
   'projectHeader.sessions': "Sessions",
-  'projectHeader.tasks': "Tâches",
   'projectHeader.needsCount': "{count} vous attendent",
   'projectHeader.assistantOpen': "Parler à {name} de ce projet",
   'projectHeader.assistantLocked': "{name} sera disponible lorsque le premier commit sera terminé.",

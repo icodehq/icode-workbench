@@ -198,7 +198,6 @@ export const ja = {
   'projectHeader.noBranch': "ブランチなし",
   'projectHeader.mode': "プロジェクトモード",
   'projectHeader.sessions': "セッション",
-  'projectHeader.tasks': "タスク",
   'projectHeader.needsCount': "{count} 件があなたを待っています",
   'projectHeader.assistantOpen': "このプロジェクトについて {name} と話す",
   'projectHeader.assistantLocked': "初回コミットが完了すると {name} が使えるようになります。",

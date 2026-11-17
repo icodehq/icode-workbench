@@ -198,7 +198,6 @@ export const ptBR = {
   'projectHeader.noBranch': "sem branch",
   'projectHeader.mode': "Modo do projeto",
   'projectHeader.sessions': "Sessões",
-  'projectHeader.tasks': "Tarefas",
   'projectHeader.needsCount': "{count} precisam de você",
   'projectHeader.assistantOpen': "Falar com {name} sobre este projeto",
   'projectHeader.assistantLocked': "{name} é desbloqueado quando o primeiro commit termina.",

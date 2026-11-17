@@ -198,7 +198,6 @@ export const ko = {
   'projectHeader.noBranch': "브랜치 없음",
   'projectHeader.mode': "프로젝트 모드",
   'projectHeader.sessions': "세션",
-  'projectHeader.tasks': "작업",
   'projectHeader.needsCount': "{count}개 처리 필요",
   'projectHeader.assistantOpen': "이 프로젝트에 대해 {name}와(과) 대화",
   'projectHeader.assistantLocked': "첫 커밋이 완료되면 {name}을(를) 사용할 수 있습니다.",

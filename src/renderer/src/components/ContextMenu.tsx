@@ -6,7 +6,6 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { Check } from 'lucide-react'
 import {
   menuPosition,
   type MenuAnchor,
@@ -25,8 +24,6 @@ export type ContextMenuItem = {
   reason?: string
   danger?: boolean
   separatorBefore?: boolean
-  /** Renders as a radio item and shows a check in the leading column. */
-  checked?: boolean
   /** Stable selector for real-Electron smoke coverage. */
   testId?: string
   onSelect: () => void
@@ -56,8 +53,7 @@ const DEFAULT_MENU_WIDTH = 248
 const MAX_MENU_HEIGHT = 480
 const MARGIN = 8
 const GAP = 4
-const MENU_ITEM_SELECTOR =
-  '[role="menuitem"]:not([aria-disabled="true"]), [role="menuitemradio"]:not([aria-disabled="true"])'
+const MENU_ITEM_SELECTOR = '[role="menuitem"]:not([aria-disabled="true"])'
 
 export default function ContextMenu({
   items,
@@ -193,8 +189,7 @@ export default function ContextMenu({
           {item.separatorBefore ? <div className="my-1 h-px bg-line" role="separator" /> : null}
           <button
             type="button"
-            role={item.checked === undefined ? 'menuitem' : 'menuitemradio'}
-            aria-checked={item.checked === undefined ? undefined : item.checked}
+            role="menuitem"
             aria-disabled={item.disabled === true}
             title={item.disabled ? item.reason : undefined}
             data-testid={item.testId}
@@ -211,14 +206,10 @@ export default function ContextMenu({
           >
             <span
               className={`flex w-3.5 shrink-0 items-center justify-center ${
-                item.checked === true
-                  ? 'text-accent'
-                  : item.danger && item.disabled !== true
-                    ? 'text-destructive'
-                    : 'text-muted-foreground'
+                item.danger && item.disabled !== true ? 'text-destructive' : 'text-muted-foreground'
               }`}
             >
-              {item.checked === true ? <Check size={12} /> : item.icon}
+              {item.icon}
             </span>
             <span className="min-w-0 flex-1 truncate">{item.label}</span>
             {item.shortcut ? (
