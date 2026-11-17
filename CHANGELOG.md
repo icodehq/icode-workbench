@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.16] - 2026-11-17
+
+### Changed
+
+- Removing a session whose worktree has uncommitted changes or unmerged
+  commits no longer requires typing the branch name. The cleanup dialog names
+  the affected files or the retained branch, and one confirm completes the
+  removal. The branch is still kept, and the standard removal dialog now says
+  that uncommitted changes block removal instead of promising protection.
+
 ## [0.9.15] - 2026-11-17
 
 ### Added
