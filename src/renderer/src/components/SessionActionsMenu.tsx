@@ -1,17 +1,18 @@
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { ChevronDown, Info, Moon, RotateCcw, Sunrise, Trash2 } from 'lucide-react'
 import { useT } from '../i18n/use-i18n'
+import {
+  sessionHeaderMenuEntries,
+  sessionMenuReasonLabel,
+  type SessionActionState
+} from './sessions/session-menu'
 
 type Props = {
-  live: boolean
-  sleeping: boolean
-  canSleep: boolean
-  canWake: boolean
+  state: SessionActionState
+  allowSleep: boolean
   wakeDescription: string
   sleepDisabledReason: string
-  restartDisabled: boolean
   restartReason: string
-  removeDisabled: boolean
   removeReason: string
   onDetails: () => void
   onSleep: () => void
@@ -73,15 +74,11 @@ function MenuItem({
  * first, so "Stop" is not a user-facing concept.
  */
 export default function SessionActionsMenu({
-  live,
-  sleeping,
-  canSleep,
-  canWake,
+  state,
+  allowSleep,
   wakeDescription,
   sleepDisabledReason,
-  restartDisabled,
   restartReason,
-  removeDisabled,
   removeReason,
   onDetails,
   onSleep,
@@ -136,56 +133,66 @@ export default function SessionActionsMenu({
           aria-label={t('session.actions')}
           data-testid="session-menu-popover"
         >
-          <MenuItem
-            icon={<Info size={13} />}
-            label={t('session.details')}
-            description={t('session.detailsDescription')}
-            testId="session-details-open"
-            onClick={() => run(onDetails)}
-          />
-          {live && !sleeping ? (
-            <MenuItem
-              icon={<Moon size={13} />}
-              label={t('session.sleep')}
-              description={wakeDescription}
-              testId="sleep-session"
-              disabled={!canSleep}
-              title={sleepDisabledReason}
-              onClick={() => run(onSleep)}
-            />
-          ) : null}
-          {sleeping ? (
-            <MenuItem
-              icon={<Sunrise size={13} />}
-              label={t('session.wake')}
-              description={wakeDescription}
-              testId="wake-session"
-              disabled={!canWake}
-              onClick={() => run(onWake)}
-            />
-          ) : null}
-          {!sleeping ? (
-            <MenuItem
-              icon={<RotateCcw size={13} />}
-              label={t('session.restart')}
-              description={t('session.restartKeep')}
-              testId="restart-session"
-              disabled={restartDisabled}
-              title={restartReason}
-              onClick={() => run(onRestart)}
-            />
-          ) : null}
-          <div className="my-1 h-px bg-border" />
-          <MenuItem
-            icon={<Trash2 size={13} />}
-            label={t('session.remove')}
-            description={t('session.removeDescription')}
-            testId="remove-session"
-            destructive
-            disabled={removeDisabled}
-            title={removeReason}
-            onClick={() => run(onRemove)}
-          />
+          {sessionHeaderMenuEntries(state, allowSleep).map((entry) => {
+            const reason =
+              entry.reason === undefined
+                ? undefined
+                : sessionMenuReasonLabel(entry.reason)
+            return (
+              <Fragment key={entry.id}>
+                {entry.separatorBefore ? <div className="my-1 h-px bg-border" /> : null}
+                {entry.id === 'details' ? (
+                  <MenuItem
+                    icon={<Info size={13} />}
+                    label={t('session.details')}
+                    description={t('session.detailsDescription')}
+                    testId="session-details-open"
+                    onClick={() => run(onDetails)}
+                  />
+                ) : entry.id === 'sleep' ? (
+                  <MenuItem
+                    icon={<Moon size={13} />}
+                    label={t('session.sleep')}
+                    description={wakeDescription}
+                    testId="sleep-session"
+                    disabled={entry.disabled}
+                    title={reason ?? sleepDisabledReason}
+                    onClick={() => run(onSleep)}
+                  />
+                ) : entry.id === 'wake' ? (
+                  <MenuItem
+                    icon={<Sunrise size={13} />}
+                    label={t('session.wake')}
+                    description={wakeDescription}
+                    testId="wake-session"
+                    disabled={entry.disabled}
+                    onClick={() => run(onWake)}
+                  />
+                ) : entry.id === 'restart' ? (
+                  <MenuItem
+                    icon={<RotateCcw size={13} />}
+                    label={t('session.restart')}
+                    description={t('session.restartKeep')}
+                    testId="restart-session"
+                    disabled={entry.disabled}
+                    title={reason ?? restartReason}
+                    onClick={() => run(onRestart)}
+                  />
+                ) : (
+                  <MenuItem
+                    icon={<Trash2 size={13} />}
+                    label={t('session.remove')}
+                    description={t('session.removeDescription')}
+                    testId="remove-session"
+                    destructive
+                    disabled={entry.disabled}
+                    title={reason ?? removeReason}
+                    onClick={() => run(onRemove)}
+                  />
+                )}
+              </Fragment>
+            )
+          })}
         </div>
       ) : null}
     </span>

@@ -34,7 +34,6 @@ import SessionDetailsDrawer from './SessionDetailsDrawer'
 import {
   hostUnavailable,
   sessionActionState,
-  sessionMenuReasonLabel,
   worktreeBlocksTerminal
 } from './sessions/session-menu'
 import { translate } from '../i18n/i18n-store'
@@ -570,28 +569,12 @@ export default function SessionWorkspace({
           ) : null}
 
           <SessionActionsMenu
-            live={allowSleep && actions.live}
-            sleeping={allowSleep && actions.sleeping}
-            canSleep={actions.canSleep}
-            canWake={actions.canWake}
+            state={actions}
+            allowSleep={allowSleep}
             wakeDescription={wakeDescription(session.harness, locale)}
-            sleepDisabledReason={
-              actions.sleepReason === null
-                ? t('session.onlyLiveCanSleep')
-                : sessionMenuReasonLabel(actions.sleepReason)
-            }
-            restartDisabled={!actions.canRestart}
-            restartReason={
-              actions.restartReason === null
-                ? t('session.restartDescription')
-                : sessionMenuReasonLabel(actions.restartReason)
-            }
-            removeDisabled={!actions.canRemove}
-            removeReason={
-              actions.removeReason === null
-                ? t('session.removeReason')
-                : sessionMenuReasonLabel(actions.removeReason)
-            }
+            sleepDisabledReason={t('session.onlyLiveCanSleep')}
+            restartReason={t('session.restartDescription')}
+            removeReason={t('session.removeReason')}
             onDetails={() => setDetailsOpen(true)}
             onSleep={() => setSleepOpen(true)}
             onWake={() => onWake?.(session.id)}
