@@ -6,6 +6,7 @@ import type { RepositorySummary, SessionSummary } from '../../../../shared/schem
 import type { AgentSendResult } from '../../lib/agent-send'
 import type { WorkbenchDraftStore } from '../../review/drafts'
 import type { Notice } from '../../state/workspace'
+import type { TaskSessionActions } from '../../state/session-actions'
 import { callApi } from '../../lib/api'
 import TaskWorkbench, { type TaskAction } from '../TaskWorkbench'
 import { useT } from '../../i18n/use-i18n'
@@ -29,9 +30,7 @@ type Props = {
   onQueueFollowUp: (task: TaskRecordPayload) => void
   onSelectTask: (task: TaskRecordPayload) => void
   onOpenSession: (sessionId: string) => void
-  onStopSession: (sessionId: string) => void
-  onRestartSession: (sessionId: string) => void
-  onRecheckSession: (sessionId: string) => void
+  sessionActions: TaskSessionActions
   onError: (error: AppError) => void
   onSendToAgent: (text: string, session: SessionSummary) => Promise<AgentSendResult>
   onReload: () => Promise<void>
@@ -59,9 +58,7 @@ export default function TasksSurface({
   onQueueFollowUp,
   onSelectTask,
   onOpenSession,
-  onStopSession,
-  onRestartSession,
-  onRecheckSession,
+  sessionActions,
   onError,
   onSendToAgent,
   onReload,
@@ -159,9 +156,9 @@ export default function TasksSurface({
         openRequest={openRequest}
         onOpenRequestHandled={onOpenRequestHandled}
         onOpenSession={onOpenSession}
-        onStopSession={onStopSession}
-        onRestartSession={onRestartSession}
-        onRecheckSession={onRecheckSession}
+        onStopSession={sessionActions.stop}
+        onRestartSession={sessionActions.restart}
+        onRecheckSession={sessionActions.recheck}
         onError={onError}
         onSendToAgent={onSendToAgent}
         drafts={drafts}

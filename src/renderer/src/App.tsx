@@ -26,6 +26,7 @@ import { useGlobalShortcuts } from './router/use-global-shortcuts'
 import { useSessionPanes } from './state/use-session-panes'
 import { taskAttention } from './components/task-status'
 import { useWorkspace, type CreateSessionRequest } from './state/use-workspace'
+import { useSessionActions } from './state/use-session-actions'
 import {
   createPendingCreate,
   pendingCreateStillVisible,
@@ -52,6 +53,7 @@ import { filesClipboardStore } from './files/files-clipboard'
 const NEEDS_ORDER = { Approval: 0, Answer: 1, Retry: 2, Blocked: 3, Review: 4 } as const
 export default function App(): React.JSX.Element {
   const workspace = useWorkspace()
+  const sessionActions = useSessionActions(workspace)
   const { state } = workspace
   const tasks = useTaskQueue(workspace.notify)
   const theme = useThemePreference()
@@ -514,12 +516,7 @@ export default function App(): React.JSX.Element {
         onSelectSession={commands.openDirectSession}
         onCreateSession={workspace.createSession}
         onNewSession={openNewSession}
-        onRestartSession={(sessionId) => void workspace.restartSession(sessionId)}
-        onSleepSession={(sessionId) => void workspace.sleepSession(sessionId)}
-        onWakeSession={(sessionId) => void workspace.wakeSession(sessionId)}
-        onRecheckSession={(sessionId) => void workspace.recheckSession(sessionId)}
-        onRemoveSession={(sessionId) => void workspace.requestRemoveSession(sessionId)}
-        onRecoverWorktree={(sessionId) => void workspace.recoverWorktree(sessionId)}
+        sessionActions={sessionActions}
         onError={workspace.reportError}
         notify={workspace.notify}
         onClearOpenRequest={commands.clearOpenRequest}
@@ -546,9 +543,7 @@ export default function App(): React.JSX.Element {
         onQueueFollowUp={(task) => openQueueTask(task.repoId, task.id)}
         onSelectTask={(task) => commands.openTask(task)}
         onOpenSession={(sessionId) => commands.openTaskSession(sessionId, 'terminal')}
-        onStopSession={(sessionId) => void workspace.stopSession(sessionId)}
-        onRestartSession={(sessionId) => void workspace.restartSession(sessionId)}
-        onRecheckSession={(sessionId) => void workspace.recheckSession(sessionId)}
+        sessionActions={sessionActions}
         onError={workspace.reportError}
         onSendToAgent={sendToAgent}
         onReload={() => tasks.reload()}
@@ -642,10 +637,7 @@ export default function App(): React.JSX.Element {
             void runTaskWorkbenchAction(task, action)
             if (action === 'retry' || action === 'resume') setSidebarOpen(false)
           }}
-          onSleepSession={(sessionId) => void workspace.sleepSession(sessionId)}
-          onWakeSession={(sessionId) => void workspace.wakeSession(sessionId)}
-          onRestartSession={(sessionId) => void workspace.restartSession(sessionId)}
-          onRemoveSession={(sessionId) => void workspace.requestRemoveSession(sessionId)}
+          sessionActions={sessionActions}
           onNewSession={() => {
             openNewSession()
             setSidebarOpen(false)
@@ -660,7 +652,6 @@ export default function App(): React.JSX.Element {
             openNewSession(worktreeId)
             setSidebarOpen(false)
           }}
-          onRecoverWorktree={(sessionId) => void workspace.recoverWorktree(sessionId)}
           onQueueTask={() => {
             openQueueTask()
             setSidebarOpen(false)
@@ -819,7 +810,7 @@ export default function App(): React.JSX.Element {
                   busy: cleanupBusy,
                   onClose: workspace.dismissSessionCleanup,
                   onRecover: () =>
-                    void workspace.recoverWorktree(state.sessionCleanup!.sessionId),
+                    sessionActions.recoverWorktree(state.sessionCleanup!.sessionId),
                   onDiscard: async (confirmBranch) => {
                     setCleanupBusy(true)
                     const removed = await workspace.discardSession(

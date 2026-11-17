@@ -8,6 +8,7 @@ import type { WorkbenchDraftStore } from '../../review/drafts'
 import type { OpenFileRequest, ViewRequest } from '../../router/use-app-navigation'
 import type { Notice, PendingAction } from '../../state/workspace'
 import type { PendingCreate } from '../../state/pending-create'
+import type { DirectSessionActions } from '../../state/session-actions'
 import type { CreateSessionOutcome, CreateSessionRequest } from '../../state/use-workspace'
 import SessionInspector from '../sessions/SessionInspector'
 import SessionStatusStrip from '../sessions/SessionStatusStrip'
@@ -47,12 +48,7 @@ type Props = {
   onSelectSession: (sessionId: string) => void
   onCreateSession: (input: CreateSessionRequest) => Promise<CreateSessionOutcome>
   onNewSession: () => void
-  onRestartSession: (sessionId: string) => void
-  onSleepSession: (sessionId: string) => void
-  onWakeSession: (sessionId: string) => void
-  onRecheckSession: (sessionId: string) => void
-  onRemoveSession: (sessionId: string) => void
-  onRecoverWorktree: (sessionId: string) => void
+  sessionActions: DirectSessionActions
   onError: (error: AppError) => void
   notify: (notice: Notice) => void
   onClearOpenRequest: () => void
@@ -80,12 +76,7 @@ export default function SessionsSurface({
   onSelectSession,
   onCreateSession,
   onNewSession,
-  onRestartSession,
-  onSleepSession,
-  onWakeSession,
-  onRecheckSession,
-  onRemoveSession,
-  onRecoverWorktree,
+  sessionActions,
   onError,
   notify,
   onClearOpenRequest,
@@ -553,12 +544,12 @@ export default function SessionsSurface({
         viewRequest={null}
         drafts={drafts}
         sessionsListHidden={false}
-        onRestart={onRestartSession}
-        onSleep={onSleepSession}
-        onWake={onWakeSession}
-        onRecheck={onRecheckSession}
-        onRemove={onRemoveSession}
-        onRecoverWorktree={onRecoverWorktree}
+        onRestart={sessionActions.restart}
+        onSleep={sessionActions.sleep}
+        onWake={sessionActions.wake}
+        onRecheck={sessionActions.recheck}
+        onRemove={sessionActions.remove}
+        onRecoverWorktree={sessionActions.recoverWorktree}
         onError={onError}
         notify={notify}
         onSendToAgent={(text) => sendToAgent(text, target)}
@@ -643,7 +634,7 @@ export default function SessionsSurface({
                 notify={notify}
                 drafts={drafts}
                 onSendToAgent={(text) => sendToAgent(text, activeSession)}
-                onRecheck={() => onRecheckSession(activeSession.id)}
+                onRecheck={() => sessionActions.recheck(activeSession.id)}
                 onOpenTerminal={() => undefined}
                 collapsed={inspectorCollapsed}
                 onToggleCollapsed={() => setInspectorCollapsed((current) => !current)}

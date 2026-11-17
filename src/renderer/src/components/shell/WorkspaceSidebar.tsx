@@ -35,6 +35,7 @@ import type {
   SessionSummary
 } from '../../../../shared/schemas/ipc'
 import type { Notice, PendingAction } from '../../state/workspace'
+import type { SidebarSessionActions } from '../../state/session-actions'
 import { type ContextMenuItem, type MenuAnchor } from '../ContextMenu'
 import type { TaskAction } from '../TaskWorkbench'
 import AssistantAvatar from '../AssistantAvatar'
@@ -104,16 +105,12 @@ type Props = {
   onOpenSession: (sessionId: string) => void
   onOpenTask: (task: TaskRecordPayload) => void
   onTaskAction: (task: TaskRecordPayload, action: TaskAction) => void
-  onSleepSession: (sessionId: string) => void
-  onWakeSession: (sessionId: string) => void
-  onRestartSession: (sessionId: string) => void
-  onRemoveSession: (sessionId: string) => void
+  sessionActions: SidebarSessionActions
   onNewSession: () => void
   onNewSessionInRepo: (repoId: string) => void
   /** Start another session in an existing worktree, from its sidebar group. */
   onNewSessionInWorktree: (repoId: string, worktreeId: string) => void
   /** Re-create a missing checkout from its retained branch. */
-  onRecoverWorktree: (sessionId: string) => void
   onQueueTask: () => void
   onQueueTaskInRepo: (repoId: string) => void
   onAddProject: () => void
@@ -198,14 +195,10 @@ export default function WorkspaceSidebar({
   onOpenSession,
   onOpenTask,
   onTaskAction,
-  onSleepSession,
-  onWakeSession,
-  onRestartSession,
-  onRemoveSession,
+  sessionActions,
   onNewSession,
   onNewSessionInRepo,
   onNewSessionInWorktree,
-  onRecoverWorktree,
   onQueueTask,
   onQueueTaskInRepo,
   onAddProject,
@@ -407,7 +400,7 @@ export default function WorkspaceSidebar({
         icon: <RefreshCw size={12} />,
         separatorBefore: true,
         testId: `sidebar-worktree-${group.worktreeId}-recover`,
-        onSelect: () => onRecoverWorktree(firstSession.id)
+        onSelect: () => sessionActions.recoverWorktree(firstSession.id)
       })
     }
     return items
@@ -648,14 +641,14 @@ export default function WorkspaceSidebar({
         label: t('session.wake'),
         icon: <Sunrise size={12} />,
         testId: `sidebar-session-${session.id}-wake`,
-        onSelect: () => onWakeSession(session.id)
+        onSelect: () => sessionActions.wake(session.id)
       }),
       restart: () => ({
         id: 'restart',
         label: t('session.restart'),
         icon: <RotateCcw size={12} />,
         testId: `sidebar-session-${session.id}-restart`,
-        onSelect: () => onRestartSession(session.id)
+        onSelect: () => sessionActions.restart(session.id)
       }),
       pin: () => ({
         id: 'pin',
@@ -1538,7 +1531,7 @@ export default function WorkspaceSidebar({
                 onConfirm: () => {
                   const sessionId = sleepSession.id
                   setSleepSession(null)
-                  onSleepSession(sessionId)
+                  sessionActions.sleep(sessionId)
                 }
               }
         }
@@ -1552,7 +1545,7 @@ export default function WorkspaceSidebar({
                 onConfirm: () => {
                   const sessionId = removeSession.id
                   setRemoveSession(null)
-                  onRemoveSession(sessionId)
+                  sessionActions.remove(sessionId)
                 }
               }
         }
