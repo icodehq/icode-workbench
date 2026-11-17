@@ -112,6 +112,12 @@
    * still resolves while the terminal colours come from xterm itself.
    */
   --icode-terminal-scrollbar: #4A4A4E;
+  /*
+   * The viewport strip xterm leaves below the last row. xterm.css paints it
+   * black; it must follow the terminal palette or a light terminal shows a
+   * black bar under the prompt.
+   */
+  --icode-terminal-bg: #212121;
 
   /* Text, most to least prominent. Ink 3 is raised above the study value to
    * clear 4.5:1 on both canvas and panel. */
@@ -193,6 +199,7 @@
   --icode-line: #D6D6D9;
   --icode-line-strong: #BDBDC1;
   --icode-terminal-scrollbar: #B0B0B6;
+  --icode-terminal-bg: #FAFAFA;
 
   --icode-ink-1: #383A42;
   --icode-ink-2: #696C77;
@@ -315,6 +322,7 @@ body {
 }
 
 .terminal-host .xterm-viewport {
+  background-color: var(--icode-terminal-bg);
   scrollbar-width: thin;
   scrollbar-color: var(--icode-terminal-scrollbar) transparent;
 }
