@@ -215,7 +215,7 @@ export default function AssistantPage({
         </div>
         {assistant.conversations.length > 0 ? (
           <select
-            className="ml-auto max-w-[240px] truncate rounded-md border border-border bg-background px-2 py-1 text-[10.5px] text-muted-foreground outline-none focus:border-line-strong"
+            className="ml-auto max-w-[320px] truncate rounded-md border border-border bg-background px-2 py-1 text-[10.5px] text-muted-foreground outline-none focus:border-line-strong"
             value={assistant.selectedConversationId ?? ''}
             onChange={(event) => selectConversation(event.target.value)}
             aria-label="Mira conversation"
@@ -223,14 +223,14 @@ export default function AssistantPage({
           >
             {latestConversation ? (
               <option value={latestConversation.id}>
-                {conversationLabel(latestConversation, true)}
+                {conversationLabel(latestConversation, true, getLocale())}
               </option>
             ) : null}
             {earlierConversations.length > 0 ? (
               <optgroup label="Earlier conversations">
                 {earlierConversations.map((conversation) => (
                   <option key={conversation.id} value={conversation.id}>
-                    {conversationLabel(conversation, false)}
+                    {conversationLabel(conversation, false, getLocale())}
                   </option>
                 ))}
               </optgroup>

@@ -2,6 +2,7 @@ import type {
   AssistantConversationPayload,
   AssistantMessagePayload
 } from '../../../shared/schemas/assistant'
+import type { Locale } from '../../../shared/i18n/locales'
 
 export const MESSAGE_PAGE_SIZE = 50
 export const NOTIFICATION_FEED_LIMIT = 10
@@ -100,9 +101,10 @@ export function computeHasMore(
 
 export function conversationLabel(
   conversation: AssistantConversationPayload,
-  isLatest: boolean
+  isLatest: boolean,
+  locale: Locale = 'en'
 ): string {
-  const when = new Date(conversation.createdAt).toLocaleString([], {
+  const when = new Date(conversation.createdAt).toLocaleString(locale, {
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
