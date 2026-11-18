@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-19
+
+### Added
+
+- iCode now exposes Orca's 45-entry agent launch catalog alongside its
+  terminal. The New Session picker has a primary/community split, alias-aware
+  search, and per-harness launch arguments and required-command checks.
+- Managed status hooks cover 21 agent CLIs, local and WSL: Gemini, Qwen Code,
+  Cursor, Copilot, Grok, Kimi, Amp, Droid, OpenClaude, Qoder, Qoder China,
+  CodeBuddy, Antigravity, Command Code, Devin, Muse, ZCode, Kiro, DeepSeek
+  Harness, Jcode and Hermes. The default-on setting reports working, waiting
+  and done without changing user-owned hooks, and the Settings card shows each
+  provider's state and config path.
+- OpenCode has a managed status plugin for 1.x and 2.x, with prompt/assistant
+  previews, permission and question attention, and indented subagent rows.
+- Sessions can report harness activity from managed plugins and terminal
+  program/title evidence, and sleep/wake uses the expanded resume recipes.
+
+### Changed
+
+- Session harness IDs are validated by a seeded `harnesses` table (migration
+  19). Provider injection and Mira remain deliberately limited to Claude,
+  Codex and OpenCode.
+- Workspace trust no longer falls through to Codex for unknown harnesses, and
+  previews launch through the catalog's aliases and arguments.
+
+### Fixed
+
+- The OpenCode plugin reports an initial idle state when it loads, instead of
+  leaving the session unknown.
+- The WSL host build script strips CRLF so guest artifacts do not carry
+  Windows line endings into shell execution.
+
 ## [0.9.17] - 2026-11-18
 
 ### Fixed
