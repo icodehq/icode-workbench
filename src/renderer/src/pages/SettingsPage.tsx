@@ -11,6 +11,7 @@ import FilesSettingsCard from '../files/FilesSettingsCard'
 import SettingsCard from '../components/SettingsCard'
 import AssistantSettingsCard from '../components/AssistantSettingsCard'
 import LanguageSettingsCard from '../components/LanguageSettingsCard'
+import OpencodeSettingsCard from '../components/OpencodeSettingsCard'
 import ProviderSettingsCard from '../components/ProviderSettingsCard'
 import { useT } from '../i18n/use-i18n'
 import type { Translator } from '../i18n/i18n-store'
@@ -136,6 +137,8 @@ export default function SettingsPage({
             </SettingsCard>
 
             <LanguageSettingsCard />
+
+            <OpencodeSettingsCard />
 
             <AssistantSettingsCard
               settings={assistantSettings}

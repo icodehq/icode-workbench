@@ -108,6 +108,47 @@ export default function SessionDetailsDrawer({
         {activityDetailsLabel(session.activity, session.harness)}
       </span>
     ],
+    [
+      t('sessionDetails.prompt'),
+      <span
+        key="prompt"
+        className="line-clamp-3 whitespace-pre-wrap break-words text-[10.5px]"
+        title={session.activity?.prompt ?? undefined}
+        data-testid="session-prompt"
+      >
+        {session.activity?.prompt ?? t('sessionDetails.empty')}
+      </span>
+    ],
+    [
+      t('sessionDetails.lastMessage'),
+      <span
+        key="message"
+        className="line-clamp-3 whitespace-pre-wrap break-words text-[10.5px]"
+        title={session.activity?.message ?? undefined}
+        data-testid="session-last-message"
+      >
+        {session.activity?.message ?? t('sessionDetails.empty')}
+      </span>
+    ],
+    [
+      t('sessionDetails.subagents'),
+      session.activity?.subagents.length ? (
+        <ul key="subagents" className="space-y-0.5" data-testid="session-details-subagents">
+          {session.activity.subagents.map((child) => (
+            <li key={child.id} className="flex min-w-0 items-center gap-1.5">
+              <span className="h-1 w-1 shrink-0 rounded-full bg-muted-foreground" />
+              <span className="min-w-0 flex-1 truncate">{child.label}</span>
+              <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+                {child.state}
+                {child.toolName ? ` · ${child.toolName}` : ''}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        t('sessionDetails.empty')
+      )
+    ],
     [t('sessionDetails.updated'), formatDateTime(getLocale(), session.updatedAt)],
     [
       t('sessionDetails.host'),

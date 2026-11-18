@@ -6,7 +6,8 @@ import {
   DEFAULT_APP_PREFERENCES,
   loadAppPreferences,
   parseAppPreferences,
-  saveAppPreferences
+  saveAppPreferences,
+  updateAppPreferences
 } from './preferences'
 
 let directory: string
@@ -25,21 +26,54 @@ describe('app preferences', () => {
   })
 
   it('round-trips a pinned language', () => {
-    expect(saveAppPreferences(directory, { locale: 'ja' })).toBe(true)
-    expect(loadAppPreferences(directory)).toEqual({ locale: 'ja' })
+    expect(
+      saveAppPreferences(directory, { locale: 'ja', opencodeIntegrationEnabled: true })
+    ).toBe(true)
+    expect(loadAppPreferences(directory)).toEqual({
+      locale: 'ja',
+      opencodeIntegrationEnabled: true
+    })
     expect(JSON.parse(readFileSync(join(directory, 'preferences.json'), 'utf8'))).toEqual({
-      locale: 'ja'
+      locale: 'ja',
+      opencodeIntegrationEnabled: true
     })
   })
 
   it('ignores unknown fields and rejects invalid records', () => {
-    expect(parseAppPreferences({ locale: 'fr', extra: true })).toEqual({ locale: 'fr' })
-    expect(parseAppPreferences({ locale: 'system' })).toEqual({ locale: 'system' })
+    expect(parseAppPreferences({ locale: 'fr', extra: true })).toEqual({
+      locale: 'fr',
+      opencodeIntegrationEnabled: true
+    })
+    expect(parseAppPreferences({ locale: 'system' })).toEqual({
+      locale: 'system',
+      opencodeIntegrationEnabled: true
+    })
+    expect(
+      parseAppPreferences({ locale: 'de', opencodeIntegrationEnabled: false })
+    ).toEqual({ locale: 'de', opencodeIntegrationEnabled: false })
+    expect(
+      parseAppPreferences({ locale: 'de', opencodeIntegrationEnabled: 'yes' })
+    ).toEqual({ locale: 'de', opencodeIntegrationEnabled: true })
     expect(parseAppPreferences({ locale: 'zh-TW' })).toBeNull()
     expect(parseAppPreferences({ locale: 1 })).toBeNull()
     expect(parseAppPreferences([])).toBeNull()
     expect(parseAppPreferences(null)).toBeNull()
     expect(parseAppPreferences('en')).toBeNull()
+  })
+
+  it('patches one preference without replacing the other', () => {
+    expect(saveAppPreferences(directory, DEFAULT_APP_PREFERENCES)).toBe(true)
+    expect(updateAppPreferences(directory, { locale: 'fr' })).toBe(true)
+    expect(updateAppPreferences(directory, { opencodeIntegrationEnabled: false })).toBe(true)
+    expect(loadAppPreferences(directory)).toEqual({
+      locale: 'fr',
+      opencodeIntegrationEnabled: false
+    })
+    expect(updateAppPreferences(directory, { opencodeIntegrationEnabled: true })).toBe(true)
+    expect(loadAppPreferences(directory)).toEqual({
+      locale: 'fr',
+      opencodeIntegrationEnabled: true
+    })
   })
 
   it('falls back to defaults when the file is corrupt', () => {
@@ -51,6 +85,11 @@ describe('app preferences', () => {
     const missingParent = join(directory, 'nested')
     // Writing into a directory that cannot be created (a file in the way).
     writeFileSync(missingParent, 'not a directory', 'utf8')
-    expect(saveAppPreferences(join(missingParent, 'child'), { locale: 'de' })).toBe(false)
+    expect(
+      saveAppPreferences(join(missingParent, 'child'), {
+        locale: 'de',
+        opencodeIntegrationEnabled: true
+      })
+    ).toBe(false)
   })
 })

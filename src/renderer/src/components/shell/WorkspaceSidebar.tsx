@@ -61,7 +61,10 @@ import {
   activitySuffix,
   activityTone,
   sessionStateDotClass,
-  sessionStateLabelFor
+  sessionStateLabelFor,
+  subagentDotClass,
+  subagentTone,
+  visibleSubagents
 } from '../status'
 import { useT } from '../../i18n/use-i18n'
 
@@ -410,15 +413,16 @@ export default function WorkspaceSidebar({
     const active = session.id === activeSessionId
     const suffix = activitySuffix(session.activity)
     const menuOpen = sessionMenu?.session.id === session.id
+    const subagents = visibleSubagents(session.activity)
     return (
       <div
         key={session.id}
-        className={`flex min-h-7 items-center rounded-md ${menuOpen ? 'bg-hover' : ''}`}
+        className={`flex min-h-7 flex-col justify-center rounded-md ${menuOpen ? 'bg-hover' : ''}`}
         data-menu-open={menuOpen ? 'true' : undefined}
       >
         <button
           type="button"
-          className={`flex min-h-7 min-w-0 flex-1 items-start gap-1.5 rounded-md px-1.5 py-1 text-left ${
+          className={`flex min-h-7 w-full min-w-0 items-start gap-1.5 rounded-md px-1.5 py-1 text-left ${
             active
               ? 'bg-sel text-foreground shadow-[inset_2px_0_0_var(--icode-accent)]'
               : 'text-muted-foreground hover:bg-hover hover:text-foreground'
@@ -482,8 +486,41 @@ export default function WorkspaceSidebar({
                 <span className="truncate">{suffix}</span>
               </span>
             )}
+            {session.activity?.prompt ? (
+              <span
+                className="mt-0.5 block truncate text-[7.5px] text-muted-foreground/80"
+                title={session.activity.prompt}
+                data-testid={`session-prompt-${session.id}`}
+              >
+                {session.activity.prompt}
+              </span>
+            ) : null}
           </span>
         </button>
+        {subagents.visible.length > 0 ? (
+          <div className="pb-0.5 pl-6 pr-1" data-testid={`session-subagents-${session.id}`}>
+            {subagents.visible.map((child) => (
+              <button
+                key={child.id}
+                type="button"
+                className="flex h-4 w-full min-w-0 items-center gap-1 rounded px-1 text-left text-[7.5px] hover:bg-hover"
+                onClick={() => onOpenSession(session.id)}
+                title={child.toolName ? `${child.label} · ${child.toolName}` : child.label}
+                data-testid={`session-subagent-${session.id}-${child.id}`}
+                data-subagent-state={child.state}
+              >
+                <span className={`h-1 w-1 shrink-0 rounded-full ${subagentDotClass(child)}`} />
+                <span className="min-w-0 flex-1 truncate">{child.label}</span>
+                <span className={`shrink-0 font-mono ${subagentTone(child)}`}>{child.state}</span>
+              </button>
+            ))}
+            {subagents.hidden > 0 ? (
+              <span className="block px-1 text-[7.5px] text-muted-foreground">
+                +{subagents.hidden}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     )
   }

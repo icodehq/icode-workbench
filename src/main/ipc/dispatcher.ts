@@ -60,6 +60,7 @@ import {
   taskSettingsInputSchema
 } from '../../shared/schemas/workspace'
 import { clearActivityUnreadInputSchema } from '../../shared/schemas/activity'
+import { openCodeIntegrationSetEnabledInputSchema } from '../../shared/schemas/opencode-integration'
 import {
   cloneCancelInputSchema,
   cloneStartInputSchema,
@@ -276,6 +277,8 @@ export type DispatcherServices = {
   schedulesRemove: (input: { scheduleId: string }) => Promise<unknown>
   activityList: () => Promise<unknown>
   activityClearUnread: (input: { sessionId: string }) => Promise<unknown>
+  opencodeIntegrationGet: () => Promise<unknown>
+  opencodeIntegrationSetEnabled: (input: { enabled: boolean }) => Promise<unknown>
   harnessList: (input: { force?: boolean; repoId?: string }) => Promise<unknown>
   providersList: () => Promise<unknown>
   providersCreate: (input: ProviderCreateInput) => Promise<unknown>
@@ -868,6 +871,15 @@ export function createDispatcher(services: DispatcherServices): Dispatcher {
         const input = parse(clearActivityUnreadInputSchema, rawInput)
         if ('code' in input) return { ok: false, error: input }
         return run(() => services.activityClearUnread(input))
+      }
+
+      case IPC_CHANNELS.opencodeIntegrationGet:
+        return run(() => services.opencodeIntegrationGet())
+
+      case IPC_CHANNELS.opencodeIntegrationSetEnabled: {
+        const input = parse(openCodeIntegrationSetEnabledInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.opencodeIntegrationSetEnabled(input))
       }
 
       case IPC_CHANNELS.harnessList: {

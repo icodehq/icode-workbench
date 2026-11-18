@@ -45,6 +45,16 @@ function services(overrides: Partial<DispatcherServices> = {}): DispatcherServic
     mergeState: vi.fn(async () => null),
     activityList: vi.fn(async () => []),
     activityClearUnread: vi.fn(async () => true),
+    opencodeIntegrationGet: vi.fn(async () => ({
+      enabled: true,
+      api: 'unknown',
+      install: { state: 'not-installed', configDir: '/home/dev/.config/opencode' }
+    })),
+    opencodeIntegrationSetEnabled: vi.fn(async () => ({
+      enabled: true,
+      api: 'unknown',
+      install: { state: 'not-installed', configDir: '/home/dev/.config/opencode' }
+    })),
     filesList: vi.fn(async () => ({ status: 'ok', path: '', entries: [], truncated: false })),
     filesRead: vi.fn(async () => ({ status: 'ok', path: 'a', text: '', size: 0, binary: false, tooLarge: false, missingTrailingNewline: false })),
     filesWrite: vi.fn(async () => ({ status: 'ok', size: 1 })),

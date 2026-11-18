@@ -44,11 +44,18 @@ import { AssistantActions } from '../assistant/assistant-actions'
 import { AssistantPolicy } from '../assistant/assistant-policy'
 import { AssistantNotifier } from '../assistant/assistant-notifier'
 import { ActivityService } from '../activity/activity-service'
+import type { ActivitySource } from '../../shared/domain/activity'
 import { ActivityHookServer } from '../activity/hook-server'
 import { mainT } from '../i18n/main-i18n'
 import { activitySocketPath as activityEndpoint } from '../activity/endpoint'
 import { installClaudeHooks } from '../activity/claude-hooks'
 import { ActivityBroadcaster } from '../activity/activity-broadcaster'
+import { OpenCodeIntegrationService } from '../integrations/opencode/service'
+import {
+  installGuestOpenCodeIntegration,
+  removeGuestOpenCodeIntegration
+} from '../integrations/opencode/guest-installer'
+import { openCodePluginApi } from '../../shared/domain/harness'
 import { WorktreeStore } from '../persistence/worktree-store'
 import { GitWorktreeService } from '../worktrees/git-worktree-service'
 import { createGitExecutorRouter } from '../git/executor'
@@ -66,7 +73,7 @@ import type { HostArtifactManifest } from '../wsl/host/deploy'
 import { createGuestHarnessDetector, withGuestLaunchCommand } from '../wsl/harness/guest-harness-detector'
 import { createGuestHarnessProbeCache } from '../wsl/harness/guest-harness-probe-cache'
 import { createDetectionResultCache } from '../harness/detection-result-cache'
-import { resolvePathATerminal } from '../wsl/terminal/path-a'
+import { LOCAL_TARGET, resolvePathATerminal } from '../wsl/terminal/path-a'
 import { toGuestVisiblePath } from '../wsl/guest-visible-path'
 import { createWslHostClientPool } from '../sessions/wsl-host-client-pool'
 import { createWorkspaceTrust } from '../harness/trust/workspace-trust'
@@ -84,6 +91,8 @@ export type AppRuntime = {
   sessions: SessionService
   activity: ActivityService
   activityServer: ActivityHookServer
+  /** Managed OpenCode status plugin: setting, install state and launch preparation. */
+  integrations: OpenCodeIntegrationService
   removals: RepositoryRemovalService
   sessionRemovals: SessionRemovalService
   /** Worktree-scoped file browsing, editing and search for the tools panel. */
@@ -197,10 +206,19 @@ export async function startAppRuntime(): Promise<AppRuntime> {
    * argument — but it is the *only* signal that distinguishes a finished turn
    * from a live process, so it must not be forgotten.
    */
-  let onTaskActivity: ((sessionId: string, activity: { state: string; outcome: string | null }) => void) | null = null
+  let onTaskActivity:
+    | ((sessionId: string, activity: {
+        state: string
+        outcome: string | null
+        source?: ActivitySource
+      }) => void)
+    | null = null
   let assistantNotifier: AssistantNotifier | null = null
+  /** Read by ActivityService; updated by the integration service below. */
+  let pluginActivityEnabled = true
   const activity = new ActivityService({
     isKnownSession: (sessionId) => persistence.sessions.findById(sessionId as never) !== null,
+    pluginActivityEnabled: () => pluginActivityEnabled,
     onTransition: (transition) => {
       const row = persistence.sessions.findById(transition.sessionId as never)
       activityBroadcaster.handle(transition, row?.title ?? mainT('notifications.sessionTitle'))
@@ -215,7 +233,8 @@ export async function startAppRuntime(): Promise<AppRuntime> {
       // from the fact that a terminal was spawned.
       onTaskActivity?.(transition.sessionId, {
         state: transition.next.state,
-        outcome: transition.next.outcome
+        outcome: transition.next.outcome,
+        source: transition.next.source
       })
     },
     currentIncarnation: (sessionId) => {
@@ -522,7 +541,7 @@ export async function startAppRuntime(): Promise<AppRuntime> {
    */
   const providerOverlayDirectory = join(activityDirectory, 'providers')
   pruneClaudeProviderOverlays(providerOverlayDirectory, Date.now())
-  function launchSpecForHarness(
+  function providerLaunchSpecForHarness(
     id: HarnessId,
     target: ExecutionTarget
   ): { args: string[]; env: Record<string, string> } {
@@ -570,6 +589,40 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     }
   }
 
+  /**
+   * The plugin loader shape is selected at launch from the probed CLI version.
+   * Provider args/env are otherwise untouched; an unknown version leaves the
+   * environment alone and the installer reports the integration unsupported.
+   */
+  function launchSpecForHarness(
+    id: HarnessId,
+    target: ExecutionTarget,
+    detection?: HarnessDetectionResult | null
+  ): { args: string[]; env: Record<string, string> } {
+    const spec = providerLaunchSpecForHarness(id, target)
+    const version = detection?.state === 'available' ? detection.version : null
+    if (id !== 'opencode' || version === null) return spec
+    const api = openCodePluginApi(version)
+    if (api === 'unknown') return spec
+    return {
+      ...spec,
+      env: { ...spec.env, ICODE_OPENCODE_PLUGIN_API: api }
+    }
+  }
+
+  const openCodeIntegrations = new OpenCodeIntegrationService({
+    directory: app.getPath('userData'),
+    userDataDir: app.getPath('userData'),
+    runner: wslRunner,
+    installGuest: installGuestOpenCodeIntegration,
+    removeGuest: removeGuestOpenCodeIntegration
+  })
+  pluginActivityEnabled = openCodeIntegrations.getState().enabled
+  openCodeIntegrations.subscribe((state) => {
+    pluginActivityEnabled = state.enabled
+    if (!state.enabled) activity.invalidatePluginActivity()
+  })
+
   const sessions = new SessionService({
     database: persistence.database,
     repositories: persistence.repositories,
@@ -603,9 +656,17 @@ export async function startAppRuntime(): Promise<AppRuntime> {
      * Windows; the file is read through `/mnt/<drive>/…`, since a Windows path is
      * not a path inside the distro.
      */
-    launchSpec: (id, target) => launchSpecForHarness(id, target),
+    launchSpec: (id, target, detection) => launchSpecForHarness(id, target, detection),
+    prepareIntegration: (harness, target, detection) =>
+      openCodeIntegrations.prepareForSession(
+        harness,
+        target,
+        detection?.state === 'available' ? detection.version : null
+      ),
     onIncarnation: (sessionId, incarnationId) => activity.bindIncarnation(sessionId, incarnationId),
-    activityFor: (sessionId) => activity.get(sessionId)
+    activityFor: (sessionId) => activity.get(sessionId),
+    onTerminalStatus: (event) => activity.ingestTerminal(event),
+    onPluginStatus: (event) => activity.ingestPlugin(event)
   })
 
   let startupError: AppError | null = null
@@ -1112,6 +1173,7 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     sessions,
     activity,
     activityServer,
+    integrations: openCodeIntegrations,
     removals,
     sessionRemovals,
     files,
@@ -1201,6 +1263,16 @@ export async function startAppRuntime(): Promise<AppRuntime> {
       taskService.archiveStale(7)
     }, 6 * 60 * 60 * 1000)
     taskArchiveTimer.unref?.()
+    // Managed status is advisory: probe and install in the background, never
+    // delaying the window or a session. A later launch re-syncs with its own
+    // detection, so an OpenCode upgrade is handled without an app restart.
+    void detectHarnessForTarget('opencode', LOCAL_TARGET)
+      .then((detection) =>
+        openCodeIntegrations.refresh(
+          detection.state === 'available' ? detection.version : null
+        )
+      )
+      .catch(() => undefined)
     void assistantNotifier?.start()
     // A schedule may have come due while the app was closed; the first tick
     // applies the age rule, so a long outage cannot replay every missed run.

@@ -1,4 +1,4 @@
-import { loadAppPreferences, saveAppPreferences } from '../app/preferences'
+import { loadAppPreferences, updateAppPreferences } from '../app/preferences'
 import { resolveLocale, type Locale, type LocalePreference } from '../../shared/i18n'
 import type { LocaleState } from '../../shared/schemas/locale'
 
@@ -47,7 +47,7 @@ export class LocaleService {
 
   set(preference: LocalePreference): LocaleState {
     this.storedPreference = preference
-    saveAppPreferences(this.options.directory, { locale: preference })
+    updateAppPreferences(this.options.directory, { locale: preference })
     const state = this.state()
     this.options.onChange?.(state)
     return state

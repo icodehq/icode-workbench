@@ -158,6 +158,10 @@ import type {
   ProviderViewPayload
 } from './schemas/provider'
 import type { LocaleSetInput, LocaleState } from './schemas/locale'
+import type {
+  OpenCodeIntegrationSetEnabledInput,
+  OpenCodeIntegrationStatePayload
+} from './schemas/opencode-integration'
 import type { Locale } from './i18n/locales'
 
 export type RuntimeInfo = {
@@ -371,6 +375,17 @@ export type IcodeProductApi = {
     clearUnread: (
       input: z.infer<typeof clearActivityUnreadInputSchema>
     ) => Promise<IpcResult<boolean>>
+  }
+  /**
+   * Managed OpenCode status plugin. The setting is default-on and the state
+   * reports the exact files/config dir the install touched.
+   */
+  opencodeIntegration: {
+    get: () => Promise<IpcResult<OpenCodeIntegrationStatePayload>>
+    setEnabled: (
+      input: OpenCodeIntegrationSetEnabledInput
+    ) => Promise<IpcResult<OpenCodeIntegrationStatePayload>>
+    onChanged: (listener: (state: OpenCodeIntegrationStatePayload) => void) => () => void
   }
   /**
    * Browsing, editing and search inside the selected session's worktree.

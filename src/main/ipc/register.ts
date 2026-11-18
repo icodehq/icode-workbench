@@ -134,6 +134,8 @@ export const HANDLED_CHANNELS: readonly string[] = [
   IPC_CHANNELS.schedulesRemove,
   IPC_CHANNELS.activityList,
   IPC_CHANNELS.activityClearUnread,
+  IPC_CHANNELS.opencodeIntegrationGet,
+  IPC_CHANNELS.opencodeIntegrationSetEnabled,
   IPC_CHANNELS.harnessList,
   IPC_CHANNELS.providersList,
   IPC_CHANNELS.providersCreate,
@@ -329,6 +331,9 @@ export function createAppDispatcher(
     mergeState: async (input) => runtime.merges.state(input.sessionId),
     activityList: async () => runtime.activity.list(),
     activityClearUnread: async (input) => runtime.activity.clearUnread(input.sessionId),
+    opencodeIntegrationGet: async () => runtime.integrations.getState(),
+    opencodeIntegrationSetEnabled: async (input) =>
+      runtime.integrations.setEnabled(input.enabled),
     filesList: (input) => runtime.files.list(input.sessionId, input.path),
     filesRead: (input) => runtime.files.read(input.sessionId, input.path),
     filesWrite: (input) =>
@@ -691,6 +696,10 @@ export function registerAppIpc(
     broadcast(IPC_CHANNELS.assistantEvent, event)
   })
 
+  const unsubscribeOpenCode = runtime.integrations.subscribe((state) => {
+    broadcast(IPC_CHANNELS.opencodeIntegrationEvent, state)
+  })
+
   /**
    * Clone failures are normalized at the process boundary, like every other
    * dispatcher result, so the dialog can render a localized message key.
@@ -705,6 +714,7 @@ export function registerAppIpc(
   })
 
   return () => {
+    unsubscribeOpenCode()
     unsubscribeClone()
     unsubscribeAssistant()
     unsubscribeFilesChanged()

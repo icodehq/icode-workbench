@@ -54,6 +54,7 @@ describe('preload API surface', () => {
         'onSessionEvent',
         'onTaskEvent',
         'onViewCommand',
+        'opencodeIntegration',
         'providers',
         'remotes',
         'repos',
@@ -218,6 +219,31 @@ describe('preload API surface', () => {
       incarnationId,
       data: 'ls\r'
     })
+  })
+
+  it('routes the OpenCode integration setting and its change event', async () => {
+    const { api, invoke, subscribe, emit } = setup()
+    await api.opencodeIntegration.get()
+    await api.opencodeIntegration.setEnabled({ enabled: false })
+    const listener = vi.fn()
+    const off = api.opencodeIntegration.onChanged(listener)
+    emit({
+      enabled: false,
+      api: 'v1',
+      install: { state: 'not-installed', configDir: '/home/dev/.config/opencode' }
+    })
+    expect(invoke.mock.calls.map((call) => call[0])).toEqual([
+      IPC_CHANNELS.opencodeIntegrationGet,
+      IPC_CHANNELS.opencodeIntegrationSetEnabled
+    ])
+    expect(subscribe).toHaveBeenCalledWith(
+      IPC_CHANNELS.opencodeIntegrationEvent,
+      expect.any(Function)
+    )
+    expect(listener).toHaveBeenCalledWith(
+      expect.objectContaining({ enabled: false, api: 'v1' })
+    )
+    off()
   })
 
   it('routes working-tree change operations to the Git channels', async () => {

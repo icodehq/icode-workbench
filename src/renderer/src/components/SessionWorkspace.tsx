@@ -419,6 +419,16 @@ export default function SessionWorkspace({
                 </>
               )}
             </span>
+            {activity && activity.subagents.length > 0 ? (
+              <span
+                className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border px-1.5 text-[10px] text-muted-foreground"
+                data-testid="session-subagents"
+                data-count={activity.subagents.length}
+                title={activity.subagents.map((child) => child.label).join('\n')}
+              >
+                {t('activity.subagentsCount', { count: activity.subagents.length })}
+              </span>
+            ) : null}
             {knownActivity === null ? null : <span className="h-3 w-px shrink-0 bg-border" />}
             {worktree ? (
               <span

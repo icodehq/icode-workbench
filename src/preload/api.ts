@@ -5,6 +5,7 @@ import type { FilesChangedEvent } from '../shared/domain/workspace-files'
 import { IPC_CHANNELS } from '../shared/schemas/ipc'
 import type { IpcResult, RendererSessionEvent } from '../shared/schemas/ipc'
 import type { LocaleState } from '../shared/schemas/locale'
+import type { OpenCodeIntegrationStatePayload } from '../shared/schemas/opencode-integration'
 import type { Locale } from '../shared/i18n/locales'
 
 export type InvokeFn = (channel: string, input?: unknown) => Promise<unknown>
@@ -130,6 +131,14 @@ export function createIcodeApi(
     activity: {
       list: () => call(IPC_CHANNELS.activityList),
       clearUnread: (input) => call(IPC_CHANNELS.activityClearUnread, input)
+    },
+    opencodeIntegration: {
+      get: () => call(IPC_CHANNELS.opencodeIntegrationGet),
+      setEnabled: (input) => call(IPC_CHANNELS.opencodeIntegrationSetEnabled, input),
+      onChanged: (listener) =>
+        subscribe(IPC_CHANNELS.opencodeIntegrationEvent, (payload) =>
+          listener(payload as OpenCodeIntegrationStatePayload)
+        )
     },
     files: {
       list: (input) => call(IPC_CHANNELS.filesList, input),
@@ -274,6 +283,7 @@ export function createIcodeApi(
   Object.freeze(api.files)
   Object.freeze(api.git)
   Object.freeze(api.activity)
+  Object.freeze(api.opencodeIntegration)
   Object.freeze(api.terminal)
   Object.freeze(api.window)
   return Object.freeze(api)

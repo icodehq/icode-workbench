@@ -44,7 +44,10 @@ describe('LocaleService', () => {
     })
     expect(service.locale).toBe('zh-CN')
     expect(onChange).toHaveBeenCalledWith(state)
-    expect(loadAppPreferences(directory)).toEqual({ locale: 'zh-CN' })
+    expect(loadAppPreferences(directory)).toEqual({
+      locale: 'zh-CN',
+      opencodeIntegrationEnabled: true
+    })
   })
 
   it('reloads a pinned preference from disk', () => {

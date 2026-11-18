@@ -7,18 +7,29 @@ import {
 
 export type AppPreferences = {
   locale: LocalePreference
+  /** Managed OpenCode status integration; default-on, removable from Settings. */
+  opencodeIntegrationEnabled: boolean
 }
 
-export const DEFAULT_APP_PREFERENCES: AppPreferences = { locale: 'system' }
+export const DEFAULT_APP_PREFERENCES: AppPreferences = {
+  locale: 'system',
+  opencodeIntegrationEnabled: true
+}
 
 const PREFERENCES_FILE = 'preferences.json'
 
-/** Parses a stored record, ignoring unknown fields and invalid locales. */
+/** Parses a stored record, ignoring unknown fields and invalid optional values. */
 export function parseAppPreferences(value: unknown): AppPreferences | null {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return null
   const record = value as Record<string, unknown>
   if (!isLocalePreference(record.locale)) return null
-  return { locale: record.locale }
+  return {
+    locale: record.locale,
+    opencodeIntegrationEnabled:
+      typeof record.opencodeIntegrationEnabled === 'boolean'
+        ? record.opencodeIntegrationEnabled
+        : DEFAULT_APP_PREFERENCES.opencodeIntegrationEnabled
+  }
 }
 
 export function loadAppPreferences(directory: string): AppPreferences {
@@ -28,6 +39,24 @@ export function loadAppPreferences(directory: string): AppPreferences {
   } catch {
     return DEFAULT_APP_PREFERENCES
   }
+}
+
+/**
+ * Patches one preference without replacing the other.
+ *
+ * The read and write are synchronous and therefore atomic within the main
+ * process; the language and integration toggles can never clobber each other.
+ */
+export function updateAppPreferences(
+  directory: string,
+  patch: Partial<AppPreferences>
+): boolean {
+  const current = loadAppPreferences(directory)
+  return saveAppPreferences(directory, {
+    locale: patch.locale ?? current.locale,
+    opencodeIntegrationEnabled:
+      patch.opencodeIntegrationEnabled ?? current.opencodeIntegrationEnabled
+  })
 }
 
 /**
