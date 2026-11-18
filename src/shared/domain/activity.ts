@@ -1,5 +1,5 @@
 /**
- * Per-session agent activity, derived only from Claude Code hooks.
+ * Per-session agent activity, from Claude hooks and in-band terminal evidence.
  *
  * This is advisory and deliberately separate from `SessionLifecycleState`:
  * lifecycle answers "is the process alive", activity answers "what is the agent
@@ -7,11 +7,36 @@
  * ownership, and `unknown` is a first-class answer rather than a guess.
  */
 
+import type { HarnessId } from './harness'
+import type { ProgramStatusKind } from './program-status'
+
 export const ACTIVITY_STATES = ['unknown', 'idle', 'working', 'waiting'] as const
 export type ActivityState = (typeof ACTIVITY_STATES)[number]
 
 export const ACTIVITY_OUTCOMES = ['completed', 'failed'] as const
 export type ActivityOutcome = (typeof ACTIVITY_OUTCOMES)[number]
+
+export const ACTIVITY_SOURCES = ['hook', 'program', 'title', 'plugin', 'none'] as const
+export type ActivitySource = (typeof ACTIVITY_SOURCES)[number]
+
+export const ACTIVITY_ATTENTION_KINDS = ['permission', 'question'] as const
+export type ActivityAttentionKind = (typeof ACTIVITY_ATTENTION_KINDS)[number]
+
+export const ACTIVITY_SUBAGENT_STATES = ['working', 'waiting', 'idle', 'done'] as const
+export type ActivitySubagentState = (typeof ACTIVITY_SUBAGENT_STATES)[number]
+
+/** One child agent reported by an OpenCode-managed session. */
+export type ActivitySubagent = {
+  /** OpenCode child session id; stable for the child's lifetime. */
+  id: string
+  label: string
+  state: ActivitySubagentState
+  toolName: string | null
+  kind: ActivityAttentionKind | null
+}
+
+export const PLUGIN_TEXT_MAX_LENGTH = 4_000
+export const PLUGIN_SUBAGENTS_MAX = 32
 
 /** Claude's structured hook events iCode consumes. `Notification` is intentionally absent. */
 export const ACTIVITY_EVENTS = [
@@ -59,10 +84,20 @@ export type AgentActivity = {
   since: number
   unread: boolean
   outcome: ActivityOutcome | null
-  /** Claude session that produced the evidence, when known. */
+  /** Which evidence class produced the current state. */
+  source: ActivitySource
+  /** Harness session that produced the evidence, when known (hooks only). */
   claudeSessionId: string | null
   /** Newest accepted prompt/turn id, used to reject delayed events. */
   promptId: string | null
+  /** Last user prompt reported by a managed plugin, never persisted. */
+  prompt: string | null
+  /** Last assistant message reported by a managed plugin, never persisted. */
+  message: string | null
+  /** Why a plugin session is waiting, when it is. */
+  attentionKind: ActivityAttentionKind | null
+  /** Child agents reported by a managed plugin. */
+  subagents: ActivitySubagent[]
 }
 
 export type ActivitySummary = {
@@ -71,6 +106,11 @@ export type ActivitySummary = {
   unread: boolean
   outcome: ActivityOutcome | null
   since: number
+  source: ActivitySource
+  prompt: string | null
+  message: string | null
+  attentionKind: ActivityAttentionKind | null
+  subagents: ActivitySubagent[]
 }
 
 export function unknownActivity(now = Date.now()): AgentActivity {
@@ -80,8 +120,13 @@ export function unknownActivity(now = Date.now()): AgentActivity {
     since: now,
     unread: false,
     outcome: null,
+    source: 'none',
     claudeSessionId: null,
-    promptId: null
+    promptId: null,
+    prompt: null,
+    message: null,
+    attentionKind: null,
+    subagents: []
   }
 }
 
@@ -91,7 +136,12 @@ export function toActivitySummary(activity: AgentActivity): ActivitySummary {
     toolName: activity.toolName,
     unread: activity.unread,
     outcome: activity.outcome,
-    since: activity.since
+    since: activity.since,
+    source: activity.source,
+    prompt: activity.prompt,
+    message: activity.message,
+    attentionKind: activity.attentionKind,
+    subagents: activity.subagents
   }
 }
 
@@ -114,6 +164,7 @@ export function applyActivityEvent(
   const base: AgentActivity = {
     ...previous,
     since: now,
+    source: 'hook',
     claudeSessionId: event.claudeSessionId ?? previous.claudeSessionId,
     promptId: event.promptId ?? previous.promptId
   }
@@ -148,4 +199,194 @@ export function applyActivityEvent(
     default:
       return previous
   }
+}
+
+export type TerminalActivityState = 'working' | 'waiting' | 'idle' | 'done' | 'error'
+
+/** In-band evidence for one session; never carries a provider conversation id. */
+export type TerminalActivityEvent = {
+  sessionId: string
+  harness: HarnessId
+  incarnationId: string
+  source: 'program' | 'title'
+  state: TerminalActivityState
+  kind?: ProgramStatusKind
+  app?: string
+  title?: string
+  message?: string
+  seq: number
+}
+
+/**
+ * Maps terminal evidence to activity.
+ *
+ * Program reports are the agent's own words; `done` completes a turn and
+ * `working -> idle` is Codex's turn-end shape. Title evidence is a correction
+ * channel and never carries an outcome: a title cannot prove a turn finished.
+ */
+export function applyTerminalActivity(
+  previous: AgentActivity,
+  event: TerminalActivityEvent,
+  now: number
+): AgentActivity {
+  const base: AgentActivity = {
+    ...previous,
+    since: now,
+    source: event.source
+  }
+
+  if (event.source === 'title') {
+    switch (event.state) {
+      case 'working':
+        return previous.state === 'waiting'
+          ? previous
+          : { ...base, state: 'working', toolName: null, outcome: null }
+      case 'waiting':
+        return { ...base, state: 'waiting', toolName: null, outcome: null, unread: true }
+      case 'idle':
+        return previous.state === 'working'
+          ? { ...base, state: 'idle', toolName: null, outcome: null }
+          : previous
+      default:
+        return previous
+    }
+  }
+
+  switch (event.state) {
+    case 'working':
+      return { ...base, state: 'working', toolName: null, outcome: null }
+    case 'waiting':
+      return { ...base, state: 'waiting', toolName: null, outcome: null, unread: true }
+    case 'done':
+      return { ...base, state: 'idle', toolName: null, outcome: 'completed', unread: true }
+    case 'error':
+      return { ...base, state: 'idle', toolName: null, outcome: 'failed', unread: true }
+    case 'idle':
+      return previous.state === 'working'
+        ? { ...base, state: 'idle', toolName: null, outcome: 'completed', unread: true }
+        : { ...base, state: 'idle', toolName: null, outcome: null }
+    default:
+      return previous
+  }
+}
+
+/** One child state as posted by the managed OpenCode plugin. */
+export type PluginSubagent = {
+  id: string
+  label: string
+  state: ActivitySubagentState
+  toolName?: string | null
+  kind?: ActivityAttentionKind
+}
+
+/**
+ * A full status snapshot from the managed plugin.
+ *
+ * The plugin reports what it believes now, not an event stream: a late snapshot
+ * from an older turn is rejected by `sentAt`, and a repeated snapshot is a
+ * duplicate rather than a new notification.
+ */
+export type PluginActivityEvent = {
+  sessionId: string
+  harness: HarnessId
+  incarnationId: string
+  state: TerminalActivityState
+  kind?: ActivityAttentionKind
+  toolName?: string | null
+  prompt?: string | null
+  message?: string | null
+  subagents?: PluginSubagent[]
+  /** A server process report without a TUI pane claim; ignored in the first cut. */
+  sharedServer?: true
+  /** Plugin send time, used only to reject a snapshot older than the newest. */
+  sentAt: number
+  seq: number
+}
+
+/**
+ * Maps a plugin snapshot to activity.
+ *
+ * A root can be quiet while a child still works (background subagents), so the
+ * root display state is the aggregate of the two. Only the root carries an
+ * outcome; a child can never complete the root turn.
+ */
+export function applyPluginActivity(
+  previous: AgentActivity,
+  event: PluginActivityEvent,
+  now: number
+): AgentActivity {
+  const subagents = normalizePluginSubagents(event.subagents)
+  const childWaiting = subagents.some((child) => child.state === 'waiting')
+  const childWorking = subagents.some((child) => child.state === 'working')
+
+  let state: ActivityState
+  let outcome: ActivityOutcome | null = null
+  let unread = previous.unread
+  if (event.state === 'waiting' || childWaiting) {
+    state = 'waiting'
+    unread = true
+  } else if (event.state === 'working' || childWorking) {
+    state = 'working'
+    unread = false
+  } else if (event.state === 'done') {
+    state = 'idle'
+    outcome = 'completed'
+    unread = true
+  } else if (event.state === 'error') {
+    state = 'idle'
+    outcome = 'failed'
+    unread = true
+  } else {
+    // A neutral idle snapshot is the plugin saying "no turn is running"; it
+    // must not erase the verdict or unread attention of the turn that just
+    // ended, and a genuinely new turn starts with a working snapshot first.
+    state = 'idle'
+    if (previous.state === 'idle') {
+      outcome = previous.outcome
+      unread = previous.unread
+    }
+  }
+
+  return {
+    ...previous,
+    state,
+    toolName: event.toolName ?? null,
+    since: now,
+    unread,
+    outcome,
+    source: 'plugin',
+    prompt: event.prompt === undefined ? previous.prompt : capPluginText(event.prompt),
+    message: event.message === undefined ? previous.message : capPluginText(event.message),
+    attentionKind:
+      state === 'waiting'
+        ? (event.kind ??
+          subagents.find((child) => child.state === 'waiting')?.kind ??
+          null)
+        : null,
+    subagents
+  }
+}
+
+export function normalizePluginSubagents(
+  subagents: readonly PluginSubagent[] | undefined
+): ActivitySubagent[] {
+  if (subagents === undefined) return []
+  const accepted: ActivitySubagent[] = []
+  for (const child of subagents.slice(0, PLUGIN_SUBAGENTS_MAX)) {
+    if (child.id.length === 0 || child.label.length === 0) continue
+    accepted.push({
+      id: child.id,
+      label: child.label,
+      state: child.state,
+      toolName: child.toolName ?? null,
+      kind: child.kind ?? null
+    })
+  }
+  return accepted
+}
+
+/** Keeps a plugin preview within the same bound the wire contract enforces. */
+export function capPluginText(value: string | null | undefined): string | null {
+  if (value === undefined || value === null) return null
+  return value.length > PLUGIN_TEXT_MAX_LENGTH ? value.slice(0, PLUGIN_TEXT_MAX_LENGTH) : value
 }

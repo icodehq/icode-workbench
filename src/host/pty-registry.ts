@@ -1,13 +1,51 @@
 import { randomBytes } from 'node:crypto'
 import { statSync } from 'node:fs'
-import type { HostError, SessionInfo, TerminalSnapshot } from '../shared/host-protocol'
+import type {
+  AgentStatusResult,
+  HostError,
+  PluginAgentStatusPayload,
+  SessionInfo,
+  TerminalSnapshot
+} from '../shared/host-protocol'
 import type { HostSessionStatus } from '../shared/domain/session'
+import {
+  PROGRAM_STATUS_OSC,
+  PROGRAM_STATUS_QUERY_REPLY,
+  classifyTerminalTitle,
+  parseProgramStatusBody,
+  type ProgramStatusKind,
+  type TerminalTitleState
+} from '../shared/domain/program-status'
 import { createEmulator, EMULATOR_HIGH_WATER_BYTES, EMULATOR_LOW_WATER_BYTES, type Emulator } from './terminal-emulator'
 
 export const MAX_SESSIONS = 64
 
 export type PtyExitEvent = { exitCode: number; signal?: number }
 export type Disposable = { dispose(): void }
+
+export type TerminalStatusState = 'working' | 'waiting' | 'idle' | 'done' | 'error'
+
+/** A managed-plugin snapshot accepted for one live PTY. */
+export type AgentStatusEvent = {
+  sessionId: string
+  incarnationId: string
+  /** Monotonic per PTY; separate from terminal output `seq`. */
+  seq: number
+  payload: PluginAgentStatusPayload
+}
+
+/** In-band status parsed from a PTY, correlated with the output sequence. */
+export type TerminalStatusEvent = {
+  sessionId: string
+  incarnationId: string
+  seq: number
+  source: 'program' | 'title'
+  state: TerminalStatusState
+  kind?: ProgramStatusKind
+  app?: string
+  title?: string
+  message?: string
+}
 
 /** Minimal surface of node-pty that the registry depends on. */
 export type PtyLike = {
@@ -65,6 +103,10 @@ export type RegistryEvents = {
     exitCode: number
     signal?: number
   }) => void
+  /** In-band status parsed from the PTY. Optional so older embedders stay valid. */
+  onTerminalStatus?: (event: TerminalStatusEvent) => void
+  /** A managed-plugin snapshot for a live PTY. */
+  onAgentStatus?: (event: AgentStatusEvent) => void
 }
 
 export class RegistryError extends Error {
@@ -97,6 +139,11 @@ type Entry = {
   createdAt: number
   dataSub: Disposable
   exitSub: Disposable
+  terminalStatusSubs: Disposable[]
+  lastProgramSignature: string | null
+  lastTitleState: TerminalTitleState | null
+  /** Status snapshots are ordered independently of terminal output. */
+  agentStatusSeq: number
 }
 
 /** Values the host owns; a per-request env may not replace them. */
@@ -233,6 +280,36 @@ export class PtyRegistry {
     entry.emulator.resize(cols, rows)
   }
 
+  /**
+   * Accepts a managed-plugin snapshot for one PTY.
+   *
+   * The Host, not the plugin, owns identity: a report for a previous incarnation
+   * or an exited PTY is refused, so a reused session id can never attach a child
+   * agent's status to the wrong process.
+   */
+  acceptAgentStatus(
+    sessionId: string,
+    incarnationId: string,
+    payload: PluginAgentStatusPayload
+  ): AgentStatusResult {
+    const entry = this.entries.get(sessionId)
+    if (!entry) return { accepted: false, reason: 'unknown-session' }
+    if (entry.info.incarnationId !== incarnationId) {
+      return { accepted: false, reason: 'stale-incarnation' }
+    }
+    if (entry.info.status !== 'live') {
+      return { accepted: false, reason: 'not-live' }
+    }
+    entry.agentStatusSeq += 1
+    this.events.onAgentStatus?.({
+      sessionId,
+      incarnationId,
+      seq: entry.agentStatusSeq,
+      payload
+    })
+    return { accepted: true, seq: entry.agentStatusSeq }
+  }
+
   /** Kills one PTY. Other sessions and their emulators are untouched. */
   kill(sessionId: string): boolean {
     const entry = this.entries.get(sessionId)
@@ -362,11 +439,23 @@ export class PtyRegistry {
       stopRequested: false,
       createdAt: info.createdAt,
       dataSub: { dispose: () => {} },
-      exitSub: { dispose: () => {} }
+      exitSub: { dispose: () => {} },
+      terminalStatusSubs: [],
+      lastProgramSignature: null,
+      lastTitleState: null,
+      agentStatusSeq: 0
     }
 
     entry.dataSub = term.onData((data) => this.ingest(entry, data))
     entry.exitSub = term.onExit((event) => this.handleExit(entry, event))
+
+    const titleSub = emulator.onTitleChange?.((title) => this.onTerminalTitle(entry, title))
+    const oscSub = emulator.registerOscHandler?.(PROGRAM_STATUS_OSC, (body) => {
+      this.onProgramStatus(entry, body)
+      return true
+    })
+    if (titleSub) entry.terminalStatusSubs.push(titleSub)
+    if (oscSub) entry.terminalStatusSubs.push(oscSub)
 
     this.events.onSpawned({
       sessionId: params.sessionId,
@@ -390,6 +479,71 @@ export class PtyRegistry {
       entry.term.pause?.()
       entry.paused = true
     }
+  }
+
+  /**
+   * OSC 7501 reports are state snapshots, not edges: emit only when the visible
+   * state changes. A capability probe is answered on the PTY; an agent that
+   * probes before reporting (Claude Code) stays silent without the reply.
+   */
+  private onProgramStatus(entry: Entry, body: string): void {
+    if (this.entries.get(entry.info.sessionId) !== entry) return
+    const message = parseProgramStatusBody(body)
+    if (message === null) return
+    if (message.type === 'query') {
+      try {
+        entry.term.write(PROGRAM_STATUS_QUERY_REPLY)
+      } catch {
+        // The PTY may have exited between the query and the reply.
+      }
+      return
+    }
+    const { state, kind, app } = message.report
+    const mapped = state === 'blocked' ? 'waiting' : state
+    const signature = `${mapped}|${kind ?? ''}|${app ?? ''}`
+    if (signature === entry.lastProgramSignature) return
+    entry.lastProgramSignature = signature
+    this.emitTerminalStatus(entry, {
+      source: 'program',
+      state: mapped,
+      ...(kind !== undefined ? { kind } : {}),
+      ...(app !== undefined ? { app } : {})
+    })
+  }
+
+  /**
+   * Title changes are frequent (a spinner repaints), but the classified state is
+   * not. An unrecognized title after `working` ends the displayed turn; an
+   * unrecognized title after `waiting` leaves the prompt visible.
+   */
+  private onTerminalTitle(entry: Entry, title: string): void {
+    if (this.entries.get(entry.info.sessionId) !== entry) return
+    const state = classifyTerminalTitle(title)
+    if (state === null) {
+      if (entry.lastTitleState === 'working') {
+        entry.lastTitleState = 'idle'
+        this.emitTerminalStatus(entry, { source: 'title', state: 'idle', title: title.slice(0, 512) })
+      }
+      return
+    }
+    if (state === entry.lastTitleState) return
+    // A blocked agent's header can keep spinning; only an explicit resolution
+    // (program idle/working or a hook) leaves `waiting`.
+    if (state === 'working' && entry.lastTitleState === 'waiting') return
+    entry.lastTitleState = state
+    this.emitTerminalStatus(entry, { source: 'title', state, title: title.slice(0, 512) })
+  }
+
+  private emitTerminalStatus(
+    entry: Entry,
+    event: Omit<TerminalStatusEvent, 'sessionId' | 'incarnationId' | 'seq'>
+  ): void {
+    this.events.onTerminalStatus?.({
+      sessionId: entry.info.sessionId,
+      incarnationId: entry.info.incarnationId,
+      seq: entry.seq,
+      ...event
+    })
   }
 
   private maybeResume(entry: Entry): void {
@@ -419,6 +573,8 @@ export class PtyRegistry {
   private retire(entry: Entry, options: { signal?: boolean } = {}): void {
     entry.dataSub.dispose()
     entry.exitSub.dispose()
+    for (const sub of entry.terminalStatusSubs) sub.dispose()
+    entry.terminalStatusSubs = []
     if (options.signal && !this.isFinished(entry)) {
       try {
         entry.term.kill()

@@ -13,6 +13,11 @@ function summary(overrides: Partial<ActivitySummary> = {}): ActivitySummary {
     unread: true,
     outcome: 'completed',
     since: 1_000,
+    source: 'hook',
+    prompt: null,
+    message: null,
+    attentionKind: null,
+    subagents: [],
     ...overrides
   }
 }

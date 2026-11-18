@@ -93,7 +93,11 @@ export async function startTerminalHost(options: HostOptions): Promise<RunningHo
       onExit: (event) => {
         log({ event: 'pty-exit', ...event })
         server?.broadcast({ type: 'event', event: 'exit', ...event })
-      }
+      },
+      onTerminalStatus: (event) =>
+        server?.broadcast({ type: 'event', event: 'terminal-status', ...event }),
+      onAgentStatus: (event) =>
+        server?.broadcast({ type: 'event', event: 'agent-status', ...event })
     }
   })
 

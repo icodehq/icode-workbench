@@ -32,6 +32,7 @@ import {
 import { resolvedShellCommand } from '../harness/default-shell'
 import { SessionServiceError, errorFromHost } from './session-errors'
 import { harnessLabel, type HarnessId } from '../../shared/domain/harness'
+import type { PluginActivityEvent, TerminalActivityEvent } from '../../shared/domain/activity'
 import { wakePlan } from '../../shared/domain/session-sleep'
 import {
   newSessionId,
@@ -128,8 +129,18 @@ export type SessionServiceDeps = {
    */
   launchSpec?: (
     harness: HarnessId,
-    target: ExecutionTarget
+    target: ExecutionTarget,
+    detection?: HarnessDetectionResult | null
   ) => { args: string[]; env: Record<string, string> }
+  /**
+   * Best-effort integration setup for one launch. A failure never blocks the
+   * session; the harness simply starts without managed status.
+   */
+  prepareIntegration?: (
+    harness: HarnessId,
+    target: ExecutionTarget,
+    detection: HarnessDetectionResult | null
+  ) => Promise<Record<string, string> | null> | Record<string, string> | null | void
   /**
    * Reports the incarnation a session is now bound to, or null when the process
    * is gone. Activity uses this to reject events from a previous process.
@@ -137,6 +148,10 @@ export type SessionServiceDeps = {
   onIncarnation?: (sessionId: string, incarnationId: string | null) => void
   /** Advisory activity snapshot for a session; `null` when nothing is known. */
   activityFor?: (sessionId: string) => SessionSummary['activity']
+  /** In-band terminal status from the Host, already gated to the live incarnation. */
+  onTerminalStatus?: (event: TerminalActivityEvent) => void
+  /** Managed harness-plugin status from the Host, already gated to the live incarnation. */
+  onPluginStatus?: (event: PluginActivityEvent) => void
   now?: () => number
   newSessionId?: () => SessionId
 }
@@ -592,7 +607,7 @@ export class SessionService {
     const detection = pathA ? null : await this.requireHarness(input.harness, target)
     // Resolve the provider before any worktree or session row exists: a broken
     // key or an unreadable selection must not leave a half-created checkout.
-    const launchSpec = this.launchSpecFor(input.harness, target)
+    const launchSpec = this.launchSpecFor(input.harness, target, detection)
     // Path A keeps this explicit check before its preflight so a missing
     // workspace is reported before a distro-shell problem. The combined read
     // below repeats it inside the same guest script at no extra spawn.
@@ -1071,6 +1086,20 @@ export class SessionService {
      *   Path B — a coding Agent: the managed Guest Host reached by the W5 relay,
      *            exactly as W7 wired it.
      */
+    let integrationEnv: Record<string, string> = {}
+    if (!input.pathA) {
+      try {
+        const prepared = await this.deps.prepareIntegration?.(
+          input.harness,
+          input.target,
+          input.detection
+        )
+        if (prepared) integrationEnv = prepared
+      } catch {
+        // Integration setup is advisory; the PTY must still start.
+      }
+    }
+
     const created = input.pathA
       ? await this.deps.host.createOrAttach(
           {
@@ -1092,7 +1121,7 @@ export class SessionService {
             cwd: input.cwd,
             command: input.detection!.command!.command,
             args: withLaunchArgs(input.detection!.command!, input.launchSpec.args).args,
-            env: input.launchSpec.env,
+            env: { ...input.launchSpec.env, ...integrationEnv },
             cols: input.cols,
             rows: input.rows
           },
@@ -1364,7 +1393,7 @@ export class SessionService {
     // shell is decided inside the guest.
     const detection = pathA === null ? await this.requireHarness(row.harness, target) : null
     const hostTarget = pathA === null ? target : LOCAL_TARGET
-    const launchSpec = this.launchSpecFor(row.harness, target)
+    const launchSpec = this.launchSpecFor(row.harness, target, detection)
     const launchArgs = [
       ...launchSpec.args,
       ...(options.resume === true ? wakePlan(row.harness, row.resumeToken).args : [])
@@ -1396,6 +1425,15 @@ export class SessionService {
     }
 
     await this.prepareWorkspaceTrust(row.harness, target, checkout.path)
+    let integrationEnv: Record<string, string> = {}
+    if (pathA === null) {
+      try {
+        const prepared = await this.deps.prepareIntegration?.(row.harness, target, detection)
+        if (prepared) integrationEnv = prepared
+      } catch {
+        // Integration setup is advisory; the PTY must still start.
+      }
+    }
 
     let created: CreateOrAttachPayload
     try {
@@ -1407,7 +1445,7 @@ export class SessionService {
           args:
             pathA?.args ??
             withLaunchArgs(detection!.command!, launchArgs).args,
-          env: pathA === null ? launchSpec.env : undefined,
+          env: pathA === null ? { ...launchSpec.env, ...integrationEnv } : undefined,
           cols: previous?.cols ?? 100,
           rows: previous?.rows ?? 30
         },
@@ -1611,9 +1649,10 @@ export class SessionService {
 
   private launchSpecFor(
     harness: HarnessId,
-    target: ExecutionTarget
+    target: ExecutionTarget,
+    detection?: HarnessDetectionResult | null
   ): { args: string[]; env: Record<string, string> } {
-    return this.deps.launchSpec?.(harness, target) ?? { args: [], env: {} }
+    return this.deps.launchSpec?.(harness, target, detection) ?? { args: [], env: {} }
   }
 
   /**
@@ -2080,6 +2119,52 @@ export class SessionService {
   }
 
   private onHostEvent(event: HostEvent): void {
+    if (event.event === 'terminal-status') {
+      if (!this.matchesIncarnation(event.sessionId, event.incarnationId)) return
+      const parsed = parseSessionId(event.sessionId)
+      const row = parsed ? this.deps.sessions.findById(parsed) : null
+      // Shell sessions are terminals, not agents; a program run inside one is not
+      // the session's own status.
+      if (!row || row.harness === 'shell') return
+      this.deps.onTerminalStatus?.({
+        sessionId: event.sessionId,
+        harness: row.harness,
+        incarnationId: event.incarnationId,
+        source: event.source,
+        state: event.state,
+        ...(event.kind !== undefined ? { kind: event.kind } : {}),
+        ...(event.app !== undefined ? { app: event.app } : {}),
+        ...(event.title !== undefined ? { title: event.title } : {}),
+        ...(event.message !== undefined ? { message: event.message } : {}),
+        seq: event.seq
+      })
+      return
+    }
+
+    if (event.event === 'agent-status') {
+      if (!this.matchesIncarnation(event.sessionId, event.incarnationId)) return
+      const parsed = parseSessionId(event.sessionId)
+      const row = parsed ? this.deps.sessions.findById(parsed) : null
+      // Shell sessions are terminals, not agents; a TUI inside one is not the
+      // session's own status.
+      if (!row || row.harness === 'shell') return
+      this.deps.onPluginStatus?.({
+        sessionId: event.sessionId,
+        harness: row.harness,
+        incarnationId: event.incarnationId,
+        state: event.payload.state,
+        ...(event.payload.kind !== undefined ? { kind: event.payload.kind } : {}),
+        ...(event.payload.toolName !== undefined ? { toolName: event.payload.toolName } : {}),
+        ...(event.payload.prompt !== undefined ? { prompt: event.payload.prompt } : {}),
+        ...(event.payload.message !== undefined ? { message: event.payload.message } : {}),
+        ...(event.payload.subagents !== undefined ? { subagents: event.payload.subagents } : {}),
+        ...(event.payload.sharedServer === true ? { sharedServer: true as const } : {}),
+        sentAt: event.payload.sentAt,
+        seq: event.seq
+      })
+      return
+    }
+
     if (event.event === 'data') {
       if (!this.matchesIncarnation(event.sessionId, event.incarnationId)) return
       this.emit({
@@ -2095,6 +2180,10 @@ export class SessionService {
     if (event.event === 'spawned') {
       // Events on one connection are ordered, so the newest spawn is current.
       this.currentIncarnations.set(event.sessionId, event.incarnationId)
+      // Bind before the spawn response returns: a fast plugin can report as soon
+      // as its TUI starts, and activity must not reject the first event because
+      // the persisted observation has not been written yet.
+      this.deps.onIncarnation?.(event.sessionId, event.incarnationId)
       return
     }
 

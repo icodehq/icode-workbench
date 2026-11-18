@@ -3,7 +3,9 @@ import type { HostTarget } from './host-gateway'
 import type {
   CreateOrAttachPayload,
   HostEvent,
+  HostTerminalStatusEvent,
   ListSessionsPayload,
+  PluginAgentStatusPayload,
   SessionInfo,
   TerminalSnapshot
 } from '../../shared/host-protocol'
@@ -268,6 +270,41 @@ export class FakeHostGateway implements HostGateway {
 
   disconnect(): void {
     this.listeners.clear()
+  }
+
+  emitTerminalStatus(
+    sessionId: string,
+    event: Omit<HostTerminalStatusEvent, 'type' | 'event' | 'sessionId' | 'incarnationId'> & {
+      incarnationId?: string
+    }
+  ): void {
+    const session = this.sessions.get(sessionId)
+    if (!session) throw new Error(`Unknown fake session ${sessionId}`)
+    const { incarnationId = session.info.incarnationId, ...rest } = event
+    this.emit({
+      type: 'event',
+      event: 'terminal-status',
+      sessionId,
+      incarnationId,
+      ...rest
+    })
+  }
+
+  emitAgentStatus(
+    sessionId: string,
+    payload: PluginAgentStatusPayload,
+    options: { incarnationId?: string; seq?: number } = {}
+  ): void {
+    const session = this.sessions.get(sessionId)
+    if (!session) throw new Error(`Unknown fake session ${sessionId}`)
+    this.emit({
+      type: 'event',
+      event: 'agent-status',
+      sessionId,
+      incarnationId: options.incarnationId ?? session.info.incarnationId,
+      seq: options.seq ?? 1,
+      payload
+    })
   }
 
   emitData(sessionId: string, data: string, incarnationId?: string): void {

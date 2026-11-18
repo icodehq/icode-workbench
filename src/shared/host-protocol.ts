@@ -7,6 +7,12 @@
  */
 
 import { z } from 'zod'
+import {
+  ACTIVITY_ATTENTION_KINDS,
+  ACTIVITY_SUBAGENT_STATES,
+  PLUGIN_SUBAGENTS_MAX,
+  PLUGIN_TEXT_MAX_LENGTH
+} from './domain/activity'
 import { HOST_FAILURE_CODES, type HostFailureCode } from './domain/errors'
 import type { HostSessionStatus } from './domain/session'
 import {
@@ -60,6 +66,37 @@ const requestBase = {
   id: wireIdSchema
 } as const
 
+export const PLUGIN_AGENT_STATES = ['working', 'waiting', 'idle', 'done', 'error'] as const
+
+export const pluginAgentSubagentSchema = z.strictObject({
+  id: z.string().min(1).max(128),
+  label: z.string().min(1).max(160),
+  state: z.enum(ACTIVITY_SUBAGENT_STATES),
+  toolName: z.string().min(1).max(64).nullable().optional(),
+  kind: z.enum(ACTIVITY_ATTENTION_KINDS).optional()
+})
+
+/**
+ * A managed-plugin snapshot. Identity is deliberately not part of the payload:
+ * the request and the Host event carry it, and the Host stamps its own values.
+ */
+export const pluginAgentStatusPayloadSchema = z.strictObject({
+  state: z.enum(PLUGIN_AGENT_STATES),
+  kind: z.enum(ACTIVITY_ATTENTION_KINDS).optional(),
+  toolName: z.string().min(1).max(64).nullable().optional(),
+  prompt: z.string().max(PLUGIN_TEXT_MAX_LENGTH).nullable().optional(),
+  message: z.string().max(PLUGIN_TEXT_MAX_LENGTH).nullable().optional(),
+  subagents: z.array(pluginAgentSubagentSchema).max(PLUGIN_SUBAGENTS_MAX).optional(),
+  sentAt: timestampSchema,
+  sharedServer: z.literal(true).optional()
+})
+
+export const agentStatusResultSchema = z.strictObject({
+  accepted: z.boolean(),
+  seq: z.number().int().nonnegative().optional(),
+  reason: z.enum(['unknown-session', 'stale-incarnation', 'not-live']).optional()
+})
+
 export const createOrAttachParamsSchema = z.strictObject({
   sessionId: wireSessionIdSchema,
   cwd: absolutePathSchema,
@@ -92,6 +129,16 @@ export const createOrAttachRequestSchema = z.strictObject({
   ...requestBase,
   method: z.literal('createOrAttach'),
   params: createOrAttachParamsSchema
+})
+
+export const agentStatusRequestSchema = z.strictObject({
+  ...requestBase,
+  method: z.literal('agentStatus'),
+  params: z.strictObject({
+    sessionId: wireSessionIdSchema,
+    incarnationId: wireIncarnationIdSchema,
+    payload: pluginAgentStatusPayloadSchema
+  })
 })
 
 export const writeRequestSchema = z.strictObject({
@@ -148,6 +195,7 @@ export const pingRequestSchema = z.strictObject({
 
 export const hostRequestSchema = z.discriminatedUnion('method', [
   createOrAttachRequestSchema,
+  agentStatusRequestSchema,
   writeRequestSchema,
   resizeRequestSchema,
   killRequestSchema,
@@ -214,12 +262,38 @@ export const hostLaggedEventSchema = z.strictObject({
   message: z.string().max(300)
 })
 
+export const hostTerminalStatusEventSchema = z.strictObject({
+  type: z.literal('event'),
+  event: z.literal('terminal-status'),
+  sessionId: wireSessionIdSchema,
+  incarnationId: wireIncarnationIdSchema,
+  seq: z.number().int().nonnegative(),
+  source: z.enum(['program', 'title']),
+  state: z.enum(['working', 'waiting', 'idle', 'done', 'error']),
+  kind: z.enum(['permission', 'question', 'auth']).optional(),
+  app: z.string().min(1).max(64).optional(),
+  title: z.string().max(512).optional(),
+  message: z.string().max(2048).optional()
+})
+
+export const hostAgentStatusEventSchema = z.strictObject({
+  type: z.literal('event'),
+  event: z.literal('agent-status'),
+  sessionId: wireSessionIdSchema,
+  incarnationId: wireIncarnationIdSchema,
+  /** Monotonic per PTY; orders status snapshots without touching output seq. */
+  seq: z.number().int().nonnegative(),
+  payload: pluginAgentStatusPayloadSchema
+})
+
 export const hostEventSchema = z
   .discriminatedUnion('event', [
     hostDataEventSchema,
     hostExitEventSchema,
     hostSpawnedEventSchema,
-    hostLaggedEventSchema
+    hostLaggedEventSchema,
+    hostTerminalStatusEventSchema,
+    hostAgentStatusEventSchema
   ])
   .refine((event) => event.sessionId !== event.incarnationId, {
     message: 'sessionId and incarnationId must be distinct'
@@ -307,6 +381,11 @@ export type HostDataEvent = z.infer<typeof hostDataEventSchema>
 export type HostExitEvent = z.infer<typeof hostExitEventSchema>
 export type HostSpawnedEvent = z.infer<typeof hostSpawnedEventSchema>
 export type HostLaggedEvent = z.infer<typeof hostLaggedEventSchema>
+export type HostTerminalStatusEvent = z.infer<typeof hostTerminalStatusEventSchema>
+export type PluginAgentSubagent = z.infer<typeof pluginAgentSubagentSchema>
+export type PluginAgentStatusPayload = z.infer<typeof pluginAgentStatusPayloadSchema>
+export type AgentStatusResult = z.infer<typeof agentStatusResultSchema>
+export type HostAgentStatusEvent = z.infer<typeof hostAgentStatusEventSchema>
 export type HostEvent = z.infer<typeof hostEventSchema>
 export type SessionInfo = z.infer<typeof sessionInfoSchema>
 export type CreateOrAttachPayload = z.infer<typeof createOrAttachPayloadSchema>

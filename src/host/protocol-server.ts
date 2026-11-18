@@ -114,6 +114,17 @@ export function createProtocolServer(options: ProtocolServerOptions): ProtocolSe
             .catch((error: unknown) => fail(client, request.id, toHostError(error)))
           return
         }
+        case 'agentStatus': {
+          // A rejected snapshot is an accepted RPC with `accepted: false`; the
+          // plugin treats it as "status unavailable" and keeps running.
+          const result = options.registry.acceptAgentStatus(
+            request.params.sessionId,
+            request.params.incarnationId,
+            request.params.payload
+          )
+          respond(client, request.id, result)
+          return
+        }
         case 'write': {
           options.registry.write(request.params.sessionId, request.params.incarnationId, request.params.data)
           respond(client, request.id, {})

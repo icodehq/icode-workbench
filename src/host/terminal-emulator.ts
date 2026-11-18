@@ -9,6 +9,8 @@ export const EMULATOR_LOW_WATER_BYTES = 256 * 1024
 /** Snapshots must fit comfortably inside the 4 MiB protocol frame. */
 export const SNAPSHOT_MAX_BYTES = 3 * 1024 * 1024
 
+type Disposable = { dispose(): void }
+
 export type Emulator = {
   write(data: string, onDrained?: () => void): void
   resize(cols: number, rows: number): void
@@ -17,6 +19,10 @@ export type Emulator = {
   whenIdle(): Promise<void>
   /** Bytes handed to xterm but not yet parsed. */
   pendingBytes(): number
+  /** OSC 0/2 title changes, already assembled across chunk boundaries by xterm. */
+  onTitleChange?(listener: (title: string) => void): Disposable
+  /** An OSC handler for a numeric identifier, already assembled across chunks. */
+  registerOscHandler?(ident: number, handler: (data: string) => boolean): Disposable
   dispose(): void
 }
 
@@ -127,6 +133,12 @@ export function createEmulator(cols: number, rows: number): Emulator {
       })
     },
     pendingBytes: () => pending,
+    onTitleChange(listener: (title: string) => void): Disposable {
+      return terminal.onTitleChange(listener)
+    },
+    registerOscHandler(ident: number, handler: (data: string) => boolean): Disposable {
+      return terminal.parser.registerOscHandler(ident, handler)
+    },
     dispose(): void {
       for (const resolve of idleWaiters) resolve()
       idleWaiters.clear()

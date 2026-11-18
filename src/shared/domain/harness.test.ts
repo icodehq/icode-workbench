@@ -6,7 +6,8 @@ import {
   extractHarnessVersion,
   harnessLabel,
   isAgentHarness,
-  isHarnessSelectable
+  isHarnessSelectable,
+  openCodePluginApi
 } from './harness'
 import type { HarnessProbeEvidence } from './harness'
 
@@ -46,6 +47,18 @@ describe('harness registry', () => {
     expect(isAgentHarness('codex')).toBe(true)
     expect(isAgentHarness('opencode')).toBe(true)
     expect(isAgentHarness('shell')).toBe(false)
+  })
+})
+
+describe('OpenCode plugin API selection', () => {
+  it('maps each major to its loader shape', () => {
+    expect(openCodePluginApi('1.19.6')).toBe('v1')
+    expect(openCodePluginApi('2.0.21')).toBe('v2')
+    expect(openCodePluginApi('v2.0.21')).toBe('v2')
+    expect(openCodePluginApi('opencode 1.19.6')).toBe('v1')
+    expect(openCodePluginApi(null)).toBe('unknown')
+    expect(openCodePluginApi('')).toBe('unknown')
+    expect(openCodePluginApi('not-a-version')).toBe('unknown')
   })
 })
 

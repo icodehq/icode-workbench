@@ -5,6 +5,7 @@ import { TaskDispatcher } from './task-dispatcher'
 import { makeRepositoryService, makeTempRoot, openTempDatabase } from '../persistence/persistence-test-fixtures'
 import type { SessionService } from '../sessions/session-service'
 import type { HarnessId } from '../../shared/domain/harness'
+import type { ActivitySummary } from '../../shared/domain/activity'
 import { AGENT_PASTE_START } from '../../shared/agent-prompt'
 
 /**
@@ -18,6 +19,22 @@ import { AGENT_PASTE_START } from '../../shared/agent-prompt'
  * fake is deliberately narrow: it records what was created, written and
  * stopped, and it can be told what any session's host state is.
  */
+
+function activitySummary(overrides: Partial<ActivitySummary> = {}): ActivitySummary {
+  return {
+    state: 'idle',
+    toolName: null,
+    unread: true,
+    outcome: 'completed',
+    since: 1,
+    source: 'program',
+    prompt: null,
+    message: null,
+    attentionKind: null,
+    subagents: [],
+    ...overrides
+  }
+}
 
 const cleanups: Array<() => void> = []
 afterEach(() => {
@@ -140,6 +157,8 @@ async function harness(
     maxConcurrent?: number
     maxConcurrentPerProject?: number
     secondRepo?: boolean
+    activity?: { get: (sessionId: string) => ActivitySummary }
+    completionHoldMs?: number
   } = {}
 ): Promise<Harness> {
   const root = makeTempRoot('icode-w84-')
@@ -215,7 +234,11 @@ async function harness(
     sessionState: (sessionId) => sessions.behaviour.get(sessionId) ?? null,
     sessionWorktree: () => '/tmp/wt',
     promptStartupDelayMs: 0,
-    submitDelayMs: 0
+    submitDelayMs: 0,
+    ...(options.activity === undefined ? {} : { activity: options.activity }),
+    ...(options.completionHoldMs === undefined
+      ? {}
+      : { completionHoldMs: options.completionHoldMs })
   })
   dispatcher.start()
 
@@ -483,6 +506,54 @@ describe('observed completion and failure', () => {
     expect(stored.status).toBe('completed')
     expect(stored.finishedAt).not.toBeNull()
     expect(stored.resultSummary).toContain('Review the worktree')
+  })
+
+  it('holds a program turn end before completing a task', async () => {
+    const current = activitySummary()
+    const h = await harness({ activity: { get: () => current }, completionHoldMs: 10 })
+    const created = createQueued(h, 'Do it')
+    await settle(h)
+    const sessionId = h.store.findById(created.id)!.sessionId!
+
+    h.dispatcher.onActivity(sessionId, {
+      state: 'idle',
+      outcome: 'completed',
+      source: 'program'
+    })
+    expect(h.store.findById(created.id)!.status).toBe('running')
+
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect(h.store.findById(created.id)!.status).toBe('completed')
+  })
+
+  it('cancels a held completion when the agent starts working again', async () => {
+    let current = activitySummary()
+    const h = await harness({ activity: { get: () => current }, completionHoldMs: 10 })
+    const created = createQueued(h, 'Do it')
+    await settle(h)
+    const sessionId = h.store.findById(created.id)!.sessionId!
+
+    h.dispatcher.onActivity(sessionId, {
+      state: 'idle',
+      outcome: 'completed',
+      source: 'program'
+    })
+    current = activitySummary({ state: 'working', outcome: null, unread: false })
+    h.dispatcher.onActivity(sessionId, { state: 'working', outcome: null, source: 'program' })
+
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect(h.store.findById(created.id)!.status).toBe('running')
+  })
+
+  it('never completes a task from a title-only idle', async () => {
+    const h = await harness()
+    const created = createQueued(h, 'Do it')
+    await settle(h)
+    const sessionId = h.store.findById(created.id)!.sessionId!
+
+    h.dispatcher.onActivity(sessionId, { state: 'idle', outcome: null, source: 'title' })
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(h.store.findById(created.id)!.status).toBe('running')
   })
 
   it('marks waiting when the agent asks a human, and back to running when it resumes', async () => {

@@ -1,11 +1,20 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { PtyRegistry, RegistryError, type PtySpawnConfig } from './pty-registry'
+import {
+  PtyRegistry,
+  RegistryError,
+  type AgentStatusEvent,
+  type PtySpawnConfig,
+  type TerminalStatusEvent
+} from './pty-registry'
 import { createFakePtyFactory, FakePty } from './fake-pty'
+import { PROGRAM_STATUS_QUERY_REPLY } from '../shared/domain/program-status'
 
 type Recorded = {
   data: Array<{ sessionId: string; incarnationId: string; seq: number; data: string }>
   spawned: Array<{ sessionId: string; incarnationId: string; ptyPid: number }>
   exit: Array<{ sessionId: string; incarnationId: string; exitCode: number }>
+  terminalStatus: TerminalStatusEvent[]
+  agentStatus: AgentStatusEvent[]
 }
 
 function setup(options: { maxSessions?: number } = {}): {
@@ -14,13 +23,15 @@ function setup(options: { maxSessions?: number } = {}): {
   events: Recorded
 } {
   const fake = createFakePtyFactory()
-  const events: Recorded = { data: [], spawned: [], exit: [] }
+  const events: Recorded = { data: [], spawned: [], exit: [], terminalStatus: [], agentStatus: [] }
   const registry = new PtyRegistry({
     ptyFactory: fake.factory,
     events: {
       onData: (event) => events.data.push(event),
       onSpawned: (event) => events.spawned.push(event),
-      onExit: (event) => events.exit.push(event)
+      onExit: (event) => events.exit.push(event),
+      onTerminalStatus: (event) => events.terminalStatus.push(event),
+      onAgentStatus: (event) => events.agentStatus.push(event)
     },
     now: (() => {
       let tick = 1000
@@ -405,5 +416,109 @@ describe('registry bounds', () => {
     fake.instances[0]!.emitExit({ exitCode: 0 })
     expect(registry.liveCount()).toBe(1)
     expect(registry.totalCount()).toBe(2)
+  })
+})
+
+describe('in-band terminal status', () => {
+  it('answers the OSC 7501 capability probe on the PTY', async () => {
+    const { registry, fake } = setup()
+    const { info } = registry.createOrAttach(params({ sessionId: 'ses_status-probe' }))
+    fake.instances[0]!.emitData('\x1b]7501;?\x1b\\')
+    await registry.snapshot(info.sessionId)
+
+    expect(fake.instances[0]!.writes).toContain(PROGRAM_STATUS_QUERY_REPLY)
+  })
+
+  it('emits program transitions once and maps blocked to waiting', async () => {
+    const { registry, events, fake } = setup()
+    const { info } = registry.createOrAttach(params({ sessionId: 'ses_status-program' }))
+    fake.instances[0]!.emitData('\x1b]7501;state=working:app=codex\x1b\\')
+    fake.instances[0]!.emitData('\x1b]7501;state=working:app=codex\x1b\\')
+    fake.instances[0]!.emitData('\x1b]7501;state=blocked:kind=permission:app=codex\x1b\\')
+    await registry.snapshot(info.sessionId)
+
+    expect(events.terminalStatus).toEqual([
+      expect.objectContaining({
+        sessionId: 'ses_status-program',
+        source: 'program',
+        state: 'working',
+        app: 'codex'
+      }),
+      expect.objectContaining({
+        sessionId: 'ses_status-program',
+        source: 'program',
+        state: 'waiting',
+        kind: 'permission',
+        app: 'codex'
+      })
+    ])
+  })
+
+  it('turns a title spinner into working and a calm title into idle', async () => {
+    const { registry, events, fake } = setup()
+    const { info } = registry.createOrAttach(params({ sessionId: 'ses_status-title' }))
+    fake.instances[0]!.emitData('\x1b]0;⠋ Working\x07')
+    fake.instances[0]!.emitData('\x1b]0;Codex\x07')
+    await registry.snapshot(info.sessionId)
+
+    expect(events.terminalStatus).toEqual([
+      expect.objectContaining({ source: 'title', state: 'working' }),
+      expect.objectContaining({ source: 'title', state: 'idle' })
+    ])
+  })
+})
+
+describe('managed agent status', () => {
+  const payload = {
+    state: 'working' as const,
+    toolName: 'Bash',
+    prompt: 'Fix the parser',
+    message: 'Looking at it',
+    subagents: [{ id: 'child-1', label: 'Explore', state: 'working' as const }],
+    sentAt: 1_000
+  }
+
+  it('accepts a snapshot only for the live incarnation and sequences it per PTY', () => {
+    const { registry, events } = setup()
+    const { info } = registry.createOrAttach(params({ sessionId: 'ses_agent-status' }))
+
+    expect(registry.acceptAgentStatus('ses_agent-status', info.incarnationId, payload)).toEqual({
+      accepted: true,
+      seq: 1
+    })
+    expect(
+      registry.acceptAgentStatus('ses_agent-status', info.incarnationId, {
+        ...payload,
+        state: 'done'
+      })
+    ).toEqual({ accepted: true, seq: 2 })
+    expect(events.agentStatus).toEqual([
+      expect.objectContaining({
+        sessionId: 'ses_agent-status',
+        incarnationId: info.incarnationId,
+        seq: 1,
+        payload
+      }),
+      expect.objectContaining({ seq: 2, payload: expect.objectContaining({ state: 'done' }) })
+    ])
+  })
+
+  it('rejects unknown sessions, stale incarnations and exited PTYs', () => {
+    const { registry, fake } = setup()
+    const { info } = registry.createOrAttach(params({ sessionId: 'ses_agent-reject' }))
+
+    expect(registry.acceptAgentStatus('ses_missing', info.incarnationId, payload)).toEqual({
+      accepted: false,
+      reason: 'unknown-session'
+    })
+    expect(
+      registry.acceptAgentStatus('ses_agent-reject', 'aaaaaaaaaaaaaaaa', payload)
+    ).toEqual({ accepted: false, reason: 'stale-incarnation' })
+
+    fake.instances[0]!.emitExit({ exitCode: 0 })
+    expect(registry.acceptAgentStatus('ses_agent-reject', info.incarnationId, payload)).toEqual({
+      accepted: false,
+      reason: 'not-live'
+    })
   })
 })

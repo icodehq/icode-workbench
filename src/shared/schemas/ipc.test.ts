@@ -230,7 +230,14 @@ describe('output contracts', () => {
       rendererSessionEventSchema.safeParse({
         type: 'activity',
         sessionId,
-        activity: { state: 'working', toolName: 'Bash', unread: false, outcome: null, since: 1 }
+        activity: {
+          state: 'working',
+          toolName: 'Bash',
+          unread: false,
+          outcome: null,
+          since: 1,
+          source: 'hook'
+        }
       }).success
     ).toBe(true)
     expect(

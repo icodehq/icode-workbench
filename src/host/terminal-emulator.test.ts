@@ -145,3 +145,26 @@ describe('terminal snapshots', () => {
     emulator.dispose()
   })
 })
+
+describe('terminal status hooks', () => {
+  it('assembles OSC 7501 and title sequences split across chunks', async () => {
+    const emulator = createEmulator(80, 24)
+    const statuses: string[] = []
+    const titles: string[] = []
+    emulator.registerOscHandler?.(7501, (data) => {
+      statuses.push(data)
+      return true
+    })
+    emulator.onTitleChange?.((title) => titles.push(title))
+
+    emulator.write('\x1b]7501;state=work')
+    emulator.write('ing:app=codex\x1b\\')
+    emulator.write('\x1b]0;Action Re')
+    emulator.write('quired\x07')
+    await emulator.whenIdle()
+
+    expect(statuses).toEqual(['state=working:app=codex'])
+    expect(titles).toEqual(['Action Required'])
+    emulator.dispose()
+  })
+})

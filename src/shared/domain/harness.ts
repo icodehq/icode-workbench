@@ -34,6 +34,71 @@ export function harnessLabel(id: HarnessId): string {
   return HARNESS_DEFINITIONS[id].label
 }
 
+export type HarnessActivityCapabilities = {
+  /** Claude-style hook events are installed and authoritative. */
+  hook: boolean
+  /** OSC 7501 program status is consumed. */
+  program: boolean
+  /** OSC 0/2 terminal titles are consumed as a correction channel. */
+  title: boolean
+  /** A managed harness plugin reports full status snapshots. */
+  plugin: boolean
+}
+
+export type HarnessCapabilities = {
+  activity: HarnessActivityCapabilities
+  resume: 'token' | 'store' | 'none'
+  /** A terminal-derived turn end may complete an unattended task. */
+  terminalTaskCompletion: boolean
+}
+
+/**
+ * What iCode can observe for each harness. `program`/`title` mean "we listen";
+ * a CLI that emits neither simply stays `unknown` rather than showing a guess.
+ */
+export const HARNESS_CAPABILITIES: Record<HarnessId, HarnessCapabilities> = {
+  claude: {
+    activity: { hook: true, program: true, title: true, plugin: false },
+    resume: 'token',
+    terminalTaskCompletion: true
+  },
+  codex: {
+    activity: { hook: false, program: true, title: true, plugin: false },
+    // Provider-session capture lands in the next milestone; no exact resume yet.
+    resume: 'none',
+    terminalTaskCompletion: true
+  },
+  opencode: {
+    // OpenCode 1.19.6 emits no OSC 7501 and its title carries no state; the
+    // managed plugin is its first precise channel.
+    activity: { hook: false, program: false, title: false, plugin: true },
+    resume: 'none',
+    terminalTaskCompletion: false
+  },
+  shell: {
+    activity: { hook: false, program: false, title: false, plugin: false },
+    resume: 'none',
+    terminalTaskCompletion: false
+  }
+}
+
+export type OpenCodePluginApi = 'v1' | 'v2' | 'unknown'
+
+/**
+ * Selects the OpenCode plugin loader shape from the probed CLI version.
+ *
+ * Both majors are installed as `opencode`; the generated plugin exports a bare
+ * factory for 1.x and `{ id, server, setup }` for 2.x. An unparsable version is
+ * not guessed: the installer reports it unsupported and writes no plugin.
+ */
+export function openCodePluginApi(version: string | null): OpenCodePluginApi {
+  if (version === null) return 'unknown'
+  const major = /(?:^|[^\d.])v?(\d+)\./.exec(version.trim())?.[1]
+  if (major === '1') return 'v1'
+  if (major === '2') return 'v2'
+  return 'unknown'
+}
+
 /**
  * Shell is a terminal, not an agent. Review notes typed into it would be
  * executed as shell input, so only the coding-agent harnesses can receive them.

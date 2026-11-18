@@ -440,7 +440,12 @@ describe('agent activity', () => {
     toolName: 'Bash',
     unread: false,
     outcome: null,
-    since: 100
+    since: 100,
+    source: 'hook',
+    prompt: null,
+    message: null,
+    attentionKind: null,
+    subagents: []
   }
 
   it('updates only the named session and never its lifecycle', () => {

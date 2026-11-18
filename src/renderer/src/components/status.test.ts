@@ -19,6 +19,11 @@ function activity(overrides: Partial<ActivitySummary> = {}): ActivitySummary {
     unread: false,
     outcome: null,
     since: 1,
+    source: 'none',
+    prompt: null,
+    message: null,
+    attentionKind: null,
+    subagents: [],
     ...overrides
   }
 }
@@ -37,6 +42,12 @@ describe('activity wording', () => {
     expect(activityLabel(activity({ state: 'waiting', toolName: 'Bash', unread: true }))).toBe(
       'Needs you'
     )
+    expect(
+      activityLabel(activity({ state: 'waiting', attentionKind: 'permission', unread: true }))
+    ).toBe('Needs permission')
+    expect(
+      activityLabel(activity({ state: 'waiting', attentionKind: 'question', unread: true }))
+    ).toBe('Needs your answer')
   })
 
   it('distinguishes a failed turn from a completed one', () => {
@@ -55,9 +66,11 @@ describe('activity wording', () => {
 
   it('explains an absent activity signal without calling it unknown', () => {
     expect(activityDetailsLabel(activity(), 'claude')).toBe('No activity yet')
+    expect(activityDetailsLabel(activity(), 'codex')).toBe('No activity yet')
+    expect(activityDetailsLabel(activity(), 'opencode')).toBe('No activity yet')
     expect(activityDetailsLabel(activity(), 'shell')).toBe('Not reported by this harness')
-    expect(activityDetailsLabel(activity(), 'codex')).toBe('Not reported by this harness')
-    expect(activityDetailsHint(activity(), 'claude')).toContain('starts a turn')
+    expect(activityDetailsHint(activity(), 'claude')).toBe('No activity yet')
+    expect(activityDetailsHint(activity(), 'codex')).toBe('No activity yet')
     expect(activityDetailsHint(activity(), 'shell')).toContain('Shell does not report')
     expect(
       activityDetailsLabel(activity({ state: 'working', toolName: 'Bash' }), 'claude')

@@ -1,6 +1,7 @@
 import type { SessionService } from '../sessions/session-service'
 import type { AppError } from '../../shared/domain/errors'
 import type { SessionId } from '../../shared/domain/ids'
+import type { ActivitySource, ActivitySummary } from '../../shared/domain/activity'
 import {
   isActiveTaskStatus,
   isTerminalTaskStatus,
@@ -13,6 +14,13 @@ import {
   buildAgentPromptPaste
 } from '../../shared/agent-prompt'
 import { buildContinuationPrompt } from './task-continuation'
+
+/**
+ * A program/title turn end may be a transient milestone; wait this long before
+ * letting it settle an unattended task. A hook's own Stop is authoritative and
+ * completes immediately.
+ */
+export const DERIVED_COMPLETION_HOLD_MS = 1_500
 
 export type TaskDispatcherDeps = {
   tasks: TaskStore
@@ -27,10 +35,12 @@ export type TaskDispatcherDeps = {
   sessionWorktree: (sessionId: string) => string | null
   /** The agent TUI needs time to draw before its first input. */
   promptStartupDelayMs?: number
+  /** Test seam; how long a derived turn end must stay quiet. */
+  completionHoldMs?: number
   /** Test seam; production uses the TUI's paste-ingest delay. */
   submitDelayMs?: number
-  /** Claude activity, used to resend an Enter lost during startup. */
-  activity?: { get: (sessionId: string) => { state: string } }
+  /** Live activity, used to resend an Enter and to re-check a held turn end. */
+  activity?: { get: (sessionId: string) => ActivitySummary }
   /** Resolves the chain/start-from commit before the worktree is created. */
   resolveTaskBase?: (task: TaskRecord) => Promise<{ baseRef: string | null; baseOid: string }>
 }
@@ -60,6 +70,10 @@ export class TaskDispatcher {
   private unsubscribe: (() => void) | null = null
   /** Sessions whose PTY is being deliberately stopped and respawned. */
   private readonly restarting = new Set<string>()
+  /** Derived turn ends waiting out the quiet window before settling a task. */
+  private readonly completionTimers = new Map<string, NodeJS.Timeout>()
+  /** Dispatch delays are cancelled on stop so a test/app teardown cannot touch a closed DB. */
+  private readonly dispatchTimers = new Set<NodeJS.Timeout>()
 
   constructor(private readonly deps: TaskDispatcherDeps) {}
 
@@ -79,6 +93,10 @@ export class TaskDispatcher {
   stop(): void {
     this.unsubscribe?.()
     this.unsubscribe = null
+    for (const timer of this.completionTimers.values()) clearTimeout(timer)
+    this.completionTimers.clear()
+    for (const timer of this.dispatchTimers) clearTimeout(timer)
+    this.dispatchTimers.clear()
   }
 
   /** Asks for a dispatch pass. Coalesced: a burst of task creations scans once. */
@@ -461,7 +479,11 @@ export class TaskDispatcher {
    * This is the only signal that distinguishes "the agent finished a turn" from
    * "the agent is waiting for permission": both leave a live process behind.
    */
-  onActivity(sessionId: string, activity: { state: string; outcome: string | null }): void {
+  onActivity(
+    sessionId: string,
+    activity: { state: string; outcome: string | null; source?: ActivitySource }
+  ): void {
+    this.cancelDerivedCompletion(sessionId)
     if (this.restarting.has(sessionId)) return
     const task = this.deps.tasks
       .list({ limit: 500, includeAttempts: true })
@@ -500,19 +522,18 @@ export class TaskDispatcher {
       return
     }
     if (activity.state === 'idle' && activity.outcome === 'completed') {
-      this.deps.tasks.updateIfStatus(
-        task.id,
-        ['running', 'waiting'],
-        {
-          status: 'completed',
-          finishedAt: now,
-          lastObservedState: 'live',
-          resultSummary: mainT('tasks.result.turnFinished')
-        },
-        now
-      )
-      this.deps.onChange()
-      this.kick()
+      // A hook Stop is the agent's own verdict. Program/title turn ends can be
+      // transient milestones, so hold them briefly and re-check.
+      if ((activity.source ?? 'hook') !== 'hook' && this.deps.activity) {
+        const timer = setTimeout(
+          () => this.settleDerivedCompletion(sessionId, task.id),
+          this.deps.completionHoldMs ?? DERIVED_COMPLETION_HOLD_MS
+        )
+        timer.unref?.()
+        this.completionTimers.set(sessionId, timer)
+        return
+      }
+      this.completeTask(task, now)
       return
     }
     if (activity.state === 'idle' && activity.outcome === 'failed') {
@@ -531,6 +552,39 @@ export class TaskDispatcher {
       this.deps.onChange()
       this.kick()
     }
+  }
+
+  private completeTask(task: TaskRecord, now: number): void {
+    this.deps.tasks.updateIfStatus(
+      task.id,
+      ['running', 'waiting'],
+      {
+        status: 'completed',
+        finishedAt: now,
+        lastObservedState: 'live',
+        resultSummary: mainT('tasks.result.turnFinished')
+      },
+      now
+    )
+    this.deps.onChange()
+    this.kick()
+  }
+
+  /** Re-check the live activity before letting a derived turn end settle a task. */
+  private settleDerivedCompletion(sessionId: string, taskId: string): void {
+    this.completionTimers.delete(sessionId)
+    const task = this.deps.tasks.findById(taskId)
+    if (!task || isTerminalTaskStatus(task.status)) return
+    const current = this.deps.activity?.get(sessionId)
+    if (!current || current.state !== 'idle' || current.outcome !== 'completed') return
+    this.completeTask(task, this.deps.now())
+  }
+
+  private cancelDerivedCompletion(sessionId: string): void {
+    const timer = this.completionTimers.get(sessionId)
+    if (timer === undefined) return
+    clearTimeout(timer)
+    this.completionTimers.delete(sessionId)
   }
 
   /**
@@ -695,8 +749,12 @@ export class TaskDispatcher {
   private delay(ms: number): Promise<void> {
     if (ms <= 0) return Promise.resolve()
     return new Promise<void>((resolve) => {
-      const timer = setTimeout(resolve, ms)
+      const timer = setTimeout(() => {
+        this.dispatchTimers.delete(timer)
+        resolve()
+      }, ms)
       timer.unref?.()
+      this.dispatchTimers.add(timer)
     })
   }
 }

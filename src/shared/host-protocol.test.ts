@@ -103,6 +103,70 @@ describe('client frame parsing', () => {
     expect(tooLong.ok).toBe(false)
   })
 
+  it('accepts a managed agent-status request and rejects oversized or invalid snapshots', () => {
+    const params = {
+      sessionId,
+      incarnationId,
+      payload: {
+        state: 'waiting',
+        kind: 'permission',
+        toolName: 'Bash',
+        prompt: 'Fix the parser',
+        message: 'May I run this?',
+        subagents: [{ id: 'child-1', label: 'Explore', state: 'working', toolName: 'Read' }],
+        sentAt: 1
+      }
+    }
+    const accepted = parseHostClientFrame(
+      JSON.stringify({ type: 'request', id: 'r1', method: 'agentStatus', params })
+    )
+    expect(accepted.ok).toBe(true)
+
+    expect(
+      parseHostClientFrame(
+        JSON.stringify({
+          type: 'request',
+          id: 'r2',
+          method: 'agentStatus',
+          params: {
+            ...params,
+            payload: { ...params.payload, prompt: 'x'.repeat(4_001) }
+          }
+        })
+      ).ok
+    ).toBe(false)
+    expect(
+      parseHostClientFrame(
+        JSON.stringify({
+          type: 'request',
+          id: 'r3',
+          method: 'agentStatus',
+          params: {
+            ...params,
+            payload: {
+              ...params.payload,
+              subagents: Array.from({ length: 33 }, (_, index) => ({
+                id: `child-${index}`,
+                label: 'Explore',
+                state: 'working'
+              }))
+            }
+          }
+        })
+      ).ok
+    ).toBe(false)
+    expect(
+      parseHostClientFrame(
+        JSON.stringify({
+          type: 'request',
+          id: 'r4',
+          method: 'agentStatus',
+          params: { ...params, payload: { ...params.payload, state: 'thinking' } }
+        })
+      ).ok
+    ).toBe(false)
+  })
+
   it('rejects unknown methods explicitly', () => {
     const result = parseHostClientFrame(
       JSON.stringify({ type: 'request', id: 'r1', method: 'exec', params: {} })
@@ -239,6 +303,53 @@ describe('server frame parsing', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.value).toMatchObject({ event: 'data', sessionId, incarnationId, seq: 7 })
+  })
+
+  it('accepts terminal-status events and rejects unknown states', () => {
+    const event = {
+      type: 'event',
+      event: 'terminal-status',
+      sessionId,
+      incarnationId,
+      seq: 8,
+      source: 'program',
+      state: 'waiting',
+      kind: 'permission',
+      app: 'codex'
+    }
+    expect(parseHostServerFrame(JSON.stringify(event)).ok).toBe(true)
+    expect(hostEventSchema.safeParse({ ...event, source: 'title', state: 'working' }).success).toBe(
+      true
+    )
+    expect(hostEventSchema.safeParse({ ...event, state: 'thinking' }).success).toBe(false)
+    expect(hostEventSchema.safeParse({ ...event, source: 'hook' }).success).toBe(false)
+  })
+
+  it('accepts a managed agent-status event and rejects a colliding identity', () => {
+    const event = {
+      type: 'event',
+      event: 'agent-status',
+      sessionId,
+      incarnationId,
+      seq: 3,
+      payload: {
+        state: 'working',
+        toolName: 'Bash',
+        prompt: 'Fix the parser',
+        subagents: [{ id: 'child-1', label: 'Explore', state: 'working' }],
+        sentAt: 10
+      }
+    }
+    expect(parseHostServerFrame(JSON.stringify(event)).ok).toBe(true)
+    expect(
+      hostEventSchema.safeParse({
+        ...event,
+        payload: { ...event.payload, state: 'thinking' }
+      }).success
+    ).toBe(false)
+    expect(hostEventSchema.safeParse({ ...event, sessionId: incarnationId, incarnationId }).success).toBe(
+      false
+    )
   })
 
   it('rejects an event without an incarnation', () => {

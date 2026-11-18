@@ -19,6 +19,7 @@ import type { HarnessDetectionResult } from '../harness/harness-detector'
 import { newRepoId } from '../../shared/domain/ids'
 import { toPtyIncarnationId } from '../../shared/domain/ids'
 import type { RendererSessionEvent } from '../../shared/schemas/ipc'
+import type { PluginActivityEvent, TerminalActivityEvent } from '../../shared/domain/activity'
 import type { WorkspaceTrustService } from '../harness/trust/workspace-trust'
 
 type Fixture = {
@@ -32,6 +33,8 @@ type Fixture = {
   repoId: string
   repoPath: string
   events: RendererSessionEvent[]
+  terminalStatus: TerminalActivityEvent[]
+  pluginStatus: PluginActivityEvent[]
   detection: { current: HarnessDetectionResult; targets: unknown[] }
   pathA: { requested: string[]; fail: null | { code: 'NOT_A_DIRECTORY'; message: string } }
 }
@@ -98,6 +101,7 @@ function setup(options: {
   harness?: HarnessDetectionResult
   workspaceTrust?: WorkspaceTrustService
   launchSpec?: NonNullable<SessionServiceDeps['launchSpec']>
+  prepareIntegration?: NonNullable<SessionServiceDeps['prepareIntegration']>
 } = {}): Fixture {
   const root = makeTempRoot('icode-session-')
   const db = openTempDatabase(root)
@@ -120,6 +124,8 @@ function setup(options: {
     requested: [] as string[],
     fail: null as null | { code: 'NOT_A_DIRECTORY'; message: string }
   }
+  const terminalStatus: TerminalActivityEvent[] = []
+  const pluginStatus: PluginActivityEvent[] = []
   const service = new SessionService({
     database: db,
     repositories: stores.repositories,
@@ -144,6 +150,9 @@ function setup(options: {
           env: {}
         }
       }),
+    ...(options.prepareIntegration === undefined
+      ? {}
+      : { prepareIntegration: options.prepareIntegration }),
     resolveWslTerminal: async (_target, guestCwd) => {
       pathA.requested.push(guestCwd)
       if (pathA.fail) {
@@ -163,6 +172,8 @@ function setup(options: {
         }
       }
     },
+    onTerminalStatus: (event) => terminalStatus.push(event),
+    onPluginStatus: (event) => pluginStatus.push(event),
     now: () => 1_700_000_000_000
   })
   service.start()
@@ -198,6 +209,8 @@ function setup(options: {
     repoId: '',
     repoPath,
     events,
+    terminalStatus,
+    pluginStatus,
     detection,
     pathA
   }
@@ -206,6 +219,7 @@ function setup(options: {
 async function withRepo(options: {
   workspaceTrust?: WorkspaceTrustService
   launchSpec?: NonNullable<SessionServiceDeps['launchSpec']>
+  prepareIntegration?: NonNullable<SessionServiceDeps['prepareIntegration']>
 } = {}): Promise<Fixture> {
   const fixture = setup(options)
   const added = await fixture.stores.service.addRepository(fixture.repoPath)
@@ -250,6 +264,73 @@ describe('session creation', () => {
     expect(stored?.observation.lastObservedState).toBe('live')
     expect(stored?.observation.lastObservedIncarnationId).toBe(summary.incarnationId)
     expect(f.events.some((event) => event.type === 'state')).toBe(true)
+  })
+
+  it('forwards a host terminal-status event with the session harness', async () => {
+    const f = await withRepo()
+    const summary = await f.service.create(createInput(f))
+    f.host.emitTerminalStatus(summary.id, {
+      source: 'program',
+      state: 'working',
+      app: 'claude-code',
+      seq: 3
+    })
+    expect(f.terminalStatus).toEqual([
+      expect.objectContaining({
+        sessionId: summary.id,
+        harness: 'claude',
+        source: 'program',
+        state: 'working',
+        app: 'claude-code',
+        seq: 3
+      })
+    ])
+  })
+
+  it('forwards a managed agent-status event with the session harness', async () => {
+    const f = await withRepo()
+    const summary = await f.service.create(createInput(f, { harness: 'opencode' }))
+    f.host.emitAgentStatus(summary.id, {
+      state: 'waiting',
+      kind: 'permission',
+      prompt: 'Fix the parser',
+      sentAt: 1_700_000_000_000
+    })
+    expect(f.pluginStatus).toEqual([
+      expect.objectContaining({
+        sessionId: summary.id,
+        harness: 'opencode',
+        incarnationId: summary.incarnationId,
+        state: 'waiting',
+        kind: 'permission',
+        prompt: 'Fix the parser',
+        seq: 1
+      })
+    ])
+  })
+
+  it('merges integration env into the PTY launch and survives integration failure', async () => {
+    const prepared: unknown[] = []
+    const f = await withRepo({
+      prepareIntegration: async (harness, target, detection) => {
+        prepared.push({ harness, target, detection })
+        return { OPENCODE_CONFIG_DIR: '/overlay/opencode' }
+      }
+    })
+    await f.service.create(createInput(f, { harness: 'opencode' }))
+    expect(prepared).toHaveLength(1)
+    expect(f.host.calls.createOrAttach[0]?.env).toMatchObject({
+      OPENCODE_CONFIG_DIR: '/overlay/opencode'
+    })
+
+    const failing = await withRepo({
+      prepareIntegration: async () => {
+        throw new Error('install failed')
+      }
+    })
+    await expect(
+      failing.service.create(createInput(failing, { harness: 'opencode' }))
+    ).resolves.toMatchObject({ harness: 'opencode' })
   })
 
   it('runs a second session in an existing worktree without creating another checkout', async () => {

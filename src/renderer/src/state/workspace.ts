@@ -134,7 +134,23 @@ function sameActivity(
     left.toolName === right.toolName &&
     left.unread === right.unread &&
     left.outcome === right.outcome &&
-    left.since === right.since
+    left.since === right.since &&
+    left.source === right.source &&
+    left.prompt === right.prompt &&
+    left.message === right.message &&
+    left.attentionKind === right.attentionKind &&
+    left.subagents.length === right.subagents.length &&
+    left.subagents.every((child, index) => {
+      const other = right.subagents[index]
+      return (
+        other !== undefined &&
+        child.id === other.id &&
+        child.label === other.label &&
+        child.state === other.state &&
+        child.toolName === other.toolName &&
+        child.kind === other.kind
+      )
+    })
   )
 }
 

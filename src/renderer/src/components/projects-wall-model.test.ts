@@ -65,6 +65,11 @@ function activity(overrides: Partial<ActivitySummary> = {}): ActivitySummary {
     unread: false,
     outcome: 'completed',
     since: 100,
+    source: 'hook',
+    prompt: null,
+    message: null,
+    attentionKind: null,
+    subagents: [],
     ...overrides
   }
 }

@@ -1,9 +1,14 @@
 import { z } from 'zod'
 import {
+  ACTIVITY_ATTENTION_KINDS,
   ACTIVITY_EVENTS,
   ACTIVITY_MAX_PAYLOAD_BYTES,
   ACTIVITY_OUTCOMES,
-  ACTIVITY_STATES
+  ACTIVITY_SOURCES,
+  ACTIVITY_STATES,
+  ACTIVITY_SUBAGENT_STATES,
+  PLUGIN_SUBAGENTS_MAX,
+  PLUGIN_TEXT_MAX_LENGTH
 } from '../domain/activity'
 import { appErrorSchema } from './domain'
 import {
@@ -29,12 +34,25 @@ export const activityHookPayloadSchema = z.strictObject({
   sentAt: timestampSchema
 })
 
+export const activitySubagentSchema = z.strictObject({
+  id: z.string().min(1).max(128),
+  label: z.string().min(1).max(160),
+  state: z.enum(ACTIVITY_SUBAGENT_STATES),
+  toolName: z.string().min(1).max(64).nullable(),
+  kind: z.enum(ACTIVITY_ATTENTION_KINDS).nullable()
+})
+
 export const activitySummarySchema = z.strictObject({
   state: z.enum(ACTIVITY_STATES),
   toolName: z.string().min(1).max(64).nullable(),
   unread: z.boolean(),
   outcome: z.enum(ACTIVITY_OUTCOMES).nullable(),
-  since: timestampSchema
+  since: timestampSchema,
+  source: z.enum(ACTIVITY_SOURCES),
+  prompt: z.string().max(PLUGIN_TEXT_MAX_LENGTH).nullable().default(null),
+  message: z.string().max(PLUGIN_TEXT_MAX_LENGTH).nullable().default(null),
+  attentionKind: z.enum(ACTIVITY_ATTENTION_KINDS).nullable().default(null),
+  subagents: z.array(activitySubagentSchema).max(PLUGIN_SUBAGENTS_MAX).default([])
 })
 
 export const activitySnapshotSchema = z.strictObject({

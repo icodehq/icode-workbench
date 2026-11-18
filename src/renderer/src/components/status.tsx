@@ -1,5 +1,13 @@
-import { harnessLabel, type HarnessId } from '../../../shared/domain/harness'
-import type { ActivityState, ActivitySummary } from '../../../shared/domain/activity'
+import {
+  HARNESS_CAPABILITIES,
+  harnessLabel,
+  type HarnessId
+} from '../../../shared/domain/harness'
+import type {
+  ActivityState,
+  ActivitySubagent,
+  ActivitySummary
+} from '../../../shared/domain/activity'
 import type { SessionLifecycleState } from '../../../shared/domain/session'
 import type { SessionSummary } from '../../../shared/schemas/ipc'
 import type { PendingAction } from '../state/workspace'
@@ -147,6 +155,8 @@ export function activityLabel(activity: ActivitySummary): string {
         ? translate('activity.workingTool', { tool: activity.toolName })
         : translate('activity.working')
     case 'waiting':
+      if (activity.attentionKind === 'permission') return translate('activity.needsPermission')
+      if (activity.attentionKind === 'question') return translate('activity.needsQuestion')
       return activity.toolName && activity.toolName !== 'Bash'
         ? translate('activity.needsYouTool', { tool: activity.toolName })
         : translate('activity.needsYou')
@@ -206,6 +216,46 @@ export function activityDotClass(activity: ActivitySummary | null): string {
   }
 }
 
+export function subagentTone(subagent: ActivitySubagent): string {
+  switch (subagent.state) {
+    case 'working':
+      return 'text-info'
+    case 'waiting':
+      return 'text-signal'
+    case 'done':
+      return 'text-add'
+    case 'idle':
+      return 'text-muted-foreground'
+  }
+}
+
+export function subagentDotClass(subagent: ActivitySubagent): string {
+  switch (subagent.state) {
+    case 'working':
+      return 'bg-info animate-pulse'
+    case 'waiting':
+      return 'bg-signal animate-pulse'
+    case 'done':
+      return 'bg-add'
+    case 'idle':
+      return 'bg-muted-foreground'
+  }
+}
+
+/** Waiting children first, then the newest reported order; the rest collapse. */
+export function visibleSubagents(
+  activity: ActivitySummary | null,
+  limit = 5
+): { visible: ActivitySubagent[]; hidden: number } {
+  const children = activity?.subagents ?? []
+  const ordered = [...children].sort((left, right) => {
+    const rank = (child: ActivitySubagent): number =>
+      child.state === 'waiting' ? 0 : child.state === 'working' ? 1 : 2
+    return rank(left) - rank(right)
+  })
+  return { visible: ordered.slice(0, limit), hidden: Math.max(0, ordered.length - limit) }
+}
+
 export function activityTooltip(activity: ActivitySummary | null): string {
   if (!activity || activity.state === 'unknown') {
     return translate('activity.tooltipUnknown')
@@ -220,18 +270,24 @@ export function isKnownActivity(activity: ActivitySummary | null): activity is A
   return activity !== null && activity.state !== 'unknown'
 }
 
+/** Whether this harness has any channel that can report activity at all. */
+export function harnessReportsActivity(harness: HarnessId): boolean {
+  const activity = HARNESS_CAPABILITIES[harness].activity
+  return activity.hook || activity.program || activity.title || activity.plugin
+}
+
 /**
  * Activity wording for Details, where there is room to explain the absence.
  *
- * Claude Code reports activity only when a turn starts. Other harnesses never
- * report it, so "unknown" would suggest a failure where there is none.
+ * A capable harness with no evidence has simply not reported yet; a shell (or a
+ * harness with no channel) genuinely cannot report, so say that instead.
  */
 export function activityDetailsLabel(
   activity: ActivitySummary | null,
   harness: HarnessId
 ): string {
   if (!isKnownActivity(activity)) {
-    return harness === 'claude'
+    return harnessReportsActivity(harness)
       ? translate('activity.detailsNone')
       : translate('activity.detailsNotReported')
   }
@@ -243,8 +299,8 @@ export function activityDetailsHint(
   harness: HarnessId
 ): string {
   if (isKnownActivity(activity)) return activityTooltip(activity)
-  return harness === 'claude'
-    ? translate('activity.detailsClaudeHint')
+  return harnessReportsActivity(harness)
+    ? translate('activity.detailsNone')
     : translate('activity.detailsOtherHint', { harness: harnessName(harness) })
 }
 
