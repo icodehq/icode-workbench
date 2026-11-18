@@ -153,7 +153,7 @@ function createReporter() {
       }
     })
   }
-  return {
+  const api = {
     update(patch) {
       if (disposed) return
       Object.assign(state, patch)
@@ -173,6 +173,11 @@ function createReporter() {
       timer = null
     }
   }
+  // An OpenCode process with no turn yet is still a live status source. Report
+  // idle once on load so iCode can prove the plugin-to-Host path before the
+  // first session event (and so a resumed TUI does not remain unknown).
+  api.update({ state: 'idle' })
+  return api
 }
 
 function createLifecycleReporter() {
