@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.17] - 2026-11-18
+
 ### Fixed
 
 - A task-owned session stays out of its project's session list after the task is
@@ -20,6 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - README screenshots are refreshed for the current workbench, with new figures
   for the session row menu and the warning-only removal dialog.
+- The Files panel and workspace sidebar are split into focused controller hooks
+  and view components. Session lifecycle actions share one typed plan and reach
+  the surfaces as a single action bundle. No behavior change.
 
 ## [0.9.16] - 2026-11-17
 
