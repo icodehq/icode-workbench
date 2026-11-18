@@ -118,7 +118,8 @@ function buildOnce(outDir) {
       'OUT_DIR=/out',
       PINS.ubuntuImage,
       'bash',
-      '/usr/local/bin/build-node-pty.sh'
+      '-c',
+      'tr -d "\\r" < /usr/local/bin/build-node-pty.sh > /tmp/build-node-pty.sh && bash /tmp/build-node-pty.sh'
     ],
     { stdio: 'inherit' }
   )
