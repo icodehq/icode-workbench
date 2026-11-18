@@ -6,7 +6,12 @@
  * draft. It never commits, stages, or writes to the working tree.
  */
 
-import { isAgentHarness, harnessLabel, type HarnessId } from '../../shared/domain/harness'
+import {
+  isAgentHarness,
+  harnessLabel,
+  type HarnessId,
+  type ModelHarness
+} from '../../shared/domain/harness'
 import type { ExecutionTarget } from '../../shared/domain/repository'
 import type { HarnessDetectionResult } from '../harness/harness-detector'
 import type { AiCommitMessageResult } from '../../shared/schemas/ai'
@@ -111,6 +116,9 @@ export class CommitMessageService {
         })
       )
     }
+    // commitMessageArgs is the capability gate; after it passes, the harness
+    // is exactly one of the three one-shot agents this result type can name.
+    const harness = session.harness as ModelHarness
 
     const resolved = await this.deps.gitWorkspace.resolve(sessionId)
     if (resolved.status !== 'ok') {
@@ -197,7 +205,7 @@ export class CommitMessageService {
         )
       }
 
-      const parsed = parseHarnessOutput(session.harness, result.stdout)
+      const parsed = parseHarnessOutput(harness, result.stdout)
       if (!parsed.ok) return unavailable('generation-failed', parsed.error)
       const message = cleanGeneratedCommitMessage(parsed.text)
       if (message.length === 0) {
@@ -206,7 +214,7 @@ export class CommitMessageService {
           mainT('scm.generation.emptyMessage', { harness: label })
         )
       }
-      return { status: 'ok', message, agent: session.harness }
+      return { status: 'ok', message, agent: harness }
     } catch (error) {
       if (controller.signal.aborted) return { status: 'cancelled' }
       return unavailable(

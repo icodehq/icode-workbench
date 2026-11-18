@@ -6,6 +6,7 @@ import { IPC_CHANNELS } from '../shared/schemas/ipc'
 import type { IpcResult, RendererSessionEvent } from '../shared/schemas/ipc'
 import type { LocaleState } from '../shared/schemas/locale'
 import type { OpenCodeIntegrationStatePayload } from '../shared/schemas/opencode-integration'
+import type { ManagedHooksStatePayload } from '../shared/schemas/managed-hooks'
 import type { Locale } from '../shared/i18n/locales'
 
 export type InvokeFn = (channel: string, input?: unknown) => Promise<unknown>
@@ -138,6 +139,14 @@ export function createIcodeApi(
       onChanged: (listener) =>
         subscribe(IPC_CHANNELS.opencodeIntegrationEvent, (payload) =>
           listener(payload as OpenCodeIntegrationStatePayload)
+        )
+    },
+    managedHooks: {
+      get: () => call(IPC_CHANNELS.managedHooksGet),
+      setEnabled: (input) => call(IPC_CHANNELS.managedHooksSetEnabled, input),
+      onChanged: (listener) =>
+        subscribe(IPC_CHANNELS.managedHooksEvent, (payload) =>
+          listener(payload as ManagedHooksStatePayload)
         )
     },
     files: {
@@ -284,6 +293,7 @@ export function createIcodeApi(
   Object.freeze(api.git)
   Object.freeze(api.activity)
   Object.freeze(api.opencodeIntegration)
+  Object.freeze(api.managedHooks)
   Object.freeze(api.terminal)
   Object.freeze(api.window)
   return Object.freeze(api)

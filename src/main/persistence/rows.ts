@@ -1,6 +1,6 @@
 import type { AppError } from '../../shared/domain/errors'
 import { appErrorSchema } from '../../shared/schemas/domain'
-import type { HarnessId } from '../../shared/domain/harness'
+import { HARNESS_IDS, type HarnessId } from '../../shared/domain/harness'
 import {
   parsePtyIncarnationId,
   parseRepoId as parseDomainRepoId,
@@ -210,7 +210,9 @@ export type SessionRow = {
   role: unknown
 }
 
-const HARNESSES: readonly HarnessId[] = ['claude', 'codex', 'opencode', 'shell']
+/* App-level validation mirrors the catalog; the database validates via the
+ * `harnesses` FK added in migration 19, so this list cannot drift silently. */
+const HARNESSES: readonly HarnessId[] = HARNESS_IDS
 const STATES: readonly SessionLifecycleState[] = [
   'starting',
   'live',

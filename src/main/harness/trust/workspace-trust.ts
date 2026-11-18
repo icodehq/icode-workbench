@@ -70,11 +70,6 @@ type Adapter = {
   remove(file: ConfigFile, worktreePaths: string[]): Promise<void>
 }
 
-const UNSUPPORTED: Adapter = {
-  prepare: async (_file, _paths) => ({ status: 'unsupported' }),
-  remove: async (_file, _paths) => undefined
-}
-
 /**
  * Config writes are serialized per file. Harness configs are shared by every
  * session, and an interleaved read-modify-write could drop another session's
@@ -394,11 +389,17 @@ const codexAdapter: Adapter = {
   remove: (file, worktreePaths) => removeCodex(file, worktreePaths)
 }
 
-const adapters: Record<HarnessId, Adapter> = {
+/**
+ * Only harnesses with a verified, reversible trust record belong here.
+ *
+ * This is intentionally a partial map. A missing entry means "iCode does not
+ * understand this harness's trust gate", and the caller must report
+ * `unsupported`; falling through to Codex's writer for an unknown harness would
+ * silently mark the wrong file trusted.
+ */
+const adapters: Partial<Record<HarnessId, Adapter>> = {
   claude: claudeAdapter,
-  codex: codexAdapter,
-  opencode: UNSUPPORTED,
-  shell: UNSUPPORTED
+  codex: codexAdapter
 }
 
 export function createWorkspaceTrust(deps: WorkspaceTrustDeps): WorkspaceTrustService {
@@ -437,10 +438,7 @@ export function createWorkspaceTrust(deps: WorkspaceTrustDeps): WorkspaceTrustSe
     async prepare(request) {
       const adapter = adapters[request.harness]
       if (adapter === undefined) return { status: 'unsupported' }
-      if (request.harness === 'opencode' || request.harness === 'shell') {
-        return { status: 'unsupported' }
-      }
-      const kind = request.harness === 'claude' ? 'claude' : 'codex'
+      const kind: 'claude' | 'codex' = request.harness === 'claude' ? 'claude' : 'codex'
       try {
         const file = await fileFor(request.target, kind)
         const paths = projectPaths(request, kind)
@@ -452,9 +450,9 @@ export function createWorkspaceTrust(deps: WorkspaceTrustDeps): WorkspaceTrustSe
       }
     },
     async remove(request) {
-      if (request.harness === 'opencode' || request.harness === 'shell') return
       const adapter = adapters[request.harness]
-      const kind = request.harness === 'claude' ? 'claude' : 'codex'
+      if (adapter === undefined) return
+      const kind: 'claude' | 'codex' = request.harness === 'claude' ? 'claude' : 'codex'
       try {
         const file = await fileFor(request.target, kind)
         const paths = projectPaths(request, kind)

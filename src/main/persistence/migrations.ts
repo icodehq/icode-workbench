@@ -866,5 +866,111 @@ export const MIGRATIONS: readonly Migration[] = [
          ON worktree_branches (worktree_id)
          WHERE worktree_id IS NOT NULL`
     ]
+  },
+  {
+    version: 19,
+    name: 'harness-catalog',
+    /**
+     * Harness IDs stop being an inline four-value `CHECK`.
+     *
+     * The launch catalog now carries 45 CLIs plus the terminal. Enumerating
+     * them in `sessions.harness` would force a table rebuild for every future
+     * agent, so the allowed set moves to a small `harnesses` table and the
+     * session column becomes a foreign key. A new catalog entry is then one
+     * INSERT (plus its app data), not a migration that drops and recreates a
+     * table referenced by `session_worktree_links`.
+     *
+     * This migration seeds the current catalog exactly. The app rejects an id
+     * missing here before it reaches SQLite; the FK is the second line of
+     * defence. `providers` and `assistant_conversations` keep their narrower
+     * three-harness CHECKs on purpose: endpoint injection and Mira are
+     * capability subsets, not the full launch catalog.
+     */
+    rebuildsReferencedTable: true,
+    statements: [
+      `CREATE TABLE harnesses (
+         id TEXT PRIMARY KEY NOT NULL,
+         CHECK (length(id) > 0)
+       ) STRICT`,
+      `INSERT INTO harnesses (id) VALUES
+         ('claude'),
+         ('claude-agent-teams'),
+         ('openclaude'),
+         ('codex'),
+         ('grok'),
+         ('copilot'),
+         ('opencode2'),
+         ('opencode'),
+         ('mimo-code'),
+         ('ante'),
+         ('trae'),
+         ('muse'),
+         ('dsh'),
+         ('qoder'),
+         ('qoder-cn'),
+         ('zcode'),
+         ('pi'),
+         ('omp'),
+         ('prime-agent'),
+         ('gemini'),
+         ('antigravity'),
+         ('aider'),
+         ('goose'),
+         ('amp'),
+         ('kilo'),
+         ('kiro'),
+         ('crush'),
+         ('aug'),
+         ('autohand'),
+         ('cline'),
+         ('codebuff'),
+         ('freebuff'),
+         ('command-code'),
+         ('continue'),
+         ('cursor'),
+         ('droid'),
+         ('kimi'),
+         ('mistral-vibe'),
+         ('qwen-code'),
+         ('rovo'),
+         ('hermes'),
+         ('devin'),
+         ('openclaw'),
+         ('codebuddy'),
+         ('jcode'),
+         ('shell')`,
+      `CREATE TABLE sessions_new (
+         id TEXT PRIMARY KEY NOT NULL,
+         workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+         harness TEXT NOT NULL REFERENCES harnesses(id) ON DELETE RESTRICT,
+         title TEXT NOT NULL,
+         created_at INTEGER NOT NULL,
+         last_active_at INTEGER NOT NULL,
+         last_observed_state TEXT NOT NULL
+           CHECK (last_observed_state IN ('starting', 'live', 'exited', 'failed', 'unavailable')),
+         last_observed_exit_code INTEGER,
+         last_observed_error_json TEXT,
+         last_observed_incarnation_id TEXT,
+         last_observed_at INTEGER NOT NULL,
+         sleeping_at INTEGER,
+         resume_token TEXT,
+         role TEXT NOT NULL DEFAULT 'interactive'
+           CHECK (role IN ('interactive', 'supervisor')),
+         CHECK (length(title) > 0)
+       ) STRICT`,
+      `INSERT INTO sessions_new (
+         id, workspace_id, harness, title, created_at, last_active_at,
+         last_observed_state, last_observed_exit_code, last_observed_error_json,
+         last_observed_incarnation_id, last_observed_at, sleeping_at, resume_token, role
+       )
+       SELECT
+         id, workspace_id, harness, title, created_at, last_active_at,
+         last_observed_state, last_observed_exit_code, last_observed_error_json,
+         last_observed_incarnation_id, last_observed_at, sleeping_at, resume_token, role
+       FROM sessions`,
+      `DROP TABLE sessions`,
+      `ALTER TABLE sessions_new RENAME TO sessions`,
+      `CREATE INDEX sessions_workspace_idx ON sessions (workspace_id)`
+    ]
   }
 ]

@@ -9,11 +9,14 @@ export type AppPreferences = {
   locale: LocalePreference
   /** Managed OpenCode status integration; default-on, removable from Settings. */
   opencodeIntegrationEnabled: boolean
+  /** Managed status hooks for detected Gemini/Qwen/Cursor/Copilot CLIs. */
+  agentStatusHooksEnabled: boolean
 }
 
 export const DEFAULT_APP_PREFERENCES: AppPreferences = {
   locale: 'system',
-  opencodeIntegrationEnabled: true
+  opencodeIntegrationEnabled: true,
+  agentStatusHooksEnabled: true
 }
 
 const PREFERENCES_FILE = 'preferences.json'
@@ -28,7 +31,11 @@ export function parseAppPreferences(value: unknown): AppPreferences | null {
     opencodeIntegrationEnabled:
       typeof record.opencodeIntegrationEnabled === 'boolean'
         ? record.opencodeIntegrationEnabled
-        : DEFAULT_APP_PREFERENCES.opencodeIntegrationEnabled
+        : DEFAULT_APP_PREFERENCES.opencodeIntegrationEnabled,
+    agentStatusHooksEnabled:
+      typeof record.agentStatusHooksEnabled === 'boolean'
+        ? record.agentStatusHooksEnabled
+        : DEFAULT_APP_PREFERENCES.agentStatusHooksEnabled
   }
 }
 
@@ -55,7 +62,9 @@ export function updateAppPreferences(
   return saveAppPreferences(directory, {
     locale: patch.locale ?? current.locale,
     opencodeIntegrationEnabled:
-      patch.opencodeIntegrationEnabled ?? current.opencodeIntegrationEnabled
+      patch.opencodeIntegrationEnabled ?? current.opencodeIntegrationEnabled,
+    agentStatusHooksEnabled:
+      patch.agentStatusHooksEnabled ?? current.agentStatusHooksEnabled
   })
 }
 

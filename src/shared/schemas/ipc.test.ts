@@ -66,7 +66,10 @@ describe('session inputs', () => {
 
   it('rejects unknown harnesses, bad repo IDs, and invalid dimensions', () => {
     const base = { repoId, harness: 'claude', cols: 120, rows: 32 }
-    expect(createSessionInputSchema.safeParse({ ...base, harness: 'gemini' }).success).toBe(false)
+    expect(createSessionInputSchema.safeParse({ ...base, harness: 'gemini' }).success).toBe(true)
+    expect(
+      createSessionInputSchema.safeParse({ ...base, harness: 'not-a-harness' }).success
+    ).toBe(false)
     expect(createSessionInputSchema.safeParse({ ...base, repoId: sessionId }).success).toBe(false)
     expect(createSessionInputSchema.safeParse({ ...base, cols: 0 }).success).toBe(false)
     expect(createSessionInputSchema.safeParse({ ...base, rows: 1001 }).success).toBe(false)

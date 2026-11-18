@@ -228,7 +228,7 @@ const opencodeDriver: ContinuationDriver = {
     )
 }
 
-const DRIVERS: Record<HarnessId, ContinuationDriver | null> = {
+const DRIVERS: Partial<Record<HarnessId, ContinuationDriver | null>> = {
   claude: claudeDriver,
   codex: codexDriver,
   opencode: opencodeDriver,
@@ -236,5 +236,5 @@ const DRIVERS: Record<HarnessId, ContinuationDriver | null> = {
 }
 
 export function continuationDriver(harness: HarnessId): ContinuationDriver | null {
-  return DRIVERS[harness]
+  return DRIVERS[harness] ?? null
 }

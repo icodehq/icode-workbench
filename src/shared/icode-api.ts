@@ -162,6 +162,10 @@ import type {
   OpenCodeIntegrationSetEnabledInput,
   OpenCodeIntegrationStatePayload
 } from './schemas/opencode-integration'
+import type {
+  ManagedHooksSetEnabledInput,
+  ManagedHooksStatePayload
+} from './schemas/managed-hooks'
 import type { Locale } from './i18n/locales'
 
 export type RuntimeInfo = {
@@ -386,6 +390,17 @@ export type IcodeProductApi = {
       input: OpenCodeIntegrationSetEnabledInput
     ) => Promise<IpcResult<OpenCodeIntegrationStatePayload>>
     onChanged: (listener: (state: OpenCodeIntegrationStatePayload) => void) => () => void
+  }
+  /**
+   * Managed status hooks for Gemini, Qwen Code, Cursor and Copilot. The setting
+   * is default-on; only marker-owned hook entries are installed or removed.
+   */
+  managedHooks: {
+    get: () => Promise<IpcResult<ManagedHooksStatePayload>>
+    setEnabled: (
+      input: ManagedHooksSetEnabledInput
+    ) => Promise<IpcResult<ManagedHooksStatePayload>>
+    onChanged: (listener: (state: ManagedHooksStatePayload) => void) => () => void
   }
   /**
    * Browsing, editing and search inside the selected session's worktree.

@@ -14,8 +14,10 @@ import {
   ASSISTANT_STATUSES,
   ASSISTANT_TRIGGERS
 } from '../domain/assistant'
+import { MODEL_HARNESSES } from '../domain/harness'
 
 const assistantRoleSchema = z.enum(ASSISTANT_ROLES)
+const assistantHarnessSchema = z.enum(MODEL_HARNESSES)
 const assistantMessageKindSchema = z.enum(ASSISTANT_MESSAGE_KINDS)
 const assistantPrioritySchema = z.enum(ASSISTANT_PRIORITIES)
 const assistantStatusSchema = z.enum(ASSISTANT_STATUSES)
@@ -81,7 +83,7 @@ export const assistantThreadSchema = z.strictObject({
 export const assistantConversationSchema = z.strictObject({
   id: z.string().min(1).max(120),
   threadId: z.string().min(1).max(120),
-  harness: z.enum(['claude', 'codex', 'opencode']),
+  harness: assistantHarnessSchema,
   targetKind: z.enum(['local', 'wsl']),
   targetDistro: z.string().max(200).nullable(),
   state: z.enum(ASSISTANT_CONVERSATION_STATES),
@@ -114,7 +116,7 @@ export const assistantRunSchema = z.strictObject({
   trigger: assistantTriggerSchema,
   status: assistantRunStatusSchema,
   stage: z.string().max(120).nullable(),
-  harness: z.enum(['claude', 'codex', 'opencode']).nullable(),
+  harness: assistantHarnessSchema.nullable(),
   targetKind: z.enum(['local', 'wsl']).nullable(),
   targetDistro: z.string().max(200).nullable(),
   round: z.number().int().min(0),
@@ -152,7 +154,7 @@ export const assistantAutoDispatchSettingsSchema = z.strictObject({
 export const assistantSettingsSchema = z.strictObject({
   personaName: z.string().min(1).max(40),
   target: assistantTargetSchema,
-  harnessPriority: z.array(z.enum(['claude', 'codex', 'opencode'])).min(1).max(3),
+  harnessPriority: z.array(assistantHarnessSchema).min(1).max(3),
   opencodeAgent: z.string().min(1).max(80),
   notifications: assistantNotificationSettingsSchema,
   autoDispatch: assistantAutoDispatchSettingsSchema

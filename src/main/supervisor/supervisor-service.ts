@@ -3,7 +3,7 @@ import type { ExecutionTarget } from '../../shared/domain/repository'
 import type { AppErrorCode } from '../../shared/domain/errors'
 import { makeAppError } from '../../shared/domain/errors'
 import type { HarnessId } from '../../shared/domain/harness'
-import { HARNESS_IDS } from '../../shared/domain/harness'
+import { HARNESS_IDS, MODEL_HARNESSES } from '../../shared/domain/harness'
 import type { RepoId, SessionId } from '../../shared/domain/ids'
 import type { SessionSummary } from '../../shared/schemas/ipc'
 import type { TaskView } from '../../shared/domain/task'
@@ -30,7 +30,7 @@ import {
   writeSupervisorControlFiles
 } from './wrappers'
 
-const SUPERVISOR_HARNESS_PRIORITY: readonly HarnessId[] = ['claude', 'codex', 'opencode']
+const SUPERVISOR_HARNESS_PRIORITY: readonly HarnessId[] = MODEL_HARNESSES
 const MAX_MESSAGE = 4_000
 const MAX_DIFF_BYTES = 200_000
 

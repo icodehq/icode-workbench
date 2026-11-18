@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { MODEL_HARNESSES } from '../domain/harness'
 import { sessionIdSchema } from './primitives'
 
 /** One renderer-initiated generation; cancelling targets this id. */
@@ -13,7 +14,7 @@ export const aiCancelCommitMessageInputSchema = z.strictObject({
   requestId: aiRequestIdSchema
 })
 
-export const aiCommitMessageAgentSchema = z.enum(['claude', 'codex', 'opencode'])
+export const aiCommitMessageAgentSchema = z.enum(MODEL_HARNESSES)
 export type AiCommitMessageAgent = z.infer<typeof aiCommitMessageAgentSchema>
 
 export const aiCommitMessageResultSchema = z.union([

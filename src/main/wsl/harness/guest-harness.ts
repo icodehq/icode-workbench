@@ -21,8 +21,9 @@
  */
 
 import {
-  HARNESS_DEFINITIONS,
   HARNESS_IDS,
+  harnessDetectNames,
+  harnessRequiredNames,
   type HarnessId
 } from '../../../shared/domain/harness'
 import type { WslCommandRunner } from '../exec'
@@ -215,10 +216,12 @@ export async function resolveGuestHarnessSnapshot(
   const observedDeps: GuestHarnessProbeDeps = { ...deps, runner: observed }
   const shell = await resolveGuestShell(observedDeps)
   const loginPath = await resolveGuestLoginPath(observedDeps, shell)
-  const names = HARNESS_IDS.flatMap((id) => {
-    const command = HARNESS_DEFINITIONS[id].command
-    return command.kind === 'executable' ? [command.name] : []
-  })
+  // Aliases and required commands travel in the same batch, so detection does
+  // not need a second guest round trip for `dsh` behind `dsh-tui` or `qoder`.
+  const names = HARNESS_IDS.flatMap((id) => [
+    ...harnessDetectNames(id),
+    ...harnessRequiredNames(id)
+  ])
   const executables = await resolveGuestExecutables({
     ...observedDeps,
     names,

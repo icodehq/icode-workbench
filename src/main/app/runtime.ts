@@ -8,7 +8,12 @@ import {
   type HarnessDetector,
   type HarnessDetectionResult
 } from '../harness/harness-detector'
-import { HARNESS_IDS, type HarnessId } from '../../shared/domain/harness'
+import {
+  HARNESS_IDS,
+  MODEL_HARNESSES,
+  type HarnessId,
+  type ModelHarness
+} from '../../shared/domain/harness'
 import type { WslDistroListPayload } from '../../shared/schemas/ipc'
 import { discoverWslDistros } from '../wsl/distros'
 import { parseRepoId, type SessionId } from '../../shared/domain/ids'
@@ -49,6 +54,7 @@ import { ActivityHookServer } from '../activity/hook-server'
 import { mainT } from '../i18n/main-i18n'
 import { activitySocketPath as activityEndpoint } from '../activity/endpoint'
 import { installClaudeHooks } from '../activity/claude-hooks'
+import { ManagedHooksService } from '../activity/managed-hooks-service'
 import { ActivityBroadcaster } from '../activity/activity-broadcaster'
 import { OpenCodeIntegrationService } from '../integrations/opencode/service'
 import {
@@ -77,6 +83,7 @@ import { LOCAL_TARGET, resolvePathATerminal } from '../wsl/terminal/path-a'
 import { toGuestVisiblePath } from '../wsl/guest-visible-path'
 import { createWslHostClientPool } from '../sessions/wsl-host-client-pool'
 import { createWorkspaceTrust } from '../harness/trust/workspace-trust'
+import { findExecutable } from '../harness/find-executable'
 import { nativeLaunchSpec, providerLaunchSpec } from '../../shared/provider-launch'
 import {
   materializeClaudeProviderOverlay,
@@ -86,6 +93,7 @@ import { join } from 'node:path'
 import type { AppError } from '../../shared/domain/errors'
 import { makeAppError } from '../../shared/domain/errors'
 import type { SessionListView } from '../../shared/schemas/ipc'
+import { loadAppPreferences, updateAppPreferences } from './preferences'
 
 export type AppRuntime = {
   sessions: SessionService
@@ -93,6 +101,8 @@ export type AppRuntime = {
   activityServer: ActivityHookServer
   /** Managed OpenCode status plugin: setting, install state and launch preparation. */
   integrations: OpenCodeIntegrationService
+  /** Managed status hooks for every provider with a supported installer. */
+  managedHooks: ManagedHooksService
   removals: RepositoryRemovalService
   sessionRemovals: SessionRemovalService
   /** Worktree-scoped file browsing, editing and search for the tools panel. */
@@ -194,7 +204,6 @@ export async function startAppRuntime(): Promise<AppRuntime> {
           }
         : undefined
   })
-
   let taskStoreForActivity: TaskStore | null = null
   const activityBroadcaster = new ActivityBroadcaster({
     isTaskSession: (sessionId) =>
@@ -274,6 +283,49 @@ export async function startAppRuntime(): Promise<AppRuntime> {
    * a fresh `wsl.exe` spawn at each call site.
    */
   const guestHomeCache = createGuestHomeCache(wslRunner)
+  const managedHookCommands = {
+    gemini: ['gemini'],
+    'qwen-code': ['qwen'],
+    cursor: ['cursor-agent'],
+    copilot: ['copilot'],
+    grok: ['grok'],
+    kimi: ['kimi', 'kimi-code'],
+    amp: ['amp'],
+    droid: ['droid'],
+    openclaude: ['openclaude'],
+    qoder: ['qodercli', 'qoder'],
+    'qoder-cn': ['qoderclicn', 'qodercn'],
+    codebuddy: ['codebuddy', 'cbc'],
+    antigravity: ['agy'],
+    'command-code': ['command-code'],
+    devin: ['devin'],
+    muse: ['muse'],
+    zcode: ['zcode'],
+    kiro: ['kiro-cli'],
+    dsh: ['dsh-tui'],
+    jcode: ['jcode'],
+    hermes: ['hermes']
+  } as const
+  const managedHooks = new ManagedHooksService({
+    directory: activityDirectory,
+    home: app.getPath('home'),
+    execPath: process.execPath,
+    electronRunAsNode: !process.execPath.endsWith('node'),
+    loadEnabled: () => loadAppPreferences(app.getPath('userData')).agentStatusHooksEnabled,
+    saveEnabled: (enabled) =>
+      updateAppPreferences(app.getPath('userData'), { agentStatusHooksEnabled: enabled }),
+    isAvailable: (provider) =>
+      managedHookCommands[provider].some((name) => findExecutable(name) !== null),
+    runner: wslRunner,
+    readGuestHome: (distro) => guestHomeCache.read(distro),
+    ...(isWindowsHost
+      ? {
+          guestExecutablePath: toGuestVisiblePath(process.execPath),
+          activitySocket: activitySocketPath
+        }
+      : {}),
+    guestStatePath: join(app.getPath('userData'), 'managed-hooks-guest.json')
+  })
 
   /**
    * Harness workspace trust is prepared for every session, not only Claude.
@@ -545,8 +597,14 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     id: HarnessId,
     target: ExecutionTarget
   ): { args: string[]; env: Record<string, string> } {
-    if (id === 'shell') return nativeLaunchSpec()
-    const provider = persistence.providers.selected(id)
+    if (
+      id === 'shell' ||
+      !(MODEL_HARNESSES as readonly string[]).includes(id)
+    ) {
+      return nativeLaunchSpec()
+    }
+    const modelHarness = id as ModelHarness
+    const provider = persistence.providers.selected(modelHarness)
     if (provider === null) {
       if (id !== 'claude') return nativeLaunchSpec()
       if (target.kind !== 'wsl') return { args: hooks.launchArgs, env: {} }
@@ -657,12 +715,14 @@ export async function startAppRuntime(): Promise<AppRuntime> {
      * not a path inside the distro.
      */
     launchSpec: (id, target, detection) => launchSpecForHarness(id, target, detection),
-    prepareIntegration: (harness, target, detection) =>
-      openCodeIntegrations.prepareForSession(
+    prepareIntegration: async (harness, target, detection) => {
+      await managedHooks.prepareForSession(harness, target, detection)
+      return openCodeIntegrations.prepareForSession(
         harness,
         target,
         detection?.state === 'available' ? detection.version : null
-      ),
+      )
+    },
     onIncarnation: (sessionId, incarnationId) => activity.bindIncarnation(sessionId, incarnationId),
     activityFor: (sessionId) => activity.get(sessionId),
     onTerminalStatus: (event) => activity.ingestTerminal(event),
@@ -1174,6 +1234,7 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     activity,
     activityServer,
     integrations: openCodeIntegrations,
+    managedHooks,
     removals,
     sessionRemovals,
     files,
@@ -1273,6 +1334,15 @@ export async function startAppRuntime(): Promise<AppRuntime> {
         )
       )
       .catch(() => undefined)
+    // Provider hooks are user-global files; reconcile them only after startup
+    // so a slow disk or a config parse error cannot delay the window.
+    setImmediate(() => {
+      try {
+        managedHooks.refresh()
+      } catch {
+        // Status in Settings reports failures; startup stays available.
+      }
+    })
     void assistantNotifier?.start()
     // A schedule may have come due while the app was closed; the first tick
     // applies the age rule, so a long outage cannot replay every missed run.

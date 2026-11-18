@@ -3,9 +3,14 @@ import {
   HARNESS_DEFINITIONS,
   HARNESS_IDS,
   classifyHarnessProbe,
+  harnessDetectNames,
+  harnessLaunchArgs,
+  harnessLabel,
+  harnessRequiredNames,
   type HarnessDetection,
   type HarnessDetectionState,
   type HarnessId,
+  type HarnessProbeDiagnostics,
   type HarnessProbeEvidence
 } from '../../shared/domain/harness'
 import { windowsShimCommandLine, type LaunchCommand } from './launch-command'
@@ -64,15 +69,35 @@ function launchCommandFor(
   platform: NodeJS.Platform,
   harness: HarnessId
 ): LaunchCommand {
+  const launchArgs = harnessLaunchArgs(harness)
   // A Shell pane on macOS should see the same login environment a terminal
   // would: Homebrew/nvm PATH additions from .zprofile/.zshrc.
   if (platform === 'darwin' && harness === 'shell') return { command: file, args: ['-l'] }
-  if (platform !== 'win32' || !WINDOWS_CMD_SHIM.test(file)) return { command: file, args: [] }
+  if (platform !== 'win32' || !WINDOWS_CMD_SHIM.test(file)) {
+    return { command: file, args: launchArgs }
+  }
   const comspec = process.env.ComSpec
   return {
     command: comspec && comspec.length > 0 ? comspec : 'cmd.exe',
-    args: windowsShimCommandLine(file),
-    cmdShim: { shim: file }
+    args: windowsShimCommandLine(file, launchArgs),
+    cmdShim:
+      launchArgs.length > 0
+        ? { shim: file, baseArgs: launchArgs }
+        : { shim: file }
+  }
+}
+
+function emptyDiagnostics(now: number, attempts: number): HarnessProbeDiagnostics {
+  return {
+    resolvedPath: null,
+    outcome: 'spawn_error',
+    exitCode: null,
+    signal: null,
+    stdoutTail: '',
+    stderrTail: '',
+    durationMs: 0,
+    observedAt: now,
+    attempts
   }
 }
 
@@ -95,6 +120,8 @@ export type HarnessDetectorDeps = {
   shellUnavailableMessage?: () => string
   /** Test seam: selects the Windows branch without a Windows host. */
   platform?: NodeJS.Platform
+  /** `wsl` applies the catalog's guest-only restrictions; default is local. */
+  runtime?: 'local' | 'wsl'
   now?: () => number
 }
 
@@ -109,9 +136,42 @@ export class HarnessDetector {
   async detect(harness: HarnessId, attempts = 1): Promise<HarnessDetectionResult> {
     const now = this.deps.now ?? Date.now
     const platform = this.deps.platform ?? process.platform
+    const runtime = this.deps.runtime ?? 'local'
     const definition = HARNESS_DEFINITIONS[harness]
     const isUserShell = definition.command.kind === 'user-shell'
     const configuredShell = isUserShell ? this.deps.shellPath() : null
+
+    /*
+     * Catalog entries can exist for parity but not be launchable here. A
+     * platform/runtime restriction is a fact about where the CLI works, not a
+     * missing install, so it is reported as unsupported rather than `not_found`.
+     */
+    if (definition.unsupported !== undefined) {
+      return {
+        state: 'unavailable',
+        harness,
+        reason: 'unsupported',
+        incompatibility: null,
+        message: definition.unsupported,
+        diagnostics: emptyDiagnostics(now(), attempts),
+        command: null
+      }
+    }
+    if (
+      definition.unsupportedRuntimes?.some(
+        (value) => value === runtime || value === platform
+      ) === true
+    ) {
+      return {
+        state: 'unavailable',
+        harness,
+        reason: 'unsupported',
+        incompatibility: null,
+        message: `${harnessLabel(harness)} is not supported on ${runtime === 'wsl' ? 'WSL' : platform}.`,
+        diagnostics: emptyDiagnostics(now(), attempts),
+        command: null
+      }
+    }
 
     // No shell on this platform: report why, rather than probing a path that
     // cannot exist. The message is the actionable part.
@@ -138,6 +198,7 @@ export class HarnessDetector {
       }
     }
 
+    const detectNames = isUserShell ? [] : harnessDetectNames(harness)
     const executableName = isUserShell
       ? (configuredShell as string)
       : definition.command.kind === 'executable'
@@ -181,7 +242,41 @@ export class HarnessDetector {
       }
     }
 
-    const resolvedPath = this.deps.resolve(executableName)
+    /*
+     * The canonical executable is tried first, so `qodercli` wins over the
+     * `qoder` dispatcher when both exist. If only an alias resolves, its real
+     * path is what can actually be launched; the stored harness id and display
+     * name stay canonical, so alias resolution never changes session identity.
+     */
+    let resolvedPath: string | null = null
+    if (isUserShell) {
+      resolvedPath = this.deps.resolve(executableName)
+    } else {
+      // Resolve once per candidate. Calling resolve twice (find, then lookup)
+      // made the retry test alternate answers within one detection.
+      for (const name of detectNames) {
+        resolvedPath = this.deps.resolve(name)
+        if (resolvedPath !== null) break
+      }
+    }
+
+    if (!isUserShell) {
+      const missing = harnessRequiredNames(harness).find(
+        (name) => this.deps.resolve(name) === null
+      )
+      if (missing !== undefined) {
+        return {
+          state: 'unavailable',
+          harness,
+          reason: 'not_found',
+          incompatibility: null,
+          message: `${harnessLabel(harness)} requires "${missing}" on PATH.`,
+          diagnostics: emptyDiagnostics(now(), attempts),
+          command: null
+        }
+      }
+    }
+
     const startedAt = Date.now()
     let probe: ProbeResult
     if (!resolvedPath) {

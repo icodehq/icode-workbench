@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, Check, Loader2, RefreshCw, X } from 'lucide-react'
+import { AlertTriangle, Check, Loader2, RefreshCw, Search, X } from 'lucide-react'
 import type { AppError } from '../../../shared/domain/errors'
 import {
   HARNESS_DEFINITIONS,
   HARNESS_IDS,
   harnessLabel,
+  harnessSearchTerms,
   type HarnessDetection,
   type HarnessId
 } from '../../../shared/domain/harness'
@@ -188,6 +189,8 @@ export default function NewSessionDialog({
   )
   const [repoId, setRepoId] = useState(activeRepoId ?? repos[0]?.id ?? '')
   const [harness, setHarness] = useState<HarnessId | null>(available[0]?.harness ?? null)
+  const [harnessQuery, setHarnessQuery] = useState('')
+  const [showAllAgents, setShowAllAgents] = useState(false)
   const [title, setTitle] = useState('')
   const [startFrom, setStartFrom] = useState('')
   const [branchName, setBranchName] = useState('')
@@ -245,6 +248,41 @@ export default function NewSessionDialog({
         : t('newSession.thisMachine')
   const agents = useMemo(() => harnesses.filter((entry) => entry.harness !== 'shell'), [harnesses])
   const shellEntry = harnesses.find((entry) => entry.harness === 'shell') ?? null
+
+  /*
+   * The catalog is broad; the dialog stays navigable by keeping the 21 primary
+   * agents visible, collapsing the community tail until asked, and matching
+   * both against id/label/search aliases. Available entries float first within
+   * each group without losing the catalog's intentional order.
+   */
+  const query = harnessQuery.trim().toLowerCase()
+  const matchingAgents = useMemo(() => {
+    const matches = agents.filter(
+      (entry) =>
+        query.length === 0 ||
+        harnessSearchTerms(entry.harness).some((term) => term.includes(query))
+    )
+    return [...matches].sort(
+      (left, right) =>
+        Number(right.state === 'available') - Number(left.state === 'available')
+    )
+  }, [agents, query])
+  const primaryAgents = matchingAgents.filter(
+    (entry) => HARNESS_DEFINITIONS[entry.harness].group === 'primary'
+  )
+  const secondaryAgents = matchingAgents.filter(
+    (entry) => HARNESS_DEFINITIONS[entry.harness].group === 'secondary'
+  )
+  const secondaryVisible = query.length > 0 || showAllAgents
+
+  useEffect(() => {
+    if (
+      harness !== null &&
+      HARNESS_DEFINITIONS[harness].group === 'secondary'
+    ) {
+      setShowAllAgents(true)
+    }
+  }, [harness])
 
   /**
    * Ask for the *selected repository's* Harnesses.
@@ -478,42 +516,85 @@ export default function NewSessionDialog({
             </div>
           ) : null}
 
+          {!harnessLoading && harnesses.length > 0 ? (
+            <label className="mt-3 flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2">
+              <Search size={12} className="shrink-0 text-muted-foreground" />
+              <input
+                className="min-w-0 flex-1 bg-transparent text-[12px] outline-none placeholder:text-muted-foreground"
+                value={harnessQuery}
+                onChange={(event) => setHarnessQuery(event.target.value)}
+                placeholder={t('newSession.searchHarnesses')}
+                aria-label={t('newSession.searchHarnesses')}
+                spellCheck={false}
+                data-testid="harness-search"
+              />
+              {harnessQuery.length > 0 ? (
+                <button
+                  type="button"
+                  className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  onClick={() => setHarnessQuery('')}
+                  aria-label={t('common.close')}
+                >
+                  <X size={11} />
+                </button>
+              ) : null}
+            </label>
+          ) : null}
+
           <div className="mt-2 space-y-1.5" data-testid="harness-list">
-            {harnessLoading && harnesses.length === 0
-              ? HARNESS_IDS.map((id) => (
-                  <div
-                    key={id}
-                    className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-[11px] text-muted-foreground"
+            {harnessLoading && harnesses.length === 0 ? (
+              <div className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-[11px] text-muted-foreground">
+                <Loader2 size={12} className="animate-spin" />
+                {t('newSession.checking', {
+                  harness: t('newSession.codingAgent'),
+                  target: targetLabel
+                })}
+              </div>
+            ) : (
+              <>
+                {/**
+                 * Two actions, not one list.
+                 *
+                 * An Agent session runs *inside* the execution target: on this
+                 * machine, or on the managed WSL host for a WSL repository. A
+                 * Terminal session is always a local desktop terminal — for WSL
+                 * it is `wsl.exe` on this desktop, in the chosen distro (Path A).
+                 * Presenting them as one undifferentiated list is what made the
+                 * two indistinguishable.
+                 */}
+                <SectionHeading
+                  title={t('newSession.codingAgent')}
+                  hint={
+                    repoTarget?.kind === 'wsl'
+                      ? t('newSession.agentHintWsl', { distro: repoTarget.distro })
+                      : t('newSession.agentHintLocal')
+                  }
+                  testId="agent-section"
+                />
+                {primaryAgents.map((entry) => (
+                  <HarnessRow
+                    key={entry.harness}
+                    entry={entry}
+                    selected={harness === entry.harness}
+                    onSelect={() => setHarness(entry.harness)}
+                  />
+                ))}
+                {secondaryAgents.length > 0 && !secondaryVisible ? (
+                  <button
+                    type="button"
+                    className="w-full rounded-md border border-dashed border-border px-3 py-2 text-left text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
+                    onClick={() => setShowAllAgents(true)}
+                    data-testid="harness-more"
                   >
-                    <Loader2 size={12} className="animate-spin" />
-                    {t('newSession.checking', {
-                      harness: harnessLabel(id),
-                      target: targetLabel
-                    })}
-                  </div>
-                ))
-              : (
-                  <>
-                    {/**
-                     * Two actions, not one list.
-                     *
-                     * An Agent session runs *inside* the execution target: on this
-                     * machine, or on the managed WSL host for a WSL repository. A
-                     * Terminal session is always a local desktop terminal — for WSL
-                     * it is `wsl.exe` on this desktop, in the chosen distro (Path A).
-                     * Presenting them as one undifferentiated list is what made the
-                     * two indistinguishable.
-                     */}
-                    <SectionHeading
-                      title={t('newSession.codingAgent')}
-                      hint={
-                        repoTarget?.kind === 'wsl'
-                          ? t('newSession.agentHintWsl', { distro: repoTarget.distro })
-                          : t('newSession.agentHintLocal')
-                      }
-                      testId="agent-section"
-                    />
-                    {agents.map((entry) => (
+                    {t('newSession.moreAgents', { count: secondaryAgents.length })}
+                  </button>
+                ) : null}
+                {secondaryVisible && secondaryAgents.length > 0 ? (
+                  <div className="space-y-1.5" data-testid="harness-secondary">
+                    <p className="px-1 pt-1 text-[10px] font-semibold uppercase tracking-wider text-foreground/80">
+                      {t('newSession.moreAgents', { count: secondaryAgents.length })}
+                    </p>
+                    {secondaryAgents.map((entry) => (
                       <HarnessRow
                         key={entry.harness}
                         entry={entry}
@@ -521,12 +602,21 @@ export default function NewSessionDialog({
                         onSelect={() => setHarness(entry.harness)}
                       />
                     ))}
-                    {agents.length === 0 && !harnessLoading ? (
-                      <p className="px-1 text-[10.5px] text-muted-foreground">
-                        {t('newSession.noAgentFor', { target: targetLabel })}
-                      </p>
-                    ) : null}
+                  </div>
+                ) : null}
+                {agents.length === 0 && !harnessLoading ? (
+                  <p className="px-1 text-[10.5px] text-muted-foreground">
+                    {t('newSession.noAgentFor', { target: targetLabel })}
+                  </p>
+                ) : null}
+                {agents.length > 0 && matchingAgents.length === 0 ? (
+                  <p className="px-1 text-[10.5px] text-muted-foreground">
+                    {t('newSession.noMatchingHarness')}
+                  </p>
+                ) : null}
 
+                {query.length === 0 ? (
+                  <>
                     <SectionHeading
                       title={t('newSession.terminal')}
                       hint={
@@ -553,7 +643,9 @@ export default function NewSessionDialog({
                       </p>
                     )}
                   </>
-                )}
+                ) : null}
+              </>
+            )}
           </div>
 
           {!harnessLoading && !agents.some((entry) => entry.state === 'available') ? (

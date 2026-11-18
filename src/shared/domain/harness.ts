@@ -4,83 +4,39 @@
  * Detection runs in main; this module only turns probe evidence into one of
  * three states. "Unavailable" requires evidence that the command cannot run
  * here. Anything ambiguous stays "detection_failed" and can be retried.
+ *
+ * The catalog itself lives in `harness-catalog.ts`; the re-exports below keep
+ * the existing import surface and make the catalog the single source of truth.
  */
 
-export const HARNESS_IDS = ['claude', 'codex', 'opencode', 'shell'] as const
-export type HarnessId = (typeof HARNESS_IDS)[number]
+export {
+  HARNESS_CAPABILITIES,
+  HARNESS_DEFINITIONS,
+  HARNESS_DEFINITIONS_LIST,
+  HARNESS_IDS,
+  MODEL_HARNESSES,
+  harnessDefinition,
+  harnessDetectNames,
+  harnessLabel,
+  harnessLaunchArgs,
+  harnessRequiredNames,
+  harnessSearchTerms,
+  isAgentHarness,
+  resumePlan
+} from './harness-catalog'
+export type {
+  HarnessActivityCapabilities,
+  HarnessCapabilities,
+  HarnessCommand,
+  HarnessDefinition,
+  HarnessGroup,
+  HarnessId,
+  HarnessResumeRecipe,
+  ModelHarness,
+  ResumePlan
+} from './harness-catalog'
 
-export type HarnessCommand =
-  | { kind: 'executable'; name: string }
-  | { kind: 'user-shell' }
-
-export type HarnessDefinition = {
-  id: HarnessId
-  label: string
-  command: HarnessCommand
-}
-
-export const HARNESS_DEFINITIONS: Record<HarnessId, HarnessDefinition> = {
-  claude: { id: 'claude', label: 'Claude Code', command: { kind: 'executable', name: 'claude' } },
-  codex: { id: 'codex', label: 'Codex', command: { kind: 'executable', name: 'codex' } },
-  opencode: {
-    id: 'opencode',
-    label: 'OpenCode',
-    command: { kind: 'executable', name: 'opencode' }
-  },
-  shell: { id: 'shell', label: 'Shell', command: { kind: 'user-shell' } }
-}
-
-export function harnessLabel(id: HarnessId): string {
-  return HARNESS_DEFINITIONS[id].label
-}
-
-export type HarnessActivityCapabilities = {
-  /** Claude-style hook events are installed and authoritative. */
-  hook: boolean
-  /** OSC 7501 program status is consumed. */
-  program: boolean
-  /** OSC 0/2 terminal titles are consumed as a correction channel. */
-  title: boolean
-  /** A managed harness plugin reports full status snapshots. */
-  plugin: boolean
-}
-
-export type HarnessCapabilities = {
-  activity: HarnessActivityCapabilities
-  resume: 'token' | 'store' | 'none'
-  /** A terminal-derived turn end may complete an unattended task. */
-  terminalTaskCompletion: boolean
-}
-
-/**
- * What iCode can observe for each harness. `program`/`title` mean "we listen";
- * a CLI that emits neither simply stays `unknown` rather than showing a guess.
- */
-export const HARNESS_CAPABILITIES: Record<HarnessId, HarnessCapabilities> = {
-  claude: {
-    activity: { hook: true, program: true, title: true, plugin: false },
-    resume: 'token',
-    terminalTaskCompletion: true
-  },
-  codex: {
-    activity: { hook: false, program: true, title: true, plugin: false },
-    // Provider-session capture lands in the next milestone; no exact resume yet.
-    resume: 'none',
-    terminalTaskCompletion: true
-  },
-  opencode: {
-    // OpenCode 1.19.6 emits no OSC 7501 and its title carries no state; the
-    // managed plugin is its first precise channel.
-    activity: { hook: false, program: false, title: false, plugin: true },
-    resume: 'none',
-    terminalTaskCompletion: false
-  },
-  shell: {
-    activity: { hook: false, program: false, title: false, plugin: false },
-    resume: 'none',
-    terminalTaskCompletion: false
-  }
-}
+import type { HarnessId } from './harness-catalog'
 
 export type OpenCodePluginApi = 'v1' | 'v2' | 'unknown'
 
@@ -97,14 +53,6 @@ export function openCodePluginApi(version: string | null): OpenCodePluginApi {
   if (major === '1') return 'v1'
   if (major === '2') return 'v2'
   return 'unknown'
-}
-
-/**
- * Shell is a terminal, not an agent. Review notes typed into it would be
- * executed as shell input, so only the coding-agent harnesses can receive them.
- */
-export function isAgentHarness(id: HarnessId): id is Exclude<HarnessId, 'shell'> {
-  return id !== 'shell'
 }
 
 export type HarnessProbeOutcome = 'exited' | 'timed_out' | 'signaled' | 'spawn_error'
@@ -137,7 +85,11 @@ export type HarnessProbeDiagnostics = {
   attempts: number
 }
 
-export type HarnessUnavailableReason = 'not_found' | 'permission_denied' | 'incompatible_installation'
+export type HarnessUnavailableReason =
+  | 'not_found'
+  | 'permission_denied'
+  | 'incompatible_installation'
+  | 'unsupported'
 
 export type HarnessDetectionFailureReason =
   | 'timeout'

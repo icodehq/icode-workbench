@@ -252,7 +252,7 @@ describe('target routing and unsupported harnesses', () => {
     expect(service.homeReads()).toBe(2)
   })
 
-  it('has no config write for OpenCode or Shell', async () => {
+  it('does not fall through to Codex for an unsupported catalog harness', async () => {
     const home = tempHome()
     const trust = localService(home)
     await expect(
@@ -261,6 +261,10 @@ describe('target routing and unsupported harnesses', () => {
     await expect(
       trust.prepare({ harness: 'shell', target: LOCAL, worktreePath: '/worktrees/shell' })
     ).resolves.toEqual({ status: 'unsupported' })
+    await expect(
+      trust.prepare({ harness: 'gemini', target: LOCAL, worktreePath: '/worktrees/gemini' })
+    ).resolves.toEqual({ status: 'unsupported' })
     expect(() => readFileSync(join(home, '.claude.json'))).toThrow()
+    expect(() => readFileSync(join(home, '.codex', 'config.toml'))).toThrow()
   })
 })

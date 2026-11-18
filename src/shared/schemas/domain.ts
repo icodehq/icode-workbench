@@ -127,7 +127,12 @@ export const harnessDetectionSchema = z.discriminatedUnion('state', [
   z.strictObject({
     state: z.literal('unavailable'),
     harness: harnessIdSchema,
-    reason: z.enum(['not_found', 'permission_denied', 'incompatible_installation']),
+    reason: z.enum([
+      'not_found',
+      'permission_denied',
+      'incompatible_installation',
+      'unsupported'
+    ]),
     incompatibility: z
       .enum([
         'missing_platform_binary',

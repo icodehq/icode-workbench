@@ -136,6 +136,8 @@ export const HANDLED_CHANNELS: readonly string[] = [
   IPC_CHANNELS.activityClearUnread,
   IPC_CHANNELS.opencodeIntegrationGet,
   IPC_CHANNELS.opencodeIntegrationSetEnabled,
+  IPC_CHANNELS.managedHooksGet,
+  IPC_CHANNELS.managedHooksSetEnabled,
   IPC_CHANNELS.harnessList,
   IPC_CHANNELS.providersList,
   IPC_CHANNELS.providersCreate,
@@ -334,6 +336,8 @@ export function createAppDispatcher(
     opencodeIntegrationGet: async () => runtime.integrations.getState(),
     opencodeIntegrationSetEnabled: async (input) =>
       runtime.integrations.setEnabled(input.enabled),
+    managedHooksGet: async () => runtime.managedHooks.getState(),
+    managedHooksSetEnabled: async (input) => runtime.managedHooks.setEnabled(input.enabled),
     filesList: (input) => runtime.files.list(input.sessionId, input.path),
     filesRead: (input) => runtime.files.read(input.sessionId, input.path),
     filesWrite: (input) =>
@@ -699,6 +703,9 @@ export function registerAppIpc(
   const unsubscribeOpenCode = runtime.integrations.subscribe((state) => {
     broadcast(IPC_CHANNELS.opencodeIntegrationEvent, state)
   })
+  const unsubscribeManagedHooks = runtime.managedHooks.subscribe((state) => {
+    broadcast(IPC_CHANNELS.managedHooksEvent, state)
+  })
 
   /**
    * Clone failures are normalized at the process boundary, like every other
@@ -715,6 +722,7 @@ export function registerAppIpc(
 
   return () => {
     unsubscribeOpenCode()
+    unsubscribeManagedHooks()
     unsubscribeClone()
     unsubscribeAssistant()
     unsubscribeFilesChanged()

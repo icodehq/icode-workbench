@@ -49,6 +49,7 @@ describe('preload API surface', () => {
         'git',
         'harness',
         'locale',
+        'managedHooks',
         'merge',
         'onRepoEvent',
         'onSessionEvent',
@@ -243,6 +244,28 @@ describe('preload API surface', () => {
     expect(listener).toHaveBeenCalledWith(
       expect.objectContaining({ enabled: false, api: 'v1' })
     )
+    off()
+  })
+
+  it('routes the managed hook setting and its change event', async () => {
+    const { api, invoke, subscribe, emit } = setup()
+    await api.managedHooks.get()
+    await api.managedHooks.setEnabled({ enabled: false })
+    const listener = vi.fn()
+    const off = api.managedHooks.onChanged(listener)
+    emit({
+      enabled: false,
+      providers: []
+    })
+    expect(invoke.mock.calls.map((call) => call[0])).toEqual([
+      IPC_CHANNELS.managedHooksGet,
+      IPC_CHANNELS.managedHooksSetEnabled
+    ])
+    expect(subscribe).toHaveBeenCalledWith(
+      IPC_CHANNELS.managedHooksEvent,
+      expect.any(Function)
+    )
+    expect(listener).toHaveBeenCalledWith(expect.objectContaining({ enabled: false }))
     off()
   })
 
