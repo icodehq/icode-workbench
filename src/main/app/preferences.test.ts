@@ -27,33 +27,49 @@ describe('app preferences', () => {
 
   it('round-trips a pinned language', () => {
     expect(
-      saveAppPreferences(directory, { locale: 'ja', opencodeIntegrationEnabled: true })
+      saveAppPreferences(directory, {
+        locale: 'ja',
+        opencodeIntegrationEnabled: true,
+        agentStatusHooksEnabled: true
+      })
     ).toBe(true)
     expect(loadAppPreferences(directory)).toEqual({
       locale: 'ja',
-      opencodeIntegrationEnabled: true
+      opencodeIntegrationEnabled: true,
+      agentStatusHooksEnabled: true
     })
     expect(JSON.parse(readFileSync(join(directory, 'preferences.json'), 'utf8'))).toEqual({
       locale: 'ja',
-      opencodeIntegrationEnabled: true
+      opencodeIntegrationEnabled: true,
+      agentStatusHooksEnabled: true
     })
   })
 
   it('ignores unknown fields and rejects invalid records', () => {
     expect(parseAppPreferences({ locale: 'fr', extra: true })).toEqual({
       locale: 'fr',
-      opencodeIntegrationEnabled: true
+      opencodeIntegrationEnabled: true,
+      agentStatusHooksEnabled: true
     })
     expect(parseAppPreferences({ locale: 'system' })).toEqual({
       locale: 'system',
-      opencodeIntegrationEnabled: true
+      opencodeIntegrationEnabled: true,
+      agentStatusHooksEnabled: true
     })
     expect(
       parseAppPreferences({ locale: 'de', opencodeIntegrationEnabled: false })
-    ).toEqual({ locale: 'de', opencodeIntegrationEnabled: false })
+    ).toEqual({
+      locale: 'de',
+      opencodeIntegrationEnabled: false,
+      agentStatusHooksEnabled: true
+    })
     expect(
       parseAppPreferences({ locale: 'de', opencodeIntegrationEnabled: 'yes' })
-    ).toEqual({ locale: 'de', opencodeIntegrationEnabled: true })
+    ).toEqual({
+      locale: 'de',
+      opencodeIntegrationEnabled: true,
+      agentStatusHooksEnabled: true
+    })
     expect(parseAppPreferences({ locale: 'zh-TW' })).toBeNull()
     expect(parseAppPreferences({ locale: 1 })).toBeNull()
     expect(parseAppPreferences([])).toBeNull()
@@ -67,12 +83,14 @@ describe('app preferences', () => {
     expect(updateAppPreferences(directory, { opencodeIntegrationEnabled: false })).toBe(true)
     expect(loadAppPreferences(directory)).toEqual({
       locale: 'fr',
-      opencodeIntegrationEnabled: false
+      opencodeIntegrationEnabled: false,
+      agentStatusHooksEnabled: true
     })
     expect(updateAppPreferences(directory, { opencodeIntegrationEnabled: true })).toBe(true)
     expect(loadAppPreferences(directory)).toEqual({
       locale: 'fr',
-      opencodeIntegrationEnabled: true
+      opencodeIntegrationEnabled: true,
+      agentStatusHooksEnabled: true
     })
   })
 
@@ -88,7 +106,8 @@ describe('app preferences', () => {
     expect(
       saveAppPreferences(join(missingParent, 'child'), {
         locale: 'de',
-        opencodeIntegrationEnabled: true
+        opencodeIntegrationEnabled: true,
+        agentStatusHooksEnabled: true
       })
     ).toBe(false)
   })

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { HARNESS_IDS } from '../../shared/domain/harness'
 import { HarnessDetector, spawnSpec, type ProbeResult } from './harness-detector'
 import { findExecutable } from './find-executable'
 import { mkdtempSync, writeFileSync, chmodSync, rmSync } from 'node:fs'
@@ -25,6 +26,7 @@ function detector(
     /** `null` models a platform with no resolvable shell at all. */
     shell?: string | null
     platform?: NodeJS.Platform
+    runtime?: 'local' | 'wsl'
     shellUnavailableMessage?: string
   } = {}
 ): { detector: HarnessDetector; probes: string[] } {
@@ -40,6 +42,7 @@ function detector(
       },
       shellPath: () => ('shell' in options ? options.shell ?? null : '/bin/bash'),
       ...(options.platform ? { platform: options.platform } : {}),
+      ...(options.runtime ? { runtime: options.runtime } : {}),
       ...(options.shellUnavailableMessage
         ? { shellUnavailableMessage: () => options.shellUnavailableMessage! }
         : {}),
@@ -129,14 +132,66 @@ describe('harness detection', () => {
     expect(second.state).toBe('available')
   })
 
-  it('detects all four harnesses independently', async () => {
+  it('detects the whole catalog independently', async () => {
     const { detector: d } = detector({
       resolve: (name) => (name === 'opencode' ? null : `/usr/bin/${name}`)
     })
     const results = await d.detectAll()
-    expect(results.map((entry) => entry.harness)).toEqual(['claude', 'codex', 'opencode', 'shell'])
+    expect(results.map((entry) => entry.harness)).toEqual([...HARNESS_IDS])
     expect(results.find((entry) => entry.harness === 'opencode')?.state).toBe('unavailable')
     expect(results.find((entry) => entry.harness === 'claude')?.state).toBe('available')
+    expect(results.find((entry) => entry.harness === 'claude-agent-teams')?.state).toBe(
+      'unavailable'
+    )
+  })
+
+  it('resolves a detection alias without inventing a canonical executable', async () => {
+    const { detector: d } = detector({
+      resolve: (name) =>
+        name === 'qoder' ? '/usr/local/bin/qoder' : name.startsWith('/') ? name : null
+    })
+    const result = await d.detect('qoder')
+    expect(result.state).toBe('available')
+    if (result.state !== 'available' || result.command === null) {
+      throw new Error('expected an available command')
+    }
+    expect(result.resolvedPath).toBe('/usr/local/bin/qoder')
+    expect(result.command).toEqual({ command: '/usr/local/bin/qoder', args: [] })
+  })
+
+  it('reports a missing required command instead of offering the harness', async () => {
+    const { detector: d } = detector({
+      resolve: (name) =>
+        name === 'dsh-tui' ? '/usr/local/bin/dsh-tui' : name.startsWith('/') ? name : null
+    })
+    const result = await d.detect('dsh')
+    expect(result).toMatchObject({ state: 'unavailable', reason: 'not_found' })
+    if (result.state !== 'unavailable') throw new Error('expected unavailable')
+    expect(result.message).toContain('dsh')
+  })
+
+  it('carries catalog launch arguments into the command', async () => {
+    const { detector: d } = detector()
+    const dsh = await d.detect('dsh')
+    expect(dsh.state).toBe('available')
+    if (dsh.state !== 'available' || dsh.command === null) {
+      throw new Error('expected dsh')
+    }
+    expect(dsh.command.args).toEqual(['.'])
+
+    const kiro = await d.detect('kiro')
+    expect(kiro.state).toBe('available')
+    if (kiro.state !== 'available' || kiro.command === null) {
+      throw new Error('expected kiro')
+    }
+    expect(kiro.command.args).toEqual(['chat', '--tui'])
+  })
+
+  it('reports a catalog-only entry as unsupported, not missing', async () => {
+    const { detector: d } = detector()
+    const result = await d.detect('claude-agent-teams')
+    expect(result).toMatchObject({ state: 'unavailable', reason: 'unsupported' })
+    expect(result.command).toBeNull()
   })
 })
 
@@ -298,5 +353,23 @@ describe('starting Windows command shims', () => {
     expect(result.command.command).toBe(process.env.ComSpec ?? 'cmd.exe')
     expect(result.command.args).toBe('/d /s /c "C:\\nvm4w\\nodejs\\claude.cmd"')
     expect(result.command.cmdShim).toEqual({ shim: 'C:\\nvm4w\\nodejs\\claude.cmd' })
+  })
+
+  it('places catalog launch arguments inside the shim command line', async () => {
+    const { detector: d } = detector({
+      platform: 'win32',
+      resolve: (name) =>
+        name === 'kiro-cli' ? 'C:\\tools\\kiro-cli.cmd' : 'C:\\Windows\\System32\\cmd.exe'
+    })
+    const result = await d.detect('kiro')
+    expect(result.state).toBe('available')
+    if (result.state !== 'available' || result.command === null) {
+      throw new Error('expected an available command')
+    }
+    expect(result.command.args).toBe('/d /s /c "C:\\tools\\kiro-cli.cmd chat --tui"')
+    expect(result.command.cmdShim).toEqual({
+      shim: 'C:\\tools\\kiro-cli.cmd',
+      baseArgs: ['chat', '--tui']
+    })
   })
 })

@@ -51,8 +51,21 @@ export const ACTIVITY_EVENTS = [
 ] as const
 export type ActivityEventName = (typeof ACTIVITY_EVENTS)[number]
 
-/** Tools where Claude is explicitly asking the user something, not running work. */
+/**
+ * Tools where the agent is explicitly asking the user something, not running
+ * work. Providers spell these differently (`ask_user_question`,
+ * `ask_question`, `request_permission`), so matching normalizes punctuation
+ * and case rather than keeping a provider-specific list.
+ */
 export const USER_INPUT_TOOLS = ['AskUserQuestion', 'ExitPlanMode'] as const
+const USER_INPUT_NORMALIZED = new Set([
+  'askuserquestion',
+  'requestuserinput',
+  'askquestion',
+  'askpermission',
+  'requestpermission',
+  'exitplanmode'
+])
 
 export const ACTIVITY_MAX_PAYLOAD_BYTES = 8 * 1024
 export const ACTIVITY_HOOK_DEADLINE_MS = 100
@@ -146,7 +159,10 @@ export function toActivitySummary(activity: AgentActivity): ActivitySummary {
 }
 
 export function isUserInputTool(toolName: string | null): boolean {
-  return toolName !== null && (USER_INPUT_TOOLS as readonly string[]).includes(toolName)
+  return (
+    toolName !== null &&
+    USER_INPUT_NORMALIZED.has(toolName.replace(/[^a-z0-9]/gi, '').toLowerCase())
+  )
 }
 
 /**

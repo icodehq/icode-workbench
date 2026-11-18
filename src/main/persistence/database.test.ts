@@ -14,6 +14,7 @@ import { makeTempRoot, openTempDatabase, type TempRoot } from './persistence-tes
 import { newRepoId, newSessionId, newWorkspaceId } from '../../shared/domain/ids'
 import { toCanonicalRepositoryPath } from '../../shared/domain/paths'
 import { reconcileSessionState } from '../../shared/domain/session'
+import { HARNESS_IDS } from '../../shared/domain/harness'
 
 const cleanups: Array<() => void> = []
 
@@ -51,6 +52,8 @@ describe('database initialization', () => {
       'assistant_threads',
       // v13: per-harness provider configuration and its selection.
       'harness_provider_selection',
+      // v19: the allowed launch catalog behind sessions.harness.
+      'harnesses',
       // v16: durable merge claims and audit trail.
       'merge_records',
       'providers',
@@ -570,6 +573,89 @@ describe('migrations', () => {
       .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'session_worktrees'")
       .get()
     expect(old).toBeUndefined()
+  })
+
+  it('migrates v18 sessions to the catalog FK without losing rows', () => {
+    const root = tempRoot()
+    const path = join(root.dir, 'v18.sqlite')
+    const repoId = newRepoId()
+    const workspaceId = newWorkspaceId()
+    const sessionId = newSessionId()
+    const v18 = openDatabase({ path, migrations: MIGRATIONS.slice(0, 18) })
+    v18.raw
+      .prepare(
+        `INSERT INTO repos (id, path, display_name, added_at, last_opened_at, current_branch, availability)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(repoId, '/tmp/legacy', 'legacy', 1, 1, 'main', 'present')
+    v18.raw
+      .prepare(
+        `INSERT INTO workspaces (id, repo_id, path, kind, created_at)
+         VALUES (?, ?, ?, ?, ?)`
+      )
+      .run(workspaceId, repoId, '/tmp/legacy', 'primary-checkout', 1)
+    v18.raw
+      .prepare(
+        `INSERT INTO sessions (id, workspace_id, harness, title, created_at, last_active_at,
+           last_observed_state, last_observed_exit_code, last_observed_error_json,
+           last_observed_incarnation_id, last_observed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(sessionId, workspaceId, 'shell', 'legacy session', 1, 1, 'exited', 0, null, null, 1)
+    v18.close()
+
+    const current = openDatabase({ path, migrations: MIGRATIONS })
+    cleanups.push(() => current.close())
+    expect(current.userVersion()).toBe(19)
+    expect(
+      (current.raw.prepare('SELECT id FROM harnesses ORDER BY id').all() as Array<{ id: string }>)
+        .map((row) => row.id)
+    ).toEqual([...HARNESS_IDS].sort())
+    expect(new SessionStore(current).findById(sessionId)).toMatchObject({
+      title: 'legacy session',
+      harness: 'shell'
+    })
+
+    // The new catalog is usable immediately; an unknown id is rejected by the FK.
+    const newSession = newSessionId()
+    new SessionStore(current).insert({
+      id: newSession,
+      workspaceId,
+      harness: 'gemini',
+      title: 'Gemini',
+      createdAt: 2,
+      lastActiveAt: 2,
+      observation: {
+        lastObservedState: 'live',
+        lastObservedExitCode: null,
+        lastObservedError: null,
+        lastObservedIncarnationId: null,
+        lastObservedAt: 2
+      }
+    })
+    expect(new SessionStore(current).findById(newSession)?.harness).toBe('gemini')
+    expect(() =>
+      current.raw
+        .prepare(
+          `INSERT INTO sessions (id, workspace_id, harness, title, created_at, last_active_at,
+             last_observed_state, last_observed_exit_code, last_observed_error_json,
+             last_observed_incarnation_id, last_observed_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(
+          newSessionId(),
+          workspaceId,
+          'not-a-harness',
+          'invalid',
+          2,
+          2,
+          'live',
+          null,
+          null,
+          null,
+          2
+        )
+    ).toThrow(/FOREIGN KEY/i)
   })
 
   it('preserves pre-v16 task and branch rows while adding merge gating', () => {

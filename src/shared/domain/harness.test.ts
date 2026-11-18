@@ -1,13 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import {
+  HARNESS_CAPABILITIES,
   HARNESS_DEFINITIONS,
+  HARNESS_DEFINITIONS_LIST,
   HARNESS_IDS,
+  MODEL_HARNESSES,
   classifyHarnessProbe,
   extractHarnessVersion,
   harnessLabel,
   isAgentHarness,
   isHarnessSelectable,
-  openCodePluginApi
+  openCodePluginApi,
+  resumePlan
 } from './harness'
 import type { HarnessProbeEvidence } from './harness'
 
@@ -29,11 +33,25 @@ function probe(overrides: Partial<HarnessProbeEvidence> = {}): HarnessProbeEvide
 }
 
 describe('harness registry', () => {
-  it('exposes exactly the four approved commands', () => {
-    expect(HARNESS_IDS).toEqual(['claude', 'codex', 'opencode', 'shell'])
+  it('exposes the 45-entry Orca launch catalog plus the terminal', () => {
+    expect(HARNESS_IDS).toHaveLength(46)
+    expect(new Set(HARNESS_IDS).size).toBe(46)
+    expect(HARNESS_IDS[0]).toBe('claude')
+    expect(HARNESS_IDS.at(-1)).toBe('shell')
+    expect(HARNESS_DEFINITIONS_LIST.filter((entry) => entry.id !== 'shell')).toHaveLength(45)
+    expect(Object.keys(HARNESS_DEFINITIONS).sort()).toEqual([...HARNESS_IDS].sort())
+  })
+
+  it('keeps the picker split and the model subset explicit', () => {
+    expect(
+      HARNESS_DEFINITIONS_LIST.filter((entry) => entry.group === 'primary')
+    ).toHaveLength(21)
+    expect(
+      HARNESS_DEFINITIONS_LIST.filter((entry) => entry.group === 'secondary')
+    ).toHaveLength(24)
+    expect(MODEL_HARNESSES).toEqual(['claude', 'codex', 'opencode'])
     expect(harnessLabel('claude')).toBe('Claude Code')
-    expect(harnessLabel('codex')).toBe('Codex')
-    expect(harnessLabel('opencode')).toBe('OpenCode')
+    expect(harnessLabel('dsh')).toBe('DeepSeek Harness')
     expect(harnessLabel('shell')).toBe('Shell')
   })
 
@@ -42,11 +60,70 @@ describe('harness registry', () => {
     expect(HARNESS_DEFINITIONS.claude.command).toEqual({ kind: 'executable', name: 'claude' })
   })
 
+  it('records aliases and required commands without changing the launch name', () => {
+    expect(HARNESS_DEFINITIONS.qoder.command).toEqual({
+      kind: 'executable',
+      name: 'qodercli'
+    })
+    expect(HARNESS_DEFINITIONS.qoder.detectAliases).toEqual(['qoder'])
+    expect(HARNESS_DEFINITIONS.dsh.detectAliases).toEqual(['dst'])
+    expect(HARNESS_DEFINITIONS.dsh.requires).toEqual(['dsh'])
+    expect(HARNESS_DEFINITIONS.kiro.launchArgs).toEqual(['chat', '--tui'])
+    expect(HARNESS_DEFINITIONS.dsh.launchArgs).toEqual(['.'])
+    expect(HARNESS_DEFINITIONS['claude-agent-teams'].unsupported).toBeTruthy()
+  })
+
+  it('carries resume recipes for the 26 resumable agents', () => {
+    expect(HARNESS_DEFINITIONS_LIST.filter((entry) => entry.resume !== undefined)).toHaveLength(
+      26
+    )
+    expect(resumePlan('claude', 'abc')).toEqual({
+      args: ['--resume', 'abc'],
+      resumesConversation: true
+    })
+    expect(resumePlan('claude', null)).toEqual({
+      args: ['--continue'],
+      resumesConversation: true
+    })
+    expect(resumePlan('copilot', 'abc')).toEqual({
+      args: ['--resume=abc'],
+      resumesConversation: true
+    })
+    expect(resumePlan('gemini', null)).toEqual({ args: [], resumesConversation: false })
+    expect(resumePlan('aider', 'abc')).toEqual({ args: [], resumesConversation: false })
+  })
+
   it('only lets agent harnesses receive review notes', () => {
     expect(isAgentHarness('claude')).toBe(true)
-    expect(isAgentHarness('codex')).toBe(true)
+    expect(isAgentHarness('gemini')).toBe(true)
     expect(isAgentHarness('opencode')).toBe(true)
     expect(isAgentHarness('shell')).toBe(false)
+  })
+
+  it('claims hook status only for providers with a managed installer', () => {
+    expect(HARNESS_CAPABILITIES.gemini.activity.hook).toBe(true)
+    expect(HARNESS_CAPABILITIES['qwen-code'].activity.hook).toBe(true)
+    expect(HARNESS_CAPABILITIES.cursor.activity.hook).toBe(true)
+    expect(HARNESS_CAPABILITIES.copilot.activity.hook).toBe(true)
+    expect(HARNESS_CAPABILITIES.grok.activity.hook).toBe(true)
+    expect(HARNESS_CAPABILITIES.kimi.activity.hook).toBe(true)
+    expect(HARNESS_CAPABILITIES.amp.activity.hook).toBe(true)
+    expect(HARNESS_CAPABILITIES.droid.activity.hook).toBe(true)
+    expect(HARNESS_CAPABILITIES.openclaude.activity.hook).toBe(true)
+    expect(HARNESS_CAPABILITIES.qoder.activity.hook).toBe(true)
+    expect(HARNESS_CAPABILITIES['qoder-cn'].activity.hook).toBe(true)
+    expect(HARNESS_CAPABILITIES.codebuddy.activity.hook).toBe(true)
+    expect(HARNESS_CAPABILITIES.antigravity.activity.hook).toBe(true)
+    expect(HARNESS_CAPABILITIES['command-code'].activity.hook).toBe(true)
+    expect(HARNESS_CAPABILITIES.devin.activity.hook).toBe(true)
+    expect(HARNESS_CAPABILITIES.muse.activity.hook).toBe(true)
+    expect(HARNESS_CAPABILITIES.zcode.activity.hook).toBe(true)
+    expect(HARNESS_CAPABILITIES.kiro.activity.hook).toBe(true)
+    expect(HARNESS_CAPABILITIES.dsh.activity.hook).toBe(true)
+    expect(HARNESS_CAPABILITIES.jcode.activity.hook).toBe(true)
+    expect(HARNESS_CAPABILITIES.hermes.activity.hook).toBe(true)
+    expect(HARNESS_CAPABILITIES.aider.activity.hook).toBe(false)
+    expect(HARNESS_CAPABILITIES.opencode.activity.plugin).toBe(true)
   })
 })
 

@@ -50,8 +50,10 @@ export type LaunchCommand = {
   /**
    * Present when `args` is a raw cmd.exe command line for this shim. Extra
    * arguments are quoted into that line instead of being appended as argv.
+   * `baseArgs` are the catalog launch arguments already present in the line;
+   * they must survive a later provider/hook append.
    */
-  cmdShim?: { shim: string }
+  cmdShim?: { shim: string; baseArgs?: readonly string[] }
 }
 
 /**
@@ -71,7 +73,13 @@ export function withLaunchArgs<T extends LaunchCommand>(
   const wrapper = command.shellWrapper
   if (wrapper === undefined) {
     if (command.cmdShim) {
-      return { ...command, args: windowsShimCommandLine(command.cmdShim.shim, extraArgs) }
+      return {
+        ...command,
+        args: windowsShimCommandLine(command.cmdShim.shim, [
+          ...(command.cmdShim.baseArgs ?? []),
+          ...extraArgs
+        ])
+      }
     }
     if (typeof command.args === 'string') {
       throw new Error('cannot append arguments to a raw command line without a shim declaration')

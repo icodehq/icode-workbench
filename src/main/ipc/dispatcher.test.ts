@@ -55,6 +55,8 @@ function services(overrides: Partial<DispatcherServices> = {}): DispatcherServic
       api: 'unknown',
       install: { state: 'not-installed', configDir: '/home/dev/.config/opencode' }
     })),
+    managedHooksGet: vi.fn(async () => ({ enabled: true, providers: [] })),
+    managedHooksSetEnabled: vi.fn(async () => ({ enabled: true, providers: [] })),
     filesList: vi.fn(async () => ({ status: 'ok', path: '', entries: [], truncated: false })),
     filesRead: vi.fn(async () => ({ status: 'ok', path: 'a', text: '', size: 0, binary: false, tooLarge: false, missingTrailingNewline: false })),
     filesWrite: vi.fn(async () => ({ status: 'ok', size: 1 })),
@@ -278,7 +280,7 @@ describe('dispatcher validation', () => {
     expect(
       await dispatch(IPC_CHANNELS.sessionsCreate, {
         repoId,
-        harness: 'gemini',
+        harness: 'not-a-harness',
         cols: 100,
         rows: 30
       })

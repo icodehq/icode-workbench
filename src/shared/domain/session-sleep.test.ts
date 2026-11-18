@@ -18,8 +18,16 @@ describe('session sleep wake plan', () => {
       args: ['resume', '--last'],
       resumesConversation: true
     })
+    expect(wakePlan('codex', 'thread-1')).toEqual({
+      args: ['resume', 'thread-1'],
+      resumesConversation: true
+    })
     expect(wakePlan('opencode', null)).toEqual({
       args: ['--continue'],
+      resumesConversation: true
+    })
+    expect(wakePlan('opencode', 'ses_1')).toEqual({
+      args: ['--session', 'ses_1'],
       resumesConversation: true
     })
   })

@@ -61,6 +61,7 @@ import {
 } from '../../shared/schemas/workspace'
 import { clearActivityUnreadInputSchema } from '../../shared/schemas/activity'
 import { openCodeIntegrationSetEnabledInputSchema } from '../../shared/schemas/opencode-integration'
+import { managedHooksSetEnabledInputSchema } from '../../shared/schemas/managed-hooks'
 import {
   cloneCancelInputSchema,
   cloneStartInputSchema,
@@ -279,6 +280,8 @@ export type DispatcherServices = {
   activityClearUnread: (input: { sessionId: string }) => Promise<unknown>
   opencodeIntegrationGet: () => Promise<unknown>
   opencodeIntegrationSetEnabled: (input: { enabled: boolean }) => Promise<unknown>
+  managedHooksGet: () => Promise<unknown>
+  managedHooksSetEnabled: (input: { enabled: boolean }) => Promise<unknown>
   harnessList: (input: { force?: boolean; repoId?: string }) => Promise<unknown>
   providersList: () => Promise<unknown>
   providersCreate: (input: ProviderCreateInput) => Promise<unknown>
@@ -880,6 +883,15 @@ export function createDispatcher(services: DispatcherServices): Dispatcher {
         const input = parse(openCodeIntegrationSetEnabledInputSchema, rawInput)
         if ('code' in input) return { ok: false, error: input }
         return run(() => services.opencodeIntegrationSetEnabled(input))
+      }
+
+      case IPC_CHANNELS.managedHooksGet:
+        return run(() => services.managedHooksGet())
+
+      case IPC_CHANNELS.managedHooksSetEnabled: {
+        const input = parse(managedHooksSetEnabledInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.managedHooksSetEnabled(input))
       }
 
       case IPC_CHANNELS.harnessList: {

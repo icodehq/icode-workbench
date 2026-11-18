@@ -1,13 +1,16 @@
 import { z } from 'zod'
 import { newProviderId, PROVIDER_ID_RE, type ProviderId } from '../domain/ids'
+import { MODEL_HARNESSES, type ModelHarness } from '../domain/harness'
 
 /**
  * A coding-agent harness that can run against a user-configured provider.
  *
- * Shell is deliberately absent: it has no model endpoint to point anywhere.
+ * This is the endpoint-injection subset, not the full launch catalog. Shell is
+ * deliberately absent: it has no model endpoint to point anywhere. The catalog
+ * contains many more launchable CLIs that do not share these env/argv recipes.
  */
-export const PROVIDER_HARNESSES = ['claude', 'codex', 'opencode'] as const
-export type ProviderHarness = (typeof PROVIDER_HARNESSES)[number]
+export const PROVIDER_HARNESSES = MODEL_HARNESSES
+export type ProviderHarness = ModelHarness
 
 /**
  * How Claude authenticates against a non-official endpoint.

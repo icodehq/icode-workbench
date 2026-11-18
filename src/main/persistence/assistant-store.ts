@@ -26,6 +26,7 @@ import {
   ASSISTANT_CONVERSATION_STATES,
   DEFAULT_ASSISTANT_SETTINGS
 } from '../../shared/domain/assistant'
+import { MODEL_HARNESSES, type ModelHarness } from '../../shared/domain/harness'
 
 const THREAD_COLUMNS = `id, kind, title, created_at, updated_at, last_message_at,
   last_read_seq, active_run_id, archived_at`
@@ -221,9 +222,13 @@ function requireEnum<T extends string>(
 
 function conversationFromRow(row: ConversationRow): AssistantConversation {
   const harness = row.harness
-  if (harness !== 'claude' && harness !== 'codex' && harness !== 'opencode') {
+  if (
+    typeof harness !== 'string' ||
+    !(MODEL_HARNESSES as readonly string[]).includes(harness)
+  ) {
     throw new Error('iCode assistant row has an invalid assistant_conversations.harness.')
   }
+  const assistantHarness = harness as ModelHarness
   const targetKind = row.target_kind
   if (targetKind !== 'local' && targetKind !== 'wsl') {
     throw new Error('iCode assistant row has an invalid assistant_conversations.target_kind.')
@@ -231,7 +236,7 @@ function conversationFromRow(row: ConversationRow): AssistantConversation {
   return {
     id: requireString(row.id, 'assistant_conversations.id'),
     threadId: requireString(row.thread_id, 'assistant_conversations.thread_id'),
-    harness,
+    harness: assistantHarness,
     targetKind,
     targetDistro: row.target_distro,
     nativeSessionId: row.native_session_id,

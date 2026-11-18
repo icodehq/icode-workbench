@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { repoIdSchema } from '../../shared/schemas/primitives'
 import { ASSISTANT_LIMITS, ASSISTANT_NOTIFICATION_KINDS } from '../../shared/domain/assistant'
+import { MODEL_HARNESSES } from '../../shared/domain/harness'
 
 const taskId = z.string().min(1).max(120)
 const text = z.string().trim().min(1).max(ASSISTANT_LIMITS.maxMessageLength)
@@ -30,7 +31,7 @@ const tasksCreate = z.strictObject({
   repoId: repoIdSchema,
   title: z.string().max(200).optional(),
   prompt: z.string().trim().min(1).max(20_000),
-  harness: z.enum(['claude', 'codex', 'opencode']).optional(),
+  harness: z.enum(MODEL_HARNESSES).optional(),
   idempotencyKey: z.string().min(1).max(200).optional()
 })
 const tasksCancel = z.strictObject({ op: z.literal('tasks.cancel'), taskId })

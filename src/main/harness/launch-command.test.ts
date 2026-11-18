@@ -92,4 +92,18 @@ describe('launch arguments', () => {
       '/d /s /c ""C:\\Program Files\\nodejs\\claude.cmd" --settings "C:\\Users\\A B\\settings.json""'
     )
   })
+
+  it('preserves catalog base arguments when appending provider arguments', () => {
+    const shim = 'C:\\tools\\kiro-cli.cmd'
+    const baseArgs = ['chat', '--tui']
+    const command = {
+      command: 'C:\\Windows\\System32\\cmd.exe',
+      args: windowsShimCommandLine(shim, baseArgs),
+      cmdShim: { shim, baseArgs }
+    }
+    const result = withLaunchArgs(command, ['--settings', 'C:\\tmp\\settings.json'])
+    expect(result.args).toBe(
+      '/d /s /c "C:\\tools\\kiro-cli.cmd chat --tui --settings C:\\tmp\\settings.json"'
+    )
+  })
 })

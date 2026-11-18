@@ -46,7 +46,8 @@ describe('LocaleService', () => {
     expect(onChange).toHaveBeenCalledWith(state)
     expect(loadAppPreferences(directory)).toEqual({
       locale: 'zh-CN',
-      opencodeIntegrationEnabled: true
+      opencodeIntegrationEnabled: true,
+      agentStatusHooksEnabled: true
     })
   })
 

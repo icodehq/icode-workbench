@@ -68,7 +68,14 @@ describe('activity mapping', () => {
   })
 
   it('marks an explicit user-input tool as waiting', () => {
-    for (const toolName of ['AskUserQuestion', 'ExitPlanMode']) {
+    for (const toolName of [
+      'AskUserQuestion',
+      'ExitPlanMode',
+      'ask_user_question',
+      'ask_question',
+      'ask_permission',
+      'request_permission'
+    ]) {
       const next = applyActivityEvent(unknownActivity(1), event({ event: 'PreToolUse', toolName }), 2)
       expect(next).toMatchObject({ state: 'waiting', unread: true, toolName })
     }

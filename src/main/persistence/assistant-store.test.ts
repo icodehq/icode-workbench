@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { openDatabase } from './database'
+import { SCHEMA_VERSION, openDatabase } from './database'
 import { MIGRATIONS } from './migrations'
 import { AssistantStore } from './assistant-store'
 import { makeTempRoot, openTempDatabase } from './persistence-test-fixtures'
@@ -436,7 +436,7 @@ describe('assistant store', () => {
 
     const current = openDatabase({ path, migrations: MIGRATIONS })
     cleanups.push(() => current.close())
-    expect(current.userVersion()).toBe(18)
+    expect(current.userVersion()).toBe(SCHEMA_VERSION)
     const rows = current.raw
       .prepare(
         `SELECT id, start_seq, end_seq FROM assistant_conversations ORDER BY rowid`
@@ -467,7 +467,7 @@ describe('assistant store', () => {
 
     const current = openDatabase({ path, migrations: MIGRATIONS })
     cleanups.push(() => current.close())
-    expect(current.userVersion()).toBe(18)
+    expect(current.userVersion()).toBe(SCHEMA_VERSION)
     const row = current.raw
       .prepare("SELECT attempt_mode FROM tasks WHERE id = 'task_old'")
       .get() as { attempt_mode: string }
@@ -484,7 +484,7 @@ describe('assistant store', () => {
 
     const current = openDatabase({ path, migrations: MIGRATIONS })
     cleanups.push(() => current.close())
-    expect(current.userVersion()).toBe(18)
+    expect(current.userVersion()).toBe(SCHEMA_VERSION)
     const columns = current.raw
       .prepare("PRAGMA table_info('tasks')")
       .all() as Array<{ name: string }>

@@ -6,6 +6,8 @@
  * `createdByActor = MIRA_ACTOR_ID` for accurate provenance and ownership.
  */
 
+import { MODEL_HARNESSES, type ModelHarness } from './harness'
+
 export const MIRA_ACTOR_ID = 'mira'
 /** Written to `tasks.approved_by` when Mira's low-risk policy opens the gate. */
 export const MIRA_POLICY_APPROVER = 'mira-policy'
@@ -142,7 +144,7 @@ export type AssistantAutoDispatchSettings = {
 export type AssistantSettings = {
   personaName: string
   target: AssistantTarget
-  harnessPriority: ('claude' | 'codex' | 'opencode')[]
+  harnessPriority: ModelHarness[]
   opencodeAgent: string
   notifications: AssistantNotificationSettings
   autoDispatch: AssistantAutoDispatchSettings
@@ -151,7 +153,7 @@ export type AssistantSettings = {
 export const DEFAULT_ASSISTANT_SETTINGS: AssistantSettings = {
   personaName: 'Mira',
   target: { kind: 'auto' },
-  harnessPriority: ['claude', 'codex', 'opencode'],
+  harnessPriority: [...MODEL_HARNESSES],
   opencodeAgent: 'build',
   notifications: {
     enabled: true,

@@ -8,8 +8,12 @@
  * shell. Availability evidence and launch shape stay in one place per concern.
  */
 
-import type { HarnessId } from '../../../shared/domain/harness'
+import {
+  HARNESS_DEFINITIONS,
+  type HarnessId
+} from '../../../shared/domain/harness'
 import { HarnessDetector, type HarnessDetectionResult } from '../../harness/harness-detector'
+import { withLaunchArgs } from '../../harness/launch-command'
 import type { WslCommandRunner } from '../exec'
 import {
   guestLaunchSpec,
@@ -79,6 +83,7 @@ export async function createGuestHarnessDetector(
     shellPath: () => context.shell.shell,
     // Guest detection never takes the Windows branch; pinned for clarity.
     platform: 'linux',
+    runtime: 'wsl',
     ...(options.now ? { now: options.now } : {})
   })
   return { detector, context }
@@ -102,7 +107,9 @@ export function withGuestLaunchCommand(
   // A WSL *shell* is Path A (`wsl/terminal/path-a.ts`) and never reaches this
   // function: judging it here would be a second implementation of the same
   // terminal. This rewrites coding Agents only.
-  return { ...detection, command: guestLaunchSpec(context.shell, detection.resolvedPath) }
+  const base = guestLaunchSpec(context.shell, detection.resolvedPath)
+  const launchArgs = HARNESS_DEFINITIONS[detection.harness].launchArgs ?? []
+  return { ...detection, command: withLaunchArgs(base, launchArgs) }
 }
 
 /** Context probe used by the launch path, which must not re-discover. */
