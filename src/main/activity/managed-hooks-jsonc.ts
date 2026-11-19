@@ -12,6 +12,7 @@ import {
   MANAGED_HOOK_PROVIDER_SPECS,
   cleanAllHookEvents,
   commandValues,
+  configPathFor,
   currentManagedCommand,
   definitionHasManagedCommand,
   isRecord,
@@ -21,6 +22,7 @@ import {
   type ManagedHookProviderStatus,
   type ManagedHookRuntime
 } from './managed-hooks'
+import { managedHookGuestConfigPath } from '../../shared/domain/managed-hook-providers'
 import {
   guestManagedHookCommand,
   readGuestHookText,
@@ -288,7 +290,7 @@ export function localJsoncStatus(
   runtime: ManagedHookRuntime
 ): ManagedHookProviderStatus {
   const spec = MANAGED_HOOK_PROVIDER_SPECS[provider]
-  const path = spec.configPath(options.home, options.env ?? process.env)
+  const path = configPathFor(provider, options)
   let raw: string | null
   try {
     raw = readTextOrNull(path)
@@ -319,7 +321,7 @@ export function installLocalJsoncHooks(
   runtime: ManagedHookRuntime
 ): ManagedHookProviderStatus {
   const spec = MANAGED_HOOK_PROVIDER_SPECS[provider]
-  const path = spec.configPath(options.home, options.env ?? process.env)
+  const path = configPathFor(provider, options)
   let raw: string | null
   try {
     raw = readTextOrNull(path)
@@ -362,7 +364,7 @@ export function removeLocalJsoncHooks(
   runtime: ManagedHookRuntime
 ): ManagedHookProviderStatus {
   const spec = MANAGED_HOOK_PROVIDER_SPECS[provider]
-  const path = spec.configPath(options.home, options.env ?? process.env)
+  const path = configPathFor(provider, options)
   let raw: string | null
   try {
     raw = readTextOrNull(path)
@@ -390,10 +392,7 @@ export function removeLocalJsoncHooks(
 }
 
 function guestPath(provider: ManagedHookProvider, guestHome: string): string {
-  const home = guestHome.replace(/\/+$/u, '')
-  return provider === 'zcode'
-    ? `${home}/.zcode/cli/config.json`
-    : `${home}/.config/devin/config.json`
+  return managedHookGuestConfigPath(provider, guestHome)
 }
 
 function guestCommand(options: GuestManagedHookOptions, event: ManagedHookEvent): string {

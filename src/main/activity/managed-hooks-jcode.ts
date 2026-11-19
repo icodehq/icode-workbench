@@ -10,12 +10,14 @@
 
 import {
   MANAGED_HOOK_PROVIDER_SPECS,
+  configPathFor,
   isManagedHookCommand,
   type ManagedHookEvent,
   type ManagedHookInstallOptions,
   type ManagedHookProviderStatus,
   type ManagedHookRuntime
 } from './managed-hooks'
+import { managedHookGuestConfigPath } from '../../shared/domain/managed-hook-providers'
 import {
   removeGuestHookFile,
   readGuestHookText,
@@ -438,7 +440,7 @@ function statusFrom(
 }
 
 function configPath(options: ManagedHookInstallOptions): string {
-  return MANAGED_HOOK_PROVIDER_SPECS.jcode.configPath(options.home, options.env ?? process.env)
+  return configPathFor('jcode', options)
 }
 
 export function localJcodeStatus(
@@ -509,7 +511,7 @@ export function removeLocalJcodeHooks(
 }
 
 function guestPath(options: GuestManagedHookOptions): string {
-  return `${options.guestHome.replace(/\/+$/u, '')}/.jcode/config.toml`
+  return managedHookGuestConfigPath('jcode', options.guestHome)
 }
 
 function shellQuote(value: string): string {

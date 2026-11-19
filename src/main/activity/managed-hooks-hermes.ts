@@ -14,10 +14,12 @@ import { dirname, join } from 'node:path'
 import { isMap, isScalar, isSeq, parseDocument } from 'yaml'
 import {
   MANAGED_HOOK_PROVIDER_SPECS,
+  configPathFor,
   isRecord,
   type ManagedHookInstallOptions,
   type ManagedHookProviderStatus
 } from './managed-hooks'
+import { managedHookGuestConfigPath } from '../../shared/domain/managed-hook-providers'
 import {
   readGuestHookText,
   removeGuestHookDir,
@@ -257,10 +259,7 @@ def register(ctx: Any) -> None:
 }
 
 function configPath(options: ManagedHookInstallOptions): string {
-  return MANAGED_HOOK_PROVIDER_SPECS.hermes.configPath(
-    options.home,
-    options.env ?? process.env
-  )
+  return configPathFor('hermes', options)
 }
 
 function pluginDir(configFile: string): string {
@@ -554,7 +553,7 @@ export function removeLocalHermesHooks(
 }
 
 function guestConfigPath(options: GuestManagedHookOptions): string {
-  return `${options.guestHome.replace(/\/+$/u, '')}/.hermes/config.yaml`
+  return managedHookGuestConfigPath('hermes', options.guestHome)
 }
 
 function guestPluginDir(options: GuestManagedHookOptions): string {

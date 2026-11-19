@@ -20,12 +20,14 @@ import {
 import { dirname } from 'node:path'
 import {
   MANAGED_HOOK_PROVIDER_SPECS,
+  configPathFor,
   type ManagedHookEvent,
   type ManagedHookInstallOptions,
   type ManagedHookProvider,
   type ManagedHookProviderStatus,
   type ManagedHookRuntime
 } from './managed-hooks'
+import { managedHookGuestConfigPath } from '../../shared/domain/managed-hook-providers'
 import {
   guestManagedHookCommand,
   readGuestHookText,
@@ -225,8 +227,7 @@ export function localKimiStatus(
   provider: ManagedHookProvider,
   options: ManagedHookInstallOptions
 ): ManagedHookProviderStatus {
-  const spec = MANAGED_HOOK_PROVIDER_SPECS[provider]
-  const path = spec.configPath(options.home, options.env ?? process.env)
+  const path = configPathFor(provider, options)
   return statusFromText(provider, path, readText(path))
 }
 
@@ -236,7 +237,7 @@ export function installLocalKimiHooks(
   runtime: ManagedHookRuntime
 ): ManagedHookProviderStatus {
   const spec = MANAGED_HOOK_PROVIDER_SPECS[provider]
-  const path = spec.configPath(options.home, options.env ?? process.env)
+  const path = configPathFor(provider, options)
   const text = readText(path)
   if (text === null && existsSync(path)) {
     return {
@@ -256,8 +257,7 @@ export function removeLocalKimiHooks(
   provider: ManagedHookProvider,
   options: ManagedHookInstallOptions
 ): ManagedHookProviderStatus {
-  const spec = MANAGED_HOOK_PROVIDER_SPECS[provider]
-  const path = spec.configPath(options.home, options.env ?? process.env)
+  const path = configPathFor(provider, options)
   const text = readText(path)
   if (text === null) return statusFromText(provider, path, null)
   const removed = removeKimiHooks(text)
@@ -266,8 +266,7 @@ export function removeLocalKimiHooks(
 }
 
 function guestPaths(options: GuestManagedHookOptions): string {
-  const home = options.guestHome.replace(/\/+$/u, '')
-  return `${home}/.kimi-code/config.toml`
+  return managedHookGuestConfigPath('kimi', options.guestHome)
 }
 
 function guestCommandFor(

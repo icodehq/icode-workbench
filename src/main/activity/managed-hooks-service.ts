@@ -4,86 +4,19 @@ import type { ExecutionTarget } from '../../shared/domain/repository'
 import type { HarnessId } from '../../shared/domain/harness'
 import type { HarnessDetectionResult } from '../harness/harness-detector'
 import type { WslCommandRunner } from '../wsl/exec'
+import { MANAGED_HOOK_PROVIDER_IDS } from '../../shared/domain/managed-hook-providers'
 import {
-  MANAGED_HOOK_PROVIDERS,
   MANAGED_HOOK_PROVIDER_SPECS,
+  configPathFor,
   ensureManagedHookScript,
-  installManagedHooksForProvider,
-  managedHooksStatus,
   providerForHarness,
-  removeManagedHooksForProvider,
   type ManagedHookInstallOptions,
   type ManagedHookProvider,
-  type ManagedHookProviderStatus
+  type ManagedHookProviderStatus,
+  type ManagedHookRuntime
 } from './managed-hooks'
-import {
-  installGuestManagedHooks,
-  removeGuestManagedHooks,
-  type GuestManagedHookOptions
-} from './managed-hooks-guest'
-import {
-  installGuestKimiHooks,
-  installLocalKimiHooks,
-  localKimiStatus,
-  removeGuestKimiHooks,
-  removeLocalKimiHooks
-} from './managed-hooks-kimi'
-import {
-  installGuestAmpHooks,
-  installLocalAmpHooks,
-  localAmpStatus,
-  removeGuestAmpHooks,
-  removeLocalAmpHooks
-} from './managed-hooks-amp'
-import {
-  installGuestJsoncHooks,
-  installLocalJsoncHooks,
-  localJsoncStatus,
-  removeGuestJsoncHooks,
-  removeLocalJsoncHooks
-} from './managed-hooks-jsonc'
-import {
-  installGuestAntigravityHooks,
-  installLocalAntigravityHooks,
-  localAntigravityStatus,
-  removeGuestAntigravityHooks,
-  removeLocalAntigravityHooks
-} from './managed-hooks-antigravity'
-import {
-  installGuestMuseHooks,
-  installLocalMuseHooks,
-  localMuseStatus,
-  removeGuestMuseHooks,
-  removeLocalMuseHooks
-} from './managed-hooks-muse'
-import {
-  installGuestKiroHooks,
-  installLocalKiroHooks,
-  localKiroStatus,
-  removeGuestKiroHooks,
-  removeLocalKiroHooks
-} from './managed-hooks-kiro'
-import {
-  installGuestJcodeHooks,
-  installLocalJcodeHooks,
-  localJcodeStatus,
-  removeGuestJcodeHooks,
-  removeLocalJcodeHooks
-} from './managed-hooks-jcode'
-import {
-  installGuestDshHooks,
-  installLocalDshHooks,
-  localDshStatus,
-  removeGuestDshHooks,
-  removeLocalDshHooks
-} from './managed-hooks-dsh'
-import {
-  installGuestHermesHooks,
-  installLocalHermesHooks,
-  localHermesStatus,
-  removeGuestHermesHooks,
-  removeLocalHermesHooks
-} from './managed-hooks-hermes'
+import type { GuestManagedHookOptions } from './managed-hooks-guest'
+import { GUEST_HOOK_ADAPTERS, LOCAL_HOOK_ADAPTERS } from './managed-hooks-formats'
 
 export type ManagedHooksState = {
   enabled: boolean
@@ -107,8 +40,6 @@ export type ManagedHooksServiceOptions = {
   /** Windows executable and activity pipe, spelled for a guest command. */
   guestExecutablePath?: string
   activitySocket?: string
-  installGuest?: typeof installGuestManagedHooks
-  removeGuest?: typeof removeGuestManagedHooks
   /** Small JSON ledger so a restart can still clean guest installs. */
   guestStatePath?: string
 }
@@ -145,7 +76,7 @@ export class ManagedHooksService {
     const enabled = this.options.loadEnabled()
     return {
       enabled,
-      providers: MANAGED_HOOK_PROVIDERS.map((provider) => this.statusFor(provider, enabled))
+      providers: MANAGED_HOOK_PROVIDER_IDS.map((provider) => this.statusFor(provider, enabled))
     }
   }
 
@@ -156,7 +87,7 @@ export class ManagedHooksService {
   refresh(): ManagedHooksState {
     const state = this.getState()
     if (!state.enabled) return state
-    for (const provider of MANAGED_HOOK_PROVIDERS) {
+    for (const provider of MANAGED_HOOK_PROVIDER_IDS) {
       if (!this.options.isAvailable(provider)) continue
       try {
         this.installLocal(provider)
@@ -178,7 +109,7 @@ export class ManagedHooksService {
       this.emit(state)
       return state
     }
-    for (const provider of MANAGED_HOOK_PROVIDERS) {
+    for (const provider of MANAGED_HOOK_PROVIDER_IDS) {
       try {
         this.removeLocal(provider)
       } catch {
@@ -332,7 +263,7 @@ export class ManagedHooksService {
     // every registered distro's home would start stopped distros just to delete
     // a hook, which is worse than leaving a dormant entry behind.
     for (const entry of this.guestInstalls.values()) {
-      for (const provider of MANAGED_HOOK_PROVIDERS) {
+      for (const provider of MANAGED_HOOK_PROVIDER_IDS) {
         try {
           await this.removeGuestFor(
             provider,
@@ -365,98 +296,47 @@ export class ManagedHooksService {
     }
   }
 
-  private formatOf(provider: ManagedHookProvider): string {
-    return MANAGED_HOOK_PROVIDER_SPECS[provider].format ?? 'json'
+  private runtimeFor(options: ManagedHookInstallOptions): () => ManagedHookRuntime {
+    let runtime: ManagedHookRuntime | null = null
+    return () => (runtime ??= ensureManagedHookScript(options))
   }
 
   private installLocal(provider: ManagedHookProvider): ManagedHookProviderStatus {
     const options = this.installOptions()
-    const format = this.formatOf(provider)
-    const runtime = ensureManagedHookScript(options)
-    if (format === 'kimi-toml') return installLocalKimiHooks(provider, options, runtime)
-    if (format === 'amp-plugin') return installLocalAmpHooks(provider, options)
-    if (format === 'jsonc' || format === 'zcode') {
-      return installLocalJsoncHooks(provider, options, runtime)
-    }
-    if (format === 'antigravity') return installLocalAntigravityHooks(options, runtime)
-    if (format === 'muse') return installLocalMuseHooks(options, runtime)
-    if (format === 'kiro') return installLocalKiroHooks(options, runtime)
-    if (format === 'jcode-toml') return installLocalJcodeHooks(options, runtime)
-    if (format === 'dsh') return installLocalDshHooks(options, runtime)
-    if (format === 'hermes') return installLocalHermesHooks(options)
-    return installManagedHooksForProvider(provider, options)
+    return LOCAL_HOOK_ADAPTERS[MANAGED_HOOK_PROVIDER_SPECS[provider].format].install(
+      provider,
+      { options, runtime: this.runtimeFor(options) }
+    )
   }
 
   private removeLocal(provider: ManagedHookProvider): ManagedHookProviderStatus {
     const options = this.installOptions()
-    const format = this.formatOf(provider)
-    const runtime = ensureManagedHookScript(options)
-    if (format === 'kimi-toml') return removeLocalKimiHooks(provider, options)
-    if (format === 'amp-plugin') return removeLocalAmpHooks(provider, options)
-    if (format === 'jsonc' || format === 'zcode') {
-      return removeLocalJsoncHooks(provider, options, runtime)
-    }
-    if (format === 'antigravity') return removeLocalAntigravityHooks(options, runtime)
-    if (format === 'muse') return removeLocalMuseHooks(options, runtime)
-    if (format === 'kiro') return removeLocalKiroHooks(options, runtime)
-    if (format === 'jcode-toml') return removeLocalJcodeHooks(options, runtime)
-    if (format === 'dsh') return removeLocalDshHooks(options, runtime)
-    if (format === 'hermes') return removeLocalHermesHooks(options)
-    return removeManagedHooksForProvider(provider, options)
+    return LOCAL_HOOK_ADAPTERS[MANAGED_HOOK_PROVIDER_SPECS[provider].format].remove(
+      provider,
+      { options, runtime: this.runtimeFor(options) }
+    )
   }
 
   private localStatus(provider: ManagedHookProvider): ManagedHookProviderStatus {
     const options = this.installOptions()
-    const format = this.formatOf(provider)
-    const runtime = ensureManagedHookScript(options)
-    if (format === 'kimi-toml') return localKimiStatus(provider, options)
-    if (format === 'amp-plugin') return localAmpStatus(provider, options)
-    if (format === 'jsonc' || format === 'zcode') {
-      return localJsoncStatus(provider, options, runtime)
-    }
-    if (format === 'antigravity') return localAntigravityStatus(options, runtime)
-    if (format === 'muse') return localMuseStatus(options, runtime)
-    if (format === 'kiro') return localKiroStatus(options, runtime)
-    if (format === 'jcode-toml') return localJcodeStatus(options, runtime)
-    if (format === 'dsh') return localDshStatus(options, runtime)
-    if (format === 'hermes') return localHermesStatus(options)
-    return managedHooksStatus(provider, options)
+    return LOCAL_HOOK_ADAPTERS[MANAGED_HOOK_PROVIDER_SPECS[provider].format].status(
+      provider,
+      { options, runtime: this.runtimeFor(options) }
+    )
   }
 
   private async installGuestFor(
     provider: ManagedHookProvider,
     options: GuestManagedHookOptions
   ): Promise<ManagedHookProviderStatus> {
-    const format = this.formatOf(provider)
-    if (format === 'kimi-toml') return installGuestKimiHooks(options)
-    if (format === 'amp-plugin') return installGuestAmpHooks(options)
-    if (format === 'jsonc' || format === 'zcode') return installGuestJsoncHooks(options)
-    if (format === 'antigravity') return installGuestAntigravityHooks(options)
-    if (format === 'muse') return installGuestMuseHooks(options)
-    if (format === 'kiro') return installGuestKiroHooks(options)
-    if (format === 'jcode-toml') return installGuestJcodeHooks(options)
-    if (format === 'dsh') return installGuestDshHooks(options)
-    if (format === 'hermes') return installGuestHermesHooks(options)
-    const installGuest = this.options.installGuest ?? installGuestManagedHooks
-    return installGuest(options)
+    return GUEST_HOOK_ADAPTERS[MANAGED_HOOK_PROVIDER_SPECS[provider].format].install(options)
   }
 
   private async removeGuestFor(
     provider: ManagedHookProvider,
     options: GuestManagedHookOptions
   ): Promise<ManagedHookProviderStatus> {
-    const format = this.formatOf(provider)
-    if (format === 'kimi-toml') return removeGuestKimiHooks(options)
-    if (format === 'amp-plugin') return removeGuestAmpHooks(options)
-    if (format === 'jsonc' || format === 'zcode') return removeGuestJsoncHooks(options)
-    if (format === 'antigravity') return removeGuestAntigravityHooks(options)
-    if (format === 'muse') return removeGuestMuseHooks(options)
-    if (format === 'kiro') return removeGuestKiroHooks(options)
-    if (format === 'jcode-toml') return removeGuestJcodeHooks(options)
-    if (format === 'dsh') return removeGuestDshHooks(options)
-    if (format === 'hermes') return removeGuestHermesHooks(options)
-    const removeGuest = this.options.removeGuest ?? removeGuestManagedHooks
-    return removeGuest(options)
+    return GUEST_HOOK_ADAPTERS[MANAGED_HOOK_PROVIDER_SPECS[provider].format].remove(options)
   }
 
   private statusFor(
@@ -464,10 +344,7 @@ export class ManagedHooksService {
     enabled: boolean
   ): ManagedHookProviderStatus {
     const label = MANAGED_HOOK_PROVIDER_SPECS[provider].label
-    const configPath = MANAGED_HOOK_PROVIDER_SPECS[provider].configPath(
-      this.options.home,
-      this.options.env ?? process.env
-    )
+    const configPath = configPathFor(provider, this.installOptions())
     if (!enabled) {
       return {
         provider,

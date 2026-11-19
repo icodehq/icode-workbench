@@ -620,8 +620,8 @@ async function main() {
     await click('[data-testid="empty-new-session"]')
     await waitForSelector('[data-testid="harness-list"]')
     await waitFor(
-      `document.querySelectorAll('[data-harness-state]').length === 4`,
-      'four Harness detections',
+      `document.querySelectorAll('[data-harness-state]').length === 22`,
+      'all Harness detections',
       20000
     )
     const states = await cdp.evaluate(
@@ -1162,7 +1162,7 @@ async function main() {
     )
     await openProjectSessions()
     await waitFor(
-      `document.querySelector('[data-testid="harness-summary"]')?.innerText.includes('0/4')`,
+      `document.querySelector('[data-testid="harness-summary"]')?.innerText.includes('0/46')`,
       'no available Harnesses',
       30000
     )
@@ -1170,8 +1170,8 @@ async function main() {
     await waitForSelector('[data-testid="new-session-open"]', 10000)
     await click('[data-testid="new-session-open"]')
     await waitFor(
-      `document.querySelectorAll('[data-harness-state]').length === 4`,
-      'four unavailable detections',
+      `document.querySelectorAll('[data-harness-state]').length === 22`,
+      'all unavailable detections',
       20000
     )
     const detections = await cdp.evaluate(
@@ -1189,7 +1189,7 @@ async function main() {
       `document.querySelector('[role="dialog"]').innerText`
     )
     assert(
-      dialogText.includes('0 of 4 Harnesses available'),
+      dialogText.includes('0 of 46 Harnesses available'),
       'No-available-Harness guidance is missing'
     )
     const createDisabled = await cdp.evaluate(

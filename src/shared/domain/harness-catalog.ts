@@ -15,6 +15,8 @@
  * the picker treats it as a separate action.
  */
 
+import { MANAGED_HOOK_PROVIDER_IDS } from './managed-hook-providers'
+
 export type HarnessId =
   | 'claude'
   | 'claude-agent-teams'
@@ -512,32 +514,11 @@ HARNESS_CAPABILITIES.opencode = {
   terminalTaskCompletion: false
 }
 
-// Phase B installs managed hooks for these four providers. The UI uses the
-// capability flag to decide whether hook evidence can be shown at all, so it
-// must match the installer above rather than staying at the catalog default.
-for (const id of [
-  'gemini',
-  'qwen-code',
-  'cursor',
-  'copilot',
-  'grok',
-  'kimi',
-  'amp',
-  'droid',
-  'openclaude',
-  'qoder',
-  'qoder-cn',
-  'codebuddy',
-  'antigravity',
-  'command-code',
-  'devin',
-  'muse',
-  'zcode',
-  'kiro',
-  'dsh',
-  'jcode',
-  'hermes'
-] as const) {
+// Managed hook providers are the only harnesses with iCode-installed hook
+// entries. Claude keeps its native hook capability above. The UI uses this
+// flag to decide whether hook evidence can be shown at all, so it must follow
+// the installer registry rather than a second hand-maintained list.
+for (const id of MANAGED_HOOK_PROVIDER_IDS) {
   HARNESS_CAPABILITIES[id].activity.hook = true
 }
 

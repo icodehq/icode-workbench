@@ -19,6 +19,7 @@ import {
   type ManagedHookProviderStatus,
   type ManagedHookRuntime
 } from './managed-hooks'
+import { managedHookGuestConfigPath } from '../../shared/domain/managed-hook-providers'
 import {
   guestManagedHookCommand,
   readGuestHookText,
@@ -241,7 +242,7 @@ export function removeLocalAntigravityHooks(
 }
 
 function guestPath(options: GuestManagedHookOptions): string {
-  return `${options.guestHome.replace(/\/+$/u, '')}/.gemini/config/hooks.json`
+  return managedHookGuestConfigPath('antigravity', options.guestHome)
 }
 
 function guestCommand(options: GuestManagedHookOptions, event: ManagedHookEvent): string {

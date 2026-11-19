@@ -55,6 +55,7 @@ import { mainT } from '../i18n/main-i18n'
 import { activitySocketPath as activityEndpoint } from '../activity/endpoint'
 import { installClaudeHooks } from '../activity/claude-hooks'
 import { ManagedHooksService } from '../activity/managed-hooks-service'
+import { managedHookDetectCommands } from '../activity/managed-hooks'
 import { ActivityBroadcaster } from '../activity/activity-broadcaster'
 import { OpenCodeIntegrationService } from '../integrations/opencode/service'
 import {
@@ -283,29 +284,6 @@ export async function startAppRuntime(): Promise<AppRuntime> {
    * a fresh `wsl.exe` spawn at each call site.
    */
   const guestHomeCache = createGuestHomeCache(wslRunner)
-  const managedHookCommands = {
-    gemini: ['gemini'],
-    'qwen-code': ['qwen'],
-    cursor: ['cursor-agent'],
-    copilot: ['copilot'],
-    grok: ['grok'],
-    kimi: ['kimi', 'kimi-code'],
-    amp: ['amp'],
-    droid: ['droid'],
-    openclaude: ['openclaude'],
-    qoder: ['qodercli', 'qoder'],
-    'qoder-cn': ['qoderclicn', 'qodercn'],
-    codebuddy: ['codebuddy', 'cbc'],
-    antigravity: ['agy'],
-    'command-code': ['command-code'],
-    devin: ['devin'],
-    muse: ['muse'],
-    zcode: ['zcode'],
-    kiro: ['kiro-cli'],
-    dsh: ['dsh-tui'],
-    jcode: ['jcode'],
-    hermes: ['hermes']
-  } as const
   const managedHooks = new ManagedHooksService({
     directory: activityDirectory,
     home: app.getPath('home'),
@@ -315,7 +293,7 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     saveEnabled: (enabled) =>
       updateAppPreferences(app.getPath('userData'), { agentStatusHooksEnabled: enabled }),
     isAvailable: (provider) =>
-      managedHookCommands[provider].some((name) => findExecutable(name) !== null),
+      managedHookDetectCommands(provider).some((name) => findExecutable(name) !== null),
     runner: wslRunner,
     readGuestHome: (distro) => guestHomeCache.read(distro),
     ...(isWindowsHost

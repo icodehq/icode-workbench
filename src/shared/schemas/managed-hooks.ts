@@ -1,38 +1,12 @@
 import { z } from 'zod'
+import {
+  MANAGED_HOOK_PROVIDER_IDS,
+  MANAGED_HOOK_PROVIDER_STATES
+} from '../domain/managed-hook-providers'
 
-export const MANAGED_HOOK_PROVIDER_IDS = [
-  'gemini',
-  'qwen-code',
-  'cursor',
-  'copilot',
-  'grok',
-  'kimi',
-  'amp',
-  'droid',
-  'openclaude',
-  'qoder',
-  'qoder-cn',
-  'codebuddy',
-  'antigravity',
-  'command-code',
-  'devin',
-  'muse',
-  'zcode',
-  'kiro',
-  'dsh',
-  'jcode',
-  'hermes'
-] as const
+export { MANAGED_HOOK_PROVIDER_IDS }
 export const managedHookProviderSchema = z.enum(MANAGED_HOOK_PROVIDER_IDS)
-
-export const managedHookProviderStateSchema = z.enum([
-  'installed',
-  'partial',
-  'not-installed',
-  'cli-not-found',
-  'disabled',
-  'failed'
-])
+export const managedHookProviderStateSchema = z.enum(MANAGED_HOOK_PROVIDER_STATES)
 
 export const managedHookProviderStatusSchema = z.strictObject({
   provider: managedHookProviderSchema,

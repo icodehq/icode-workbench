@@ -26,32 +26,18 @@ import {
 } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { ActivityEventName } from '../../shared/domain/activity'
-import type { HarnessId } from '../../shared/domain/harness'
+import { harnessDetectNames, harnessLabel, type HarnessId } from '../../shared/domain/harness'
+import {
+  MANAGED_HOOK_PROVIDER_IDS,
+  MANAGED_HOOK_PROVIDER_METADATA,
+  isManagedHookProvider,
+  managedHookHomePath,
+  type ManagedHookFormat,
+  type ManagedHookProvider,
+  type ManagedHookProviderState
+} from '../../shared/domain/managed-hook-providers'
 
-export const MANAGED_HOOK_PROVIDERS = [
-  'gemini',
-  'qwen-code',
-  'cursor',
-  'copilot',
-  'grok',
-  'kimi',
-  'amp',
-  'droid',
-  'openclaude',
-  'qoder',
-  'qoder-cn',
-  'codebuddy',
-  'antigravity',
-  'command-code',
-  'devin',
-  'muse',
-  'zcode',
-  'kiro',
-  'dsh',
-  'jcode',
-  'hermes'
-] as const
-export type ManagedHookProvider = (typeof MANAGED_HOOK_PROVIDERS)[number]
+export type { ManagedHookProvider }
 
 /**
  * `ask` preserves Antigravity's permission policy on PreToolUse; `stop` is the
@@ -71,25 +57,8 @@ export type ManagedHookEvent = {
   matcher?: string
 }
 
-export type ManagedHookProviderSpec = {
-  label: string
-  harness: HarnessId
-  /** JSON shape, or a dedicated file format handled by a sibling installer. */
-  format?:
-    | 'json'
-    | 'jsonc'
-    | 'antigravity'
-    | 'muse'
-    | 'zcode'
-    | 'kiro'
-    | 'kimi-toml'
-    | 'jcode-toml'
-    | 'amp-plugin'
-    | 'dsh'
-    | 'hermes'
+type ManagedHookProviderBehavior = {
   kind: 'nested' | 'cursor' | 'copilot'
-  /** Config path relative to the user home (or an env override). */
-  configPath: (home: string, env: NodeJS.ProcessEnv) => string
   timeoutSeconds: number
   timeoutMilliseconds: number
   /** JSON providers only: a top-level flag that disables hooks. */
@@ -97,15 +66,17 @@ export type ManagedHookProviderSpec = {
   events: readonly ManagedHookEvent[]
 }
 
-export const MANAGED_HOOK_PROVIDER_SPECS: Record<
+export type ManagedHookProviderSpec = ManagedHookProviderBehavior & {
+  label: string
+  format: ManagedHookFormat
+}
+
+const MANAGED_HOOK_PROVIDER_BEHAVIORS: Record<
   ManagedHookProvider,
-  ManagedHookProviderSpec
+  ManagedHookProviderBehavior
 > = {
   gemini: {
-    label: 'Gemini',
-    harness: 'gemini',
     kind: 'nested',
-    configPath: (home) => join(home, '.gemini', 'settings.json'),
     timeoutSeconds: 10,
     timeoutMilliseconds: 10_000,
     events: [
@@ -116,10 +87,7 @@ export const MANAGED_HOOK_PROVIDER_SPECS: Record<
     ]
   },
   'qwen-code': {
-    label: 'Qwen Code',
-    harness: 'qwen-code',
     kind: 'nested',
-    configPath: (home) => join(home, '.qwen', 'settings.json'),
     timeoutSeconds: 10,
     timeoutMilliseconds: 10_000,
     events: [
@@ -142,10 +110,7 @@ export const MANAGED_HOOK_PROVIDER_SPECS: Record<
     ]
   },
   cursor: {
-    label: 'Cursor',
-    harness: 'cursor',
     kind: 'cursor',
-    configPath: (home) => join(home, '.cursor', 'hooks.json'),
     timeoutSeconds: 10,
     timeoutMilliseconds: 10_000,
     events: [
@@ -164,13 +129,7 @@ export const MANAGED_HOOK_PROVIDER_SPECS: Record<
     ]
   },
   copilot: {
-    label: 'GitHub Copilot',
-    harness: 'copilot',
     kind: 'copilot',
-    configPath: (home, env) => {
-      const configured = env.COPILOT_HOME?.trim()
-      return join(configured && configured.length > 0 ? configured : join(home, '.copilot'), 'hooks', 'icode.json')
-    },
     timeoutSeconds: 5,
     timeoutMilliseconds: 5_000,
     disabledFlag: 'disableAllHooks',
@@ -188,14 +147,7 @@ export const MANAGED_HOOK_PROVIDER_SPECS: Record<
     ]
   },
   grok: {
-    label: 'Grok',
-    harness: 'grok',
     kind: 'nested',
-    configPath: (home, env) => {
-      const configured = env.GROK_HOME?.trim()
-      const root = configured && configured.length > 0 ? configured : join(home, '.grok')
-      return join(root, 'hooks', 'icode-status.json')
-    },
     timeoutSeconds: 10,
     timeoutMilliseconds: 10_000,
     events: [
@@ -216,15 +168,7 @@ export const MANAGED_HOOK_PROVIDER_SPECS: Record<
     ]
   },
   kimi: {
-    label: 'Kimi',
-    harness: 'kimi',
-    format: 'kimi-toml',
     kind: 'nested',
-    configPath: (home, env) => {
-      const configured = env.KIMI_CODE_HOME?.trim()
-      const root = configured && configured.length > 0 ? configured : join(home, '.kimi-code')
-      return join(root, 'config.toml')
-    },
     timeoutSeconds: 10,
     timeoutMilliseconds: 10_000,
     events: [
@@ -248,11 +192,7 @@ export const MANAGED_HOOK_PROVIDER_SPECS: Record<
     ]
   },
   amp: {
-    label: 'Amp',
-    harness: 'amp',
-    format: 'amp-plugin',
     kind: 'nested',
-    configPath: (home) => join(home, '.config', 'amp', 'plugins', 'icode-agent-status.ts'),
     timeoutSeconds: 10,
     timeoutMilliseconds: 10_000,
     events: [
@@ -261,10 +201,7 @@ export const MANAGED_HOOK_PROVIDER_SPECS: Record<
     ]
   },
   droid: {
-    label: 'Droid',
-    harness: 'droid',
     kind: 'nested',
-    configPath: (home) => join(home, '.factory', 'settings.json'),
     timeoutSeconds: 10,
     timeoutMilliseconds: 10_000,
     disabledFlag: 'hooksDisabled',
@@ -277,10 +214,7 @@ export const MANAGED_HOOK_PROVIDER_SPECS: Record<
     ]
   },
   openclaude: {
-    label: 'OpenClaude',
-    harness: 'openclaude',
     kind: 'nested',
-    configPath: (home) => join(home, '.openclaude', 'settings.json'),
     timeoutSeconds: 10,
     timeoutMilliseconds: 10_000,
     events: [
@@ -305,10 +239,7 @@ export const MANAGED_HOOK_PROVIDER_SPECS: Record<
     ]
   },
   qoder: {
-    label: 'Qoder CLI',
-    harness: 'qoder',
     kind: 'nested',
-    configPath: (home) => join(home, '.qoder', 'settings.json'),
     timeoutSeconds: 10,
     timeoutMilliseconds: 10_000,
     events: [
@@ -334,10 +265,7 @@ export const MANAGED_HOOK_PROVIDER_SPECS: Record<
     ]
   },
   'qoder-cn': {
-    label: 'Qoder CLI China',
-    harness: 'qoder-cn',
     kind: 'nested',
-    configPath: (home) => join(home, '.qoder-cn', 'settings.json'),
     timeoutSeconds: 10,
     timeoutMilliseconds: 10_000,
     events: [
@@ -363,10 +291,7 @@ export const MANAGED_HOOK_PROVIDER_SPECS: Record<
     ]
   },
   codebuddy: {
-    label: 'CodeBuddy',
-    harness: 'codebuddy',
     kind: 'nested',
-    configPath: (home) => join(home, '.codebuddy', 'settings.json'),
     timeoutSeconds: 10,
     timeoutMilliseconds: 10_000,
     events: [
@@ -387,11 +312,7 @@ export const MANAGED_HOOK_PROVIDER_SPECS: Record<
     ]
   },
   antigravity: {
-    label: 'Antigravity',
-    harness: 'antigravity',
-    format: 'antigravity',
     kind: 'nested',
-    configPath: (home) => join(home, '.gemini', 'config', 'hooks.json'),
     timeoutSeconds: 10,
     timeoutMilliseconds: 10_000,
     events: [
@@ -416,10 +337,7 @@ export const MANAGED_HOOK_PROVIDER_SPECS: Record<
     ]
   },
   'command-code': {
-    label: 'Command Code',
-    harness: 'command-code',
     kind: 'nested',
-    configPath: (home) => join(home, '.commandcode', 'settings.json'),
     timeoutSeconds: 10,
     timeoutMilliseconds: 10_000,
     events: [
@@ -431,16 +349,7 @@ export const MANAGED_HOOK_PROVIDER_SPECS: Record<
     ]
   },
   devin: {
-    label: 'Devin',
-    harness: 'devin',
-    format: 'jsonc',
     kind: 'nested',
-    configPath: (home, env) => {
-      const appData = env.APPDATA?.trim()
-      return appData && appData.length > 0
-        ? join(appData, 'devin', 'config.json')
-        : join(home, '.config', 'devin', 'config.json')
-    },
     timeoutSeconds: 10,
     timeoutMilliseconds: 10_000,
     events: [
@@ -456,15 +365,7 @@ export const MANAGED_HOOK_PROVIDER_SPECS: Record<
     ]
   },
   muse: {
-    label: 'Muse',
-    harness: 'muse',
-    format: 'muse',
     kind: 'nested',
-    configPath: (home, env) => {
-      const xdg = env.XDG_CONFIG_HOME?.trim()
-      const root = xdg && xdg.length > 0 ? join(xdg, 'muse') : join(home, '.config', 'muse')
-      return join(root, 'settings.json')
-    },
     timeoutSeconds: 10,
     timeoutMilliseconds: 10_000,
     events: [
@@ -485,11 +386,7 @@ export const MANAGED_HOOK_PROVIDER_SPECS: Record<
     ]
   },
   zcode: {
-    label: 'ZCode',
-    harness: 'zcode',
-    format: 'zcode',
     kind: 'nested',
-    configPath: (home) => join(home, '.zcode', 'cli', 'config.json'),
     timeoutSeconds: 10,
     timeoutMilliseconds: 10_000,
     events: [
@@ -508,15 +405,7 @@ export const MANAGED_HOOK_PROVIDER_SPECS: Record<
     ]
   },
   kiro: {
-    label: 'Kiro',
-    harness: 'kiro',
-    format: 'kiro',
     kind: 'nested',
-    configPath: (home, env) => {
-      const configured = env.KIRO_HOME?.trim()
-      const root = configured && configured.length > 0 ? configured : join(home, '.kiro')
-      return join(root, 'hooks', 'icode-agent-status.json')
-    },
     timeoutSeconds: 10,
     timeoutMilliseconds: 10_000,
     events: [
@@ -530,15 +419,7 @@ export const MANAGED_HOOK_PROVIDER_SPECS: Record<
     ]
   },
   dsh: {
-    label: 'DeepSeek Harness',
-    harness: 'dsh',
-    format: 'dsh',
     kind: 'nested',
-    configPath: (home, env) => {
-      const configured = env.DSH_HOME?.trim()
-      const root = configured && configured.length > 0 ? configured : join(home, '.dsh')
-      return join(root, 'cordis.patch.yml')
-    },
     timeoutSeconds: 10,
     timeoutMilliseconds: 10_000,
     events: [
@@ -552,15 +433,7 @@ export const MANAGED_HOOK_PROVIDER_SPECS: Record<
     ]
   },
   jcode: {
-    label: 'Jcode',
-    harness: 'jcode',
-    format: 'jcode-toml',
     kind: 'nested',
-    configPath: (home, env) => {
-      const configured = env.JCODE_HOME?.trim()
-      const root = configured && configured.length > 0 ? configured : join(home, '.jcode')
-      return join(root, 'config.toml')
-    },
     timeoutSeconds: 10,
     timeoutMilliseconds: 10_000,
     events: [
@@ -573,29 +446,7 @@ export const MANAGED_HOOK_PROVIDER_SPECS: Record<
     ]
   },
   hermes: {
-    label: 'Hermes',
-    harness: 'hermes',
-    format: 'hermes',
     kind: 'nested',
-    configPath: (home, env) => {
-      const configured = env.HERMES_HOME?.trim()
-      let root: string
-      if (configured && configured.length > 0) {
-        root = configured
-      } else if (env.LOCALAPPDATA?.trim()) {
-        const localAppDataHome = join(env.LOCALAPPDATA.trim(), 'hermes')
-        const dotfolderHome = join(home, '.hermes')
-        // Hermes Desktop honours an existing dotfolder when the
-        // LOCALAPPDATA tree has not been created.
-        root =
-          !existsSync(localAppDataHome) && existsSync(dotfolderHome)
-            ? dotfolderHome
-            : localAppDataHome
-      } else {
-        root = join(home, '.hermes')
-      }
-      return join(root, 'config.yaml')
-    },
     timeoutSeconds: 10,
     timeoutMilliseconds: 10_000,
     events: [
@@ -621,6 +472,21 @@ export const MANAGED_HOOK_PROVIDER_SPECS: Record<
   }
 }
 
+
+export const MANAGED_HOOK_PROVIDER_SPECS: Record<
+  ManagedHookProvider,
+  ManagedHookProviderSpec
+> = Object.fromEntries(
+  MANAGED_HOOK_PROVIDER_IDS.map((provider) => [
+    provider,
+    {
+      ...MANAGED_HOOK_PROVIDER_BEHAVIORS[provider],
+      label: harnessLabel(provider),
+      format: MANAGED_HOOK_PROVIDER_METADATA[provider].format
+    }
+  ])
+) as Record<ManagedHookProvider, ManagedHookProviderSpec>
+
 /** A provider-level disable flag (Copilot `disableAllHooks`, Droid `hooksDisabled`). */
 export function isManagedHookProviderDisabled(
   provider: ManagedHookProvider,
@@ -630,13 +496,7 @@ export function isManagedHookProviderDisabled(
   return flag !== undefined && value[flag] === true
 }
 
-export type ManagedHookProviderStatusState =
-  | 'installed'
-  | 'partial'
-  | 'not-installed'
-  | 'cli-not-found'
-  | 'disabled'
-  | 'failed'
+export type ManagedHookProviderStatusState = ManagedHookProviderState
 
 export type ManagedHookProviderStatus = {
   provider: ManagedHookProvider
@@ -1015,13 +875,78 @@ export function parseManagedHookConfig(path: string, text: string | null): Confi
   }
 }
 
+const LOCAL_CONFIG_OVERRIDES: Partial<
+  Record<ManagedHookProvider, (home: string, env: NodeJS.ProcessEnv) => string>
+> = {
+  copilot: (home, env) => {
+    const configured = env.COPILOT_HOME?.trim()
+    const root = configured && configured.length > 0 ? configured : join(home, '.copilot')
+    return join(root, 'hooks', 'icode.json')
+  },
+  grok: (home, env) => {
+    const configured = env.GROK_HOME?.trim()
+    const root = configured && configured.length > 0 ? configured : join(home, '.grok')
+    return join(root, 'hooks', 'icode-status.json')
+  },
+  kimi: (home, env) => {
+    const configured = env.KIMI_CODE_HOME?.trim()
+    const root = configured && configured.length > 0 ? configured : join(home, '.kimi-code')
+    return join(root, 'config.toml')
+  },
+  devin: (home, env) => {
+    const appData = env.APPDATA?.trim()
+    return appData && appData.length > 0
+      ? join(appData, 'devin', 'config.json')
+      : join(home, '.config', 'devin', 'config.json')
+  },
+  muse: (home, env) => {
+    const xdg = env.XDG_CONFIG_HOME?.trim()
+    const root = xdg && xdg.length > 0 ? join(xdg, 'muse') : join(home, '.config', 'muse')
+    return join(root, 'settings.json')
+  },
+  kiro: (home, env) => {
+    const configured = env.KIRO_HOME?.trim()
+    const root = configured && configured.length > 0 ? configured : join(home, '.kiro')
+    return join(root, 'hooks', 'icode-agent-status.json')
+  },
+  dsh: (home, env) => {
+    const configured = env.DSH_HOME?.trim()
+    const root = configured && configured.length > 0 ? configured : join(home, '.dsh')
+    return join(root, 'cordis.patch.yml')
+  },
+  jcode: (home, env) => {
+    const configured = env.JCODE_HOME?.trim()
+    const root = configured && configured.length > 0 ? configured : join(home, '.jcode')
+    return join(root, 'config.toml')
+  },
+  hermes: (home, env) => {
+    const configured = env.HERMES_HOME?.trim()
+    let root: string
+    if (configured && configured.length > 0) {
+      root = configured
+    } else if (env.LOCALAPPDATA?.trim()) {
+      const localAppDataHome = join(env.LOCALAPPDATA.trim(), 'hermes')
+      const dotfolderHome = join(home, '.hermes')
+      root =
+        !existsSync(localAppDataHome) && existsSync(dotfolderHome)
+          ? dotfolderHome
+          : localAppDataHome
+    } else {
+      root = join(home, '.hermes')
+    }
+    return join(root, 'config.yaml')
+  }
+}
+
 export function configPathFor(
   provider: ManagedHookProvider,
   options: ManagedHookInstallOptions
 ): string {
   const env = options.env ?? process.env
-  const home = options.home
-  return MANAGED_HOOK_PROVIDER_SPECS[provider].configPath(home, env)
+  return (
+    LOCAL_CONFIG_OVERRIDES[provider]?.(options.home, env) ??
+    join(options.home, ...managedHookHomePath(provider))
+  )
 }
 
 export function readConfig(path: string): ConfigRead {
@@ -1153,6 +1078,7 @@ export function ensureManagedHookScript(options: ManagedHookInstallOptions): Man
 }
 
 function managedDefinition(
+  provider: ManagedHookProvider,
   spec: ManagedHookProviderSpec,
   command: string,
   powershellCommand: string,
@@ -1167,7 +1093,7 @@ function managedDefinition(
         {
           type: 'command',
           command,
-          ...(spec.harness === 'gemini' ? { timeout: spec.timeoutMilliseconds } : {})
+          ...(provider === 'gemini' ? { timeout: spec.timeoutMilliseconds } : {})
         }
       ]
     }
@@ -1308,6 +1234,7 @@ export function applyManagedHookConfig(
     nextHooks[event.providerEvent] = [
       ...definitions,
       managedDefinition(
+        provider,
         spec,
         commandForEvent(event),
         powershellCommandForEvent(event),
@@ -1335,19 +1262,19 @@ export function removeManagedHookConfig(value: Record<string, unknown>): {
 
 export function managedHooksStatus(
   provider: ManagedHookProvider,
-  options: ManagedHookInstallOptions
+  options: ManagedHookInstallOptions,
+  runtime = ensureManagedHookScript(options)
 ): ManagedHookProviderStatus {
-  const runtime = ensureManagedHookScript(options)
   const config = readConfig(configPathFor(provider, options))
   return managedHooksStatusFromConfig(provider, config, (event) => runtime.commandFor(provider, event))
 }
 
 export function installManagedHooksForProvider(
   provider: ManagedHookProvider,
-  options: ManagedHookInstallOptions
+  options: ManagedHookInstallOptions,
+  runtime = ensureManagedHookScript(options)
 ): ManagedHookProviderStatus {
   const spec = MANAGED_HOOK_PROVIDER_SPECS[provider]
-  const runtime = ensureManagedHookScript(options)
   const config = readConfig(configPathFor(provider, options))
   if (config.state === 'invalid') {
     return {
@@ -1382,12 +1309,13 @@ export function installManagedHooksForProvider(
     }
   }
   writeConfig(config.path, applied.value)
-  return managedHooksStatus(provider, options)
+  return managedHooksStatus(provider, options, runtime)
 }
 
 export function removeManagedHooksForProvider(
   provider: ManagedHookProvider,
-  options: ManagedHookInstallOptions
+  options: ManagedHookInstallOptions,
+  runtime = ensureManagedHookScript(options)
 ): ManagedHookProviderStatus {
   const spec = MANAGED_HOOK_PROVIDER_SPECS[provider]
   const config = readConfig(configPathFor(provider, options))
@@ -1399,31 +1327,20 @@ export function removeManagedHooksForProvider(
   return managedHooksStatusFromConfig(
     provider,
     { state: 'ok', value: removed.value, raw: '', path: config.path },
-    () => ensureManagedHookScript(options).commandFor(provider, spec.events[0]!)
+    () => runtime.commandFor(provider, spec.events[0]!)
   )
 }
 
 export function providerForHarness(harness: HarnessId): ManagedHookProvider | null {
-  if (harness === 'gemini') return 'gemini'
-  if (harness === 'qwen-code') return 'qwen-code'
-  if (harness === 'cursor') return 'cursor'
-  if (harness === 'copilot') return 'copilot'
-  if (harness === 'grok') return 'grok'
-  if (harness === 'kimi') return 'kimi'
-  if (harness === 'amp') return 'amp'
-  if (harness === 'droid') return 'droid'
-  if (harness === 'openclaude') return 'openclaude'
-  if (harness === 'qoder') return 'qoder'
-  if (harness === 'qoder-cn') return 'qoder-cn'
-  if (harness === 'codebuddy') return 'codebuddy'
-  if (harness === 'antigravity') return 'antigravity'
-  if (harness === 'command-code') return 'command-code'
-  if (harness === 'devin') return 'devin'
-  if (harness === 'muse') return 'muse'
-  if (harness === 'zcode') return 'zcode'
-  if (harness === 'kiro') return 'kiro'
-  if (harness === 'dsh') return 'dsh'
-  if (harness === 'jcode') return 'jcode'
-  if (harness === 'hermes') return 'hermes'
-  return null
+  return isManagedHookProvider(harness) ? harness : null
+}
+
+/** CLI names whose presence makes this provider's managed hooks available. */
+export function managedHookDetectCommands(
+  provider: ManagedHookProvider
+): readonly string[] {
+  return (
+    MANAGED_HOOK_PROVIDER_METADATA[provider].detectCommands ??
+    harnessDetectNames(provider)
+  )
 }

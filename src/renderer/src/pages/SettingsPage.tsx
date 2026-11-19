@@ -1,21 +1,19 @@
 import { Check, Monitor, Moon, RefreshCw, Sun } from 'lucide-react'
 import type { RuntimeInfo } from '../../../shared/icode-api'
-import type { HarnessDetection } from '../../../shared/domain/harness'
 import type { AssistantSettingsPayload } from '../../../shared/schemas/assistant'
 import type { AssistantStatus } from '../../../shared/domain/assistant'
 import type { ThemeName, ThemePreference } from '../theme/apply-theme'
 import { hostStatus } from '../state/host-status'
+import { availableHarnesses } from '../state/workspace'
 import type { WorkspaceState } from '../state/workspace'
 import ScmSettingsCard from '../scm/ScmSettingsCard'
 import FilesSettingsCard from '../files/FilesSettingsCard'
 import SettingsCard from '../components/SettingsCard'
+import AgentsAndHarnessesCard from '../components/AgentsAndHarnessesCard'
 import AssistantSettingsCard from '../components/AssistantSettingsCard'
 import LanguageSettingsCard from '../components/LanguageSettingsCard'
-import OpencodeSettingsCard from '../components/OpencodeSettingsCard'
-import ManagedHooksSettingsCard from '../components/ManagedHooksSettingsCard'
 import ProviderSettingsCard from '../components/ProviderSettingsCard'
 import { useT } from '../i18n/use-i18n'
-import type { Translator } from '../i18n/i18n-store'
 
 type SettingsPageProps = {
   state: WorkspaceState
@@ -36,18 +34,6 @@ type SettingsPageProps = {
   onSaveAssistantSettings: (settings: AssistantSettingsPayload) => Promise<void>
 }
 
-function harnessState(
-  detection: HarnessDetection,
-  t: Translator
-): { label: string; tone: string } {
-  if (detection.state === 'available') {
-    return { label: t('common.available'), tone: 'border-add/50 bg-add-weak text-add' }
-  }
-  if (detection.state === 'detection_failed') {
-    return { label: t('common.probeFailed'), tone: 'border-signal-line bg-signal-weak text-signal' }
-  }
-  return { label: t('common.missing'), tone: 'border-border bg-muted text-muted-foreground' }
-}
 
 
 function Row({
@@ -85,7 +71,7 @@ export default function SettingsPage({
 }: SettingsPageProps): React.JSX.Element {
   const t = useT()
   const host = hostStatus(state)
-  const available = state.harnesses.filter((entry) => entry.state === 'available').length
+  const available = availableHarnesses(state).length
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto" data-testid="settings-view">
@@ -139,9 +125,13 @@ export default function SettingsPage({
 
             <LanguageSettingsCard />
 
-            <OpencodeSettingsCard />
-
-            <ManagedHooksSettingsCard />
+            <AgentsAndHarnessesCard
+              harnesses={state.harnesses}
+              harnessLoading={state.harnessLoading}
+              harnessError={state.harnessError}
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+            />
 
             <AssistantSettingsCard
               settings={assistantSettings}
@@ -208,34 +198,6 @@ export default function SettingsPage({
 
             <ProviderSettingsCard />
 
-            <SettingsCard title={t('settings.harnesses.title')}>
-              <ul className="space-y-2" data-testid="settings-harnesses">
-                {state.harnesses.map((entry) => {
-                  const stateInfo = harnessState(entry, t)
-                  return (
-                    <li
-                      key={entry.harness}
-                      className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2"
-                    >
-                      <span className="min-w-0 flex-1 text-[12px] font-medium text-foreground">
-                        {entry.harness}
-                      </span>
-                      {entry.state === 'available' && entry.version ? (
-                        <span className="font-mono text-[10px] text-muted-foreground">
-                          {entry.version}
-                        </span>
-                      ) : null}
-                      <span className={`rounded-full border px-2 py-0.5 text-[9.5px] ${stateInfo.tone}`}>
-                        {stateInfo.label}
-                      </span>
-                    </li>
-                  )
-                })}
-                {state.harnesses.length === 0 ? (
-                  <li className="text-[11px] text-muted-foreground">{t('settings.harnesses.none')}</li>
-                ) : null}
-              </ul>
-            </SettingsCard>
           </div>
 
           <div className="flex min-w-0 flex-col gap-4">
@@ -267,7 +229,7 @@ export default function SettingsPage({
                 <span className="font-mono">
                   {t('settings.hostRuntime.availableCount', {
                     available,
-                    total: state.harnesses.length || 4
+                    total: state.harnesses.length || '—'
                   })}
                 </span>
               </Row>

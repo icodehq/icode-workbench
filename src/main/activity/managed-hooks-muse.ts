@@ -15,6 +15,7 @@ import { applyEdits, modify, parse as parseJsonc, type ParseError } from 'jsonc-
 import {
   MANAGED_HOOK_PROVIDER_SPECS,
   commandValues,
+  configPathFor,
   currentManagedCommand,
   definitionHasManagedCommand,
   isRecord,
@@ -23,6 +24,7 @@ import {
   type ManagedHookProviderStatus,
   type ManagedHookRuntime
 } from './managed-hooks'
+import { managedHookGuestConfigPath } from '../../shared/domain/managed-hook-providers'
 import {
   guestManagedHookCommand,
   readGuestHookText,
@@ -48,10 +50,7 @@ function hooksFilePath(directory: string): string {
 }
 
 function settingsPath(options: ManagedHookInstallOptions): string {
-  return MANAGED_HOOK_PROVIDER_SPECS.muse.configPath(
-    options.home,
-    options.env ?? process.env
-  )
+  return configPathFor('muse', options)
 }
 
 function buildHooksFile(commandForEvent: (event: ManagedHookEvent) => string): string {
@@ -335,7 +334,7 @@ export function removeLocalMuseHooks(
 }
 
 function guestSettingsPath(options: GuestManagedHookOptions): string {
-  return `${options.guestHome.replace(/\/+$/u, '')}/.config/muse/settings.json`
+  return managedHookGuestConfigPath('muse', options.guestHome)
 }
 
 function guestHooksPath(options: GuestManagedHookOptions): string {

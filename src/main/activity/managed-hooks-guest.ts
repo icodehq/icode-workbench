@@ -1,5 +1,6 @@
 import type { WslCommandRunner, WslExecOutcome } from '../wsl/exec'
 import { isTransportOutcome } from '../wsl/probe'
+import { managedHookGuestConfigPath } from '../../shared/domain/managed-hook-providers'
 import {
   MANAGED_HOOK_PROVIDER_SPECS,
   applyManagedHookConfig,
@@ -75,26 +76,8 @@ function guestSuccess(result: WslExecOutcome, action: string): string {
   return result.stdout
 }
 
-/** Guest config path, using the same provider conventions as the local path. */
-export function guestManagedHookConfigPath(
-  provider: ManagedHookProvider,
-  guestHome: string
-): string {
-  const home = guestHome.replace(/\/+$/u, '')
-  if (provider === 'gemini') return `${home}/.gemini/settings.json`
-  if (provider === 'qwen-code') return `${home}/.qwen/settings.json`
-  if (provider === 'cursor') return `${home}/.cursor/hooks.json`
-  if (provider === 'grok') return `${home}/.grok/hooks/icode-status.json`
-  if (provider === 'droid') return `${home}/.factory/settings.json`
-  if (provider === 'openclaude') return `${home}/.openclaude/settings.json`
-  if (provider === 'qoder') return `${home}/.qoder/settings.json`
-  if (provider === 'qoder-cn') return `${home}/.qoder-cn/settings.json`
-  if (provider === 'codebuddy') return `${home}/.codebuddy/settings.json`
-  if (provider === 'command-code') return `${home}/.commandcode/settings.json`
-  // COPILOT_HOME is not read here because no extra guest env probe is made;
-  // the default location is the documented one.
-  return `${home}/.copilot/hooks/icode.json`
-}
+/** Guest config path, derived from the shared home-relative default. */
+export const guestManagedHookConfigPath = managedHookGuestConfigPath
 
 /**
  * The guest-side command starts a Windows Node/Electron process through WSL

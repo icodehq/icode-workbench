@@ -10,6 +10,7 @@
 import { existsSync, unlinkSync } from 'node:fs'
 import {
   MANAGED_HOOK_PROVIDER_SPECS,
+  configPathFor,
   isManagedHookCommand,
   isRecord,
   type ManagedHookEvent,
@@ -17,6 +18,7 @@ import {
   type ManagedHookProviderStatus,
   type ManagedHookRuntime
 } from './managed-hooks'
+import { managedHookGuestConfigPath } from '../../shared/domain/managed-hook-providers'
 import {
   guestManagedHookCommand,
   readGuestHookText,
@@ -155,10 +157,7 @@ export function localKiroStatus(
   options: ManagedHookInstallOptions,
   runtime: ManagedHookRuntime
 ): ManagedHookProviderStatus {
-  const path = MANAGED_HOOK_PROVIDER_SPECS.kiro.configPath(
-    options.home,
-    options.env ?? process.env
-  )
+  const path = configPathFor('kiro', options)
   try {
     return statusFrom(path, readTextOrNull(path), (event) => runtime.commandFor('kiro', event))
   } catch (error) {
@@ -176,10 +175,7 @@ export function installLocalKiroHooks(
   options: ManagedHookInstallOptions,
   runtime: ManagedHookRuntime
 ): ManagedHookProviderStatus {
-  const path = MANAGED_HOOK_PROVIDER_SPECS.kiro.configPath(
-    options.home,
-    options.env ?? process.env
-  )
+  const path = configPathFor('kiro', options)
   let text: string | null
   try {
     text = readTextOrNull(path)
@@ -222,10 +218,7 @@ export function removeLocalKiroHooks(
   options: ManagedHookInstallOptions,
   runtime: ManagedHookRuntime
 ): ManagedHookProviderStatus {
-  const path = MANAGED_HOOK_PROVIDER_SPECS.kiro.configPath(
-    options.home,
-    options.env ?? process.env
-  )
+  const path = configPathFor('kiro', options)
   let text: string | null
   try {
     text = readTextOrNull(path)
@@ -265,7 +258,7 @@ export function removeLocalKiroHooks(
 }
 
 function guestPath(options: GuestManagedHookOptions): string {
-  return `${options.guestHome.replace(/\/+$/u, '')}/.kiro/hooks/icode-agent-status.json`
+  return managedHookGuestConfigPath('kiro', options.guestHome)
 }
 
 export async function guestKiroStatus(

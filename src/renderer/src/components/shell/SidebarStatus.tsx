@@ -3,6 +3,7 @@ import type { RuntimeInfo } from '../../../../shared/icode-api'
 import type { RepoRemovalJobSummary } from '../../../../shared/schemas/repo-removal'
 import CleanupIndicator from '../CleanupIndicator'
 import type { WorkspaceState } from '../../state/workspace'
+import { availableHarnesses } from '../../state/workspace'
 import { hostStatus } from '../../state/host-status'
 import { useT, useTp } from '../../i18n/use-i18n'
 
@@ -35,7 +36,7 @@ export default function SidebarStatus({
   const t = useT()
   const tp = useTp()
   const host = hostStatus(state)
-  const available = state.harnesses.filter((entry) => entry.state === 'available').length
+  const available = availableHarnesses(state).length
   const liveSessions = state.sessions.filter(
     (session) =>
       session.role !== 'supervisor' &&
@@ -97,7 +98,10 @@ export default function SidebarStatus({
       </div>
       <div className="mt-0.5 flex items-center justify-between font-mono text-[7.5px] text-muted-foreground/70">
         <span title={t('status.harnessesTooltip')} data-testid="harness-summary">
-          {t('status.harnessesCount', { available, total: state.harnesses.length || 4 })}
+          {t('status.harnessesCount', {
+            available,
+            total: state.harnesses.length > 0 ? state.harnesses.length : '—'
+          })}
         </span>
         <span
           title={

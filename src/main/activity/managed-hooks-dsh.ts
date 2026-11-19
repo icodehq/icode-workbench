@@ -14,6 +14,7 @@ import { dirname, join } from 'node:path'
 import {
   MANAGED_HOOK_PROVIDER_SPECS,
   commandValues,
+  configPathFor,
   currentManagedCommand,
   isManagedHookCommand,
   isRecord,
@@ -22,6 +23,7 @@ import {
   type ManagedHookProviderStatus,
   type ManagedHookRuntime
 } from './managed-hooks'
+import { managedHookGuestConfigPath } from '../../shared/domain/managed-hook-providers'
 import {
   guestManagedHookCommand,
   readGuestHookText,
@@ -336,10 +338,7 @@ export function localDshStatus(
   options: ManagedHookInstallOptions,
   runtime: ManagedHookRuntime
 ): ManagedHookProviderStatus {
-  const patchPath = MANAGED_HOOK_PROVIDER_SPECS.dsh.configPath(
-    options.home,
-    options.env ?? process.env
-  )
+  const patchPath = configPathFor('dsh', options)
   const hooksPath = localHooksPath(options)
   try {
     return statusFrom(
@@ -364,10 +363,7 @@ export function installLocalDshHooks(
   options: ManagedHookInstallOptions,
   runtime: ManagedHookRuntime
 ): ManagedHookProviderStatus {
-  const patchPath = MANAGED_HOOK_PROVIDER_SPECS.dsh.configPath(
-    options.home,
-    options.env ?? process.env
-  )
+  const patchPath = configPathFor('dsh', options)
   const hooksPath = localHooksPath(options)
   let patchText: string | null
   try {
@@ -401,10 +397,7 @@ export function removeLocalDshHooks(
   options: ManagedHookInstallOptions,
   runtime: ManagedHookRuntime
 ): ManagedHookProviderStatus {
-  const patchPath = MANAGED_HOOK_PROVIDER_SPECS.dsh.configPath(
-    options.home,
-    options.env ?? process.env
-  )
+  const patchPath = configPathFor('dsh', options)
   const hooksPath = localHooksPath(options)
   let patchText: string | null
   try {
@@ -429,7 +422,7 @@ export function removeLocalDshHooks(
 function guestPaths(options: GuestManagedHookOptions): { patch: string; hooks: string } {
   const home = options.guestHome.replace(/\/+$/u, '')
   return {
-    patch: `${home}/.dsh/cordis.patch.yml`,
+    patch: managedHookGuestConfigPath('dsh', options.guestHome),
     hooks: `${home}/.icode/agent-hooks/${DSH_HOOKS_FILE}`
   }
 }

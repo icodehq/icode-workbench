@@ -19,10 +19,12 @@ import {
 import { dirname } from 'node:path'
 import {
   MANAGED_HOOK_PROVIDER_SPECS,
+  configPathFor,
   type ManagedHookInstallOptions,
   type ManagedHookProvider,
   type ManagedHookProviderStatus
 } from './managed-hooks'
+import { managedHookGuestConfigPath } from '../../shared/domain/managed-hook-providers'
 import {
   readGuestHookText,
   removeGuestHookFile,
@@ -180,7 +182,7 @@ export function localAmpStatus(
   options: ManagedHookInstallOptions
 ): ManagedHookProviderStatus {
   const spec = MANAGED_HOOK_PROVIDER_SPECS[provider]
-  const path = spec.configPath(options.home, options.env ?? process.env)
+  const path = configPathFor(provider, options)
   if (!existsSync(path)) return statusFromText(provider, path, null)
   try {
     return statusFromText(provider, path, readFileSync(path, 'utf8'))
@@ -200,7 +202,7 @@ export function installLocalAmpHooks(
   options: ManagedHookInstallOptions
 ): ManagedHookProviderStatus {
   const spec = MANAGED_HOOK_PROVIDER_SPECS[provider]
-  const path = spec.configPath(options.home, options.env ?? process.env)
+  const path = configPathFor(provider, options)
   if (existsSync(path)) {
     let existing: string
     try {
@@ -226,8 +228,7 @@ export function removeLocalAmpHooks(
   provider: ManagedHookProvider,
   options: ManagedHookInstallOptions
 ): ManagedHookProviderStatus {
-  const spec = MANAGED_HOOK_PROVIDER_SPECS[provider]
-  const path = spec.configPath(options.home, options.env ?? process.env)
+  const path = configPathFor(provider, options)
   if (!existsSync(path)) return statusFromText(provider, path, null)
   let existing: string
   try {
@@ -241,7 +242,7 @@ export function removeLocalAmpHooks(
 }
 
 function guestPath(options: GuestManagedHookOptions): string {
-  return `${options.guestHome.replace(/\/+$/u, '')}/.config/amp/plugins/icode-agent-status.ts`
+  return managedHookGuestConfigPath('amp', options.guestHome)
 }
 
 export async function guestAmpStatus(
