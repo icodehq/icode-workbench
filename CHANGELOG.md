@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-11-19
+
+### Changed
+
+- Agent settings now live in one Agents & harnesses card with a single Agent
+  status switch and one expandable list. The separate Harnesses, Agent status
+  hooks and OpenCode cards are gone; “Show all 45 harnesses” reveals the full
+  catalog.
+- Managed status hooks now share one provider registry, one format-adapter map
+  and one config-path default, removing four duplicate provider lists and five
+  duplicated dispatch chains. On-disk hook and plugin layouts are unchanged.
+
+### Fixed
+
+- Harness counts in Settings and the sidebar use the detected catalog total
+  instead of the stale placeholder of four.
+
 ## [0.10.0] - 2026-11-19
 
 ### Added
