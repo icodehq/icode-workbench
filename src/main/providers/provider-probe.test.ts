@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { createProviderProbe, type FetchLike } from './provider-probe'
+import {
+  createProviderProbe,
+  probeRequestForProtocol,
+  type FetchLike
+} from './provider-probe'
 import type { ProviderLaunchInput } from '../../shared/provider-launch'
 
 type Recorded = { url: string; init: RequestInit }
@@ -64,6 +68,43 @@ describe('provider probe', () => {
     expect(fake.calls[1]!.url).toBe('https://api.deepseek.com/v1/chat/completions')
     expect(body(fake.calls[0]!)).toMatchObject({ model: 'claude-sonnet-5', max_output_tokens: 1 })
     expect(body(fake.calls[1]!)).toMatchObject({ model: 'claude-sonnet-5', max_tokens: 1 })
+  })
+
+  it('probes a Google GenAI endpoint with the key header', () => {
+    const request = probeRequestForProtocol('google-genai', {
+      ...claude,
+      authStyle: null,
+      baseUrl: 'https://generativelanguage.googleapis.com'
+    })
+    expect(request.url).toBe(
+      'https://generativelanguage.googleapis.com/v1beta/models/claude-sonnet-5:generateContent'
+    )
+    expect(request.headers['x-goog-api-key']).toBe('sk-test')
+    expect(request.headers.authorization).toBeUndefined()
+    expect(request.body).toMatchObject({
+      contents: [{ role: 'user', parts: [{ text: 'ping' }] }],
+      generationConfig: { maxOutputTokens: 1, candidateCount: 1 }
+    })
+  })
+
+  it('normalizes a Gemini base that already carries /v1 or /v1beta', () => {
+    const v1 = probeRequestForProtocol('google-genai', {
+      ...claude,
+      authStyle: null,
+      baseUrl: 'https://gw.example.com/v1'
+    })
+    expect(v1.url).toBe(
+      'https://gw.example.com/v1beta/models/claude-sonnet-5:generateContent'
+    )
+
+    const v1beta = probeRequestForProtocol('google-genai', {
+      ...claude,
+      authStyle: null,
+      baseUrl: 'https://gw.example.com/v1beta/'
+    })
+    expect(v1beta.url).toBe(
+      'https://gw.example.com/v1beta/models/claude-sonnet-5:generateContent'
+    )
   })
 
   it('maps auth failures and redacts the key from the response body', async () => {

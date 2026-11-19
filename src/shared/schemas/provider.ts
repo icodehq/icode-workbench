@@ -1,6 +1,12 @@
 import { z } from 'zod'
 import { newProviderId, PROVIDER_ID_RE, type ProviderId } from '../domain/ids'
-import { MODEL_HARNESSES, type ModelHarness } from '../domain/harness'
+import {
+  PROVIDER_AUTH_STYLES,
+  PROVIDER_HARNESSES,
+  PROVIDER_RECIPES,
+  type ProviderAuthStyle,
+  type ProviderHarness
+} from '../domain/provider-recipes'
 
 /**
  * A coding-agent harness that can run against a user-configured provider.
@@ -8,21 +14,23 @@ import { MODEL_HARNESSES, type ModelHarness } from '../domain/harness'
  * This is the endpoint-injection subset, not the full launch catalog. Shell is
  * deliberately absent: it has no model endpoint to point anywhere. The catalog
  * contains many more launchable CLIs that do not share these env/argv recipes.
+ *
+ * The list, the auth styles, and the per-harness recipes live in
+ * `domain/provider-recipes.ts`; this module re-exports them so existing
+ * renderer/main imports keep one surface.
  */
-export const PROVIDER_HARNESSES = MODEL_HARNESSES
-export type ProviderHarness = ModelHarness
+export { PROVIDER_AUTH_STYLES, PROVIDER_HARNESSES }
+export type { ProviderAuthStyle, ProviderHarness }
 
 /**
- * How Claude authenticates against a non-official endpoint.
+ * How an Anthropic-protocol harness authenticates against a non-official
+ * endpoint.
  *
  * - `auth_token` → ANTHROPIC_AUTH_TOKEN (Bearer; most relays)
  * - `api_key`    → ANTHROPIC_API_KEY (x-api-key; Anthropic-compatible APIs)
  *
- * Codex and OpenCode derive their auth from their own config, so they do not
- * store a value here.
+ * Recipes without auth choices store null here.
  */
-export const PROVIDER_AUTH_STYLES = ['auth_token', 'api_key'] as const
-export type ProviderAuthStyle = (typeof PROVIDER_AUTH_STYLES)[number]
 
 export const providerHarnessSchema = z.enum(PROVIDER_HARNESSES)
 export const providerAuthStyleSchema = z.enum(PROVIDER_AUTH_STYLES)
@@ -78,36 +86,55 @@ export const providerSecretStorageSchema = z.strictObject({
   secure: z.boolean()
 })
 
-const claudeCreateSchema = z.strictObject({
-  harness: z.literal('claude'),
+const providerCreateShape = z.strictObject({
+  harness: providerHarnessSchema,
   name: providerNameSchema,
   baseUrl: endpointSchema,
   model: providerModelSchema,
   apiKey: providerKeySchema,
-  authStyle: providerAuthStyleSchema.default('auth_token')
+  authStyle: providerAuthStyleSchema.nullable().optional()
 })
 
-const codexCreateSchema = z.strictObject({
-  harness: z.literal('codex'),
-  name: providerNameSchema,
-  baseUrl: endpointSchema,
-  model: providerModelSchema,
-  apiKey: providerKeySchema
-})
-
-const opencodeCreateSchema = z.strictObject({
-  harness: z.literal('opencode'),
-  name: providerNameSchema,
-  baseUrl: endpointSchema,
-  model: providerModelSchema,
-  apiKey: providerKeySchema
-})
-
-export const providerCreateInputSchema = z.union([
-  claudeCreateSchema,
-  codexCreateSchema,
-  opencodeCreateSchema
-])
+/**
+ * The recipe decides whether a harness accepts an authentication style at all
+ * and which styles it offers. The store applies the same rule on write; this
+ * refinement keeps the IPC boundary from accepting an impossible shape.
+ */
+export const providerCreateInputSchema = providerCreateShape
+  .superRefine((value, context) => {
+    const recipe = PROVIDER_RECIPES[value.harness]
+    if (recipe.authStyles.length === 0) {
+      if (value.authStyle !== undefined && value.authStyle !== null) {
+        context.addIssue({
+          code: 'custom',
+          path: ['authStyle'],
+          message: 'This harness does not accept an authentication style.'
+        })
+      }
+      return
+    }
+    if (
+      value.authStyle !== undefined &&
+      value.authStyle !== null &&
+      !recipe.authStyles.includes(value.authStyle)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['authStyle'],
+        message: 'This authentication style is not supported by this harness.'
+      })
+    }
+  })
+  .transform((value) => {
+    const recipe = PROVIDER_RECIPES[value.harness]
+    return {
+      ...value,
+      authStyle:
+        recipe.authStyles.length > 0
+          ? (value.authStyle ?? recipe.authStyles[0]!)
+          : null
+    }
+  })
 
 /**
  * Editing keeps the harness immutable. A blank `apiKey` keeps the stored

@@ -972,5 +972,108 @@ export const MIGRATIONS: readonly Migration[] = [
       `ALTER TABLE sessions_new RENAME TO sessions`,
       `CREATE INDEX sessions_workspace_idx ON sessions (workspace_id)`
     ]
+  },
+  {
+    version: 20,
+    name: 'provider-harnesses',
+    /**
+     * Provider endpoint injection widens from three harnesses to the
+     * documented launch-time set.
+     *
+     * The list is frozen here on purpose: a migration is a schema snapshot and
+     * must not follow the live `PROVIDER_HARNESSES` list, or an old database
+     * would accept whatever a future app happens to support. SQLite cannot
+     * alter a CHECK, so both provider tables are rebuilt; `providers` is
+     * referenced by the selection table, hence `rebuildsReferencedTable`.
+     *
+     * Only Claude and openclaude accept the two Anthropic auth styles. Every
+     * other provider harness derives auth from its own generated config and
+     * stores no style.
+     */
+    rebuildsReferencedTable: true,
+    statements: [
+      `ALTER TABLE harness_provider_selection RENAME TO harness_provider_selection_old`,
+      `ALTER TABLE providers RENAME TO providers_old`,
+      `DROP INDEX providers_harness_idx`,
+      `CREATE TABLE providers (
+         id TEXT PRIMARY KEY NOT NULL,
+         harness TEXT NOT NULL CHECK (harness IN (
+           'claude',
+           'codex',
+           'opencode',
+           'openclaude',
+           'codebuddy',
+           'kimi',
+           'zcode',
+           'qwen-code',
+           'kilo',
+           'continue',
+           'pi',
+           'omp',
+           'ante',
+           'copilot',
+           'gemini',
+           'aider',
+           'goose',
+           'grok',
+           'mistral-vibe'
+         )),
+         name TEXT NOT NULL,
+         base_url TEXT NOT NULL,
+         model TEXT NOT NULL,
+         auth_style TEXT CHECK (
+           (harness IN ('claude', 'openclaude')
+             AND auth_style IN ('auth_token', 'api_key'))
+           OR (harness NOT IN ('claude', 'openclaude')
+             AND auth_style IS NULL)
+         ),
+         api_key_cipher BLOB NOT NULL,
+         api_key_scheme TEXT NOT NULL CHECK (api_key_scheme IN ('safe_storage_v1')),
+         api_key_backend TEXT NOT NULL CHECK (api_key_backend IN ('safe_storage', 'basic_text')),
+         created_at INTEGER NOT NULL,
+         updated_at INTEGER NOT NULL,
+         UNIQUE (harness, name),
+         CHECK (length(name) > 0 AND length(base_url) > 0 AND length(model) > 0),
+         CHECK (length(api_key_cipher) > 0)
+       ) STRICT`,
+      `INSERT INTO providers (
+         id, harness, name, base_url, model, auth_style,
+         api_key_cipher, api_key_scheme, api_key_backend, created_at, updated_at
+       )
+       SELECT
+         id, harness, name, base_url, model, auth_style,
+         api_key_cipher, api_key_scheme, api_key_backend, created_at, updated_at
+       FROM providers_old`,
+      `CREATE INDEX providers_harness_idx ON providers (harness, created_at)`,
+      `CREATE TABLE harness_provider_selection (
+         harness TEXT PRIMARY KEY NOT NULL CHECK (harness IN (
+           'claude',
+           'codex',
+           'opencode',
+           'openclaude',
+           'codebuddy',
+           'kimi',
+           'zcode',
+           'qwen-code',
+           'kilo',
+           'continue',
+           'pi',
+           'omp',
+           'ante',
+           'copilot',
+           'gemini',
+           'aider',
+           'goose',
+           'grok',
+           'mistral-vibe'
+         )),
+         provider_id TEXT REFERENCES providers(id) ON DELETE RESTRICT,
+         updated_at INTEGER NOT NULL
+       ) STRICT`,
+      `INSERT INTO harness_provider_selection (harness, provider_id, updated_at)
+       SELECT harness, provider_id, updated_at FROM harness_provider_selection_old`,
+      `DROP TABLE harness_provider_selection_old`,
+      `DROP TABLE providers_old`
+    ]
   }
 ]

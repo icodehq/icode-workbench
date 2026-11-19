@@ -1,4 +1,8 @@
 import type { ProviderTestResult } from '../../shared/schemas/provider'
+import {
+  PROVIDER_RECIPES,
+  type ProviderProtocol
+} from '../../shared/domain/provider-recipes'
 import type { ProviderLaunchInput } from '../../shared/provider-launch'
 
 /**
@@ -20,7 +24,7 @@ export type ProviderProbe = {
 const DEFAULT_TIMEOUT_MS = 10_000
 const BODY_CAP_BYTES = 2048
 
-type ProbeRequest = {
+export type ProbeRequest = {
   url: string
   headers: Record<string, string>
   body: unknown
@@ -42,10 +46,25 @@ function agentUrl(baseUrl: string, path: string): string {
   return base.endsWith('/v1') ? `${base}${path}` : `${base}/v1${path}`
 }
 
-function requestFor(provider: ProviderLaunchInput): ProbeRequest {
+/**
+ * Gemini's base is an origin (or an explicit /v1beta); the generateContent
+ * path is built from it. A `models/` prefix in the model id is optional.
+ */
+function geminiUrl(baseUrl: string, model: string): string {
+  let base = trimBase(baseUrl)
+  if (base.endsWith('/v1')) base = base.slice(0, -3)
+  const root = base.endsWith('/v1beta') ? base : `${base}/v1beta`
+  const id = model.replace(/^models\//u, '')
+  return `${root}/models/${encodeURIComponent(id)}:generateContent`
+}
+
+export function probeRequestForProtocol(
+  protocol: ProviderProtocol,
+  provider: ProviderLaunchInput
+): ProbeRequest {
   const headers: Record<string, string> = { 'content-type': 'application/json' }
-  switch (provider.harness) {
-    case 'claude': {
+  switch (protocol) {
+    case 'anthropic': {
       headers['anthropic-version'] = '2023-06-01'
       if (provider.authStyle === 'api_key') headers['x-api-key'] = provider.apiKey
       else headers.authorization = `Bearer ${provider.apiKey}`
@@ -59,14 +78,14 @@ function requestFor(provider: ProviderLaunchInput): ProbeRequest {
         }
       }
     }
-    case 'codex':
+    case 'openai-responses':
       headers.authorization = `Bearer ${provider.apiKey}`
       return {
         url: agentUrl(provider.baseUrl, '/responses'),
         headers,
         body: { model: provider.model, input: 'ping', max_output_tokens: 1 }
       }
-    case 'opencode':
+    case 'openai-chat':
       headers.authorization = `Bearer ${provider.apiKey}`
       return {
         url: agentUrl(provider.baseUrl, '/chat/completions'),
@@ -77,7 +96,24 @@ function requestFor(provider: ProviderLaunchInput): ProbeRequest {
           messages: [{ role: 'user', content: 'ping' }]
         }
       }
+    case 'google-genai':
+      headers['x-goog-api-key'] = provider.apiKey
+      return {
+        url: geminiUrl(provider.baseUrl, provider.model),
+        headers,
+        body: {
+          contents: [{ role: 'user', parts: [{ text: 'ping' }] }],
+          generationConfig: { maxOutputTokens: 1, candidateCount: 1 }
+        }
+      }
   }
+}
+
+function requestFor(provider: ProviderLaunchInput): ProbeRequest {
+  return probeRequestForProtocol(
+    PROVIDER_RECIPES[provider.harness].protocol,
+    provider
+  )
 }
 
 /** Keep provider output useful without letting it grow or echo credentials. */

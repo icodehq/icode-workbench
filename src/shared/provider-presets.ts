@@ -1,19 +1,27 @@
-import type { ProviderAuthStyle, ProviderHarness } from './schemas/provider'
+import {
+  PROVIDER_RECIPES,
+  type ProviderProtocol,
+  type ProviderRecipeHarness
+} from './domain/provider-recipes'
+import type { ProviderAuthStyle } from './schemas/provider'
 
 /**
  * Curated provider starting points.
  *
  * These are facts about public endpoints, not a catalog copied from another
- * project. Each entry is limited to the protocol its harness speaks: Claude
- * needs Anthropic Messages, Codex needs the Responses API, and OpenCode's
- * iCode translator uses OpenAI Chat Completions. Model IDs drift; every field
+ * project. A harness-specific entry carries `harness`; a protocol-family entry
+ * omits it and carries `protocol`, so every harness that speaks that protocol
+ * inherits the same sensible starting points. Model IDs drift; every field
  * stays editable, and the form says so.
  *
  * No referral/tracking parameters and no vendor logos.
  */
 export type ProviderPreset = {
   id: string
-  harness: ProviderHarness
+  /** Specific to one harness; family presets omit it. */
+  harness?: ProviderRecipeHarness
+  /** Required for a family preset; derived from the harness otherwise. */
+  protocol?: ProviderProtocol
   name: string
   baseUrl: string
   model: string
@@ -210,9 +218,115 @@ export const PROVIDER_PRESETS: readonly ProviderPreset[] = [
     authStyle: null,
     docsUrl: 'https://ollama.com',
     verifiedAt: VERIFIED_AT
+  },
+
+  // ── Anthropic Messages family (openclaude and future Anthropic harnesses) ─
+  {
+    id: 'family-anthropic-deepseek',
+    protocol: 'anthropic',
+    name: 'DeepSeek',
+    baseUrl: 'https://api.deepseek.com/anthropic',
+    model: 'deepseek-flash[1M]',
+    authStyle: 'auth_token',
+    docsUrl: 'https://platform.deepseek.com',
+    verifiedAt: VERIFIED_AT
+  },
+  {
+    id: 'family-anthropic-zai',
+    protocol: 'anthropic',
+    name: 'Z.ai GLM',
+    baseUrl: 'https://api.z.ai/api/anthropic',
+    model: 'glm-5.3[1M]',
+    authStyle: 'auth_token',
+    docsUrl: 'https://z.ai',
+    verifiedAt: VERIFIED_AT
+  },
+
+  // ── OpenAI Chat Completions family ────────────────────────────────────────
+  {
+    id: 'family-openai-openai',
+    protocol: 'openai-chat',
+    name: 'OpenAI',
+    baseUrl: 'https://api.openai.com/v1',
+    model: 'gpt-5.1',
+    authStyle: null,
+    docsUrl: 'https://platform.openai.com/docs',
+    verifiedAt: VERIFIED_AT
+  },
+  {
+    id: 'family-openai-deepseek',
+    protocol: 'openai-chat',
+    name: 'DeepSeek',
+    baseUrl: 'https://api.deepseek.com/v1',
+    model: 'deepseek-chat',
+    authStyle: null,
+    docsUrl: 'https://platform.deepseek.com',
+    verifiedAt: VERIFIED_AT
+  },
+  {
+    id: 'family-openai-kimi',
+    protocol: 'openai-chat',
+    name: 'Kimi',
+    baseUrl: 'https://api.moonshot.cn/v1',
+    model: 'kimi-k3',
+    authStyle: null,
+    docsUrl: 'https://platform.moonshot.cn',
+    verifiedAt: VERIFIED_AT
+  },
+  {
+    id: 'family-openai-qwen',
+    protocol: 'openai-chat',
+    name: 'Qwen',
+    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    model: 'qwen3-coder-plus',
+    authStyle: null,
+    docsUrl: 'https://bailian.console.aliyun.com',
+    verifiedAt: VERIFIED_AT
+  },
+  {
+    id: 'family-openai-openrouter',
+    protocol: 'openai-chat',
+    name: 'OpenRouter',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    model: 'anthropic/claude-sonnet-4.5',
+    authStyle: null,
+    docsUrl: 'https://openrouter.ai/docs',
+    verifiedAt: VERIFIED_AT
+  },
+  {
+    id: 'family-openai-local',
+    protocol: 'openai-chat',
+    name: 'Local (Ollama)',
+    baseUrl: 'http://127.0.0.1:11434/v1',
+    model: 'qwen3-coder',
+    authStyle: null,
+    docsUrl: 'https://ollama.com',
+    verifiedAt: VERIFIED_AT
+  },
+
+  // ── Google GenAI family ───────────────────────────────────────────────────
+  {
+    id: 'family-gemini-google',
+    protocol: 'google-genai',
+    name: 'Google Gemini API',
+    baseUrl: 'https://generativelanguage.googleapis.com',
+    model: 'gemini-3-pro',
+    authStyle: null,
+    docsUrl: 'https://ai.google.dev/gemini-api/docs',
+    verifiedAt: VERIFIED_AT
   }
 ]
 
-export function presetsFor(harness: ProviderHarness): readonly ProviderPreset[] {
-  return PROVIDER_PRESETS.filter((preset) => preset.harness === harness)
+/**
+ * Harness-specific presets win; a harness with none inherits the family for its
+ * protocol. That keeps the eighteen curated entries for Claude, Codex, and
+ * OpenCode byte-identical while every new harness still gets a useful start.
+ */
+export function presetsFor(harness: ProviderRecipeHarness): readonly ProviderPreset[] {
+  const specific = PROVIDER_PRESETS.filter((preset) => preset.harness === harness)
+  if (specific.length > 0) return specific
+  const protocol = PROVIDER_RECIPES[harness].protocol
+  return PROVIDER_PRESETS.filter(
+    (preset) => preset.harness === undefined && preset.protocol === protocol
+  )
 }

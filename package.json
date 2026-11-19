@@ -59,7 +59,8 @@
     "smoke:activity": "node tests/compat/activity-smoke.cjs",
     "smoke:features": "node tests/compat/feature-smoke.cjs",
     "smoke:projects": "node tests/compat/project-onboarding-smoke.cjs",
-    "smoke:scm": "node tests/compat/scm-smoke.cjs"
+    "smoke:scm": "node tests/compat/scm-smoke.cjs",
+    "verify:providers": "vitest run --config config/vitest.config.mts src/main/providers/provider-live.test.ts"
   },
   "dependencies": {
     "@xterm/addon-fit": "0.11.0",

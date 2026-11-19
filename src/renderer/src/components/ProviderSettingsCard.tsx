@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  PROVIDER_HARNESSES,
   type ProviderAuthStyle,
   type ProviderCreateInput,
   type ProviderHarness,
@@ -10,11 +9,18 @@ import {
   type ProviderViewPayload
 } from '../../../shared/schemas/provider'
 import { harnessLabel } from '../../../shared/domain/harness'
+import { PROVIDER_RECIPES } from '../../../shared/domain/provider-recipes'
 import { presetsFor } from '../../../shared/provider-presets'
-import { providerLaunchSpec } from '../../../shared/provider-launch'
+import {
+  providerHintKey,
+  providerPreview,
+  providerUsesGeneratedHome,
+  providerUsesKeyFile
+} from './provider-settings-view'
 import type { IpcResult } from '../../../shared/schemas/ipc'
 import { callApi } from '../lib/api'
 import { useT } from '../i18n/use-i18n'
+import ProviderHarnessPicker from './ProviderHarnessPicker'
 import SettingsCard from './SettingsCard'
 
 type Draft = {
@@ -28,8 +34,6 @@ type Draft = {
   authStyle: ProviderAuthStyle
   presetId: string
 }
-
-const MASK = '••••••••'
 
 const inputClass =
   'h-8 w-full rounded-md border border-border bg-muted/40 px-2 text-[11.5px] text-foreground'
@@ -72,18 +76,6 @@ function draftFrom(provider: ProviderViewPayload): Draft {
   }
 }
 
-function previewFor(draft: Draft): string {
-  const spec = providerLaunchSpec({
-    harness: draft.harness,
-    baseUrl: draft.baseUrl || 'https://api.example.com',
-    model: draft.model || 'model',
-    authStyle: draft.harness === 'claude' ? draft.authStyle : null,
-    // The preview is rendered in the DOM; never echo a key the user just typed.
-    apiKey: MASK
-  })
-  return JSON.stringify({ args: spec.args, env: spec.env }, null, 2)
-}
-
 export default function ProviderSettingsCard(): React.JSX.Element {
   const t = useT()
   const [data, setData] = useState<ProviderListPayload>({
@@ -97,6 +89,13 @@ export default function ProviderSettingsCard(): React.JSX.Element {
   const [saving, setSaving] = useState(false)
   const [testingId, setTestingId] = useState<string | null>(null)
   const [testResults, setTestResults] = useState<Record<string, ProviderTestResult>>({})
+  const [selectedHarness, setSelectedHarness] =
+    useState<ProviderHarness>('claude')
+  const chooseHarness = (harness: ProviderHarness): void => {
+    setSelectedHarness(harness)
+    setDraft(null)
+    setError(null)
+  }
 
   const reload = useCallback(async (): Promise<void> => {
     setLoading(true)
@@ -199,23 +198,17 @@ export default function ProviderSettingsCard(): React.JSX.Element {
     setError(null)
     try {
       if (draft.mode === 'create') {
-        const input =
-          draft.harness === 'claude'
-            ? ({
-                harness: 'claude',
-                name: draft.name.trim(),
-                baseUrl: draft.baseUrl.trim(),
-                model: draft.model.trim(),
-                apiKey: draft.apiKey,
-                authStyle: draft.authStyle
-              } satisfies ProviderCreateInput)
-            : ({
-                harness: draft.harness,
-                name: draft.name.trim(),
-                baseUrl: draft.baseUrl.trim(),
-                model: draft.model.trim(),
-                apiKey: draft.apiKey
-              } satisfies ProviderCreateInput)
+        const input: ProviderCreateInput = {
+          harness: draft.harness,
+          name: draft.name.trim(),
+          baseUrl: draft.baseUrl.trim(),
+          model: draft.model.trim(),
+          apiKey: draft.apiKey,
+          authStyle:
+            PROVIDER_RECIPES[draft.harness].authStyles.length > 0
+              ? draft.authStyle
+              : null
+        }
         await invoke(window.icode.providers.create(input))
       } else {
         if (draft.id === null) return
@@ -226,7 +219,9 @@ export default function ProviderSettingsCard(): React.JSX.Element {
           baseUrl: draft.baseUrl.trim(),
           model: draft.model.trim(),
           ...(draft.apiKey.trim() === '' ? {} : { apiKey: draft.apiKey }),
-          ...(draft.harness === 'claude' ? { authStyle: draft.authStyle } : {})
+          ...(PROVIDER_RECIPES[draft.harness].authStyles.length > 0
+            ? { authStyle: draft.authStyle }
+            : {})
         }
         await invoke(window.icode.providers.update(input))
         if (draft.id !== null) {
@@ -259,6 +254,15 @@ export default function ProviderSettingsCard(): React.JSX.Element {
     }
   }
 
+  const harness = selectedHarness
+  const recipe = PROVIDER_RECIPES[harness]
+  const providers = providersFor(harness)
+  const selected = selectedFor(harness)
+  const editing = draft !== null && draft.harness === harness
+  const hintKey = providerHintKey(harness)
+  const keyFileWarning = providerUsesKeyFile(harness)
+  const generatedHome = providerUsesGeneratedHome(harness)
+
   const storage = data.secretStorage
   const storageWarning = loading
     ? null
@@ -273,6 +277,9 @@ export default function ProviderSettingsCard(): React.JSX.Element {
       <p className="text-[10.5px] leading-relaxed text-muted-foreground">
         {t('settings.providers.description')}
       </p>
+      <p className="mt-1 text-[9.5px] leading-relaxed text-muted-foreground">
+        {t('settings.providers.nativeOnlyNote')}
+      </p>
       {storageWarning !== null ? (
         <p
           className="mt-2 rounded-md border border-signal-line bg-signal-weak px-2 py-1.5 text-[10px] leading-relaxed text-signal"
@@ -283,16 +290,34 @@ export default function ProviderSettingsCard(): React.JSX.Element {
         </p>
       ) : null}
 
+      <ProviderHarnessPicker value={harness} onChange={chooseHarness} />
+
       <div className="mt-3 space-y-3">
-        {PROVIDER_HARNESSES.map((harness) => {
-          const providers = providersFor(harness)
-          const selected = selectedFor(harness)
-          const editing = draft !== null && draft.harness === harness
-          return (
-            <div key={harness} className="rounded-md border border-border bg-muted/20 p-3">
+        <div className="rounded-md border border-border bg-muted/20 p-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="text-[12px] font-medium text-foreground">
-                  {harnessLabel(harness)}
+                <div>
+                  <div className="text-[12px] font-medium text-foreground">
+                    {harnessLabel(harness)}
+                  </div>
+                  <div className="mt-1 flex flex-wrap items-center gap-2 text-[9.5px] text-muted-foreground">
+                    <span>
+                      {t('settings.providers.protocol')}: {recipe.protocol}
+                    </span>
+                    <a
+                      href={recipe.docsUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="underline hover:text-foreground"
+                    >
+                      {t('settings.providers.docs')}
+                    </a>
+                    <span>
+                      {t('settings.providers.verified', {
+                        date: recipe.verifiedAt,
+                        version: recipe.verifiedCliVersion
+                      })}
+                    </span>
+                  </div>
                 </div>
                 <div className="flex items-center gap-2">
                   <select
@@ -320,6 +345,17 @@ export default function ProviderSettingsCard(): React.JSX.Element {
                   </button>
                 </div>
               </div>
+
+              {keyFileWarning ? (
+                <p className="mt-2 text-[9.5px] leading-relaxed text-signal">
+                  {t('settings.providers.fileKeyWarning')}
+                </p>
+              ) : null}
+              {generatedHome ? (
+                <p className="mt-2 text-[9.5px] leading-relaxed text-muted-foreground">
+                  {t('settings.providers.dirNote')}
+                </p>
+              ) : null}
 
               {providers.length > 0 ? (
                 <ul className="mt-2 space-y-1">
@@ -446,6 +482,11 @@ export default function ProviderSettingsCard(): React.JSX.Element {
                       onChange={(event) => update({ baseUrl: event.target.value })}
                       data-testid="provider-form-base-url"
                     />
+                    {hintKey !== null ? (
+                      <span className="mt-1 block text-[9px] leading-relaxed text-muted-foreground">
+                        {t(hintKey)}
+                      </span>
+                    ) : null}
                   </label>
                   <label className="text-[10.5px] text-muted-foreground sm:col-span-2">
                     {draft.mode === 'edit'
@@ -460,7 +501,7 @@ export default function ProviderSettingsCard(): React.JSX.Element {
                       data-testid="provider-form-api-key"
                     />
                   </label>
-                  {draft.harness === 'claude' ? (
+                  {PROVIDER_RECIPES[draft.harness].authStyles.length > 0 ? (
                     <label className="text-[10.5px] text-muted-foreground sm:col-span-2">
                       {t('settings.providers.form.authStyle')}
                       <select
@@ -483,7 +524,7 @@ export default function ProviderSettingsCard(): React.JSX.Element {
                       {t('settings.providers.preview')}
                     </summary>
                     <pre className="mt-1 max-h-48 overflow-auto rounded border border-border bg-background/60 p-2 font-mono text-[9px] leading-relaxed text-muted-foreground">
-                      {previewFor(draft)}
+                      {providerPreview(draft)}
                     </pre>
                     <p className="mt-1 text-[9px] text-muted-foreground">
                       {t('settings.providers.previewHint')}
@@ -511,9 +552,7 @@ export default function ProviderSettingsCard(): React.JSX.Element {
                   </div>
                 </div>
               ) : null}
-            </div>
-          )
-        })}
+        </div>
       </div>
 
       {error !== null ? (

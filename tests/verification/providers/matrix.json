@@ -1,0 +1,24 @@
+{
+  "checkedAt": null,
+  "harnesses": {
+    "claude": { "status": "existing", "cliVersion": null },
+    "codex": { "status": "existing", "cliVersion": null },
+    "opencode": { "status": "existing", "cliVersion": null },
+    "openclaude": { "status": "pending", "cliVersion": null },
+    "codebuddy": { "status": "pending", "cliVersion": null },
+    "kimi": { "status": "pending", "cliVersion": null },
+    "zcode": { "status": "pending", "cliVersion": null },
+    "qwen-code": { "status": "pending", "cliVersion": null },
+    "kilo": { "status": "pending", "cliVersion": null },
+    "continue": { "status": "pending", "cliVersion": null },
+    "pi": { "status": "pending", "cliVersion": null },
+    "omp": { "status": "pending", "cliVersion": null },
+    "ante": { "status": "pending", "cliVersion": null },
+    "copilot": { "status": "pending", "cliVersion": null },
+    "gemini": { "status": "pending", "cliVersion": null },
+    "aider": { "status": "pending", "cliVersion": null },
+    "goose": { "status": "pending", "cliVersion": null },
+    "grok": { "status": "pending", "cliVersion": null },
+    "mistral-vibe": { "status": "pending", "cliVersion": null }
+  }
+}

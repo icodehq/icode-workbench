@@ -1,7 +1,12 @@
 import type { Database } from './database'
 import { DatabaseError } from './database'
 import { makeAppError } from '../../shared/domain/errors'
-import { newProviderRowId, PROVIDER_AUTH_STYLES } from '../../shared/schemas/provider'
+import {
+  newProviderRowId,
+  PROVIDER_AUTH_STYLES,
+  PROVIDER_HARNESSES
+} from '../../shared/schemas/provider'
+import { PROVIDER_RECIPES } from '../../shared/domain/provider-recipes'
 import type {
   ProviderAuthStyle,
   ProviderCreateInput,
@@ -43,7 +48,7 @@ type StoredProvider = ProviderViewPayload & {
   backend: 'safe_storage' | 'basic_text'
 }
 
-const HARNESSES: readonly ProviderHarness[] = ['claude', 'codex', 'opencode']
+const HARNESSES: readonly ProviderHarness[] = PROVIDER_HARNESSES
 const BACKENDS: readonly ('safe_storage' | 'basic_text')[] = ['safe_storage', 'basic_text']
 
 function corrupt(column: string): never {
@@ -87,8 +92,15 @@ function providerFromRow(row: ProviderRow): StoredProvider {
   ) {
     corrupt('auth_style')
   }
-  if (harness !== 'claude' && authStyle !== null) corrupt('auth_style')
-  if (harness === 'claude' && authStyle === null) corrupt('auth_style')
+  const recipe = PROVIDER_RECIPES[harness as ProviderHarness]
+  if (recipe.authStyles.length === 0) {
+    if (authStyle !== null) corrupt('auth_style')
+  } else if (
+    authStyle === null ||
+    !recipe.authStyles.includes(authStyle as ProviderAuthStyle)
+  ) {
+    corrupt('auth_style')
+  }
   const scheme = requireString(row.api_key_scheme, 'api_key_scheme')
   if (scheme !== 'safe_storage_v1') corrupt('api_key_scheme')
   const backend = requireString(row.api_key_backend, 'api_key_backend')
@@ -132,6 +144,21 @@ function toView(provider: StoredProvider): ProviderViewPayload {
     createdAt: provider.createdAt,
     updatedAt: provider.updatedAt
   }
+}
+
+/**
+ * The recipe decides whether a harness stores an auth style at all. A supported
+ * recipe falls back to its first style, so a store written by an older app (or
+ * an update that leaves the field blank) keeps a valid row.
+ */
+function resolveAuthStyle(
+  harness: ProviderHarness,
+  requested: ProviderAuthStyle | null | undefined,
+  existing: ProviderAuthStyle | null = null
+): ProviderAuthStyle | null {
+  const recipe = PROVIDER_RECIPES[harness]
+  if (recipe.authStyles.length === 0) return null
+  return requested ?? existing ?? recipe.authStyles[0] ?? null
 }
 
 function uniqueNameError(): DatabaseError {
@@ -289,10 +316,11 @@ export class ProviderStore {
         makeAppError('INVALID_ARGUMENT', 'A provider cannot change harnesses.')
       )
     }
-    const authStyle =
-      input.harness === 'claude'
-        ? (input.authStyle ?? existing.authStyle ?? 'auth_token')
-        : null
+    const authStyle = resolveAuthStyle(
+      input.harness,
+      input.authStyle,
+      existing.authStyle
+    )
     const ciphertext =
       input.apiKey === undefined
         ? this.cipherTextOf(input.id)
@@ -409,7 +437,7 @@ export class ProviderStore {
 
   private insert(input: ProviderCreateInput, now: number): ProviderViewPayload {
     const id = newProviderRowId()
-    const authStyle = input.harness === 'claude' ? (input.authStyle ?? 'auth_token') : null
+    const authStyle = resolveAuthStyle(input.harness, input.authStyle)
     const ciphertext = this.encrypt(input.apiKey)
     try {
       this.db.raw

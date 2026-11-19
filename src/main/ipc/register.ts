@@ -490,6 +490,7 @@ export function createAppDispatcher(
     providersRemove: async (input) => {
       const persistence = getPersistence()
       persistence.providers.remove(input.providerId)
+      runtime.removeProviderFiles(input.providerId)
       runtime.invalidateHarnessDetection()
       return null
     },

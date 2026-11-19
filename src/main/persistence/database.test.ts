@@ -606,7 +606,7 @@ describe('migrations', () => {
 
     const current = openDatabase({ path, migrations: MIGRATIONS })
     cleanups.push(() => current.close())
-    expect(current.userVersion()).toBe(19)
+    expect(current.userVersion()).toBe(20)
     expect(
       (current.raw.prepare('SELECT id FROM harnesses ORDER BY id').all() as Array<{ id: string }>)
         .map((row) => row.id)

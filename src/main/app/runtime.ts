@@ -1,4 +1,5 @@
 import { app, BrowserWindow, Notification } from 'electron'
+import { homedir } from 'node:os'
 import { getAppPersistence, closeAppPersistence } from '../persistence'
 import { HostSupervisor } from '../host/host-supervisor'
 import { SupervisorHostGateway } from '../sessions/host-gateway'
@@ -8,12 +9,8 @@ import {
   type HarnessDetector,
   type HarnessDetectionResult
 } from '../harness/harness-detector'
-import {
-  HARNESS_IDS,
-  MODEL_HARNESSES,
-  type HarnessId,
-  type ModelHarness
-} from '../../shared/domain/harness'
+import { HARNESS_IDS, type HarnessId } from '../../shared/domain/harness'
+import { isProviderHarness } from '../../shared/domain/provider-recipes'
 import type { WslDistroListPayload } from '../../shared/schemas/ipc'
 import { discoverWslDistros } from '../wsl/distros'
 import { parseRepoId, type SessionId } from '../../shared/domain/ids'
@@ -90,6 +87,11 @@ import {
   materializeClaudeProviderOverlay,
   pruneClaudeProviderOverlays
 } from '../harness/claude-provider-overlay'
+import {
+  materializeProviderLaunch,
+  pruneProviderRuntime,
+  removeProviderRuntime
+} from '../providers/provider-materializer'
 import { join } from 'node:path'
 import type { AppError } from '../../shared/domain/errors'
 import { makeAppError } from '../../shared/domain/errors'
@@ -153,6 +155,8 @@ export type AppRuntime = {
   listHarnesses: (input?: { repoId?: string; force?: boolean }) => Promise<HarnessDetectionResult[]>
   /** Drops cached Harness detection after a provider mutation. */
   invalidateHarnessDetection: () => void
+  /** Deletes generated launch files after a provider row is removed. */
+  removeProviderFiles: (providerId: string) => void
   /** Registered WSL distros, or why they could not be read. */
   listWslDistros: () => Promise<WslDistroListPayload>
   /**
@@ -532,6 +536,10 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     harnessProbes.invalidate()
   }
 
+  function removeProviderFiles(providerId: string): void {
+    removeProviderRuntime(app.getPath('userData'), providerId)
+  }
+
   /**
    * The WSL terminal entry shown in the New session dialog.
    *
@@ -571,18 +579,13 @@ export async function startAppRuntime(): Promise<AppRuntime> {
    */
   const providerOverlayDirectory = join(activityDirectory, 'providers')
   pruneClaudeProviderOverlays(providerOverlayDirectory, Date.now())
+  pruneProviderRuntime(app.getPath('userData'), Date.now())
   function providerLaunchSpecForHarness(
     id: HarnessId,
     target: ExecutionTarget
   ): { args: string[]; env: Record<string, string> } {
-    if (
-      id === 'shell' ||
-      !(MODEL_HARNESSES as readonly string[]).includes(id)
-    ) {
-      return nativeLaunchSpec()
-    }
-    const modelHarness = id as ModelHarness
-    const provider = persistence.providers.selected(modelHarness)
+    if (!isProviderHarness(id)) return nativeLaunchSpec()
+    const provider = persistence.providers.selected(id)
     if (provider === null) {
       if (id !== 'claude') return nativeLaunchSpec()
       if (target.kind !== 'wsl') return { args: hooks.launchArgs, env: {} }
@@ -590,8 +593,17 @@ export async function startAppRuntime(): Promise<AppRuntime> {
       return { args: ['--settings', toGuestVisiblePath(hooks.guestSettingsPath)], env: {} }
     }
 
+    if (id !== 'claude') {
+      const delivered = materializeProviderLaunch({
+        userDataDir: app.getPath('userData'),
+        homeDir: homedir(),
+        provider,
+        target
+      })
+      return { args: delivered.args, env: delivered.env }
+    }
+
     const spec = providerLaunchSpec(provider)
-    if (id !== 'claude') return { args: spec.args, env: spec.env }
 
     const hookArgs =
       target.kind === 'wsl'
@@ -1242,6 +1254,7 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     harness,
     listHarnesses,
     invalidateHarnessDetection,
+    removeProviderFiles,
     listWslDistros: async () => toWslDistroListPayload(await discoverWslDistros({ runner: wslRunner })),
     readGuestHome: (distro) => guestHomeCache.read(distro),
     startupError,
