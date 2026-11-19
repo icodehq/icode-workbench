@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-19
+
+### Added
+
+- Agent providers now use a shared recipe registry with 19 implemented
+  endpoint recipes: Claude Code, Codex, OpenCode, OpenClaude, CodeBuddy,
+  Kimi, ZCode, Qwen Code, Kilo, Continue, Pi, OMP, Ante, Copilot, Gemini,
+  Aider, Goose, Grok and Mistral Vibe. A recipe becomes selectable in
+  Settings only after its hands-on check against a local mock endpoint
+  passes; the shipped list remains Claude Code, Codex and OpenCode until
+  then.
+- The provider settings card uses a harness picker with a recipe-aware form,
+  protocol and documentation links, generated config-file previews, and
+  protocol-family presets. API keys stay masked in the preview.
+- Added a local provider verification harness: `pnpm verify:providers` runs
+  the installed CLIs against a mock endpoint, and a support matrix records
+  the verified CLI version for each recipe.
+
+### Changed
+
+- Provider harnesses are decoupled from the Mira, AI commit-message and
+  supervisor model-harness set, so adding a provider cannot claim assistant
+  behavior it does not support.
+- Provider storage widened to the implemented recipe set (migration 20);
+  existing provider rows and selections are preserved.
+- Provider probes now run by protocol and cover Google GenAI endpoints.
+
+### Fixed
+
+- Agent-provider strings are translated in every supported language.
+
 ## [0.10.1] - 2026-11-19
 
 ### Changed
