@@ -25,7 +25,7 @@ import {
   type ExecutionTarget,
   type WslExecutionTarget
 } from '../../shared/domain/repository'
-import { discoverWslDistros, type WslDistroDiscoveryDeps } from './distros'
+import { discoverWslDistros, type WslDistroDiscovery, type WslDistroDiscoveryDeps } from './distros'
 import { WslCommandRunner } from './exec'
 import { validateWslTargetAgainst, wslTargetProblemToAppError } from './target-validation'
 
@@ -49,13 +49,38 @@ export type TargetValidator = (target: ExecutionTarget) => Promise<ExecutionTarg
 /**
  * How a target is judged: `discovery` injects the WSL seam, so a test can
  * supply a registry dump and a fake launcher without touching this module.
+ *
+ * A successful discovery is cached for a few seconds. Add project validates a
+ * target once, and a second add a moment later pays `reg.exe` plus
+ * `wsl.exe --list --running` again for an answer that cannot have changed.
+ * Failures are never cached: a transient registry miss must not stick.
  */
-export function createTargetValidator(discovery?: WslDistroDiscoveryDeps): TargetValidator {
+export type TargetValidatorOptions = {
+  /** How long a successful distro discovery may be reused. */
+  discoveryTtlMs?: number
+  now?: () => number
+}
+
+export function createTargetValidator(
+  discovery?: WslDistroDiscoveryDeps,
+  options: TargetValidatorOptions = {}
+): TargetValidator {
+  const deps: WslDistroDiscoveryDeps = discovery ?? { runner: new WslCommandRunner() }
+  const ttlMs = options.discoveryTtlMs ?? 5_000
+  const now = options.now ?? Date.now
+  let cached: { at: number; result: WslDistroDiscovery } | null = null
+
   return async (target) => {
     if (isLocalTarget(target)) return target
 
-    const deps: WslDistroDiscoveryDeps = discovery ?? { runner: new WslCommandRunner() }
-    const discoveryResult = await discoverWslDistros(deps)
+    let discoveryResult: WslDistroDiscovery
+    if (cached !== null && now() - cached.at < ttlMs) {
+      discoveryResult = cached.result
+    } else {
+      discoveryResult = await discoverWslDistros(deps)
+      // Only a real answer is cached; "cannot tell" is asked again next time.
+      if (discoveryResult.status === 'ok') cached = { at: now(), result: discoveryResult }
+    }
     const validation = validateWslTargetAgainst(target, discoveryResult)
     if (!validation.ok) {
       throw new RepositoryTargetError(wslTargetProblemToAppError(validation.problem))

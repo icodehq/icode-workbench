@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { WslCommandRunner, type WslByteResult } from '../exec'
-import { GuestPathError, resolveGuestRepositoryRoot } from './guest-path'
+import { GuestPathError, resolveGuestRepositoryRoot, resolveGuestRepositoryRootBatched } from './guest-path'
+import type {
+  GuestGitScriptRequest,
+  GuestGitScriptRunner
+} from './guest-git-script'
+import { RESOLVE_REPOSITORY_SENTINEL } from './guest-repository-scripts'
 
 /**
  * A guest whose filesystem and Git are scripted, so the *sequence of guest
@@ -387,5 +392,153 @@ describe('transport failure is not a negative answer', () => {
       distro: 'Ubuntu-26.04'
     }).catch((value: unknown) => value)
     expect((error as GuestPathError).appError.code).toBe('NOT_A_DIRECTORY')
+  })
+})
+
+function resolvePayload(lines: string[]): string {
+  return [RESOLVE_REPOSITORY_SENTINEL, ...lines, RESOLVE_REPOSITORY_SENTINEL].join('\n')
+}
+
+function scripted(
+  outcome:
+    | { status: 'ok'; stdout: string; stderr?: string }
+    | { status: 'transport'; detail: string }
+): { script: GuestGitScriptRunner; requests: GuestGitScriptRequest[] } {
+  const requests: GuestGitScriptRequest[] = []
+  const script: GuestGitScriptRunner = async (request) => {
+    requests.push(request)
+    if (outcome.status === 'transport') {
+      return { status: 'transport', detail: outcome.detail, timedOut: false }
+    }
+    return { status: 'ok', stdout: outcome.stdout, stderr: outcome.stderr ?? '', code: 0 }
+  }
+  return { script, requests }
+}
+
+function resolvedPayload(options: {
+  canonical?: string
+  common?: string
+  primary?: string
+  branch?: string
+}): string {
+  const canonical = options.canonical ?? '/home/you/app'
+  return resolvePayload([
+    'phase=resolved',
+    `canonical=${canonical}`,
+    `common=${options.common ?? '/home/you/app/.git'}`,
+    `primary=${options.primary ?? '/home/you/app'}`,
+    `branch=${options.branch ?? 'main'}`,
+    'common_error_begin',
+    'common_error_end'
+  ])
+}
+
+describe('batched guest repository resolution', () => {
+  it('maps a resolved payload to the same answer as the per-call resolver', async () => {
+    const { script, requests } = scripted({ status: 'ok', stdout: resolvedPayload({}) })
+    await expect(
+      resolveGuestRepositoryRootBatched('/home/you/app', {
+        script,
+        distro: 'Ubuntu-26.04'
+      })
+    ).resolves.toEqual({
+      root: '/home/you/app',
+      currentBranch: 'main',
+      commonDir: '/home/you/app/.git',
+      registeredVia: null
+    })
+    expect(requests).toHaveLength(1)
+    expect(requests[0]!.label).toBe('resolve-repository')
+    expect(requests[0]!.args).toEqual(['/home/you/app'])
+    expect(requests[0]!.mutation).toBe(false)
+  })
+
+  it('keeps a linked worktree distinguishable from its primary checkout', async () => {
+    const { script } = scripted({
+      status: 'ok',
+      stdout: resolvedPayload({ canonical: '/work/feature', primary: '/home/you/app' })
+    })
+    await expect(
+      resolveGuestRepositoryRootBatched('/work/feature', { script, distro: 'Ubuntu-26.04' })
+    ).resolves.toMatchObject({
+      root: '/home/you/app',
+      registeredVia: '/work/feature'
+    })
+  })
+
+  it('reads an unborn branch as null, not as a branch name', async () => {
+    const { script } = scripted({ status: 'ok', stdout: resolvedPayload({ branch: '' }) })
+    await expect(
+      resolveGuestRepositoryRootBatched('/home/you/app', { script, distro: 'Ubuntu-26.04' })
+    ).resolves.toMatchObject({ currentBranch: null })
+  })
+
+  it('maps each path verdict to its per-call error', async () => {
+    const cases = [
+      { phase: 'missing', code: 'PATH_NOT_FOUND' },
+      { phase: 'not_directory', code: 'NOT_A_DIRECTORY' },
+      { phase: 'git_missing', code: 'WSL_UNAVAILABLE' }
+    ] as const
+    for (const entry of cases) {
+      const { script } = scripted({
+        status: 'ok',
+        stdout: resolvePayload([`phase=${entry.phase}`])
+      })
+      const error = await resolveGuestRepositoryRootBatched('/home/you/app', {
+        script,
+        distro: 'Ubuntu-26.04'
+      }).catch((value: unknown) => value)
+      expect(error).toBeInstanceOf(GuestPathError)
+      expect((error as GuestPathError).appError.code).toBe(entry.code)
+    }
+  })
+
+  it('reports not-a-repository with the Git detail', async () => {
+    const { script } = scripted({
+      status: 'ok',
+      stdout: resolvePayload([
+        'phase=not_repository',
+        'common_error_begin',
+        'fatal: not a git repository (or any of the parent directories): .git',
+        'common_error_end'
+      ])
+    })
+    const error = await resolveGuestRepositoryRootBatched('/home/you/app', {
+      script,
+      distro: 'Ubuntu-26.04'
+    }).catch((value: unknown) => value)
+    expect((error as GuestPathError).appError).toMatchObject({
+      code: 'NOT_A_GIT_REPO',
+      detail: expect.stringContaining('not a git repository')
+    })
+  })
+
+  it('treats a transport failure as WSL_UNAVAILABLE, never as missing', async () => {
+    const { script } = scripted({ status: 'transport', detail: 'distro did not answer' })
+    const error = await resolveGuestRepositoryRootBatched('/home/you/app', {
+      script,
+      distro: 'Ubuntu-26.04'
+    }).catch((value: unknown) => value)
+    expect((error as GuestPathError).appError.code).toBe('WSL_UNAVAILABLE')
+    expect((error as GuestPathError).appError.message).not.toMatch(/does not exist|not a folder/i)
+  })
+
+  it('treats an unreadable payload as WSL_UNAVAILABLE', async () => {
+    const { script } = scripted({ status: 'ok', stdout: 'phase=resolved' })
+    const error = await resolveGuestRepositoryRootBatched('/home/you/app', {
+      script,
+      distro: 'Ubuntu-26.04'
+    }).catch((value: unknown) => value)
+    expect((error as GuestPathError).appError.code).toBe('WSL_UNAVAILABLE')
+  })
+
+  it('refuses a relative path before spawning the guest', async () => {
+    const { script, requests } = scripted({ status: 'ok', stdout: resolvedPayload({}) })
+    const error = await resolveGuestRepositoryRootBatched('home/you/app', {
+      script,
+      distro: 'Ubuntu-26.04'
+    }).catch((value: unknown) => value)
+    expect((error as GuestPathError).appError.code).toBe('PATH_NOT_FOUND')
+    expect(requests).toHaveLength(0)
   })
 })

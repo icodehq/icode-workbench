@@ -105,6 +105,26 @@ describe('repository registration', () => {
     expect(h.service.listRepositories()).toHaveLength(1)
   })
 
+  it('registers an already-resolved repository without running the resolver again', async () => {
+    const h = harness()
+    const repoPath = join(h.root.dir, 'atlas-resolved')
+    initGitRepo(repoPath)
+    const real = realpathSync.native(repoPath)
+    const resolved = await resolveRepositoryRoot(repoPath)
+
+    const first = await h.service.addResolvedRepository(resolved)
+    expect(first.created).toBe(true)
+    expect(samePathResolved(first.repository.path, real)).toBe(true)
+    expect(first.repository.currentBranch).toBe('main')
+    expect(samePathResolved(first.repository.gitCommonDir!, join(real, '.git'))).toBe(true)
+    expect(first.registeredViaLinkedWorktree).toBeNull()
+
+    const again = await h.service.addResolvedRepository(resolved)
+    expect(again.created).toBe(false)
+    expect(again.repository.id).toBe(first.repository.id)
+    expect(h.service.listRepositories()).toHaveLength(1)
+  })
+
   it('treats the same path on another execution target as a distinct repository', async () => {
     const h = harness()
     const repoPath = join(h.root.dir, 'atlas')
@@ -404,7 +424,24 @@ describe('repository deletion', () => {
     expect(again.repository.id).toBe(added.repository.id)
     expect(again.repository.path).toBe(added.repository.path)
     expect(again.registeredViaLinkedWorktree).toBeTruthy()
+    // The row keeps the primary checkout's branch, not the linked one's.
+    expect((await resolveRepositoryRoot(linked)).currentBranch).toBe('main')
     expect(h.service.listRepositories()).toHaveLength(1)
+  })
+
+  it('keeps the primary branch for a linked worktree created inside the primary folder', async () => {
+    const h = harness()
+    const primary = join(h.root.dir, 'primary-inner')
+    initGitRepo(primary)
+    const linked = join(primary, '.worktrees', 'feature')
+    execFileSync('git', ['-C', primary, 'worktree', 'add', '-q', '-b', 'feature', linked], {
+      stdio: 'pipe'
+    })
+
+    const resolved = await resolveRepositoryRoot(linked)
+    expect(samePathResolved(resolved.root, primary)).toBe(true)
+    expect(resolved.currentBranch).toBe('main')
+    expect(resolved.registeredVia).toBeTruthy()
   })
 
   it('deleting one repository leaves others intact', async () => {

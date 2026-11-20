@@ -24,6 +24,11 @@ import { makeAppError } from '../../../shared/domain/errors'
 import type { CanonicalRepositoryPath } from '../../../shared/domain/paths'
 import type { WslCommandRunner } from '../exec'
 import { GuestGitUnavailableError, runGuestGit, type GuestGitResult } from './guest-git'
+import type { GuestGitScriptRunner } from './guest-git-script'
+import {
+  GUEST_RESOLVE_REPOSITORY_SCRIPT,
+  parseResolveRepository
+} from './guest-repository-scripts'
 import { isTransportFailure, runIdempotentGuest } from '../probe'
 
 const GIT_TIMEOUT_MS = 10_000
@@ -198,6 +203,101 @@ export type ResolveGuestRepositoryDeps = {
   runner: WslCommandRunner
   distro: string
   signal?: AbortSignal
+}
+
+/**
+ * The same resolution in one guest process.
+ *
+ * Every per-call helper above is a separate `wsl.exe` spawn (~80 ms each before
+ * Git runs), and Add project resolves the repository twice. The script returns
+ * the same verdicts; the mapping below keeps the messages identical to the
+ * per-call path so callers and users cannot tell which one ran.
+ */
+export async function resolveGuestRepositoryRootBatched(
+  inputPath: string,
+  deps: {
+    script: GuestGitScriptRunner
+    distro: string
+    signal?: AbortSignal
+  }
+): Promise<GuestResolvedRepository> {
+  const trimmed = inputPath.trim()
+  if (trimmed.length === 0) {
+    throw failure('PATH_NOT_FOUND', 'Enter a repository folder path.', 'The path is empty.', trimmed)
+  }
+  if (!trimmed.startsWith('/')) {
+    throw failure(
+      'PATH_NOT_FOUND',
+      'Enter an absolute path inside the WSL distro.',
+      'WSL paths start with "/", for example /home/you/project.',
+      trimmed
+    )
+  }
+
+  const outcome = await deps.script({
+    distro: deps.distro,
+    label: 'resolve-repository',
+    script: GUEST_RESOLVE_REPOSITORY_SCRIPT,
+    args: [trimmed],
+    timeoutMs: GIT_TIMEOUT_MS,
+    mutation: false,
+    ...(deps.signal ? { signal: deps.signal } : {})
+  })
+  if (outcome.status === 'transport') {
+    throw failure(
+      'WSL_UNAVAILABLE',
+      'The WSL distro did not answer.',
+      `Could not resolve ${trimmed} inside ${deps.distro}; try again.`,
+      trimmed
+    )
+  }
+  const payload = parseResolveRepository(outcome.stdout)
+  if (payload === null) {
+    throw failure(
+      'WSL_UNAVAILABLE',
+      'The WSL distro returned an unreadable repository answer.',
+      outcome.stderr.trim().slice(0, 2_000),
+      trimmed
+    )
+  }
+  switch (payload.phase) {
+    case 'missing':
+      throw failure(
+        'PATH_NOT_FOUND',
+        'That folder does not exist in the WSL distro.',
+        `Checked ${trimmed} inside ${deps.distro}.`,
+        trimmed
+      )
+    case 'not_directory':
+      throw failure(
+        'NOT_A_DIRECTORY',
+        'That path is not a folder.',
+        'Choose a directory that contains the repository.',
+        trimmed
+      )
+    case 'git_missing':
+      throw failure(
+        'WSL_UNAVAILABLE',
+        'WSL is not available.',
+        'Git is not available in this distro.',
+        trimmed
+      )
+    case 'not_repository':
+      throw failure(
+        'NOT_A_GIT_REPO',
+        'That folder is not inside a Git working tree in the WSL distro.',
+        payload.detail.slice(0, 2_000) || 'git rev-parse --git-common-dir failed',
+        trimmed
+      )
+    case 'resolved':
+      return {
+        // The type is nominal; the script only emits an absolute guest path.
+        root: payload.root as CanonicalRepositoryPath,
+        currentBranch: payload.branch,
+        commonDir: payload.commonDir,
+        registeredVia: payload.canonicalInput === payload.root ? null : payload.canonicalInput
+      }
+  }
 }
 
 /**

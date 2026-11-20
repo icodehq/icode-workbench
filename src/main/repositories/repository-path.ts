@@ -4,7 +4,12 @@ import { isAbsolute, join } from 'node:path'
 import { promisify } from 'node:util'
 import type { ExecutionTarget } from '../../shared/domain/repository'
 import type { WslCommandRunner } from '../wsl/exec'
-import { GuestPathError, resolveGuestRepositoryRoot } from '../wsl/git/guest-path'
+import type { GuestGitScriptRunner } from '../wsl/git/guest-git-script'
+import {
+  GuestPathError,
+  resolveGuestRepositoryRoot,
+  resolveGuestRepositoryRootBatched
+} from '../wsl/git/guest-path'
 import { makeAppError } from '../../shared/domain/errors'
 import type { AppError } from '../../shared/domain/errors'
 import type { CanonicalRepositoryPath } from '../../shared/domain/paths'
@@ -60,6 +65,50 @@ async function readBranch(root: string): Promise<string | null> {
   }
 }
 
+type GitCapture = {
+  stdout: string
+  stderr: string
+  exitCode: number | null
+}
+
+/**
+ * A Git read that keeps stdout and stderr even when Git exits non-zero.
+ *
+ * An unborn branch is the case that matters: `rev-parse --git-common-dir
+ * --abbrev-ref HEAD` prints the common dir and then fails on `HEAD`. Throwing
+ * that away would turn a perfectly good repository into "not a Git repository".
+ */
+async function captureGit(args: string[], cwd: string): Promise<GitCapture> {
+  try {
+    const { stdout, stderr } = await execFileAsync('git', ['-C', cwd, ...args], {
+      timeout: GIT_TIMEOUT_MS,
+      env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' }
+    })
+    return { stdout: stdout.trim(), stderr: stderr.trim(), exitCode: 0 }
+  } catch (error) {
+    const captured = error as {
+      stdout?: string | Buffer
+      stderr?: string | Buffer
+      code?: number | string
+    }
+    return {
+      stdout: String(captured.stdout ?? '').trim(),
+      stderr: String(captured.stderr ?? '').trim(),
+      exitCode: typeof captured.code === 'number' ? captured.code : null
+    }
+  }
+}
+
+/** First entry of `git worktree list --porcelain` is the primary checkout. */
+function firstWorktreeRoot(listing: string): string | null {
+  const first = listing
+    .split('\n')
+    .find((line) => line.startsWith('worktree '))
+  if (first === undefined) return null
+  const value = first.slice('worktree '.length).trim()
+  return value.length > 0 ? value : null
+}
+
 /**
  * The only place that turns a user-supplied path into a canonical root.
  * Validates existence, directory shape, and Git work-tree membership.
@@ -92,40 +141,96 @@ export async function resolveRepositoryRoot(inputPath: string): Promise<Resolved
     )
   }
 
-  const git = async (args: string[], cwd: string): Promise<string> => {
-    const { stdout } = await execFileAsync('git', ['-C', cwd, ...args], {
-      timeout: GIT_TIMEOUT_MS,
-      env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' }
-    })
-    return stdout.trim()
-  }
-
-  let commonDirRaw: string
-  let primaryRootRaw: string
-  try {
-    // Why: --show-toplevel reports the *linked worktree* root, which would
-    // register the same repository twice. The common Git dir identifies the
-    // repository for both `.git` directories and `.git` files.
-    commonDirRaw = await git(
-      ['rev-parse', '--path-format=absolute', '--git-common-dir'],
+  /**
+   * The common dir, the input's own worktree root, and the branch are answered
+   * at the input; the primary checkout comes from the porcelain listing. They
+   * are independent, so the two Git processes start together: Add project pays
+   * one wave, not two.
+   */
+  const [absolute, listing] = await Promise.all([
+    captureGit(
+      [
+        'rev-parse',
+        '--path-format=absolute',
+        '--git-common-dir',
+        '--show-toplevel',
+        '--abbrev-ref',
+        'HEAD'
+      ],
       canonicalInput
-    ).catch(async () => git(['rev-parse', '--git-common-dir'], canonicalInput))
-    if (commonDirRaw.length === 0) throw new Error('empty git common dir')
-    // Older Git may answer with a relative `.git`; resolve it against the input
-    // instead of the process working directory.
-    if (!isAbsolute(commonDirRaw)) commonDirRaw = join(canonicalInput, commonDirRaw)
-    primaryRootRaw = await readPrimaryWorktree(canonicalInput, git)
-  } catch (error) {
-    const detail =
-      error && typeof error === 'object' && 'stderr' in error
-        ? String((error as { stderr?: unknown }).stderr).trim().slice(0, 500)
-        : 'git rev-parse --git-common-dir failed'
+    ),
+    captureGit(['worktree', 'list', '--porcelain'], canonicalInput)
+  ])
+  // Older Git may not know `--path-format`; the relative form is the fallback.
+  const commonAttempt =
+    absolute.stdout.length > 0
+      ? absolute
+      : await captureGit(
+          [
+            'rev-parse',
+            '--git-common-dir',
+            '--show-toplevel',
+            '--abbrev-ref',
+            'HEAD'
+          ],
+          canonicalInput
+        )
+  let commonDirRaw: string
+  let worktreeAtInputRaw: string
+  let branchAtInput: string | null
+  if (commonAttempt.stdout.length === 0) {
     throw failure(
       'NOT_A_GIT_REPO',
       'That folder is not inside a Git working tree.',
-      detail.length > 0 ? detail : 'Initialize Git or choose a repository folder.',
+      (commonAttempt.stderr || absolute.stderr || 'git rev-parse --git-common-dir failed').slice(
+        0,
+        500
+      ),
       canonicalInput
     )
+  }
+  const [commonLine, worktreeLine, branchLine] = commonAttempt.stdout
+    .split('\n')
+    .map((line) => line.trim())
+  commonDirRaw = commonLine ?? ''
+  worktreeAtInputRaw = worktreeLine ?? ''
+  if (commonDirRaw.length === 0) {
+    throw failure(
+      'NOT_A_GIT_REPO',
+      'That folder is not inside a Git working tree.',
+      'Initialize Git or choose a repository folder.',
+      canonicalInput
+    )
+  }
+  /*
+   * A non-zero exit means the branch question failed (an unborn branch), not
+   * that the common dir is unknown. `HEAD` is a detached checkout and is kept,
+   * exactly as the single-query read did.
+   */
+  branchAtInput =
+    commonAttempt.exitCode === 0 && branchLine !== undefined && branchLine.length > 0
+      ? branchLine
+      : null
+  // Older Git may answer with a relative `.git`; resolve it against the input
+  // instead of the process working directory.
+  if (!isAbsolute(commonDirRaw)) commonDirRaw = join(canonicalInput, commonDirRaw)
+
+  let primaryRootRaw: string
+  const listedRoot = firstWorktreeRoot(listing.stdout)
+  if (listedRoot !== null) {
+    primaryRootRaw = listedRoot
+  } else {
+    // The listing shape was unusable; the toplevel probe is the older fallback.
+    const toplevel = await captureGit(['rev-parse', '--show-toplevel'], canonicalInput)
+    primaryRootRaw = toplevel.stdout
+    if (primaryRootRaw.length === 0) {
+      throw failure(
+        'NOT_A_GIT_REPO',
+        'That folder is not inside a Git working tree.',
+        (toplevel.stderr || listing.stderr || 'git worktree list failed').slice(0, 500),
+        canonicalInput
+      )
+    }
   }
 
   let commonDir: string
@@ -154,35 +259,27 @@ export async function resolveRepositoryRoot(inputPath: string): Promise<Resolved
     )
   }
 
+  /*
+   * The combined query read the branch at the input. That is the same checkout
+   * only when the input's worktree root is the primary root — a linked worktree
+   * (even one created inside the primary folder) has its own branch, so the
+   * recorded branch stays the primary checkout's, exactly as before.
+   */
+  let worktreeAtInput: string | null = null
+  if (worktreeAtInputRaw.length > 0) {
+    try {
+      worktreeAtInput = await realpath(worktreeAtInputRaw)
+    } catch {
+      worktreeAtInput = worktreeAtInputRaw
+    }
+  }
+  const sameCheckout = worktreeAtInput !== null && worktreeAtInput === canonicalRoot
   return {
     root,
-    currentBranch: await readBranch(root),
+    currentBranch: sameCheckout ? branchAtInput : await readBranch(root),
     commonDir,
     registeredVia: canonicalInput === canonicalRoot ? null : canonicalInput
   }
-}
-
-/**
- * First entry of `git worktree list --porcelain` is the primary checkout.
- * Falls back to `--show-toplevel` if the listing shape changes.
- */
-async function readPrimaryWorktree(
-  cwd: string,
-  git: (args: string[], cwd: string) => Promise<string>
-): Promise<string> {
-  try {
-    const listing = await git(['worktree', 'list', '--porcelain'], cwd)
-    const first = listing
-      .split('\n')
-      .find((line) => line.startsWith('worktree '))
-    if (first) {
-      const value = first.slice('worktree '.length).trim()
-      if (value.length > 0) return value
-    }
-  } catch {
-    // Fall through to the toplevel probe.
-  }
-  return git(['rev-parse', '--show-toplevel'], cwd)
 }
 
 export type RepositoryPathRoutingDeps = {
@@ -190,6 +287,11 @@ export type RepositoryPathRoutingDeps = {
   wsl?: {
     runner: WslCommandRunner
     signal?: AbortSignal
+    /**
+     * Batched guest script. When present the whole resolution runs in one
+     * `wsl.exe` spawn instead of six; the answers and errors are identical.
+     */
+    script?: GuestGitScriptRunner
   }
 }
 
@@ -219,11 +321,18 @@ export async function resolveRepositoryRootFor(
   }
 
   try {
-    const resolved = await resolveGuestRepositoryRoot(inputPath, {
-      runner: deps.wsl.runner,
-      distro: target.distro,
-      ...(deps.wsl.signal ? { signal: deps.wsl.signal } : {})
-    })
+    const resolved =
+      deps.wsl.script === undefined
+        ? await resolveGuestRepositoryRoot(inputPath, {
+            runner: deps.wsl.runner,
+            distro: target.distro,
+            ...(deps.wsl.signal ? { signal: deps.wsl.signal } : {})
+          })
+        : await resolveGuestRepositoryRootBatched(inputPath, {
+            script: deps.wsl.script,
+            distro: target.distro,
+            ...(deps.wsl.signal ? { signal: deps.wsl.signal } : {})
+          })
     return {
       root: resolved.root,
       currentBranch: resolved.currentBranch,

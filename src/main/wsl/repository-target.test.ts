@@ -104,6 +104,60 @@ describe('accepted WSL targets', () => {
     )
     expect(target).toEqual({ kind: 'wsl', distro: 'Ubuntu-26.04', distroId: UBUNTU_ID })
   })
+
+  it('reuses a successful discovery inside the cache window and asks again after it', async () => {
+    let queries = 0
+    let clock = 1_000
+    const base = deps()
+    const validate = createTargetValidator(
+      {
+        ...base,
+        queryRegistry: async () => {
+          queries += 1
+          return REGISTRY
+        }
+      },
+      { discoveryTtlMs: 5_000, now: () => clock }
+    )
+    const target: ExecutionTarget = {
+      kind: 'wsl',
+      distro: 'Ubuntu-26.04',
+      distroId: null
+    }
+    await validate(target)
+    clock += 1_000
+    await validate(target)
+    expect(queries).toBe(1)
+    clock += 4_001
+    await validate(target)
+    expect(queries).toBe(2)
+  })
+})
+
+describe('discovery failures', () => {
+  it('are never cached', async () => {
+    let queries = 0
+    const base = deps({ registry: null })
+    const validate = createTargetValidator(
+      {
+        ...base,
+        queryRegistry: async () => {
+          queries += 1
+          return null
+        }
+      },
+      { discoveryTtlMs: 60_000, now: () => 0 }
+    )
+    const target: ExecutionTarget = {
+      kind: 'wsl',
+      distro: 'Ubuntu-26.04',
+      distroId: null
+    }
+    await rejection(validate(target))
+    await rejection(validate(target))
+    // Each discovery retries a failed registry read once; neither answer stuck.
+    expect(queries).toBe(4)
+  })
 })
 
 describe('rejected WSL targets', () => {

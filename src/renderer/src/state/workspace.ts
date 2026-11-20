@@ -62,6 +62,7 @@ export type WorkspaceAction =
   | { type: 'booted' }
   | { type: 'bootFailed'; message: string }
   | { type: 'reposLoaded'; repos: RepositorySummary[] }
+  | { type: 'repoUpserted'; repo: RepositorySummary }
   | { type: 'sessionsLoaded'; sessions: SessionSummary[]; orphans: OrphanedHostSession[] }
   | { type: 'harnessesLoading' }
   | { type: 'harnessesLoaded'; harnesses: HarnessDetection[] }
@@ -189,6 +190,26 @@ export function workspaceReducer(
           ? state.activeRepoId
           : (repos[0]?.id ?? null)
       return { ...state, repos, activeRepoId }
+    }
+    case 'repoUpserted': {
+      /*
+       * The registration response is authoritative and already durable. Showing
+       * it now is what makes Add project feel immediate; the list refresh that
+       * follows is a read, not a condition for the row existing.
+       */
+      if (state.removingRepoIds.includes(action.repo.id)) return state
+      const index = state.repos.findIndex((repo) => repo.id === action.repo.id)
+      const repos =
+        index === -1
+          ? [...state.repos, action.repo]
+          : state.repos.map((repo, position) =>
+              position === index ? action.repo : repo
+            )
+      return {
+        ...state,
+        repos,
+        activeRepoId: state.activeRepoId ?? action.repo.id
+      }
     }
     case 'sessionsLoaded': {
       const sessions = action.sessions.filter(

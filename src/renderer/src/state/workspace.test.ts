@@ -150,6 +150,38 @@ describe('workspace loading and selection', () => {
     expect(workspaceReducer(state, { type: 'selectRepo', repoId: 'repo_missing' })).toBe(state)
     expect(workspaceReducer(state, { type: 'selectSession', sessionId: 'ses_missing' })).toBe(state)
   })
+
+  it('shows a just-registered repository before the list refresh returns', () => {
+    const state = workspaceReducer(loaded(), { type: 'repoUpserted', repo: repo('repo_c', 'gamma') })
+    expect(state.repos.map((entry) => entry.id)).toEqual(['repo_a', 'repo_b', 'repo_c'])
+    // The selection is unchanged: the Add flow selects the new row separately.
+    expect(state.activeRepoId).toBe('repo_a')
+  })
+
+  it('replaces an existing row in place, including preparation progress', () => {
+    const state = loaded()
+    const updated = {
+      ...repo('repo_a', 'alpha'),
+      preparation: {
+        state: 'ready' as const,
+        startedAt: 1,
+        finishedAt: 2,
+        committedFiles: 4,
+        skippedFolders: [],
+        error: null
+      }
+    }
+    const next = workspaceReducer(state, { type: 'repoUpserted', repo: updated })
+    expect(next.repos.map((entry) => entry.id)).toEqual(['repo_a', 'repo_b'])
+    expect(next.repos[0]!.preparation?.committedFiles).toBe(4)
+  })
+
+  it('ignores an upsert for a repository that is being removed', () => {
+    const state = { ...loaded(), removingRepoIds: ['repo_c'] }
+    expect(workspaceReducer(state, { type: 'repoUpserted', repo: repo('repo_c', 'gamma') })).toBe(
+      state
+    )
+  })
 })
 
 describe('session updates', () => {

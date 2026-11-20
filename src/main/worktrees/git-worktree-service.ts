@@ -379,6 +379,21 @@ export class GitWorktreeService {
       })
   }
 
+  /**
+   * The batched guest-script runner for a target, when the host has one.
+   *
+   * Add-project resolution uses this to run six guest calls in one `wsl.exe`
+   * spawn. Local targets and hand-built routers answer `null`, which keeps the
+   * per-call path exactly as it was.
+   */
+  async scriptFor(
+    target: ExecutionTarget = LOCAL_TARGET
+  ): Promise<GuestGitScriptRunner | null> {
+    if (target.kind !== 'wsl' || !this.deps.router) return null
+    const resolved = await this.deps.router.resolve(target)
+    return resolved.script ?? null
+  }
+
   /** Refuses paths outside the managed root so a corrupted row cannot target arbitrary directories. */
   assertManagedPath(path: string, worktreeRoot = this.deps.worktreeRoot): void {
     if (!isPathInside(worktreeRoot, path)) {

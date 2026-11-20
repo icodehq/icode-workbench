@@ -351,20 +351,19 @@ export function useWorkspace(): {
 
   const finishRepositoryAdd = useCallback(
     async (value: AddRepositoryResultPayload, message: string): Promise<AppError | null> => {
-      const reposOk = await refreshRepos()
-      if (!reposOk) {
-        return makeAppError(
-          'INTERNAL',
-          'The repository was registered but the list could not be refreshed.',
-          { messageKey: 'workspace.notice.repoRefreshFailed' }
-        )
-      }
+      /*
+       * The response is the authoritative row and the write is already durable.
+       * Show it now, then re-read. Waiting for a full repository list and a
+       * session reconcile before the dialog could close was most of the
+       * perceived Add-project latency, and neither read can change the outcome.
+       */
+      dispatch({ type: 'repoUpserted', repo: value })
       dispatch({ type: 'selectRepo', repoId: value.id })
-      await refreshSessions()
       notify({
         tone: value.alreadyRegistered ? 'info' : 'success',
         message
       })
+      void Promise.all([refreshRepos(), refreshSessions()])
       return null
     },
     [notify, refreshRepos, refreshSessions]

@@ -36,13 +36,17 @@ import type {
 import type { TargetValidator } from '../wsl/repository-target'
 import type { WslCommandRunner } from '../wsl/exec'
 import type { GuestGitResult } from '../wsl/git/guest-git'
+import type { GuestGitScriptRunner } from '../wsl/git/guest-git-script'
 import { guestPathKind, guestRealpath } from '../wsl/git/guest-path'
 import { readGuestHome } from '../wsl/host/lifecycle'
 import { isTransportFailure, runIdempotentGuest } from '../wsl/probe'
 import { parseWslUnc } from '../wsl/unc-path'
 import type { GitWorktreeService } from '../worktrees/git-worktree-service'
 import type { AddRepositoryOutcome, RepositoryService } from './repository-service'
-import { resolveRepositoryRootFor } from './repository-path'
+import {
+  resolveRepositoryRootFor,
+  type ResolvedRepository
+} from './repository-path'
 
 const PATH_READ_TIMEOUT_MS = 10_000
 const INIT_TIMEOUT_MS = 30_000
@@ -74,9 +78,10 @@ export interface RepositoryPreparationStarter {
 
 type ProjectFolderServiceDeps = {
   runner: WslCommandRunner
-  gitWorktrees: Pick<GitWorktreeService, 'gitResultFor'>
+  gitWorktrees: Pick<GitWorktreeService, 'gitResultFor'> &
+    Partial<Pick<GitWorktreeService, 'scriptFor'>>
   repositoryService: Pick<RepositoryService, 'addRepository'> &
-    Partial<Pick<RepositoryService, 'addInitializedRepository'>>
+    Partial<Pick<RepositoryService, 'addInitializedRepository' | 'addResolvedRepository'>>
   preparations: RepositoryPreparationStarter
   validateTarget: TargetValidator
   /** Injectable for tests and for the composition root's platform. */
@@ -94,6 +99,18 @@ export type InitializeProjectOutcome = AddRepositoryOutcome & {
   initialized: boolean
   /** Files committed synchronously; always 0 for the background flow. */
   committedFiles: number
+}
+
+/**
+ * An inspection plus the resolution it already paid for.
+ *
+ * `resolved` never reaches the renderer: `inspect` returns only `inspection`.
+ * Registration reuses it, which removes a second full Git resolution from the
+ * Add-project request (three local Git spawns, seven guest calls on WSL).
+ */
+type InspectionResult = {
+  inspection: ProjectFolderInspection
+  resolved: ResolvedRepository | null
 }
 
 /**
@@ -264,7 +281,7 @@ export class ProjectFolderService {
   }): Promise<ProjectFolderInspection> {    const target = await this.deps.validateTarget(input.target)
     const location = await this.resolveLocationForTarget(input.path, target)
     const git = await this.deps.gitWorktrees.gitResultFor(target)
-    const inspection = await this.inspectAt(location.path, target, git)
+    const { inspection } = await this.inspectAt(location.path, target, git)
     return location.translatedFrom === undefined
       ? inspection
       : { ...inspection, translatedFrom: location.translatedFrom }
@@ -274,14 +291,27 @@ export class ProjectFolderService {
     const target = await this.deps.validateTarget(input.target)
     const location = await this.resolveLocationForTarget(input.path, target)
     const git = await this.deps.gitWorktrees.gitResultFor(target)
-    const inspection = await this.inspectAt(location.path, target, git)
+    const { inspection, resolved } = await this.inspectAt(location.path, target, git)
 
     if (inspection.kind === 'repository') {
-      const outcome = await this.deps.repositoryService.addRepository(
-        inspection.path,
-        target,
-        { targetAlreadyValidated: true }
-      )
+      /*
+       * The inspection already resolved the canonical root, common dir, branch
+       * and linked-worktree origin. Registration reuses that proof instead of
+       * running the same Git resolution a second time; the fallback keeps every
+       * caller (and every fake service) working when the fast path is absent.
+       */
+      const outcome =
+        resolved !== null && this.deps.repositoryService.addResolvedRepository !== undefined
+          ? await this.deps.repositoryService.addResolvedRepository(
+              resolved,
+              target,
+              { targetAlreadyValidated: true }
+            )
+          : await this.deps.repositoryService.addRepository(
+              inspection.path,
+              target,
+              { targetAlreadyValidated: true }
+            )
       return { ...outcome, initialized: false, committedFiles: 0 }
     }
     if (inspection.kind === 'parent') {
@@ -358,10 +388,30 @@ export class ProjectFolderService {
     canonical: string,
     target: ExecutionTarget,
     git: GitRunner
-  ): Promise<ProjectFolderInspection> {
+  ): Promise<InspectionResult> {
+    /*
+     * On WSL the batched resolver *is* the probe: it answers "not a repository"
+     * itself, in the same guest process that resolves the root. A probe first
+     * would spend one extra `wsl.exe` spawn to learn what the batch already says.
+     */
+    const script = target.kind === 'wsl' ? await this.scriptFor(target) : null
+    if (script !== null) {
+      try {
+        return await this.inspectRepository(canonical, target, git, script)
+      } catch (error) {
+        if (error instanceof ProjectFolderError && error.appError.code === 'NOT_A_GIT_REPO') {
+          return {
+            inspection: await this.inspectGitless(canonical, target, git),
+            resolved: null
+          }
+        }
+        throw error
+      }
+    }
+
     const probe = await this.gitProbe(git, canonical, target)
     if (probe.exitCode === 0) {
-      return this.inspectRepository(canonical, target, git)
+      return this.inspectRepository(canonical, target, git, null)
     }
     const detail = detailOf(probe)
     if (!isNotGitRepository(detail)) {
@@ -372,18 +422,40 @@ export class ProjectFolderService {
         canonical
       )
     }
-    return this.inspectGitless(canonical, target, git)
+    return {
+      inspection: await this.inspectGitless(canonical, target, git),
+      resolved: null
+    }
+  }
+
+  /**
+   * The batched guest runner, when this target has one.
+   *
+   * A router that cannot resolve the target is not an Add-project failure: the
+   * per-call resolver is still there and reports the honest cause.
+   */
+  private async scriptFor(target: ExecutionTarget): Promise<GuestGitScriptRunner | null> {
+    if (this.deps.gitWorktrees.scriptFor === undefined) return null
+    try {
+      return await this.deps.gitWorktrees.scriptFor(target)
+    } catch {
+      return null
+    }
   }
 
   private async inspectRepository(
     canonical: string,
     target: ExecutionTarget,
-    git: GitRunner
-  ): Promise<ProjectFolderInspection> {
+    git: GitRunner,
+    script: GuestGitScriptRunner | null
+  ): Promise<InspectionResult> {
     let resolved
     try {
       resolved = await resolveRepositoryRootFor(canonical, target, {
-        wsl: { runner: this.deps.runner }
+        wsl: {
+          runner: this.deps.runner,
+          ...(script !== null ? { script } : {})
+        }
       })
     } catch (error) {
       const appError =
@@ -429,16 +501,19 @@ export class ProjectFolderService {
      * background preparation reports what it actually staged.
      */
     return {
-      kind: hasCommit ? 'repository' : 'unborn',
-      path: resolved.root,
-      root: resolved.root,
-      currentBranch: resolved.currentBranch,
-      hasCommit,
-      repositories: [],
-      preview: null,
-      identity,
-      canInitialize: !hasCommit && blockedReason === null,
-      blockedReason
+      inspection: {
+        kind: hasCommit ? 'repository' : 'unborn',
+        path: resolved.root,
+        root: resolved.root,
+        currentBranch: resolved.currentBranch,
+        hasCommit,
+        repositories: [],
+        preview: null,
+        identity,
+        canInitialize: !hasCommit && blockedReason === null,
+        blockedReason
+      },
+      resolved
     }
   }
 

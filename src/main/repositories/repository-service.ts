@@ -17,6 +17,13 @@ import {
 } from '../../shared/domain/repository'
 import type { TargetValidator } from '../wsl/repository-target'
 
+export type ResolvedRepositoryInput = {
+  root: string
+  currentBranch: string | null
+  commonDir?: string
+  registeredVia?: string | null
+}
+
 export type RepositoryServiceDeps = {
   database: Database
   repositories: RepositoryStore
@@ -26,12 +33,7 @@ export type RepositoryServiceDeps = {
    * Target-aware resolver. For a WSL target it runs entirely in the distro; a
    * local target is routed to the unchanged local implementation.
    */
-  resolveRoot: (path: string, target: ExecutionTarget) => Promise<{
-    root: string
-    currentBranch: string | null
-    commonDir?: string
-    registeredVia?: string | null
-  }>
+  resolveRoot: (path: string, target: ExecutionTarget) => Promise<ResolvedRepositoryInput>
   now: () => number
   pathStatus: (path: string) => 'present' | 'missing'
   /**
@@ -127,6 +129,32 @@ export class RepositoryService {
     // Why the canonical target: it carries the proven registration id, which the
     // resolver needs to address the right distro, and which is what gets stored.
     const resolved = await this.deps.resolveRoot(inputPath, executionTarget)
+    return this.registerResolvedRepository(resolved, executionTarget)
+  }
+
+  /**
+   * Registers a repository whose canonical resolution the caller already holds.
+   *
+   * Add project inspects the folder first and would otherwise pay for the same
+   * Git resolution twice: once to classify it and once here. The inspection's
+   * answers are the same proof — root, common dir, branch, linked-worktree
+   * origin — so registering from them changes nothing about the stored row.
+   */
+  async addResolvedRepository(
+    resolved: ResolvedRepositoryInput,
+    requestedTarget: ExecutionTarget = LOCAL_EXECUTION_TARGET,
+    options: { targetAlreadyValidated?: boolean } = {}
+  ): Promise<AddRepositoryOutcome> {
+    const executionTarget = options.targetAlreadyValidated
+      ? requestedTarget
+      : await this.deps.validateTarget(requestedTarget)
+    return this.registerResolvedRepository(resolved, executionTarget)
+  }
+
+  private registerResolvedRepository(
+    resolved: ResolvedRepositoryInput,
+    executionTarget: ExecutionTarget
+  ): AddRepositoryOutcome {
     const root = toCanonicalRepositoryPath(resolved.root)
     const commonDir = resolved.commonDir ?? null
     // Why: a linked worktree resolves to the same common Git dir as its primary

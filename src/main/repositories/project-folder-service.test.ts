@@ -18,7 +18,7 @@ import {
 } from '../wsl/exec'
 import { GitWorktreeService } from '../worktrees/git-worktree-service'
 import { ProjectFolderService } from './project-folder-service'
-import type { AddRepositoryOutcome } from './repository-service'
+import type { AddRepositoryOutcome, ResolvedRepositoryInput } from './repository-service'
 
 const roots: string[] = []
 const environment: Array<[string, string | undefined]> = []
@@ -113,6 +113,24 @@ function wslRunner(script: {
   return new WslCommandRunner({ byteLauncher, platform: 'win32' })
 }
 
+function recordFor(
+  path: string,
+  target: ExecutionTarget,
+  currentBranch: string | null = null
+): RepositoryRecord {
+  return {
+    id: newRepoId(),
+    path: toCanonicalRepositoryPath(path),
+    displayName: 'project',
+    addedAt: 1,
+    lastOpenedAt: 1,
+    currentBranch,
+    availability: 'present',
+    gitCommonDir: null,
+    executionTarget: target
+  }
+}
+
 function makeService(
   options: {
     localHome?: string
@@ -123,9 +141,11 @@ function makeService(
 ): {
   service: ProjectFolderService
   added: Array<{ path: string; target: ExecutionTarget }>
+  resolved: Array<{ resolved: ResolvedRepositoryInput; target: ExecutionTarget }>
   started: RepositoryRecord[]
 } {
   const added: Array<{ path: string; target: ExecutionTarget }> = []
+  const resolvedAdds: Array<{ resolved: ResolvedRepositoryInput; target: ExecutionTarget }> = []
   const started: RepositoryRecord[] = []
   const service = new ProjectFolderService({
     runner: options.runner ?? ({} as WslCommandRunner),
@@ -135,18 +155,20 @@ function makeService(
         const target = requestedTarget
         added.push({ path, target })
         if (options.addRepository) return options.addRepository(path, target)
-        const record: RepositoryRecord = {
-          id: newRepoId(),
-          path: toCanonicalRepositoryPath(path),
-          displayName: 'project',
-          addedAt: 1,
-          lastOpenedAt: 1,
-          currentBranch: null,
-          availability: 'present',
-          gitCommonDir: null,
-          executionTarget: target
+        return {
+          repository: recordFor(path, target),
+          created: true,
+          registeredViaLinkedWorktree: null
         }
-        return { repository: record, created: true, registeredViaLinkedWorktree: null }
+      },
+      addResolvedRepository: async (input, requestedTarget = LOCAL) => {
+        const target = requestedTarget
+        resolvedAdds.push({ resolved: input, target })
+        return {
+          repository: recordFor(input.root, target, input.currentBranch),
+          created: true,
+          registeredViaLinkedWorktree: input.registeredVia ?? null
+        }
       }
     },
     preparations: {
@@ -168,7 +190,7 @@ function makeService(
     localHome: options.localHome ?? join(tempRoot(), 'home'),
     readGuestHome: async () => null
   })
-  return { service, added, started }
+  return { service, added, resolved: resolvedAdds, started }
 }
 
 describe('project folder inspection', () => {
@@ -343,6 +365,20 @@ describe('project folder initialization', () => {
     expect(() => git(root, 'rev-parse', '--verify', 'HEAD')).toThrow()
     expect(added).toHaveLength(1)
     expect(started).toHaveLength(1)
+  })
+
+  it('registers an existing repository from the resolution the inspection paid for', async () => {
+    const root = makeRepo(tempRoot())
+    const { service, added, resolved } = makeService()
+    const outcome = await service.initialize({ path: root, target: LOCAL })
+    expect(outcome.initialized).toBe(false)
+    // Registration was fed the inspection's answers, not asked to resolve again.
+    expect(added).toHaveLength(0)
+    expect(resolved).toHaveLength(1)
+    expect(samePathResolved(resolved[0]!.resolved.root, root)).toBe(true)
+    expect(resolved[0]!.resolved.currentBranch).toBe('main')
+    expect(resolved[0]!.resolved.commonDir ?? '').toContain('.git')
+    expect(resolved[0]!.target).toEqual(LOCAL)
   })
 
   it('requires identity before creating the first commit', async () => {

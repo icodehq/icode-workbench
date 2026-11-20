@@ -8,6 +8,12 @@
  * for "not a Git repository" or "no operation in progress".
  */
 
+import {
+  betweenMarkers,
+  betweenSentinels,
+  valueOf
+} from './guest-script-payload'
+
 export const INSPECT_FOR_CREATE_SENTINEL = '__ICODE_INSPECT_FOR_CREATE__'
 export const CREATE_WORKTREE_SENTINEL = '__ICODE_CREATE_WORKTREE__'
 
@@ -59,38 +65,6 @@ export type InspectForCreatePayload = {
 
 function emptyToNull(value: string | undefined): string | null {
   return value !== undefined && value.length > 0 ? value : null
-}
-
-function betweenSentinels(
-  stdout: string,
-  sentinel: string
-): string[] | null {
-  const lines = stdout.split(/\r?\n/u)
-  const start = lines.findIndex((line) => line.trim() === sentinel)
-  if (start === -1) return null
-  const end = lines.findIndex((line, index) => index > start && line.trim() === sentinel)
-  if (end === -1) return null
-  return lines.slice(start + 1, end)
-}
-
-function valueOf(lines: readonly string[], key: string): string | undefined {
-  const prefix = `${key}=`
-  for (const line of lines) {
-    if (line.startsWith(prefix)) return line.slice(prefix.length)
-  }
-  return undefined
-}
-
-function betweenMarkers(
-  lines: readonly string[],
-  startMarker: string,
-  endMarker: string
-): string | null {
-  const start = lines.findIndex((line) => line.trim() === startMarker)
-  if (start === -1) return null
-  const end = lines.findIndex((line, index) => index > start && line.trim() === endMarker)
-  if (end === -1) return null
-  return lines.slice(start + 1, end).join('\n').trim()
 }
 
 export function parseInspectForCreate(
