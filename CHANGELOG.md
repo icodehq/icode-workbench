@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-11-20
+
+### Changed
+
+- Add project registers a repository from the inspection's own resolution
+  instead of running the same Git resolution twice, and runs the independent
+  Git reads in parallel. The new project appears as soon as registration
+  returns; the repository and session lists refresh in the background.
+- WSL Add project resolves the repository in one guest script instead of a
+  sequence of `wsl.exe` calls, and reuses a successful distro discovery for a
+  few seconds.
+
 ## [0.11.0] - 2026-11-19
 
 ### Added
