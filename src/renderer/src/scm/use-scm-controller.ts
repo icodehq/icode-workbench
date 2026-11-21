@@ -52,6 +52,8 @@ type ScmControllerOptions = {
   onChanged: () => void
   /** A task's shared chain branch, preselected as the merge target. */
   mergeTargetHint?: string | null
+  /** The session runs in the shared default checkout; merge needs a worktree. */
+  repositoryScope?: boolean
   /** Whether the task's dependents force the chain branch target. */
   lockMergeTarget?: boolean
 }
@@ -155,7 +157,8 @@ export function useScmController({
   drafts,
   onChanged,
   mergeTargetHint = null,
-  lockMergeTarget = false
+  lockMergeTarget = false,
+  repositoryScope = false
 }: ScmControllerOptions): ScmController {
   const draft = useWorkbenchDraft(drafts, sessionId)
   const message = draft.commitMessage
@@ -334,6 +337,7 @@ export function useScmController({
     }
   }, [mergeTargets.reason])
   const mergeMenuReason = useMemo(() => {
+    if (repositoryScope) return translate('scm.merge.defaultCheckout')
     if (snapshot === null) return translate('scm.changes.gitUnavailable')
     if (snapshot.branch === null) return translate('scm.push.detached')
     if (snapshot.headOid === null) return translate('scm.push.unborn')
@@ -359,6 +363,7 @@ export function useScmController({
     mergeTargets.target,
     mergeTargetsReason,
     operation,
+    repositoryScope,
     snapshot
   ])
   const mergeMenuEnabled = mergeMenuReason === ''

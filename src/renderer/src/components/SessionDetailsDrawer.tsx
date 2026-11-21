@@ -165,8 +165,15 @@ export default function SessionDetailsDrawer({
           mono
           onCopy={() => void copy(worktree.path, t('sessionDetails.worktreePath'))}
         />
+      ) : repo ? (
+        <Value
+          value={repo.path}
+          label={t('sessionDetails.defaultCheckout')}
+          mono
+          onCopy={() => void copy(repo.path, t('sessionDetails.defaultCheckout'))}
+        />
       ) : (
-        t('sessionDetails.primaryCheckout')
+        t('sessionDetails.defaultCheckout')
       )
     ],
     [
@@ -177,6 +184,13 @@ export default function SessionDetailsDrawer({
           label={t('sessionDetails.branch')}
           mono
           onCopy={() => void copy(worktree.branch, t('sessionDetails.branch'))}
+        />
+      ) : repo?.currentBranch ? (
+        <Value
+          value={repo.currentBranch}
+          label={t('sessionDetails.branch')}
+          mono
+          onCopy={() => void copy(repo.currentBranch!, t('sessionDetails.branch'))}
         />
       ) : (
         '—'
@@ -221,7 +235,8 @@ export default function SessionDetailsDrawer({
               {session.title}
             </p>
             <p className="mt-0.5 truncate font-mono text-[10.5px] text-muted-foreground">
-              {worktree?.branch ?? t('session.primaryCheckout')} · {repo?.displayName ?? t('sessionDetails.unknownProject')}
+              {worktree?.branch ?? repo?.currentBranch ?? t('session.defaultCheckoutLabel')} ·{' '}
+              {repo?.displayName ?? t('sessionDetails.unknownProject')}
             </p>
           </div>
           <button

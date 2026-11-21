@@ -17,7 +17,9 @@ import { assertChangeBaseline, readChangeList, type ReadContext } from './change
  * engine does not depend on the whole SessionService.
  */
 export type SessionStateSource = {
-  get(sessionId: string): Promise<{ state: SessionLifecycleState }>
+  get(sessionId: string): Promise<{ state: SessionLifecycleState; repoId: string }>
+  /** Store-only primary-workspace lookup; keeps Git reads off Host reconciliation. */
+  sessionWorkspaceFor?(sessionId: string): { path: string; repoId: string } | null
 }
 
 export type SessionChangesDeps = {

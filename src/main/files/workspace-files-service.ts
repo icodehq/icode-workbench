@@ -25,6 +25,7 @@ import { FilesTrashState } from './files-trash-state'
 import type { GitWorktreeService } from '../worktrees/git-worktree-service'
 import { SessionServiceError } from '../sessions/session-errors'
 import type { SessionService } from '../sessions/session-service'
+import type { RepoId } from '../../shared/domain/ids'
 
 export type WorkspaceFilesDeps = {
   sessions: SessionService
@@ -891,14 +892,34 @@ export class WorkspaceFilesService {
   /** Session → checkout + the backend for the host that owns it. */
   private async resolve(sessionId: string): Promise<Resolved> {
     const record = this.deps.worktrees.findBySession(sessionId)
-    if (!record) {
-      return {
-        status: 'unavailable',
-        reason: 'primary-checkout',
-        detail: 'This session runs in the primary checkout, which has no isolated file scope.'
+    let checkoutPath: string
+    let repoId: RepoId
+    if (record) {
+      checkoutPath = record.path
+      repoId = record.repoId
+    } else {
+      /*
+       * A default-checkout session has no worktree row: its files are the
+       * repository's own primary checkout. The session service owns that
+       * resolution so the path, repository, and missing-workspace errors stay
+       * one answer shared with restart and the terminal.
+       */
+      try {
+        const resolved = await this.deps.sessions.resolveSessionCheckout(sessionId)
+        checkoutPath = resolved.path
+        repoId = resolved.repoId
+      } catch (error) {
+        if (error instanceof SessionServiceError) {
+          return {
+            status: 'unavailable',
+            reason: 'not-found',
+            detail: error.appError.message
+          }
+        }
+        throw error
       }
     }
-    const repository = this.deps.repositories.findById(record.repoId)
+    const repository = this.deps.repositories.findById(repoId)
     if (!repository) {
       return {
         status: 'unavailable',
@@ -913,14 +934,14 @@ export class WorkspaceFilesService {
     let exists: boolean
     try {
       const fs = await this.deps.gitWorktrees.hostFsFor(target)
-      exists = await fs.isDirectory(record.path)
+      exists = await fs.isDirectory(checkoutPath)
     } catch {
       return {
         status: 'unavailable',
         reason: 'worktree-unavailable',
         detail:
           target.kind === 'local'
-            ? 'The session worktree could not be inspected.'
+            ? 'The session checkout could not be inspected.'
             : 'The session distro could not be reached, so its files are unavailable right now.'
       }
     }
@@ -930,12 +951,17 @@ export class WorkspaceFilesService {
         reason: 'worktree-missing',
         detail:
           target.kind === 'local'
-            ? 'The session worktree directory is missing.'
-            : 'The session worktree directory is missing inside its distro.'
+            ? 'The session checkout directory is missing.'
+            : 'The session checkout directory is missing inside its distro.'
       }
     }
 
-    return { status: 'ok', worktreePath: record.path, target, backend: this.backendFor(record.path, target) }
+    return {
+      status: 'ok',
+      worktreePath: checkoutPath,
+      target,
+      backend: this.backendFor(checkoutPath, target)
+    }
   }
 
   private backendKey(

@@ -65,6 +65,13 @@ describe('session inputs', () => {
     ).toBe(true)
   })
 
+  it('accepts the default checkout mode and rejects unknown checkout values', () => {
+    const base = { repoId, harness: 'shell', cols: 80, rows: 24 }
+    expect(createSessionInputSchema.safeParse({ ...base, checkout: 'default' }).success).toBe(true)
+    expect(createSessionInputSchema.safeParse({ ...base, checkout: 'worktree' }).success).toBe(true)
+    expect(createSessionInputSchema.safeParse({ ...base, checkout: 'primary' }).success).toBe(false)
+  })
+
   it('rejects unknown harnesses, bad repo IDs, and invalid dimensions', () => {
     const base = { repoId, harness: 'claude', cols: 120, rows: 32 }
     expect(createSessionInputSchema.safeParse({ ...base, harness: 'gemini' }).success).toBe(true)

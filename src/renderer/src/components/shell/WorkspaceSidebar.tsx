@@ -92,6 +92,8 @@ type Props = {
   sessionActions: SidebarSessionActions
   onNewSession: () => void
   onNewSessionInRepo: (repoId: string) => void
+  /** Start a session in the project's shared primary checkout. */
+  onNewSessionInDefaultCheckout: (repoId: string) => void
   /** Start another session in an existing worktree, from its sidebar group. */
   onNewSessionInWorktree: (repoId: string, worktreeId: string) => void
   /** Re-create a missing checkout from its retained branch. */
@@ -182,6 +184,7 @@ export default function WorkspaceSidebar({
   sessionActions,
   onNewSession,
   onNewSessionInRepo,
+  onNewSessionInDefaultCheckout,
   onNewSessionInWorktree,
   onQueueTask,
   onQueueTaskInRepo,
@@ -214,6 +217,9 @@ export default function WorkspaceSidebar({
   const [tasksHistory, setTasksHistory] = useState(false)
   const [collapsedRepos, setCollapsedRepos] = useState<Set<string>>(() => new Set())
   const [collapsedWorktrees, setCollapsedWorktrees] = useState<Set<string>>(() => new Set())
+  const [collapsedDefaultCheckouts, setCollapsedDefaultCheckouts] = useState<Set<string>>(
+    () => new Set()
+  )
   const [maintenanceRepo, setMaintenanceRepo] = useState<RepositorySummary | null>(null)
   const [settingsRepo, setSettingsRepo] = useState<RepositorySummary | null>(null)
   const [removeRepo, setRemoveRepo] = useState<RepositorySummary | null>(null)
@@ -332,6 +338,15 @@ export default function WorkspaceSidebar({
     })
   }
 
+  const toggleDefaultCheckoutCollapsed = (repoId: string): void => {
+    setCollapsedDefaultCheckouts((current) => {
+      const next = new Set(current)
+      if (next.has(repoId)) next.delete(repoId)
+      else next.add(repoId)
+      return next
+    })
+  }
+
   const toggleSessionPin = (sessionId: string): void => {
     updatePins((current) => ({ ...current, sessions: togglePin(current.sessions, sessionId) }))
   }
@@ -350,6 +365,7 @@ export default function WorkspaceSidebar({
     notify: onNotify,
     onRetryPreparation,
     onNewSessionInRepo,
+    onNewSessionInDefaultCheckout,
     onQueueTaskInRepo,
     onNewSessionInWorktree,
     onRecoverWorktree: sessionActions.recoverWorktree,
@@ -470,7 +486,7 @@ export default function WorkspaceSidebar({
                       ? `${session.worktree.branch.slice(0, 21)}…`
                       : session.worktree.branch
                   }`
-                : ''}
+                : ` · ${t('session.defaultCheckoutLabel')}`}
             </span>
             {suffix === null ? null : (
               <span
@@ -539,6 +555,8 @@ export default function WorkspaceSidebar({
     const sessionCount = directSessionCount.get(repo.id) ?? 0
     const expanded = !collapsedRepos.has(repo.id)
     const groups = groupDirectSessions(repoSessions)
+    const defaultCollapsed = collapsedDefaultCheckouts.has(repo.id)
+    const canAddDefault = !hostUnreachable && repo.availability !== 'missing'
     const menuOpen = projectMenu?.repo.id === repo.id
     if (compact) {
       return (
@@ -610,27 +628,23 @@ export default function WorkspaceSidebar({
             })
           }}
         >
-          {repoSessions.length > 0 ? (
-            <button
-              type="button"
-              className="ml-1 inline-flex h-6 w-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground"
-              onClick={() => {
-                setCollapsedRepos((current) => {
-                  const next = new Set(current)
-                  if (next.has(repo.id)) next.delete(repo.id)
-                  else next.add(repo.id)
-                  return next
-                })
-              }}
-              aria-expanded={expanded}
-              aria-label={repo.displayName}
-              data-testid={`sidebar-project-toggle-${repo.id}`}
-            >
-              <ChevronRight size={9} className={expanded ? 'rotate-90' : ''} />
-            </button>
-          ) : (
-            <span className="ml-1 w-4 shrink-0" />
-          )}
+          <button
+            type="button"
+            className="ml-1 inline-flex h-6 w-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+            onClick={() => {
+              setCollapsedRepos((current) => {
+                const next = new Set(current)
+                if (next.has(repo.id)) next.delete(repo.id)
+                else next.add(repo.id)
+                return next
+              })
+            }}
+            aria-expanded={expanded}
+            aria-label={repo.displayName}
+            data-testid={`sidebar-project-toggle-${repo.id}`}
+          >
+            <ChevronRight size={9} className={expanded ? 'rotate-90' : ''} />
+          </button>
           <button
             type="button"
             className="flex h-full min-w-0 flex-1 items-center gap-1 px-1 text-left"
@@ -692,12 +706,53 @@ export default function WorkspaceSidebar({
           </span>
         </div>
 
-        {expanded && repoSessions.length > 0 ? (
+        {expanded ? (
           <div
             className="mb-1 ml-5 border-l border-border pl-1"
             data-testid={`sidebar-sessions-${repo.id}`}
           >
-            {groups.root.map(sessionRow)}
+            <div data-testid={`sidebar-default-checkout-${repo.id}`}>
+              <div className="group/dc flex h-5 items-center gap-1 px-1 font-mono text-[7.5px] text-muted-foreground">
+                <button
+                  type="button"
+                  className="flex h-full min-w-0 flex-1 items-center gap-1 text-left hover:text-foreground focus-visible:text-foreground"
+                  aria-expanded={!defaultCollapsed}
+                  aria-label={t('sidebar.defaultCheckout')}
+                  title={repo.path}
+                  data-testid={`sidebar-default-checkout-toggle-${repo.id}`}
+                  onClick={() => toggleDefaultCheckoutCollapsed(repo.id)}
+                >
+                  <ChevronRight
+                    size={8}
+                    className={`shrink-0 transition-transform ${defaultCollapsed ? '' : 'rotate-90'}`}
+                  />
+                  <GitBranch size={8} className="shrink-0" />
+                  <span className="min-w-0 flex-1 truncate">
+                    {t('sidebar.defaultCheckout')}
+                    {repo.currentBranch ? ` · ${repo.currentBranch}` : ''}
+                  </span>
+                  <span>{groups.defaultCheckout.length}</span>
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded opacity-0 hover:bg-muted hover:text-foreground focus-visible:opacity-100 disabled:cursor-not-allowed disabled:opacity-30 group-hover/dc:opacity-100 group-hover/dc:disabled:opacity-30"
+                  aria-label={t('sidebar.newSessionInDefaultCheckout')}
+                  title={
+                    canAddDefault
+                      ? t('sidebar.newSessionInDefaultCheckout')
+                      : t('newSession.checkoutUnavailable')
+                  }
+                  disabled={!canAddDefault}
+                  data-testid={`sidebar-default-checkout-new-session-${repo.id}`}
+                  onClick={() => onNewSessionInDefaultCheckout(repo.id)}
+                >
+                  <Plus size={9} />
+                </button>
+              </div>
+              {defaultCollapsed ? null : (
+                <div className="pl-1">{groups.defaultCheckout.map(sessionRow)}</div>
+              )}
+            </div>
             {groups.worktrees.map((group) => {
               const status = group.sessions[0]?.worktree?.status
               // A checkout Git cannot hand to a PTY must not offer a session.

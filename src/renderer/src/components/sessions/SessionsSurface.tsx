@@ -212,7 +212,9 @@ export default function SessionsSurface({
       void onCreateSession({
         repoId: anchor.repoId,
         harness: anchor.harness,
-        ...(anchor.worktree !== null ? { worktreeId: anchor.worktree.id } : {})
+        ...(anchor.worktree !== null
+          ? { worktreeId: anchor.worktree.id }
+          : { checkout: 'default' as const })
       })
         .then((outcome) => {
           if (!outcome.ok) {
@@ -681,7 +683,12 @@ function PendingBar({
           {t('newSession.starting', { harness: harnessLabel(pending.harness) })}
         </p>
         <p className="mt-0.5 truncate text-[10.5px] opacity-80">
-          {t('newSession.startingBody', { project })}
+          {t(
+            pending.request.checkout === 'default'
+              ? 'newSession.startingDefaultBody'
+              : 'newSession.startingBody',
+            { project }
+          )}
         </p>
       </div>
     </div>

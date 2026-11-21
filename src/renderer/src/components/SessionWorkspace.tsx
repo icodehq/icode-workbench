@@ -479,9 +479,12 @@ export default function SessionWorkspace({
             ) : (
               <span
                 className="shrink-0 text-[10.5px] text-muted-foreground"
-                title={t('worktree.registeredTitle')}
+                title={repo?.path ?? t('worktree.defaultCheckout')}
+                data-testid="session-default-checkout"
+                data-default-checkout-branch={repo?.currentBranch ?? ''}
               >
-                {t('worktree.primaryCheckout')}
+                {t('worktree.defaultCheckout')}
+                {repo?.currentBranch ? ` · ${repo.currentBranch}` : ''}
               </span>
             )}
             {/*
@@ -624,6 +627,16 @@ export default function SessionWorkspace({
         </div>
       </header>
       )}
+
+      {session.worktree === null && isAgentHarness(session.harness) ? (
+        <div
+          className="flex shrink-0 items-start gap-2 border-b border-signal-line bg-signal-weak px-4 py-1.5 text-[10.5px] text-signal"
+          data-testid="default-checkout-warning"
+        >
+          <AlertTriangle size={11} className="mt-0.5 shrink-0" />
+          <span>{t('session.defaultCheckoutWarning')}</span>
+        </div>
+      ) : null}
 
       <div className={`relative min-h-0 flex-1 bg-background ${layout === 'split' || view === 'terminal' ? '' : 'hidden'}`}>
         {panes.map((candidate) => (

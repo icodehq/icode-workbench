@@ -56,6 +56,7 @@ export type SidebarMenuContext = {
   notify: (notice: Notice) => void
   onRetryPreparation: (repoId: string) => void
   onNewSessionInRepo: (repoId: string) => void
+  onNewSessionInDefaultCheckout: (repoId: string) => void
   onQueueTaskInRepo: (repoId: string) => void
   onNewSessionInWorktree: (repoId: string, worktreeId: string) => void
   onRecoverWorktree: (sessionId: string) => void
@@ -167,6 +168,13 @@ export function createSidebarMenuItems(context: SidebarMenuContext) {
         icon: <SquarePlus size={12} />,
         testId: `sidebar-project-${repo.id}-new-session`,
         onSelect: () => context.onNewSessionInRepo(repo.id)
+      }),
+      'new-default-session': () => ({
+        id: 'new-default-session',
+        label: t('sidebar.newSessionInDefaultCheckout'),
+        icon: <TerminalSquare size={12} />,
+        testId: `sidebar-project-${repo.id}-new-default-session`,
+        onSelect: () => context.onNewSessionInDefaultCheckout(repo.id)
       }),
       'queue-task': () => ({
         id: 'queue-task',

@@ -85,6 +85,22 @@ function configureRemote(root: string, repo: string): void {
   execFileSync('git', ['-C', repo, 'remote', 'add', 'origin', join(root, 'origin.git')])
 }
 
+describe('BranchService.currentBranch', () => {
+  it('reads the branch checked out in the primary checkout', async () => {
+    const { repo, id, service } = setup()
+    expect(await service.currentBranch(id)).toBe('main')
+
+    git(repo, 'checkout', '-q', '-b', 'feature/live')
+    expect(await service.currentBranch(id)).toBe('feature/live')
+  })
+
+  it('returns null on a detached HEAD', async () => {
+    const { repo, id, baseOid, service } = setup()
+    git(repo, 'checkout', '-q', '--detach', baseOid)
+    expect(await service.currentBranch(id)).toBeNull()
+  })
+})
+
 describe('BranchService.listRefs', () => {
   it('lists local and remote refs, excludes symbolic remote HEAD, and separates collisions', async () => {
     const f = setup()

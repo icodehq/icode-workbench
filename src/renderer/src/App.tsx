@@ -50,6 +50,12 @@ import { openFilesStore } from './files/open-files'
 import { pruneTreeStates } from './files/tree-state'
 import { filesClipboardStore } from './files/files-clipboard'
 
+/** What the New Session dialog should preselect when it opens. */
+type NewSessionInitialCheckout =
+  | { kind: 'default' }
+  | { kind: 'worktree'; worktreeId: string }
+  | null
+
 const NEEDS_ORDER = { Approval: 0, Answer: 1, Retry: 2, Blocked: 3, Review: 4 } as const
 export default function App(): React.JSX.Element {
   const workspace = useWorkspace()
@@ -194,8 +200,9 @@ export default function App(): React.JSX.Element {
   const [markingActivity, setMarkingActivity] = useState(false)
   const [refreshToken, setRefreshToken] = useState(0)
   const [newSessionOpen, setNewSessionOpen] = useState(false)
-  /** A worktree the dialog should preselect; null means "create a new one". */
-  const [newSessionWorktreeId, setNewSessionWorktreeId] = useState<string | null>(null)
+  /** The checkout the dialog should preselect; null means "create a new worktree". */
+  const [newSessionInitialCheckout, setNewSessionInitialCheckout] =
+    useState<NewSessionInitialCheckout>(null)
   const [taskComposer, setTaskComposer] = useState<{
     repoId: string
     afterTaskId: string | null
@@ -405,7 +412,7 @@ export default function App(): React.JSX.Element {
     [repo, state.activeRepoId, state.repos, workspace]
   )
 
-  const openNewSession = (worktreeId: string | null = null): void => {
+  const openNewSession = (initialCheckout: NewSessionInitialCheckout = null): void => {
     if (hostUnreachable) {
       workspace.notify({
         tone: 'error',
@@ -417,7 +424,7 @@ export default function App(): React.JSX.Element {
       setAddOpen(true)
       return
     }
-    setNewSessionWorktreeId(worktreeId)
+    setNewSessionInitialCheckout(initialCheckout)
     setNewSessionOpen(true)
   }
 
@@ -647,9 +654,14 @@ export default function App(): React.JSX.Element {
             openNewSession()
             setSidebarOpen(false)
           }}
+          onNewSessionInDefaultCheckout={(repoId) => {
+            workspace.selectRepo(repoId)
+            openNewSession({ kind: 'default' })
+            setSidebarOpen(false)
+          }}
           onNewSessionInWorktree={(repoId, worktreeId) => {
             workspace.selectRepo(repoId)
-            openNewSession(worktreeId)
+            openNewSession({ kind: 'worktree', worktreeId })
             setSidebarOpen(false)
           }}
           onQueueTask={() => {
@@ -790,13 +802,13 @@ export default function App(): React.JSX.Element {
                   repos: state.repos,
                   activeRepoId: state.activeRepoId,
                   sessions: sidebarSessions,
-                  initialWorktreeId: newSessionWorktreeId,
+                  initialCheckout: newSessionInitialCheckout,
                   harnesses: state.harnesses,
                   harnessLoading: state.harnessLoading,
                   harnessError: state.harnessError,
                   onClose: () => {
                     setNewSessionOpen(false)
-                    setNewSessionWorktreeId(null)
+                    setNewSessionInitialCheckout(null)
                   },
                   onCreate: submitCreate,
                   onRefreshHarnesses: workspace.refreshHarnesses

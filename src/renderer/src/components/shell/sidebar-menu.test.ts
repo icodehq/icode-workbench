@@ -32,6 +32,7 @@ describe('project menu plan', () => {
     })
     expect(ids(entries)).toEqual([
       'new-session',
+      'new-default-session',
       'queue-task',
       'pin',
       'copy-path',

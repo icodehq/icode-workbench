@@ -32,6 +32,7 @@ function services(overrides: Partial<DispatcherServices> = {}): DispatcherServic
     sessionsRecoverWorktree: vi.fn(async () => ({})),
     branchesList: vi.fn(async () => []),
     branchesRefs: vi.fn(async () => []),
+    branchesCurrent: vi.fn(async () => null),
     branchesRemove: vi.fn(async () => ({ status: 'removed' })),
     remotesList: vi.fn(async () => []),
     remotesAdd: vi.fn(async () => ({ status: 'ok', name: 'origin' })),
@@ -307,6 +308,14 @@ describe('dispatcher validation', () => {
       })
     ).toMatchObject({ ok: false, error: { code: 'INVALID_ARGUMENT' } })
     expect(create).not.toHaveBeenCalled()
+  })
+
+  it('forwards the default checkout mode to the session service', async () => {
+    const create = vi.fn(async () => ({}))
+    const dispatch = createDispatcher(services({ sessionsCreate: create }))
+    const input = { repoId, harness: 'shell', cols: 100, rows: 30, checkout: 'default' }
+    expect(await dispatch(IPC_CHANNELS.sessionsCreate, input)).toMatchObject({ ok: true })
+    expect(create).toHaveBeenCalledWith(input)
   })
 
   it('requires the incarnation on terminal writes', async () => {

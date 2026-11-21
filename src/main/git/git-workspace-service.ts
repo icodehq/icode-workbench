@@ -706,6 +706,8 @@ export class GitWorkspaceService {
         repositoryPath: string
         repoId: RepoId
         target: ExecutionTarget
+        /** `default-checkout` is the repository's own folder, shared by sessions. */
+        scope: 'worktree' | 'default-checkout'
         git: (cwd: string, args: string[], timeoutMs?: number) => Promise<string>
         /** Verbatim stdout, for fixed-width output such as porcelain status. */
         raw: (cwd: string, args: string[]) => Promise<{ stdout: string; exitCode: number | null }>
@@ -720,29 +722,50 @@ export class GitWorkspaceService {
     | GitUnavailable
   > {
     const record = this.deps.worktrees.findBySession(sessionId)
-    if (!record) {
-      return {
-        status: 'unavailable',
-        reason: 'primary-checkout',
-        detail: 'This session runs in the primary checkout, so it has no worktree Git state.'
+    let repoId: RepoId
+    let defaultCheckoutPath: string | null = null
+    if (record) {
+      repoId = record.repoId
+    } else {
+      /*
+       * A default-checkout session has no worktree row: Source Control reads
+       * the repository's own primary checkout. Persisted rows answer this
+       * without a Host reconciliation on every status read; the summary is a
+       * fallback for a source that only implements `get`.
+       */
+      const workspace = this.deps.sessions.sessionWorkspaceFor?.(sessionId) ?? null
+      if (workspace !== null) {
+        repoId = workspace.repoId as RepoId
+        defaultCheckoutPath = workspace.path
+      } else {
+        try {
+          repoId = (await this.deps.sessions.get(sessionId)).repoId as RepoId
+        } catch {
+          return {
+            status: 'unavailable',
+            reason: 'not-found',
+            detail: 'The session is no longer available.'
+          }
+        }
       }
     }
-    const repository = this.deps.repositories.findById(record.repoId)
+    const repository = this.deps.repositories.findById(repoId)
     if (!repository) {
       return { status: 'unavailable', reason: 'not-found', detail: 'The session repository is no longer registered.' }
     }
 
+    const checkoutPath = record?.path ?? defaultCheckoutPath ?? repository.path
     let exists: boolean
     try {
       const fs = await this.deps.gitWorktrees.hostFsFor(repository.executionTarget)
-      exists = await fs.isDirectory(record.path)
+      exists = await fs.isDirectory(checkoutPath)
     } catch {
       return {
         status: 'unavailable',
         reason: 'worktree-unavailable',
         detail:
           repository.executionTarget.kind === 'local'
-            ? 'The session worktree could not be inspected.'
+            ? 'The session checkout could not be inspected.'
             : 'The session distro could not be reached, so its Git state is unavailable right now.'
       }
     }
@@ -752,8 +775,8 @@ export class GitWorkspaceService {
         reason: 'worktree-missing',
         detail:
           repository.executionTarget.kind === 'local'
-            ? 'The session worktree directory is missing.'
-            : 'The session worktree directory is missing inside its distro.'
+            ? 'The session checkout directory is missing.'
+            : 'The session checkout directory is missing inside its distro.'
       }
     }
 
@@ -762,10 +785,11 @@ export class GitWorkspaceService {
     const input = await this.deps.gitWorktrees.gitInputFor(repository.executionTarget)
     return {
       status: 'ok',
-      worktreePath: record.path,
+      worktreePath: checkoutPath,
       repositoryPath: repository.path,
-      repoId: record.repoId,
+      repoId,
       target: repository.executionTarget,
+      scope: record ? 'worktree' : 'default-checkout',
       git,
       raw,
       input

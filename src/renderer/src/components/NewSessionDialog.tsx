@@ -6,6 +6,7 @@ import {
   HARNESS_IDS,
   harnessLabel,
   harnessSearchTerms,
+  isAgentHarness,
   type HarnessDetection,
   type HarnessId
 } from '../../../shared/domain/harness'
@@ -30,8 +31,8 @@ type Props = {
   activeRepoId: string | null
   /** Direct sessions, used to list the repository's existing worktrees. */
   sessions: SessionSummary[]
-  /** Worktree preselected when the dialog was opened from its sidebar group. */
-  initialWorktreeId: string | null
+  /** Checkout preselected when the dialog was opened from a sidebar group. */
+  initialCheckout: { kind: 'default' } | { kind: 'worktree'; worktreeId: string } | null
   harnesses: HarnessDetection[]
   harnessLoading: boolean
   harnessError: AppError | null
@@ -52,6 +53,13 @@ type ExistingWorktree = {
 /** A checkout can accept another session only when Git has it ready. */
 function canAttach(status: WorktreeSummary['status']): boolean {
   return status === 'ready-to-start' || status === 'active'
+}
+
+/** The Run-in value the dialog opens with. */
+function initialChoice(initial: Props['initialCheckout']): string {
+  if (initial?.kind === 'default') return 'default'
+  if (initial?.kind === 'worktree') return initial.worktreeId
+  return 'new'
 }
 
 function detectionTone(state: HarnessDetection['state']): string {
@@ -178,7 +186,7 @@ export default function NewSessionDialog({
   repos,
   activeRepoId,
   sessions,
-  initialWorktreeId,
+  initialCheckout,
   harnesses,
   harnessLoading,
   harnessError,
@@ -199,7 +207,9 @@ export default function NewSessionDialog({
   const [title, setTitle] = useState('')
   const [startFrom, setStartFrom] = useState('')
   const [branchName, setBranchName] = useState('')
-  const [worktreeChoice, setWorktreeChoice] = useState(initialWorktreeId ?? 'new')
+  const [worktreeChoice, setWorktreeChoice] = useState<string>(() =>
+    initialChoice(initialCheckout)
+  )
 
   const selectedRepo = repos.find((repo) => repo.id === repoId) ?? null
   const branchRefs = useBranchRefs(repoId.length > 0 ? repoId : null)
@@ -230,19 +240,27 @@ export default function NewSessionDialog({
     return [...byId.values()]
   }, [repoId, sessions])
 
+  const usesDefaultCheckout = worktreeChoice === 'default'
   const chosenWorktree =
-    worktreeChoice === 'new'
+    worktreeChoice === 'new' || usesDefaultCheckout
       ? null
       : (existingWorktrees.find((worktree) => worktree.id === worktreeChoice) ?? null)
   // A preselection whose checkout disappeared (or moved repo) falls back to a
   // fresh checkout instead of rendering a blank select.
-  const effectiveChoice = chosenWorktree === null ? 'new' : chosenWorktree.id
+  const effectiveChoice = usesDefaultCheckout
+    ? 'default'
+    : chosenWorktree === null
+      ? 'new'
+      : chosenWorktree.id
+  const defaultSessionCount = sessions.filter(
+    (session) => session.repoId === repoId && session.worktree === null
+  ).length
 
   useEffect(() => {
     setStartFrom('')
     setBranchName('')
-    setWorktreeChoice(initialWorktreeId ?? 'new')
-  }, [repoId, initialWorktreeId])
+    setWorktreeChoice(initialChoice(initialCheckout))
+  }, [repoId, initialCheckout])
   const preparation = selectedRepo === null ? null : repositoryPreparationView(selectedRepo)
   const repoTarget = selectedRepo?.target ?? null
   const targetLabel =
@@ -318,12 +336,14 @@ export default function NewSessionDialog({
       repoId,
       harness,
       ...(title.trim().length > 0 ? { title: title.trim() } : {}),
-      ...(chosenWorktree !== null
-        ? { worktreeId: chosenWorktree.id }
-        : {
-            ...(startFrom.length > 0 ? { startFrom } : {}),
-            ...(branchName.trim().length > 0 ? { branchName: branchName.trim() } : {})
-          })
+      ...(usesDefaultCheckout
+        ? { checkout: 'default' as const }
+        : chosenWorktree !== null
+          ? { worktreeId: chosenWorktree.id }
+          : {
+              ...(startFrom.length > 0 ? { startFrom } : {}),
+              ...(branchName.trim().length > 0 ? { branchName: branchName.trim() } : {})
+            })
     })
     onClose()
   }
@@ -351,6 +371,7 @@ export default function NewSessionDialog({
             className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
             onClick={onClose}
             aria-label={t('common.close')}
+            data-testid="new-session-close"
           >
             <X size={14} />
           </button>
@@ -369,7 +390,11 @@ export default function NewSessionDialog({
             {repos.map((repo) => {
               const blocked = repositoryPreparationView(repo)
               return (
-                <option key={repo.id} value={repo.id} disabled={blocked !== null}>
+                <option
+                  key={repo.id}
+                  value={repo.id}
+                  disabled={repo.availability === 'missing'}
+                >
                   {repo.displayName}
                   {repo.target.kind === 'wsl'
                     ? t('newSession.repoOptionWsl', { distro: repo.target.distro })
@@ -416,6 +441,12 @@ export default function NewSessionDialog({
                 data-testid="new-session-worktree"
               >
                 <option value="new">{t('newSession.newWorktree')}</option>
+                <option value="default">
+                  {t('newSession.defaultCheckout')}
+                  {defaultSessionCount > 0
+                    ? ` · ${tp('newSession.defaultCheckoutSessions', defaultSessionCount)}`
+                    : ''}
+                </option>
                 {existingWorktrees.map((worktree) => {
                   const usable = canAttach(worktree.status)
                   return (
@@ -432,13 +463,27 @@ export default function NewSessionDialog({
               className="mt-1.5 text-[10.5px] text-muted-foreground"
               data-testid="new-session-worktree-hint"
             >
-              {chosenWorktree !== null
-                ? t('newSession.existingWorktreeHint', { path: chosenWorktree.path })
-                : t('newSession.newWorktreeHint')}
+              {usesDefaultCheckout
+                ? t('newSession.defaultCheckoutHint', {
+                    path: selectedRepo?.path ?? ''
+                  })
+                : chosenWorktree !== null
+                  ? t('newSession.existingWorktreeHint', { path: chosenWorktree.path })
+                  : t('newSession.newWorktreeHint')}
             </p>
           </div>
 
-          {chosenWorktree === null ? (
+          {usesDefaultCheckout && harness !== null && isAgentHarness(harness) ? (
+            <div
+              className="mt-3 flex items-start gap-2 rounded-md border border-signal/40 bg-signal-weak px-3 py-2 text-[10.5px] text-signal"
+              data-testid="new-session-shared-checkout-warning"
+            >
+              <AlertTriangle size={12} className="mt-0.5 shrink-0" />
+              <span>{t('newSession.sharedCheckoutWarning')}</span>
+            </div>
+          ) : null}
+
+          {effectiveChoice === 'new' ? (
           <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
             <label className="block text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
               {t('newSession.startFrom')}
@@ -693,6 +738,7 @@ export default function NewSessionDialog({
               type="button"
               className="rounded-md border border-border h-9 px-3 text-[12px] hover:bg-muted"
               onClick={onClose}
+              data-testid="new-session-cancel"
             >
               {t('newSession.cancel')}
             </button>
@@ -702,7 +748,7 @@ export default function NewSessionDialog({
               disabled={
                 harness === null ||
                 repoId.length === 0 ||
-                preparation !== null
+                (!usesDefaultCheckout && preparation !== null)
               }
               data-testid="create-session-submit"
             >

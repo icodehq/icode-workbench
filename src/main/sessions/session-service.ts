@@ -47,6 +47,7 @@ import {
   parseWorktreeId,
   toPtyIncarnationId,
   type PtyIncarnationId,
+  type RepoId,
   type SessionId
 } from '../../shared/domain/ids'
 import {
@@ -640,6 +641,24 @@ export class SessionService {
       : null
 
     /*
+     * The default checkout is the repository's own working directory. It needs
+     * no baseline (a terminal in an unborn or mid-rebase repo is useful) and
+     * creates no checkout or branch; the session only gains a PTY there.
+     */
+    if (input.checkout === 'default') {
+      return this.createInDefaultCheckout(input, options, {
+        repository,
+        workspace,
+        target,
+        pathA,
+        pathAPreflight,
+        detection,
+        launchSpec,
+        hostPrewarm
+      })
+    }
+
+    /*
      * Attaching to an existing worktree skips checkout creation entirely: the
      * worktree, branch, and baseline already exist, and other sessions may be
      * using them. The session only gains a link and a PTY in that directory.
@@ -903,6 +922,131 @@ export class SessionService {
       this.freshCheckouts.delete(sessionId)
       const appError = this.startFailure(error)
       this.deps.worktrees.updateState(sessionId, 'failed', appError, this.now())
+      this.recordFailedStart(sessionId, appError)
+      throw new SessionServiceError(appError)
+    }
+  }
+
+  /**
+   * Starts a session directly in the repository's primary checkout.
+   *
+   * The default checkout is shared with the user and any other sessions opened
+   * there, so the session row has no worktree link and owns no branch. Removing
+   * the session therefore removes only the row; the checkout and its branch are
+   * never iCode's to delete. Files and Source Control resolve this session back
+   * to the same workspace path.
+   */
+  private async createInDefaultCheckout(
+    input: CreateSessionInput,
+    options: {
+      role?: SessionRole
+      base?: { ref: string | null; oid: string }
+    },
+    context: {
+      repository: RepositoryRecord
+      workspace: WorkspaceRecord
+      target: ExecutionTarget
+      pathA: boolean
+      pathAPreflight: PathALaunch | null
+      detection: HarnessDetectionResult | null
+      launchSpec: { args: string[]; env: Record<string, string> }
+      hostPrewarm: Promise<void> | null
+    }
+  ): Promise<SessionSummary> {
+    const {
+      repository,
+      workspace,
+      target,
+      pathA,
+      pathAPreflight,
+      detection,
+      launchSpec,
+      hostPrewarm
+    } = context
+    if (
+      input.worktreeId !== undefined ||
+      input.startFrom !== undefined ||
+      input.branchName !== undefined ||
+      options.base !== undefined
+    ) {
+      throw new SessionServiceError(
+        makeAppError(
+          'INVALID_ARGUMENT',
+          'A default-checkout session cannot use a worktree, start-from ref, branch name, or base commit.',
+          { context: { repoId: repository.id } }
+        )
+      )
+    }
+    if (options.role === 'supervisor') {
+      throw new SessionServiceError(
+        makeAppError('INVALID_ARGUMENT', 'The supervisor session must run in an isolated worktree.', {
+          context: { repoId: repository.id }
+        })
+      )
+    }
+    await this.requireDirectory(workspace.path, target)
+
+    const sessionId = this.makeSessionId()
+    const createdAt = this.now()
+    const title = normalizeSessionTitle(
+      input.title ?? `${harnessLabel(input.harness)} · ${repository.displayName}`,
+      mainT('session.untitled')
+    )
+    const initial: PersistedSessionObservation = {
+      lastObservedState: 'starting',
+      lastObservedExitCode: null,
+      lastObservedError: null,
+      lastObservedIncarnationId: null,
+      lastObservedAt: createdAt
+    }
+
+    this.deps.database.transaction(() => {
+      // Authoritative tombstone check: it shares the write transaction with the
+      // insert, so a removal that commits after this read either includes the
+      // new session in its manifest or sees it here and refuses.
+      if (this.deps.repositories.isRemoving(repository.id)) {
+        throw new SessionServiceError(repositoryRemovingError(repository.id))
+      }
+      this.deps.sessions.insert({
+        id: sessionId,
+        workspaceId: workspace.id,
+        harness: input.harness,
+        title,
+        role: options.role ?? 'interactive',
+        createdAt,
+        lastActiveAt: createdAt,
+        observation: initial
+      })
+    })
+
+    // Path A already proved the checkout in the guest; only the argv changes,
+    // not the validated distro.
+    const pathALaunch = pathAPreflight
+      ? {
+          ...pathAPreflight,
+          args: buildWslTerminalArgs(pathAPreflight.distro, workspace.path)
+        }
+      : null
+    try {
+      await this.prepareWorkspaceTrust(input.harness, target, workspace.path)
+      if (hostPrewarm !== null) await hostPrewarm
+      return await this.launchPty({
+        sessionId,
+        harness: input.harness,
+        cwd: workspace.path,
+        target,
+        pathA,
+        pathALaunch,
+        detection,
+        launchSpec,
+        cols: input.cols,
+        rows: input.rows,
+        // There is no worktree whose state can become ready.
+        markReady: () => undefined
+      })
+    } catch (error) {
+      // The shared checkout is not this session's to mark failed.
+      const appError = this.startFailure(error)
       this.recordFailedStart(sessionId, appError)
       throw new SessionServiceError(appError)
     }
@@ -2078,8 +2222,22 @@ export class SessionService {
    */
   async resolveSessionCheckout(
     sessionId: string
-  ): Promise<{ path: string; record: SessionWorktreeRecord | null }> {
+  ): Promise<{ path: string; record: SessionWorktreeRecord | null; repoId: RepoId }> {
     return this.resolveCheckout(this.requireRow(sessionId))
+  }
+
+  /**
+   * The primary workspace behind a session, from persisted rows only.
+   *
+   * Files and Git call this on every read for a linkless session; a store
+   * lookup keeps the hot path off the Host reconciliation in `get()`.
+   */
+  sessionWorkspaceFor(sessionId: string): { path: string; repoId: RepoId } | null {
+    const row = this.deps.sessions.findById(sessionId as SessionId)
+    if (!row) return null
+    const workspace = this.deps.repositories.findWorkspaceById(row.workspaceId)
+    if (!workspace) return null
+    return { path: workspace.path, repoId: workspace.repoId }
   }
 
   /**
@@ -2125,7 +2283,7 @@ export class SessionService {
   private async resolveCheckout(
     row: StoredSession,
     options: { allowFreshCheckout?: boolean } = {}
-  ): Promise<{ path: string; record: SessionWorktreeRecord | null }> {
+  ): Promise<{ path: string; record: SessionWorktreeRecord | null; repoId: RepoId }> {
     const workspace = this.deps.repositories.findWorkspaceById(row.workspaceId)
     if (!workspace) {
       throw new SessionServiceError(
@@ -2136,7 +2294,7 @@ export class SessionService {
     }
     if (options.allowFreshCheckout === true) this.pruneFreshCheckouts()
     const record = this.deps.worktrees.findBySession(row.id)
-    if (!record) return { path: workspace.path, record: null }
+    if (!record) return { path: workspace.path, record: null, repoId: workspace.repoId }
     const repository = this.deps.repositories.findById(record.repoId)
     if (!repository) {
       throw new SessionServiceError(
@@ -2163,7 +2321,7 @@ export class SessionService {
           const fs = await this.deps.gitWorktrees.hostFsFor(repository.executionTarget)
           try {
             if (await fs.isDirectory(record.path)) {
-              return { path: grant.path, record }
+              return { path: grant.path, record, repoId: workspace.repoId }
             }
           } catch {
             // Fall through to the full inspection, which owns the error mapping.
@@ -2194,7 +2352,7 @@ export class SessionService {
         })
       )
     }
-    return { path: record.path, record }
+    return { path: record.path, record, repoId: workspace.repoId }
   }
 
   private impliedError(reason: ReconciledSessionState['reason']): AppError | null {

@@ -340,6 +340,7 @@ export default function SessionInspector({
                 repoId={session.repoId}
                 harness={session.harness}
                 baseOid={worktree?.baseOid ?? null}
+                repositoryScope={worktree === null}
                 refreshToken={refreshToken}
                 active={!collapsed && pane === 'changes'}
                 notify={notify}
@@ -349,7 +350,9 @@ export default function SessionInspector({
                 }}
                 onOpenTerminal={() => onOpenTerminal?.()}
                 onSendToAgent={onSendToAgent}
-                canSendToAgent={session.state === 'live' && isAgentHarness(session.harness)}
+                canSendToAgent={
+                  worktree !== null && session.state === 'live' && isAgentHarness(session.harness)
+                }
                 drafts={drafts}
                 onChanged={onRecheck}
                 initialHistoryPath={historyRequest}

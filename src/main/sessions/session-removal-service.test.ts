@@ -33,6 +33,7 @@ type Fixture = {
   repoId: string
   repoPath: string
   createSession: () => Promise<SessionSummary>
+  createDefaultSession: () => Promise<SessionSummary>
   finish: (sessionId: string) => void
 }
 
@@ -143,6 +144,14 @@ async function setup(): Promise<Fixture> {
         cols: 100,
         rows: 30
       }),
+    createDefaultSession: () =>
+      sessions.create({
+        repoId: added.repository.id,
+        harness: 'shell',
+        cols: 100,
+        rows: 30,
+        checkout: 'default'
+      }),
     finish: (sessionId) => host.finish(sessionId, 0, true)
   }
 }
@@ -172,6 +181,27 @@ describe('ordinary session removal', () => {
     expect(result.status).toBe('removed')
     expect(f.host.calls.kill.some((entry) => entry.sessionId === session.id)).toBe(true)
     expect(f.worktrees.findBySession(session.id)).toBeNull()
+  })
+
+  it('removes a default-checkout session without touching the repository', async () => {
+    const f = await setup()
+    const session = await f.createDefaultSession()
+    expect(session.worktree).toBeNull()
+
+    const result = await f.removals.remove(session.id, { stopIfLive: true })
+    expect(result.status).toBe('removed')
+    expect(f.sessionStore.findById(session.id as never)).toBeNull()
+    expect(existsSync(f.repoPath)).toBe(true)
+  })
+
+  it('refuses to delete a branch for a default-checkout session', async () => {
+    const f = await setup()
+    const session = await f.createDefaultSession()
+
+    await expect(
+      f.removals.remove(session.id, { stopIfLive: true, deleteBranch: true })
+    ).rejects.toSatisfy((error: unknown) => codeOf(error) === 'INVALID_ARGUMENT')
+    expect(f.sessionStore.findById(session.id as never)).not.toBeNull()
   })
 
   it('fails closed when the host cannot be reached', async () => {

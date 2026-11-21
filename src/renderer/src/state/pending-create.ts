@@ -16,6 +16,7 @@ export type PendingCreateRequest = {
   repoId: string
   harness: HarnessId
   title?: string
+  checkout?: 'default'
 }
 
 export type PendingCreate = {
