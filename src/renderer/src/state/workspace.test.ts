@@ -260,7 +260,8 @@ describe('session updates', () => {
         sessionId: 'ses_two',
         title: 'ses_two',
         branch: 'icode/ses_two',
-        blocker: null
+        blocker: null,
+        deleteBranch: false
       }
     })
     state = workspaceReducer(state, { type: 'sessionRemoved', sessionId: 'ses_two' })
@@ -404,7 +405,8 @@ describe('worktree lifecycle state', () => {
         sessionId: 'ses_one',
         title: 'alpha',
         branch: 'icode/ses_one',
-        blocker: { kind: 'dirty', files: ['a.ts'] }
+        blocker: { kind: 'dirty', files: ['a.ts'] },
+        deleteBranch: false
       }
     })
     expect(state.sessionCleanup?.blocker?.kind).toBe('dirty')
@@ -420,7 +422,8 @@ describe('worktree lifecycle state', () => {
         sessionId: 'ses_one',
         title: 'alpha',
         branch: 'icode/ses_one',
-        blocker: { kind: 'unmerged', commits: 1 }
+        blocker: { kind: 'unmerged', commits: 1 },
+        deleteBranch: false
       }
     })
     state = workspaceReducer(state, {

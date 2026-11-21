@@ -16,7 +16,7 @@ export default function SessionRemoveConfirm({
   session: SessionSummary
   sessions: SessionSummary[]
   onClose: () => void
-  onConfirm: () => void
+  onConfirm: (deleteBranch: boolean) => void
 }): React.JSX.Element {
   const unsavedCount = useFilesDirtyCount(session.id)
   return (

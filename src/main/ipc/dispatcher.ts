@@ -133,8 +133,16 @@ export type DispatcherServices = {
   sessionsRestart: (input: { sessionId: string }) => Promise<unknown>
   sessionsSleep: (input: { sessionId: string }) => Promise<unknown>
   sessionsWake: (input: { sessionId: string }) => Promise<unknown>
-  sessionsRemove: (input: { sessionId: string; stopIfLive?: boolean }) => Promise<unknown>
-  sessionsDiscard: (input: { sessionId: string; confirmBranch: string }) => Promise<unknown>
+  sessionsRemove: (input: {
+    sessionId: string
+    stopIfLive?: boolean
+    deleteBranch?: boolean
+  }) => Promise<unknown>
+  sessionsDiscard: (input: {
+    sessionId: string
+    confirmBranch: string
+    deleteBranch?: boolean
+  }) => Promise<unknown>
   sessionsRecoverWorktree: (input: { sessionId: string }) => Promise<unknown>
   branchesList: (input: { repoId: string }) => Promise<unknown>
   branchesRefs: (input: { repoId: string }) => Promise<unknown>

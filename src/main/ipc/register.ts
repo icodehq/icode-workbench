@@ -300,10 +300,13 @@ export function createAppDispatcher(
     sessionsWake: (input) => runtime.sessions.wake(input.sessionId),
     sessionsRemove: (input) =>
       runtime.sessionRemovals.remove(input.sessionId, {
-        stopIfLive: input.stopIfLive === true
+        stopIfLive: input.stopIfLive === true,
+        deleteBranch: input.deleteBranch === true
       }),
     sessionsDiscard: (input) =>
-      runtime.sessionRemovals.discard(input.sessionId, input.confirmBranch),
+      runtime.sessionRemovals.discard(input.sessionId, input.confirmBranch, {
+        deleteBranch: input.deleteBranch === true
+      }),
     sessionsRecoverWorktree: (input) => runtime.sessions.recoverWorktree(input.sessionId),
     branchesList: (input) => runtime.sessionRemovals.listBranches(input.repoId),
     branchesRefs: (input) => runtime.branchRefs.listRefs(input.repoId as never),

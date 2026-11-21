@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Session removal can delete the session's owned branch with its checkout.
+  **Delete branch** is an explicit, default-off choice in the Remove dialog; the
+  cleanup dialog still names uncommitted files and unmerged commits before one
+  confirmation. Shared checkouts, active task chains and branches checked out in
+  another worktree are refused before anything is deleted.
+
 ## [0.13.1] - 2026-11-21
 
 ### Changed

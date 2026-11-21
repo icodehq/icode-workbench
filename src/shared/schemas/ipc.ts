@@ -388,7 +388,15 @@ export const supervisorOpenInputSchema = z.strictObject({
  */
 export const removeSessionInputSchema = z.strictObject({
   sessionId: sessionIdSchema,
-  stopIfLive: z.boolean().optional()
+  stopIfLive: z.boolean().optional(),
+  /**
+   * Delete the session's owned branch after its checkout is removed.
+   *
+   * Only valid for a session that solely owns its worktree. The backend
+   * re-verifies ownership, active task chains and registered worktrees before
+   * touching the branch; a refusal leaves everything in place.
+   */
+  deleteBranch: z.boolean().optional()
 })
 
 export const harnessListInputSchema = z.strictObject({
@@ -574,7 +582,9 @@ export const removeSessionResultSchema = z.discriminatedUnion('status', [
   z.strictObject({
     status: z.literal('removed'),
     branch: z.string().min(1).max(255).nullable(),
-    branchRetained: z.boolean()
+    branchRetained: z.boolean(),
+    /** Present when branch deletion was requested but Git refused it. */
+    branchDeleteError: appErrorSchema.optional()
   }),
   z.strictObject({
     status: z.literal('blocked_live_sessions'),
@@ -594,7 +604,9 @@ export const discardSessionResultSchema = z.discriminatedUnion('status', [
     branch: z.string().min(1).max(255),
     files: worktreeFileListSchema,
     commits: z.number().int().nonnegative(),
-    branchRetained: z.literal(true)
+    branchRetained: z.boolean(),
+    /** Present when branch deletion was requested but Git refused it. */
+    branchDeleteError: appErrorSchema.optional()
   }),
   z.strictObject({
     status: z.literal('blocked_live_sessions'),
@@ -611,7 +623,9 @@ export const discardSessionResultSchema = z.discriminatedUnion('status', [
 export const discardSessionInputSchema = z.strictObject({
   sessionId: sessionIdSchema,
   /** The exact branch name, typed by the user. Never a boolean acknowledgement. */
-  confirmBranch: z.string().min(1).max(255)
+  confirmBranch: z.string().min(1).max(255),
+  /** Also delete the owned branch once the checkout is gone. */
+  deleteBranch: z.boolean().optional()
 })
 
 export const ownedBranchSummarySchema = z.strictObject({
