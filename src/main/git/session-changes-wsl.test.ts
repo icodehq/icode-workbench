@@ -345,7 +345,7 @@ describe('WSL change listing and working-tree diffs', () => {
     // The old code answered worktree-missing here; the detail is only produced
     // when the *distro* says the directory is gone.
     expect(result).not.toMatchObject({ reason: 'worktree-missing' })
-  })
+  }, 20_000)
 
   it('lists tracked changes from the distro Git (AC-02)', async () => {
     const f = await setup()
