@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-11-21
+
+### Added
+
+- App-wide network proxy settings under **Settings → Network** with System,
+  Manual, and Off modes. Manual mode accepts separate HTTP and HTTPS proxy URLs
+  plus a NO_PROXY list and applies them to provider tests, local Git, terminals,
+  and WSL; System mode reuses the operating-system proxy and fills the
+  non-Chromium environment where possible.
+- WSL sessions and Git receive the proxy guest-side. Loopback proxies are
+  rewritten to the Windows host gateway under WSL NAT, mirrored networking is
+  left untouched, and a loopback-only proxy produces an actionable warning.
+- POSIX GUI launches import proxy variables exported by the login shell.
+- Provider tests and Git remote failures now distinguish proxy failures
+  (`proxy_unreachable`, `proxy_auth_required`, `GIT_PROXY_FAILED`) from remote
+  authentication or endpoint errors.
+
+### Changed
+
+- Local Git executors read the proxy environment for every command, so a
+  settings change reaches clone, fetch, push, and session worktree operations
+  without restarting the app.
+
+### Notes
+
+- Proxy authentication is not supported in this release; proxy URLs containing
+  credentials are rejected.
+
 ## [0.12.0] - 2026-11-20
 
 ### Changed
