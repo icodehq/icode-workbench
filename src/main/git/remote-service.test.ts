@@ -220,6 +220,57 @@ describe('RemoteService', () => {
     })
   })
 
+  it('fetches exactly one remote-tracking ref under the repository lock', async () => {
+    const { service, calls, locks } = setup({
+      remoteOutput: 'origin\thttps://github.com/o/r.git (fetch)'
+    })
+    await expect(
+      service.fetchTrackingRef(repoId, { remote: 'origin', branch: 'feature/foo' })
+    ).resolves.toEqual({ status: 'ok', name: 'origin' })
+    expect(calls).toContainEqual([
+      'fetch',
+      '--no-tags',
+      '--',
+      'origin',
+      '+refs/heads/feature/foo:refs/remotes/origin/feature/foo'
+    ])
+    expect(locks).toEqual(['/srv/atlas'])
+  })
+
+  it('rejects an invalid branch or unknown remote before fetching', async () => {
+    const invalidBranch = setup({
+      remoteOutput: 'origin\thttps://github.com/o/r.git (fetch)'
+    })
+    await expect(
+      invalidBranch.service.fetchTrackingRef(repoId, {
+        remote: 'origin',
+        branch: 'bad:ref'
+      })
+    ).rejects.toMatchObject({ appError: { code: 'INVALID_ARGUMENT' } })
+    expect(invalidBranch.calls.some((args) => args[0] === 'fetch')).toBe(false)
+
+    const missingRemote = setup({ remoteOutput: '' })
+    await expect(
+      missingRemote.service.fetchTrackingRef(repoId, {
+        remote: 'origin',
+        branch: 'feature/foo'
+      })
+    ).rejects.toMatchObject({ appError: { code: 'INVALID_ARGUMENT' } })
+    expect(missingRemote.calls.some((args) => args[0] === 'fetch')).toBe(false)
+  })
+
+  it('classifies a targeted fetch authentication failure', async () => {
+    const { service } = setup({
+      remoteOutput: 'origin\thttps://github.com/o/r.git (fetch)',
+      fetch: result('', 128, "fatal: could not read Username for 'https://github.com'")
+    })
+    await expect(
+      service.fetchTrackingRef(repoId, { remote: 'origin', branch: 'feature/foo' })
+    ).rejects.toMatchObject({
+      appError: { code: 'GIT_AUTH_FAILED', messageKey: 'remote.auth.local' }
+    })
+  })
+
   it('refuses an unknown repository', async () => {
     const { service } = setup()
     await expect(service.list(newRepoId())).rejects.toMatchObject({

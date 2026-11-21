@@ -26,7 +26,11 @@ import type { TaskRelations, TaskStore } from './task-store'
 import type { ReviewDecision } from '../../shared/domain/task'
 import type { MergeState } from '../../shared/domain/merge'
 import type { MergeStore } from '../persistence/merge-store'
-import { chainBranchNameForTask, isValidBranchName } from '../../shared/domain/branch'
+import {
+  chainBranchNameForTask,
+  isValidBranchName,
+  isValidStartRef
+} from '../../shared/domain/branch'
 
 export type TaskServiceError = { kind: 'app'; error: AppError }
 
@@ -124,7 +128,7 @@ export type CreateTaskInput = {
   dependsOn?: readonly string[]
   /** Whether tasks queued after this one wait for acceptance. */
   holdDependents?: boolean
-  /** Local branch a chain root should start from. Renderer-supplied. */
+  /** Local or remote-tracking ref a chain root starts from. Renderer-supplied. */
   startFrom?: string | null
   /** Optional chain branch name. Renderer-supplied for a chain root. */
   branchName?: string | null
@@ -235,7 +239,7 @@ export class TaskService {
     const approvedBy = approval === 'approved' ? (input.approvedBy ?? 'human') : null
     const startFrom = input.startFrom?.trim() || null
     const branchName = input.branchName?.trim() || null
-    if (startFrom !== null && !isValidBranchName(startFrom)) {
+    if (startFrom !== null && !isValidStartRef(startFrom)) {
       return {
         ok: false,
         error: fail('INVALID_ARGUMENT', 'The start-from branch name is not valid.').error

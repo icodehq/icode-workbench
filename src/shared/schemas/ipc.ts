@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { AppError } from '../domain/errors'
+import { BRANCH_REF_KINDS } from '../domain/branch'
 import { WORKTREE_STATES, WORKTREE_STATUSES } from '../domain/worktree'
 import { MERGE_STATES } from '../domain/merge'
 import { SESSION_ROLES } from '../domain/session'
@@ -17,6 +18,7 @@ import {
   repoIdSchema,
   sessionIdSchema,
   sessionTitleSchema,
+  startRefSchema,
   terminalInputSchema,
   timestampSchema,
   worktreeIdSchema
@@ -311,8 +313,8 @@ export const createSessionInputSchema = z.strictObject({
    * and a main-process `base` are mutually exclusive with this.
    */
   worktreeId: worktreeIdSchema.optional(),
-  /** Local branch to base a new worktree on. Absent keeps the primary HEAD. */
-  startFrom: branchNameSchema.optional(),
+  /** Local or remote-tracking ref to base a new worktree on. Absent keeps the primary HEAD. */
+  startFrom: startRefSchema.optional(),
   /** Optional user-chosen branch name. Absent keeps the generated session name. */
   branchName: branchNameSchema.optional(),
   cols: dimensionSchema,
@@ -320,7 +322,11 @@ export const createSessionInputSchema = z.strictObject({
 })
 
 export const branchRefSummarySchema = z.strictObject({
-  name: z.string().min(1).max(255),
+  /** Display label: a short local name, or remote shorthand such as `origin/foo`. */
+  name: z.string().min(1).max(1024),
+  /** Full Git refname. Remote options submit this value. */
+  fullName: z.string().min(1).max(1024),
+  kind: z.enum(BRANCH_REF_KINDS),
   oid: z.string().min(1).max(128),
   primaryHead: z.boolean(),
   worktreePath: absolutePathSchema.nullable()

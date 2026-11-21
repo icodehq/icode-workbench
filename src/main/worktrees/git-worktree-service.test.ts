@@ -54,6 +54,52 @@ afterEach(() => {
   while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true })
 })
 
+describe('ref resolution and upstream tracking', () => {
+  it('resolves explicit local and remote refs but not bare revisions', async () => {
+    const { service, repo, baseOid } = makeRepo()
+    git(repo, 'update-ref', 'refs/remotes/origin/topic', baseOid)
+
+    await expect(service.resolveRefOid(repo, 'refs/heads/main')).resolves.toBe(baseOid)
+    await expect(service.resolveRefOid(repo, 'refs/remotes/origin/topic')).resolves.toBe(baseOid)
+    await expect(service.resolveRefOid(repo, 'main')).resolves.toBeNull()
+    await expect(service.resolveRefOid(repo, '--help')).resolves.toBeNull()
+    await expect(service.resolveRefOid(repo, 'refs/remotes/origin/missing')).resolves.toBeNull()
+  })
+
+  it('sets a same-named branch upstream from a remote-tracking ref', async () => {
+    const { service, repo, root, baseOid } = makeRepo()
+    execFileSync('git', ['-C', repo, 'remote', 'add', 'origin', join(root, 'origin.git')])
+    git(repo, 'update-ref', 'refs/remotes/origin/topic', baseOid)
+    const worktree = join(root, 'worktrees', 'topic-wt')
+    await service.create({
+      primaryRoot: repo,
+      path: worktree,
+      branch: 'topic',
+      baseOid
+    })
+
+    await expect(
+      service.setBranchUpstream({
+        primaryRoot: repo,
+        worktreePath: worktree,
+        branch: 'topic',
+        upstreamRef: 'refs/remotes/origin/topic'
+      })
+    ).resolves.toBe(true)
+    expect(git(worktree, 'rev-parse', '--abbrev-ref', 'topic@{upstream}')).toBe('origin/topic')
+
+    // Only remote-tracking refs are eligible as an upstream here.
+    await expect(
+      service.setBranchUpstream({
+        primaryRoot: repo,
+        worktreePath: worktree,
+        branch: 'topic',
+        upstreamRef: 'refs/heads/main'
+      })
+    ).resolves.toBe(false)
+  })
+})
+
 describe('repository inspection', () => {
   it('reports the baseline commit and branch of a normal repository', async () => {
     const { service, repo, baseOid } = makeRepo()

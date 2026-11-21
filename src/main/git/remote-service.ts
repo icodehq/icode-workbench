@@ -17,6 +17,7 @@ import type { ExecutionTarget } from '../../shared/domain/repository'
 import type { AppError } from '../../shared/domain/errors'
 import { makeAppError } from '../../shared/domain/errors'
 import type { MessageKey } from '../../shared/i18n/messages'
+import { isValidBranchName } from '../../shared/domain/branch'
 import {
   containsRedactionPlaceholder,
   isCloneableRemoteInput,
@@ -29,6 +30,11 @@ import { classifyRemoteFailure } from './remote-failure'
 const READ_TIMEOUT_MS = 10_000
 const MUTATE_TIMEOUT_MS = 30_000
 const FETCH_TIMEOUT_MS = 300_000
+/**
+ * A targeted branch fetch happens inline with session/task creation, so a dead
+ * network must not hold the create flow for the full fetch timeout.
+ */
+const TARGETED_FETCH_TIMEOUT_MS = 60_000
 const MAX_NAME = 255
 const MAX_URL = 2_048
 
@@ -260,6 +266,77 @@ export class RemoteService {
               operation: 'fetch',
               target: repository.executionTarget,
               fallback: 'The remote could not be fetched.'
+            })
+          )
+        }
+        return { status: 'ok', name }
+      }
+    )
+  }
+
+  /**
+   * Refreshes exactly one remote-tracking ref.
+   *
+   * The explicit refspec keeps the network cost proportional to the selected
+   * branch and permits a force-pushed branch to update its tracking ref.
+   */
+  async fetchTrackingRef(
+    repoId: RepoId,
+    input: { remote: string; branch: string }
+  ): Promise<RemoteMutationResult> {
+    const repository = this.repository(repoId)
+    const name = this.validateName(input.remote)
+    const branch = input.branch.trim()
+    if (!isValidBranchName(branch)) {
+      throw fail('INVALID_ARGUMENT', 'The remote branch name is not valid.')
+    }
+    await this.requireExisting(repoId, name)
+    const git = await this.deps.gitWorktrees.gitResultFor(repository.executionTarget)
+    return this.deps.gitWorktrees.runRepositoryExclusive(
+      repository.path,
+      repository.executionTarget,
+      async () => {
+        let result
+        try {
+          result = await git(
+            repository.path,
+            [
+              'fetch',
+              '--no-tags',
+              '--',
+              name,
+              `+refs/heads/${branch}:refs/remotes/${name}/${branch}`
+            ],
+            TARGETED_FETCH_TIMEOUT_MS
+          )
+        } catch (error) {
+          throw new RemoteServiceError(
+            classifyRemoteFailure({
+              error,
+              operation: 'fetch',
+              target: repository.executionTarget,
+              fallback: 'The remote branch could not be fetched.'
+            })
+          )
+        }
+        if (result.timedOut) {
+          throw fail('GIT_REMOTE_FAILED', 'The remote did not respond in time.')
+        }
+        if (result.spawnFailure !== undefined) {
+          throw fail(
+            'WSL_UNAVAILABLE',
+            'The WSL distro could not run Git.',
+            undefined,
+            'errors.WSL_UNAVAILABLE'
+          )
+        }
+        if (result.exitCode !== 0) {
+          throw new RemoteServiceError(
+            classifyRemoteFailure({
+              stderr: result.stderr.toString('utf8'),
+              operation: 'fetch',
+              target: repository.executionTarget,
+              fallback: 'The remote branch could not be fetched.'
             })
           )
         }

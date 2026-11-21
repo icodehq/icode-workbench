@@ -63,6 +63,14 @@ export const worktreeRelativePathSchema = z
 export const dimensionSchema = z.number().int().min(1).max(1000)
 export const timestampSchema = z.number().int().nonnegative()
 
+/**
+ * A branch or remote-tracking ref used as a worktree base.
+ *
+ * Full refs are longer than branch names, so this deliberately does not reuse
+ * `branchNameSchema`'s 255-character cap.
+ */
+export const startRefSchema = z.string().trim().min(1).max(1024)
+
 export const sessionTitleSchema = z
   .string()
   .min(1)

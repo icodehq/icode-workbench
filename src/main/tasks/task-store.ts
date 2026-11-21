@@ -222,7 +222,7 @@ export type NewTaskRow = {
   chainBranch?: string | null
   /** `merge` for new chains; `legacy` preserves pre-v16 readiness. */
   chainGate?: TaskChainGate
-  /** Local branch a chain root starts from. */
+  /** Local or remote-tracking ref a chain root starts from. */
   startFrom?: string | null
 }
 

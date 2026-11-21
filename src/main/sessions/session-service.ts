@@ -4,9 +4,14 @@ import type { RepositoryStore } from '../persistence/repository-store'
 import type { SessionStore } from '../persistence/session-store'
 import type { WorktreeStore } from '../persistence/worktree-store'
 import type { GitWorktreeService } from '../worktrees/git-worktree-service'
+import type { BranchService } from '../git/branch-service'
 import { describeWorktree, samePath } from '../worktrees/worktree-status'
 import { branchNameForSession } from '../../shared/domain/worktree'
-import { isValidBranchName } from '../../shared/domain/branch'
+import {
+  isValidBranchName,
+  isValidStartRef,
+  type RemoteTrackingRef
+} from '../../shared/domain/branch'
 import type {
   SessionWorktreeRecord,
   WorktreeSummary
@@ -89,6 +94,7 @@ export type SessionServiceDeps = {
   sessions: SessionStore
   worktrees: WorktreeStore
   gitWorktrees: GitWorktreeService
+  branches: Pick<BranchService, 'resolveStartRef'>
   host: HostGateway
   /**
    * Seeds the harness's per-folder trust record for a new session worktree.
@@ -691,6 +697,7 @@ export class SessionService {
 
     let baseRef = gitState.headRef
     let baseOid = gitState.headOid
+    let remoteTracking: RemoteTrackingRef | null = null
     if (options.base) {
       const oid = options.base.oid.trim()
       if (oid.length === 0 || !(await this.commitExists(repository.path, oid, target))) {
@@ -703,27 +710,28 @@ export class SessionService {
       baseRef = options.base.ref
       baseOid = oid
     } else if (input.startFrom !== undefined) {
-      if (!isValidBranchName(input.startFrom)) {
+      if (!isValidStartRef(input.startFrom)) {
         throw new SessionServiceError(
-          makeAppError('INVALID_ARGUMENT', 'The start-from branch name is not valid.', {
+          makeAppError('INVALID_ARGUMENT', 'The start-from ref is not valid.', {
             context: { branch: input.startFrom }
           })
         )
       }
-      const oid = await this.deps.gitWorktrees.resolveBranchOid(
-        repository.path,
+      const resolved = await this.deps.branches.resolveStartRef(
+        repository.id,
         input.startFrom,
-        target
+        { refreshRemote: true }
       )
-      if (oid === null) {
+      if (resolved === null) {
         throw new SessionServiceError(
-          makeAppError('START_REF_NOT_FOUND', 'The start-from branch does not exist.', {
+          makeAppError('START_REF_NOT_FOUND', 'The start-from ref does not exist.', {
             context: { branch: input.startFrom }
           })
         )
       }
-      baseRef = input.startFrom
-      baseOid = oid
+      baseRef = resolved.baseRef
+      baseOid = resolved.baseOid
+      remoteTracking = resolved.remoteTracking
     }
 
     let branch = branchNameForSession(sessionId)
@@ -840,6 +848,17 @@ export class SessionService {
         target
       })
       this.deps.worktrees.updateState(sessionId, 'created', null, this.now())
+      // Orca parity: only a branch whose name matches the remote branch adopts
+      // its upstream. Generated session branches stay untracked.
+      if (remoteTracking !== null && branch === remoteTracking.branch) {
+        await this.deps.gitWorktrees.setBranchUpstream({
+          primaryRoot: repository.path,
+          worktreePath,
+          branch,
+          upstreamRef: remoteTracking.fullRef,
+          target
+        })
+      }
       // The create path has just proved this checkout. Let the first attach reuse
       // that proof instead of re-running the same guest inspection.
       this.freshCheckouts.set(sessionId, {

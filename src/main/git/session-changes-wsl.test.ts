@@ -7,6 +7,8 @@ import { WorktreeStore } from '../persistence/worktree-store'
 import { GitWorktreeService } from '../worktrees/git-worktree-service'
 import { SessionService } from '../sessions/session-service'
 import { FakeHostGateway } from '../sessions/fake-host-gateway'
+import { BranchService } from './branch-service'
+import { RemoteService } from './remote-service'
 import type { GitReadResult } from './bounded-read'
 import { GitWorkspaceService } from './git-workspace-service'
 import { readChangeList, type ReadContext } from './change-reader'
@@ -197,12 +199,20 @@ async function setup(options: { resolveTargetFails?: boolean } = {}): Promise<Fi
     router
   })
 
+  const remotes = new RemoteService({ repositories: stores.repositories, gitWorktrees })
+  const branches = new BranchService({
+    repositories: stores.repositories,
+    worktrees,
+    gitWorktrees,
+    remotes
+  })
   const sessions = new SessionService({
     database: db,
     repositories: stores.repositories,
     sessions: stores.sessions,
     worktrees,
     gitWorktrees,
+    branches,
     host,
     detectHarness: async () => ({
       state: 'available',

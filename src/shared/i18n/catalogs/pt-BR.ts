@@ -366,6 +366,8 @@ export const ptBR = {
   'workspace.notice.theSession': "a sessão",
   'workspace.notice.sessionFallback': "Sessão",
   'common.unavailable': "Indisponível",
+  'common.localBranches': "Branches locais",
+  'common.remoteBranches': "Branches remotas",
   'newSession.title': "Nova sessão",
   'newSession.subtitle': "Um Harness é executado no repositório selecionado por meio de um terminal real.",
   'newSession.repository': "Repositório",

@@ -1,5 +1,10 @@
 import { z } from 'zod'
-import { repoIdSchema, sessionIdSchema, worktreeRelativePathSchema } from './primitives'
+import {
+  repoIdSchema,
+  sessionIdSchema,
+  startRefSchema,
+  worktreeRelativePathSchema
+} from './primitives'
 import { harnessIdSchema } from './domain'
 import { changeFileSchema } from './changes'
 import { MERGE_STATES } from '../domain/merge'
@@ -366,7 +371,7 @@ export const taskRecordSchema = z.strictObject({
   holdDependents: z.boolean().optional(),
   chainBranch: z.string().min(1).max(255).nullable().optional(),
   chainGate: z.enum(['merge', 'legacy']).optional(),
-  startFrom: z.string().min(1).max(255).nullable().optional(),
+  startFrom: startRefSchema.nullable().optional(),
   dependencies: z.array(taskDependencySummarySchema).max(20).optional(),
   dependents: z.array(taskDependentSummarySchema).max(500).optional(),
   ready: z.boolean().optional()
@@ -387,7 +392,7 @@ export const taskCreateInputSchema = z.strictObject({
   harness: harnessIdSchema,
   dependsOn: z.array(z.string().min(1).max(80)).max(20).optional(),
   holdDependents: z.boolean().optional(),
-  startFrom: z.string().trim().min(1).max(255).optional(),
+  startFrom: startRefSchema.optional(),
   branchName: z.string().trim().min(1).max(255).optional()
 })
 

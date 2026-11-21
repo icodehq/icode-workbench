@@ -6,6 +6,11 @@ import type { RepositorySummary } from '../../../../shared/schemas/ipc'
 import type { Notice } from '../../state/workspace'
 import { callApi, errorNotice } from '../../lib/api'
 import { repositoryPreparationView } from '../../lib/repository-preparation'
+import {
+  groupStartFromRefs,
+  startFromGroupLabelKey,
+  startFromValue
+} from '../../lib/start-from-refs'
 import { useBranchRefs } from '../../state/use-branch-refs'
 import { useT } from '../../i18n/use-i18n'
 
@@ -300,10 +305,18 @@ export default function TaskComposerDialog({
                 <option value="">
                   {t('tasks.composer.startFromCurrent', { branch: repo.currentBranch ?? 'HEAD' })}
                 </option>
-                {branchRefs.refs.map((ref) => (
-                  <option key={ref.name} value={ref.name} disabled={ref.worktreePath !== null}>
-                    {ref.name}
-                  </option>
+                {groupStartFromRefs(branchRefs.refs).map((group) => (
+                  <optgroup key={group.kind} label={t(startFromGroupLabelKey(group.kind))}>
+                    {group.refs.map((ref) => (
+                      <option
+                        key={ref.fullName}
+                        value={startFromValue(ref)}
+                        disabled={ref.worktreePath !== null}
+                      >
+                        {ref.name}
+                      </option>
+                    ))}
+                  </optgroup>
                 ))}
               </select>
             </label>

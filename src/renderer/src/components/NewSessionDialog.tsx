@@ -15,6 +15,11 @@ import type {
   WorktreeSummary
 } from '../../../shared/schemas/ipc'
 import { repositoryPreparationView } from '../lib/repository-preparation'
+import {
+  groupStartFromRefs,
+  startFromGroupLabelKey,
+  startFromValue
+} from '../lib/start-from-refs'
 import type { CreateSessionRequest } from '../state/use-workspace'
 import { useBranchRefs } from '../state/use-branch-refs'
 import { useT, useTp } from '../i18n/use-i18n'
@@ -449,14 +454,18 @@ export default function NewSessionDialog({
                     branch: selectedRepo?.currentBranch ?? 'HEAD'
                   })}
                 </option>
-                {branchRefs.refs.map((ref) => (
-                  <option key={ref.name} value={ref.name}>
-                    {ref.name}
-                    {ref.primaryHead ? ' ★' : ''}
-                    {ref.worktreePath !== null
-                      ? ` · ${t('newSession.branchInUse')}`
-                      : ''}
-                  </option>
+                {groupStartFromRefs(branchRefs.refs).map((group) => (
+                  <optgroup key={group.kind} label={t(startFromGroupLabelKey(group.kind))}>
+                    {group.refs.map((ref) => (
+                      <option key={ref.fullName} value={startFromValue(ref)}>
+                        {ref.name}
+                        {ref.primaryHead ? ' ★' : ''}
+                        {ref.worktreePath !== null
+                          ? ` · ${t('newSession.branchInUse')}`
+                          : ''}
+                      </option>
+                    ))}
+                  </optgroup>
                 ))}
               </select>
               {branchRefs.error !== null ? (

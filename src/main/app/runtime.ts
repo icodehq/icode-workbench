@@ -699,12 +699,26 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     if (!state.enabled) activity.invalidatePluginActivity()
   })
 
+  // Session creation can start from a remote-tracking ref, so branch
+  // resolution and targeted refresh must exist before any session service.
+  const remotes = new RemoteService({
+    repositories: persistence.repositories,
+    gitWorktrees
+  })
+  const branchRefs = new BranchService({
+    repositories: persistence.repositories,
+    worktrees,
+    gitWorktrees,
+    remotes
+  })
+
   const sessions = new SessionService({
     database: persistence.database,
     repositories: persistence.repositories,
     sessions: persistence.sessions,
     worktrees,
     gitWorktrees,
+    branches: branchRefs,
     host,
     workspaceTrust,
     /**
@@ -818,15 +832,6 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     worktrees,
     gitWorktrees,
     sessions
-  })
-  const branchRefs = new BranchService({
-    repositories: persistence.repositories,
-    worktrees,
-    gitWorktrees
-  })
-  const remotes = new RemoteService({
-    repositories: persistence.repositories,
-    gitWorktrees
   })
   const clone = new CloneService({
     gitWorktrees,

@@ -4,6 +4,7 @@ import { makeAppError } from '../domain/errors'
 import {
   IPC_CHANNELS,
   addRepositoryInputSchema,
+  branchRefSummarySchema,
   createSessionInputSchema,
   ipcResultSchema,
   removeRepositoryInputSchema,
@@ -75,12 +76,51 @@ describe('session inputs', () => {
     expect(createSessionInputSchema.safeParse({ ...base, rows: 1001 }).success).toBe(false)
   })
 
+  it('accepts local and remote-tracking start refs, bounded at 1024', () => {
+    const base = { repoId, harness: 'claude', cols: 80, rows: 24 }
+    expect(
+      createSessionInputSchema.safeParse({ ...base, startFrom: 'feature/base' }).success
+    ).toBe(true)
+    expect(
+      createSessionInputSchema.safeParse({
+        ...base,
+        startFrom: 'refs/remotes/origin/feature/base'
+      }).success
+    ).toBe(true)
+    expect(
+      createSessionInputSchema.safeParse({ ...base, startFrom: 'a'.repeat(1024) }).success
+    ).toBe(true)
+    expect(
+      createSessionInputSchema.safeParse({ ...base, startFrom: 'a'.repeat(1025) }).success
+    ).toBe(false)
+  })
+
   it('rejects titles beyond the domain limit and control characters', () => {
     const base = { repoId, harness: 'claude', cols: 80, rows: 24 }
     expect(
       createSessionInputSchema.safeParse({ ...base, title: 'x'.repeat(121) }).success
     ).toBe(false)
     expect(createSessionInputSchema.safeParse({ ...base, title: 'bad\nline' }).success).toBe(false)
+  })
+})
+
+describe('branch ref summaries', () => {
+  it('requires the full refname and kind', () => {
+    const base = { name: 'origin/foo', oid: 'abc', primaryHead: false, worktreePath: null }
+    expect(
+      branchRefSummarySchema.safeParse({
+        ...base,
+        fullName: 'refs/remotes/origin/foo',
+        kind: 'remote'
+      }).success
+    ).toBe(true)
+    expect(
+      branchRefSummarySchema.safeParse({
+        ...base,
+        fullName: 'refs/remotes/origin/foo'
+      }).success
+    ).toBe(false)
+    expect(branchRefSummarySchema.safeParse({ ...base, kind: 'remote' }).success).toBe(false)
   })
 })
 
