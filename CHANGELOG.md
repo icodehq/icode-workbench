@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The **New session** dialog lists only the Harnesses installed for the selected
+  repository. Everything else folds behind **More agents**, and searching still
+  reaches the full catalog.
+
 ## [0.13.0] - 2026-11-21
 
 ### Added

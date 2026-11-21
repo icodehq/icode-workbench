@@ -619,8 +619,19 @@ async function main() {
   await step('inspect real Harness detection and reject unavailable Harnesses', async () => {
     await click('[data-testid="empty-new-session"]')
     await waitForSelector('[data-testid="harness-list"]')
+    // The dialog lists installed Harnesses; everything else sits behind
+    // "More agents", so expand it to inspect the whole detection.
     await waitFor(
-      `document.querySelectorAll('[data-harness-state]').length === 22`,
+      `document.querySelectorAll('[data-harness-state]').length >= 1`,
+      'installed Harness detections',
+      20000
+    )
+    await cdp.evaluate(`(() => {
+      const button = document.querySelector('[data-testid="harness-more"]');
+      if (button) button.click();
+    })()`)
+    await waitFor(
+      `document.querySelectorAll('[data-harness-state]').length === 46`,
       'all Harness detections',
       20000
     )
@@ -1098,7 +1109,7 @@ async function main() {
     await waitForSelector('[data-testid="new-session-open"]', 10000)
     const createDisabled = await cdp.evaluate(`(() => {
       const button = document.querySelector('[data-testid="new-session-open"]')
-      return button ? { disabled: button.disabled, title: button.title } : null
+      return button ? { disabled: button.getAttribute('aria-disabled') === 'true', title: button.title } : null
     })()`)
     assert(createDisabled && createDisabled.disabled, 'New session stayed enabled while the Host was unreachable')
     assert(
@@ -1169,8 +1180,11 @@ async function main() {
     await click('[data-testid="sidebar-new-menu"]')
     await waitForSelector('[data-testid="new-session-open"]', 10000)
     await click('[data-testid="new-session-open"]')
+    // Nothing is launchable, so every detection sits behind the disclosure.
+    await waitForSelector('[data-testid="harness-more"]', 20000)
+    await click('[data-testid="harness-more"]')
     await waitFor(
-      `document.querySelectorAll('[data-harness-state]').length === 22`,
+      `document.querySelectorAll('[data-harness-state]').length === 46`,
       'all unavailable detections',
       20000
     )

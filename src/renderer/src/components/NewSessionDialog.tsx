@@ -250,10 +250,10 @@ export default function NewSessionDialog({
   const shellEntry = harnesses.find((entry) => entry.harness === 'shell') ?? null
 
   /*
-   * The catalog is broad; the dialog stays navigable by keeping the 21 primary
-   * agents visible, collapsing the community tail until asked, and matching
-   * both against id/label/search aliases. Available entries float first within
-   * each group without losing the catalog's intentional order.
+   * The catalog is broad, but only an installed Harness can start a session,
+   * so those are the list. Unavailable entries fold behind "More agents"
+   * until asked for, and a search matches every entry against
+   * id/label/aliases and shows what it finds regardless of state.
    */
   const query = harnessQuery.trim().toLowerCase()
   const matchingAgents = useMemo(() => {
@@ -267,22 +267,14 @@ export default function NewSessionDialog({
         Number(right.state === 'available') - Number(left.state === 'available')
     )
   }, [agents, query])
-  const primaryAgents = matchingAgents.filter(
-    (entry) => HARNESS_DEFINITIONS[entry.harness].group === 'primary'
-  )
-  const secondaryAgents = matchingAgents.filter(
-    (entry) => HARNESS_DEFINITIONS[entry.harness].group === 'secondary'
-  )
-  const secondaryVisible = query.length > 0 || showAllAgents
-
-  useEffect(() => {
-    if (
-      harness !== null &&
-      HARNESS_DEFINITIONS[harness].group === 'secondary'
-    ) {
-      setShowAllAgents(true)
-    }
-  }, [harness])
+  const shownAgents =
+    query.length > 0
+      ? matchingAgents
+      : matchingAgents.filter((entry) => entry.state === 'available')
+  const hiddenAgents =
+    query.length > 0
+      ? []
+      : matchingAgents.filter((entry) => entry.state !== 'available')
 
   /**
    * Ask for the *selected repository's* Harnesses.
@@ -571,7 +563,7 @@ export default function NewSessionDialog({
                   }
                   testId="agent-section"
                 />
-                {primaryAgents.map((entry) => (
+                {shownAgents.map((entry) => (
                   <HarnessRow
                     key={entry.harness}
                     entry={entry}
@@ -579,22 +571,22 @@ export default function NewSessionDialog({
                     onSelect={() => setHarness(entry.harness)}
                   />
                 ))}
-                {secondaryAgents.length > 0 && !secondaryVisible ? (
+                {hiddenAgents.length > 0 && !showAllAgents ? (
                   <button
                     type="button"
                     className="w-full rounded-md border border-dashed border-border px-3 py-2 text-left text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
                     onClick={() => setShowAllAgents(true)}
                     data-testid="harness-more"
                   >
-                    {t('newSession.moreAgents', { count: secondaryAgents.length })}
+                    {t('newSession.moreAgents', { count: hiddenAgents.length })}
                   </button>
                 ) : null}
-                {secondaryVisible && secondaryAgents.length > 0 ? (
-                  <div className="space-y-1.5" data-testid="harness-secondary">
+                {showAllAgents && hiddenAgents.length > 0 ? (
+                  <div className="space-y-1.5" data-testid="harness-hidden">
                     <p className="px-1 pt-1 text-[10px] font-semibold uppercase tracking-wider text-foreground/80">
-                      {t('newSession.moreAgents', { count: secondaryAgents.length })}
+                      {t('newSession.moreAgents', { count: hiddenAgents.length })}
                     </p>
-                    {secondaryAgents.map((entry) => (
+                    {hiddenAgents.map((entry) => (
                       <HarnessRow
                         key={entry.harness}
                         entry={entry}
