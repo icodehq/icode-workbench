@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-11-21
+
 ### Added
 
 - Session rows and the session header now offer **Resume** for an exited or
