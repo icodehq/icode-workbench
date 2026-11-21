@@ -7,6 +7,7 @@ export type SessionAction = (sessionId: string, options?: SessionRemovalOptions)
 
 export type SessionActions = {
   restart: SessionAction
+  resume: SessionAction
   sleep: SessionAction
   wake: SessionAction
   recheck: SessionAction
@@ -17,6 +18,7 @@ export type SessionActions = {
 
 export type SessionActionSource = {
   restartSession: (sessionId: string) => Promise<void>
+  resumeSession: (sessionId: string) => Promise<void>
   sleepSession: (sessionId: string) => Promise<void>
   wakeSession: (sessionId: string) => Promise<void>
   recheckSession: (sessionId: string) => Promise<void>
@@ -27,12 +29,12 @@ export type SessionActionSource = {
 
 export type DirectSessionActions = Pick<
   SessionActions,
-  'restart' | 'sleep' | 'wake' | 'recheck' | 'remove' | 'recoverWorktree'
+  'restart' | 'resume' | 'sleep' | 'wake' | 'recheck' | 'remove' | 'recoverWorktree'
 >
 export type TaskSessionActions = Pick<SessionActions, 'stop' | 'restart' | 'recheck'>
 export type SidebarSessionActions = Pick<
   SessionActions,
-  'sleep' | 'wake' | 'restart' | 'remove' | 'recoverWorktree'
+  'sleep' | 'wake' | 'restart' | 'resume' | 'remove' | 'recoverWorktree'
 >
 
 /**
@@ -43,6 +45,7 @@ export type SidebarSessionActions = Pick<
 export function createSessionActions(source: SessionActionSource): SessionActions {
   return {
     restart: (sessionId) => void source.restartSession(sessionId),
+    resume: (sessionId) => void source.resumeSession(sessionId),
     sleep: (sessionId) => void source.sleepSession(sessionId),
     wake: (sessionId) => void source.wakeSession(sessionId),
     recheck: (sessionId) => void source.recheckSession(sessionId),

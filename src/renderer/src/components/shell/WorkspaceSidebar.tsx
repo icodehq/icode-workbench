@@ -359,6 +359,7 @@ export default function WorkspaceSidebar({
     onOpenSchedules,
     onTaskAction,
     onWakeSession: sessionActions.wake,
+    onResumeSession: sessionActions.resume,
     onRestartSession: sessionActions.restart,
     toggleProjectPin,
     toggleTaskPin,

@@ -56,6 +56,7 @@ export const IPC_CHANNELS = {
   sessionsCreate: 'icode:sessions:create',
   sessionsClose: 'icode:sessions:close',
   sessionsRestart: 'icode:sessions:restart',
+  sessionsResume: 'icode:sessions:resume',
   sessionsSleep: 'icode:sessions:sleep',
   sessionsWake: 'icode:sessions:wake',
   sessionsRemove: 'icode:sessions:remove',
@@ -566,6 +567,15 @@ export const sessionSummarySchema = z.strictObject({
    * parseable; the backend always sets it.
    */
   sleeping: z.boolean().optional(),
+  /**
+   * Whether an explicit Resume can reopen this session's harness conversation.
+   *
+   * True only for a non-live, non-sleeping session whose conversation token was
+   * captured and whose harness has a resume recipe. Restart deliberately starts
+   * fresh; resume never guesses a conversation. Optional so older persisted
+   * summaries remain parseable; the backend always sets it.
+   */
+  resumable: z.boolean().optional(),
   /** `null` for legacy sessions that run in the repository's primary checkout. */
   worktree: worktreeSummarySchema.nullable(),
   /**

@@ -92,6 +92,7 @@ export function useWorkspace(): {
   createSession: (input: CreateSessionRequest) => Promise<CreateSessionOutcome>
   stopSession: (sessionId: string) => Promise<void>
   restartSession: (sessionId: string) => Promise<void>
+  resumeSession: (sessionId: string) => Promise<void>
   sleepSession: (sessionId: string) => Promise<void>
   wakeSession: (sessionId: string) => Promise<void>
   recheckSession: (sessionId: string) => Promise<void>
@@ -850,6 +851,33 @@ export function useWorkspace(): {
     [notify, refreshSessions, state.sessions]
   )
 
+  const resumeSession = useCallback(
+    async (sessionId: string): Promise<void> => {
+      const session = state.sessions.find((entry) => entry.id === sessionId)
+      const pendingStop = stopTimers.current.get(sessionId)
+      if (pendingStop !== undefined) {
+        clearTimeout(pendingStop)
+        stopTimers.current.delete(sessionId)
+      }
+      dispatch({ type: 'pendingSet', sessionId, action: 'resuming' })
+      const result = await callApi(window.icode.sessions.resume({ sessionId }))
+      dispatch({ type: 'pendingClear', sessionId })
+      if (!result.ok) {
+        notify(errorNotice(result.error))
+        await refreshSessions()
+        return
+      }
+      dispatch({ type: 'sessionUpserted', session: result.value })
+      notify({
+        tone: 'success',
+        message: translate('workspace.notice.resumed', {
+          title: session?.title ?? translate('workspace.notice.theSession')
+        })
+      })
+    },
+    [notify, refreshSessions, state.sessions]
+  )
+
   const sleepSession = useCallback(
     async (sessionId: string): Promise<void> => {
       const session = state.sessions.find((entry) => entry.id === sessionId)
@@ -942,6 +970,7 @@ export function useWorkspace(): {
     createSession,
     stopSession,
     restartSession,
+    resumeSession,
     sleepSession,
     wakeSession,
     recheckSession,

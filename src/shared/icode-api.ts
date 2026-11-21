@@ -310,6 +310,13 @@ export type IcodeProductApi = {
     ) => Promise<IpcResult<SessionSummary>>
     close: (input: z.infer<typeof sessionTargetInputSchema>) => Promise<IpcResult<null>>
     restart: (input: z.infer<typeof sessionTargetInputSchema>) => Promise<IpcResult<SessionSummary>>
+    /**
+     * Reopens a non-live session with its harness-native resume command.
+     *
+     * Restart starts a fresh process; Resume continues the captured
+     * conversation and never guesses one.
+     */
+    resume: (input: z.infer<typeof sessionTargetInputSchema>) => Promise<IpcResult<SessionSummary>>
     /** Stops the process, frees resources, and keeps the session/worktree. */
     sleep: (input: z.infer<typeof sessionTargetInputSchema>) => Promise<IpcResult<SessionSummary>>
     /** Restarts a sleeping session, resuming the harness conversation where supported. */

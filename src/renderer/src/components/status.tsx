@@ -23,6 +23,7 @@ export function sessionStateLabel(
 ): string {
   if (pending === 'stopping') return translate('session.pending.stopping')
   if (pending === 'restarting') return translate('session.pending.restarting')
+  if (pending === 'resuming') return translate('session.pending.resuming')
   if (pending === 'sleeping') return translate('session.pending.sleeping')
   if (pending === 'waking') return translate('session.pending.waking')
   if (pending === 'removing') return translate('session.pending.removing')

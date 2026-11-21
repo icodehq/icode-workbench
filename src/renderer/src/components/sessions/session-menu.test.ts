@@ -99,6 +99,28 @@ describe('sessionHeaderMenuEntries', () => {
     })
     expect(byId(entries, 'remove')).toMatchObject({ disabled: true, reason: 'pending' })
   })
+
+  it('offers resume beside restart on an exited session with a captured conversation', () => {
+    const entries = sessionHeaderMenuEntries(
+      sessionActionState(session({ state: 'exited', resumable: true }), null, true),
+      true
+    )
+    expect(ids(entries)).toEqual(['details', 'resume', 'restart', 'remove'])
+    expect(byId(entries, 'resume')).toMatchObject({ disabled: false })
+  })
+
+  it('never offers resume on a live or sleeping session', () => {
+    for (const entry of [
+      session({ resumable: true }),
+      session({ state: 'exited', resumable: true, sleeping: true })
+    ]) {
+      const entries = sessionHeaderMenuEntries(
+        sessionActionState(entry, null, true),
+        true
+      )
+      expect(ids(entries)).not.toContain('resume')
+    }
+  })
 })
 
 describe('worktreeIsShared', () => {
@@ -147,6 +169,61 @@ describe('sessionMenuEntries', () => {
     const entries = plan(session({ state: 'exited', sleeping: false }))
     expect(ids(entries)).toEqual(['details', 'restart', 'pin', 'remove'])
     expect(byId(entries, 'restart').disabled).toBe(false)
+  })
+
+  it('offers resume on a finished session with a captured conversation', () => {
+    const entries = plan(session({ state: 'exited', resumable: true }))
+    expect(ids(entries)).toEqual(['details', 'resume', 'restart', 'pin', 'remove'])
+    expect(byId(entries, 'resume').disabled).toBe(false)
+  })
+
+  it('disables resume while a resume is in flight and carries its own reason', () => {
+    const entries = plan(session({ state: 'failed', resumable: true }), 'resuming')
+    expect(byId(entries, 'resume')).toMatchObject({
+      disabled: true,
+      reason: 'resuming'
+    })
+    expect(byId(entries, 'restart')).toMatchObject({
+      disabled: true,
+      reason: 'pending'
+    })
+  })
+
+  it('explains an unreachable host or a blocked worktree on resume', () => {
+    expect(
+      byId(
+        plan(
+          session({
+            state: 'failed',
+            resumable: true,
+            authority: 'unreachable',
+            reason: 'host_unreachable'
+          })
+        ),
+        'resume'
+      )
+    ).toMatchObject({ disabled: true, reason: 'host-unreachable' })
+
+    expect(
+      byId(
+        plan(
+          session({
+            state: 'failed',
+            resumable: true,
+            worktree: {
+              id: 'wt-1',
+              path: '/tmp/wt-1',
+              branch: 'icode/session-1',
+              baseOid: 'abc',
+              state: 'failed',
+              status: 'missing',
+              error: null
+            }
+          })
+        ),
+        'resume'
+      )
+    ).toMatchObject({ disabled: true, reason: 'worktree-blocked' })
   })
 
   it('disables the lifecycle while a restart is in flight', () => {

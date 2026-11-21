@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
-import { ChevronDown, Info, Moon, RotateCcw, Sunrise, Trash2 } from 'lucide-react'
+import { ChevronDown, Info, Moon, Play, RotateCcw, Sunrise, Trash2 } from 'lucide-react'
 import { useT } from '../i18n/use-i18n'
 import {
   sessionHeaderMenuEntries,
@@ -12,11 +12,13 @@ type Props = {
   allowSleep: boolean
   wakeDescription: string
   sleepDisabledReason: string
+  resumeReason: string
   restartReason: string
   removeReason: string
   onDetails: () => void
   onSleep: () => void
   onWake: () => void
+  onResume: () => void
   onRestart: () => void
   onRemove: () => void
 }
@@ -78,11 +80,13 @@ export default function SessionActionsMenu({
   allowSleep,
   wakeDescription,
   sleepDisabledReason,
+  resumeReason,
   restartReason,
   removeReason,
   onDetails,
   onSleep,
   onWake,
+  onResume,
   onRestart,
   onRemove
 }: Props): React.JSX.Element {
@@ -167,6 +171,16 @@ export default function SessionActionsMenu({
                     testId="wake-session"
                     disabled={entry.disabled}
                     onClick={() => run(onWake)}
+                  />
+                ) : entry.id === 'resume' ? (
+                  <MenuItem
+                    icon={<Play size={13} />}
+                    label={t('session.resume')}
+                    description={t('session.resumeKeep')}
+                    testId="resume-session"
+                    disabled={entry.disabled}
+                    title={reason ?? resumeReason}
+                    onClick={() => run(onResume)}
                   />
                 ) : entry.id === 'restart' ? (
                   <MenuItem

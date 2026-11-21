@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Session rows and the session header now offer **Resume** for an exited or
+  failed session whose harness conversation token was captured. Resume continues
+  that conversation in a new process; **Restart** remains the explicit fresh
+  start, and Resume never guesses a conversation when no token was recorded.
+
 ## [0.15.0] - 2026-11-21
 
 ### Added

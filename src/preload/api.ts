@@ -95,6 +95,7 @@ export function createIcodeApi(
       create: (input) => call(IPC_CHANNELS.sessionsCreate, input),
       close: (input) => call(IPC_CHANNELS.sessionsClose, input),
       restart: (input) => call(IPC_CHANNELS.sessionsRestart, input),
+      resume: (input) => call(IPC_CHANNELS.sessionsResume, input),
       sleep: (input) => call(IPC_CHANNELS.sessionsSleep, input),
       wake: (input) => call(IPC_CHANNELS.sessionsWake, input),
       remove: (input) => call(IPC_CHANNELS.sessionsRemove, input),

@@ -96,10 +96,10 @@ is just the welcome card and **Add project**.
 
 Project, session, and task rows each have their own right-click menu. A session
 row carries its whole lifecycle — **Session details**, **Sleep** or **Wake**,
-**Restart**, **Pin**, and **Remove** — targeting that row's session without
-switching to it first. Details opens the drawer, Sleep asks once, Restart and
-Wake act immediately, Remove confirms and then names any work at risk, and an
-unavailable action explains why it is disabled.
+**Resume**, **Restart**, **Pin**, and **Remove** — targeting that row's session
+without switching to it first. Details opens the drawer, Sleep asks once, Resume,
+Restart and Wake act immediately, Remove confirms and then names any work at
+risk, and an unavailable action explains why it is disabled.
 
 <p align="center">
   <a href=".github/assets/workbench-0916-session-menu.png"><img src=".github/assets/workbench-0916-session-menu.png" alt="A session row context menu with Session details, Sleep session, Restart session, Pin to top, and Remove session" width="100%" /></a>
@@ -182,10 +182,12 @@ close-split actions. Each
 project can keep several split layouts; selecting a session reveals the layout
 it belongs to, and a session outside every layout opens full-width. Layouts and
 divider ratios persist per project. Restart a session without
-moving its worktree; sleep a direct session to stop the process while keeping the
-checkout and resume token; wake it to continue the harness conversation where
-the harness supports it. Every one of these actions is also on the session row's
-right-click menu, so a stuck or finished session does not need to be opened.
+moving its worktree; resume a finished session to continue the harness
+conversation captured for it; sleep a direct session to stop the process while
+keeping the checkout and resume token; wake it to continue the harness
+conversation where the harness supports it. Every one of these actions is also
+on the session row's right-click menu, so a stuck or finished session does not
+need to be opened.
 
 Session removal is guarded by live PTYs, host reachability, uncommitted changes,
 unmerged commits, and missing worktrees. If work is at risk, the final
@@ -432,8 +434,8 @@ to the Windows host gateway when WSL runs in NAT mode.
   Control, and Files preferences.
 - **Session diagnostics**: host authority, PTY incarnation, worktree state, and
   exit codes in Session details.
-- **Session row actions**: details, sleep or wake, restart, pin and remove from
-  any session row without switching to it.
+- **Session row actions**: details, sleep or wake, resume, restart, pin and
+  remove from any session row without switching to it.
 - **Warning-only removal**: dirty or unmerged work is named before anything is
   deleted, no branch name is typed, and iCode-owned branches survive session
   removal; deletion is separate and requires the exact name when unmerged.

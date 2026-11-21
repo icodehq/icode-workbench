@@ -1068,6 +1068,72 @@ describe('worktree isolation', () => {
     }
   })
 
+  it('resumes an exited session with its captured conversation token', async () => {
+    const f = await withRepo()
+    const created = await f.service.create(createInput(f))
+    f.stores.sessions.setResumeToken(created.id as never, 'claude-conversation-2')
+    f.host.finish(created.id, 0)
+
+    const exited = await f.service.get(created.id)
+    expect(exited.state).toBe('exited')
+    expect(exited.resumable).toBe(true)
+
+    const resumed = await f.service.resume(created.id)
+    expect(resumed.state).toBe('live')
+    expect(resumed.resumable).toBe(false)
+    expect(resumed.incarnationId).not.toBe(created.incarnationId)
+
+    const args = f.host.calls.createOrAttach.at(-1)!.args
+    expect(args).toContain('--resume')
+    expect(args).toContain('claude-conversation-2')
+    expect(args).toContain('--settings')
+  })
+
+  it('never guesses a conversation to resume without a captured token', async () => {
+    const f = await withRepo()
+    const created = await f.service.create(createInput(f))
+    f.host.finish(created.id, 0)
+
+    const exited = await f.service.get(created.id)
+    expect(exited.state).toBe('exited')
+    expect(exited.resumable).toBe(false)
+
+    await expect(f.service.resume(created.id)).rejects.toSatisfy(
+      (error: unknown) =>
+        error instanceof SessionServiceError && error.appError.code === 'INVALID_ARGUMENT'
+    )
+    // No fallback spawn: the old incarnation must be the last one the host saw.
+    expect(f.host.calls.createOrAttach).toHaveLength(1)
+  })
+
+  it('refuses to resume a sleeping session; wake is the explicit path', async () => {
+    const f = await withRepo()
+    const created = await f.service.create(createInput(f))
+    f.stores.sessions.setResumeToken(created.id as never, 'claude-conversation-3')
+    await f.service.sleep(created.id)
+
+    const slept = await f.service.get(created.id)
+    expect(slept.sleeping).toBe(true)
+    expect(slept.resumable).toBe(false)
+
+    await expect(f.service.resume(created.id)).rejects.toSatisfy(
+      (error: unknown) =>
+        error instanceof SessionServiceError && error.appError.code === 'INVALID_ARGUMENT'
+    )
+  })
+
+  it('refuses to resume a live session', async () => {
+    const f = await withRepo()
+    const created = await f.service.create(createInput(f))
+    f.stores.sessions.setResumeToken(created.id as never, 'claude-conversation-4')
+
+    await expect(f.service.resume(created.id)).rejects.toSatisfy(
+      (error: unknown) =>
+        error instanceof SessionServiceError && error.appError.code === 'INVALID_ARGUMENT'
+    )
+    expect(f.host.calls.kill).toHaveLength(0)
+  })
+
   it('does not sleep a session that is not live', async () => {
     const f = await withRepo()
     const created = await f.service.create(createInput(f))
