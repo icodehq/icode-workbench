@@ -65,6 +65,7 @@ export const HANDLED_CHANNELS: readonly string[] = [
   IPC_CHANNELS.sessionsRecoverWorktree,
   IPC_CHANNELS.branchesList,
   IPC_CHANNELS.branchesRefs,
+  IPC_CHANNELS.branchesCurrent,
   IPC_CHANNELS.branchesRemove,
   IPC_CHANNELS.remotesList,
   IPC_CHANNELS.remotesAdd,
@@ -312,6 +313,7 @@ export function createAppDispatcher(
     sessionsRecoverWorktree: (input) => runtime.sessions.recoverWorktree(input.sessionId),
     branchesList: (input) => runtime.sessionRemovals.listBranches(input.repoId),
     branchesRefs: (input) => runtime.branchRefs.listRefs(input.repoId as never),
+    branchesCurrent: (input) => runtime.branchRefs.currentBranch(input.repoId as never),
     branchesRemove: (input) =>
       runtime.sessionRemovals.removeBranch(input.repoId, input.branch, input.confirmBranch),
     remotesList: (input) => runtime.remotes.list(input.repoId as never),

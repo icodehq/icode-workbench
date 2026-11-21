@@ -49,7 +49,7 @@ export async function makeRepoFixture(): Promise<MergeFixture> {
     repositories: stores.repositories,
     worktrees,
     gitWorktrees,
-    sessions: { get: async () => ({ state: 'exited' }) }
+    sessions: { get: async () => ({ state: 'exited', repoId: '' }) }
   })
   const mergeStore = new MergeStore(db)
   const merges = new MergeService({

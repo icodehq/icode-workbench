@@ -46,6 +46,8 @@ type Props = {
   harness: HarnessId
   /** The commit this session's worktree was created from. */
   baseOid: string | null
+  /** The session runs in the repository's shared default checkout, not a worktree. */
+  repositoryScope?: boolean
   /** Bumped by the global refresh action; reloads Git status. */
   refreshToken: number
   /** The Source Control tab is visible; hidden panes may hold stale Git status. */
@@ -93,6 +95,7 @@ export default function ChangesPanel({
   repoId,
   harness,
   baseOid,
+  repositoryScope = false,
   refreshToken,
   active,
   notify,
@@ -124,7 +127,8 @@ export default function ChangesPanel({
     drafts,
     onChanged,
     mergeTargetHint,
-    lockMergeTarget
+    lockMergeTarget,
+    repositoryScope
   })
   const [sent, setSent] = useState(false)
   const [sending, setSending] = useState(false)
@@ -1129,6 +1133,15 @@ export default function ChangesPanel({
       data-session-state={sessionState}
     >
       {header}
+      {repositoryScope ? (
+        <div
+          className="flex items-start gap-1.5 border-b border-signal-line bg-signal-weak px-3 py-1.5 text-[10.5px] leading-relaxed text-signal"
+          data-testid="changes-default-checkout-banner"
+        >
+          <AlertTriangle size={11} className="mt-0.5 shrink-0" />
+          <span>{t('scm.changes.defaultCheckoutBanner')}</span>
+        </div>
+      ) : null}
       {snapshot?.didHitLimit ? (
         <div
           className="flex items-start gap-1.5 border-b border-signal/40 bg-signal-weak px-3 py-1 text-[10.5px] leading-relaxed text-foreground"

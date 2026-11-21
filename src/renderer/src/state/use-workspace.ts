@@ -47,6 +47,8 @@ export type CreateSessionRequest = {
   repoId: string
   harness: HarnessId
   title?: string
+  /** Run in the repository's primary checkout instead of creating a worktree. */
+  checkout?: 'default'
   /** Run in an existing worktree of `repoId`; excludes the new-checkout fields. */
   worktreeId?: string
   startFrom?: string
@@ -332,6 +334,34 @@ export function useWorkspace(): {
   const selectSession = useCallback((sessionId: string) => {
     dispatch({ type: 'selectSession', sessionId })
   }, [])
+
+  /**
+   * The default-checkout row labels the branch checked out in the repository
+   * folder. The persisted snapshot is taken at registration, so re-read HEAD
+   * when the project becomes active and when the window regains focus (a
+   * `git checkout` in the terminal happens outside the app).
+   */
+  const refreshActiveRepoBranch = useCallback(async (): Promise<void> => {
+    const repoId = stateRef.current.activeRepoId
+    if (repoId === null) return
+    const result = await callApi(window.icode.branches.current({ repoId }))
+    if (!result.ok) return
+    const repo = stateRef.current.repos.find((entry) => entry.id === repoId)
+    if (!repo || repo.currentBranch === result.value) return
+    dispatch({ type: 'repoUpserted', repo: { ...repo, currentBranch: result.value } })
+  }, [])
+
+  useEffect(() => {
+    void refreshActiveRepoBranch()
+  }, [state.activeRepoId, refreshActiveRepoBranch])
+
+  useEffect(() => {
+    const onFocus = (): void => {
+      void refreshActiveRepoBranch()
+    }
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [refreshActiveRepoBranch])
 
   const validateAddPath = useCallback(
     (input: AddRepositoryRequest): AppError | null => {
@@ -747,6 +777,7 @@ export function useWorkspace(): {
           ...(input.branchName && input.branchName.trim().length > 0
             ? { branchName: input.branchName.trim() }
             : {}),
+          ...(input.checkout !== undefined ? { checkout: input.checkout } : {}),
           ...(input.worktreeId !== undefined ? { worktreeId: input.worktreeId } : {}),
           cols: terminalSize.cols,
           rows: terminalSize.rows

@@ -10,7 +10,7 @@ import { RemoteService } from './remote-service'
 import { FakeHostGateway } from '../sessions/fake-host-gateway'
 import { makeRepositoryService, makeTempRoot, openTempDatabase } from '../persistence/persistence-test-fixtures'
 import { WorktreeStore } from '../persistence/worktree-store'
-import { newSessionId, toPtyIncarnationId } from '../../shared/domain/ids'
+import { newSessionId, toPtyIncarnationId, type RepoId } from '../../shared/domain/ids'
 
 /**
  * Work 83: per-file staging, branch switching and push/pull safety.
@@ -73,6 +73,9 @@ type Fixture = {
   sessionId: string
   worktree: string
   branch: string
+  stores: ReturnType<typeof makeRepositoryService>
+  repoPath: string
+  repoId: RepoId
 }
 
 async function realRepo(): Promise<Fixture> {
@@ -182,11 +185,17 @@ async function realRepo(): Promise<Fixture> {
       repositories: stores.repositories,
       worktrees,
       gitWorktrees,
-      sessions: { get: async () => ({ state: 'live' }) }
+      sessions: {
+        get: async () => ({ state: 'live', repoId: added.repository.id }),
+        sessionWorkspaceFor: () => ({ path: repoPath, repoId: added.repository.id })
+      }
     }),
     sessionId,
     worktree: worktreePath,
-    branch
+    branch,
+    stores,
+    repoPath,
+    repoId: added.repository.id
   }
 }
 
@@ -235,6 +244,42 @@ describe('git workspace: workflow operations', () => {
     const f = await realRepo()
     const result = await f.service.setPathStaged(f.sessionId, 'nope.txt', true)
     expect(result).toMatchObject({ status: 'unavailable', reason: 'not-found' })
+  })
+
+  it('reads and stages the repository checkout for a default-checkout session', async () => {
+    const f = await realRepo()
+    const workspace = f.stores.repositories.workspaceForRepo(f.repoId)!
+    const sessionId = newSessionId()
+    f.stores.sessions.insert({
+      id: sessionId,
+      workspaceId: workspace.id,
+      harness: 'shell',
+      title: 'default checkout',
+      createdAt: 1,
+      lastActiveAt: 1,
+      observation: {
+        lastObservedState: 'exited',
+        lastObservedExitCode: 0,
+        lastObservedError: null,
+        lastObservedIncarnationId: null,
+        lastObservedAt: 1
+      }
+    })
+    writeFileSync(join(f.repoPath, 'a.txt'), 'changed in the primary checkout\n')
+
+    const status = await f.service.status(sessionId)
+    expect(status.status).toBe('ok')
+    if (status.status === 'ok') {
+      expect(status.snapshot.branch).toBe('main')
+      expect(status.snapshot.unstaged.map((entry) => entry.path)).toContain('a.txt')
+    }
+
+    expect(await f.service.setPathStaged(sessionId, 'a.txt', true)).toMatchObject({
+      status: 'ok',
+      path: 'a.txt',
+      staged: true
+    })
+    expect(git(f.repoPath, 'diff', '--cached', '--name-only')).toBe('a.txt')
   })
 
   it('commits every tracked change with sign-off in one call', async () => {

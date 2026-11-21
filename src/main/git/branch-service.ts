@@ -36,6 +36,24 @@ export type ResolvedStartRef = {
 export class BranchService {
   constructor(private readonly deps: BranchServiceDeps) {}
 
+  /**
+   * The branch checked out in the repository's primary checkout.
+   *
+   * The persisted `currentBranch` is a registration-time snapshot; this reads
+   * HEAD through the target-aware Git transport so the default-checkout row can
+   * follow a `git checkout`. `null` means detached, unborn, or unreadable.
+   */
+  async currentBranch(repoId: RepoId): Promise<string | null> {
+    const repository = this.repository(repoId)
+    const git = await this.deps.gitWorktrees.gitFor(repository.executionTarget)
+    try {
+      const branch = (await git(repository.path, ['rev-parse', '--abbrev-ref', 'HEAD'])).trim()
+      return branch.length > 0 && branch !== 'HEAD' ? branch : null
+    } catch {
+      return null
+    }
+  }
+
   async listRefs(repoId: RepoId): Promise<BranchRefSummary[]> {
     const repository = this.repository(repoId)
     const target = repository.executionTarget

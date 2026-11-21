@@ -890,15 +890,22 @@ export async function startAppRuntime(): Promise<AppRuntime> {
    */
   const resolveFilesWatchTarget = async (sessionId: string) => {
     const record = worktrees.findBySession(sessionId)
-    if (!record) return null
-    const repository = persistence.repositories.findById(record.repoId)
+    /*
+     * A default-checkout session has no worktree row; its files are the
+     * repository's primary checkout, so the watcher follows that path instead.
+     */
+    const checkout = record
+      ? { repoId: record.repoId, path: record.path }
+      : await sessions.resolveSessionCheckout(sessionId).catch(() => null)
+    if (!checkout) return null
+    const repository = persistence.repositories.findById(checkout.repoId)
     if (!repository) return null
     if (repository.executionTarget.kind === 'local') {
-      return { worktreePath: record.path }
+      return { worktreePath: checkout.path }
     }
     const worktreePath = await translateGuestWatchPath(
       repository.executionTarget.distro,
-      record.path
+      checkout.path
     )
     return worktreePath === null ? null : { worktreePath }
   }

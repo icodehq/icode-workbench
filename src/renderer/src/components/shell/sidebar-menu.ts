@@ -11,6 +11,7 @@ export type SidebarMenuEntry<Id extends string> = {
 export type ProjectMenuEntryId =
   | 'retry'
   | 'new-session'
+  | 'new-default-session'
   | 'queue-task'
   | 'pin'
   | 'copy-path'
@@ -47,6 +48,13 @@ export function projectMenuEntries(input: {
       : preparationReason === undefined
         ? {}
         : { reason: preparationReason })
+  })
+  // A default-checkout session needs no baseline, so preparation does not block it.
+  entries.push({
+    id: 'new-default-session',
+    separatorBefore: false,
+    disabled: input.hostUnreachable,
+    ...(input.hostUnreachable ? { reason: input.hostUnreachableReason } : {})
   })
   entries.push({
     id: 'queue-task',

@@ -5,6 +5,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { createLocalFileBackend, FileAccessError } from './local-file-backend'
 import { WorkspaceFilesService, type WorkspaceFilesDeps } from './workspace-files-service'
 import type { ExecutionTarget } from '../../shared/domain/repository'
+import { makeAppError } from '../../shared/domain/errors'
+import { SessionServiceError } from '../sessions/session-errors'
 
 /**
  * The file tools must answer about the checkout's own host.
@@ -40,11 +42,25 @@ function service(options: {
   exists?: boolean
   backend?: ReturnType<typeof createLocalFileBackend>
   trashStateFile?: string
+  /** The primary checkout a default-checkout session resolves to. */
+  repoPath?: string
+  /** A session whose checkout can no longer be resolved. */
+  sessionCheckout?: 'ok' | 'missing'
 } = {}) {
+  const repoPath = options.repoPath ?? '/repo'
   const deps = {
-    sessions: {} as never,
+    sessions: {
+      resolveSessionCheckout: async () => {
+        if (options.sessionCheckout === 'missing') {
+          throw new SessionServiceError(
+            makeAppError('SESSION_NOT_FOUND', 'The session is gone.')
+          )
+        }
+        return { path: repoPath, record: null, repoId: 'repo_x' }
+      }
+    } as never,
     repositories: {
-      findById: () => ({ id: 'repo_x', path: '/repo', executionTarget: options.target ?? LOCAL })
+      findById: () => ({ id: 'repo_x', path: repoPath, executionTarget: options.target ?? LOCAL })
     } as never,
     worktrees: {
       findBySession: () =>
@@ -79,9 +95,27 @@ function service(options: {
 }
 
 describe('workspace files: checkout resolution', () => {
-  it('reports a session without a worktree as primary-checkout', async () => {
-    const result = await service({ worktreePath: null }).list('ses_x', '')
-    expect(result).toMatchObject({ status: 'unavailable', reason: 'primary-checkout' })
+  it('lists files in the repository checkout for a default-checkout session', async () => {
+    const root = home()
+    mkdirSync(join(root, 'src'))
+    writeFileSync(join(root, 'README.md'), 'hello\n')
+
+    const result = await service({ worktreePath: null, repoPath: root }).list('ses_x', '')
+    expect(result).toMatchObject({ status: 'ok' })
+    if (result.status === 'ok') {
+      expect(result.entries.map((entry) => `${entry.kind}:${entry.path}`)).toEqual([
+        'directory:src',
+        'file:README.md'
+      ])
+    }
+  })
+
+  it('reports a default-checkout session whose checkout can no longer be resolved', async () => {
+    const result = await service({
+      worktreePath: null,
+      sessionCheckout: 'missing'
+    }).list('ses_x', '')
+    expect(result).toMatchObject({ status: 'unavailable', reason: 'not-found' })
   })
 
   it('reports an unreachable distro as unavailable, never as missing (AC-07)', async () => {

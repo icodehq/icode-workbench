@@ -64,6 +64,7 @@ export const IPC_CHANNELS = {
   sessionsRecoverWorktree: 'icode:sessions:recover-worktree',
   branchesList: 'icode:branches:list',
   branchesRefs: 'icode:branches:refs',
+  branchesCurrent: 'icode:branches:current',
   branchesRemove: 'icode:branches:remove',
   remotesList: 'icode:remotes:list',
   remotesAdd: 'icode:remotes:add',
@@ -307,6 +308,15 @@ export const createSessionInputSchema = z.strictObject({
   repoId: repoIdSchema,
   harness: harnessIdSchema,
   title: sessionTitleSchema.optional(),
+  /**
+   * Where the session runs.
+   *
+   * Absent or `worktree` is the isolated path: attach to `worktreeId` or create
+   * a new checkout. `default` runs directly in the repository's primary
+   * checkout and is mutually exclusive with `worktreeId`, `startFrom`,
+   * `branchName`, and a main-process `base`.
+   */
+  checkout: z.enum(['worktree', 'default']).optional(),
   /**
    * Run in an existing worktree owned by this repository.
    *
@@ -576,7 +586,7 @@ export const sessionSummarySchema = z.strictObject({
    * summaries remain parseable; the backend always sets it.
    */
   resumable: z.boolean().optional(),
-  /** `null` for legacy sessions that run in the repository's primary checkout. */
+  /** `null` for legacy and default-checkout sessions that run in the repository's primary checkout. */
   worktree: worktreeSummarySchema.nullable(),
   /**
    * Hook-derived agent activity. Advisory only: `unknown` means no trustworthy
@@ -681,6 +691,9 @@ export const removeBranchResultSchema = z.discriminatedUnion('status', [
 ])
 
 export const listBranchesInputSchema = z.strictObject({ repoId: repoIdSchema })
+
+/** The branch checked out in the repository's primary checkout. */
+export const currentBranchInputSchema = z.strictObject({ repoId: repoIdSchema })
 
 /**
  * A live host PTY with no durable iCode row. Surfaced rather than hidden so the

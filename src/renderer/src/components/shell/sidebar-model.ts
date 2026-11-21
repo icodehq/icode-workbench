@@ -16,7 +16,8 @@ export type WorktreeSessionGroup = {
 }
 
 export type DirectSessionGroups = {
-  root: SessionSummary[]
+  /** Sessions running in the project's primary checkout (no worktree link). */
+  defaultCheckout: SessionSummary[]
   worktrees: WorktreeSessionGroup[]
 }
 
@@ -58,11 +59,11 @@ export function directSessionsByRepo(
  * (newest first).
  */
 export function groupDirectSessions(sessions: readonly SessionSummary[]): DirectSessionGroups {
-  const root: SessionSummary[] = []
+  const defaultCheckout: SessionSummary[] = []
   const worktrees = new Map<string, WorktreeSessionGroup>()
   for (const session of sessions) {
     if (session.worktree === null) {
-      root.push(session)
+      defaultCheckout.push(session)
       continue
     }
     const key = session.worktree.path
@@ -77,7 +78,7 @@ export function groupDirectSessions(sessions: readonly SessionSummary[]): Direct
       })
     }
   }
-  return { root, worktrees: [...worktrees.values()] }
+  return { defaultCheckout, worktrees: [...worktrees.values()] }
 }
 
 export function sidebarTaskRank(task: TaskRecordPayload): number {

@@ -31,8 +31,10 @@ provide a security boundary between you and the coding agents you choose to run.
   endpoint as a disclosure boundary and review the harness's own security model.
 - **Agents run with your permissions.** Harnesses and shell sessions execute
   commands as your user. A task, harness, repository, or prompt can change files
-  and run commands. Use worktrees, review changes, and do not run an agent
-  against a repository you would not let an autonomous process modify.
+  and run commands. Use isolated worktrees for agent work, review changes, and
+  do not run an agent against a repository you would not let an autonomous
+  process modify. A default-checkout session runs in the project folder itself,
+  so its changes are shared with the user and every other session there.
 - **Local state.** Projects, sessions, worktrees, tasks, and schedules live in
   local SQLite. Workbench has no telemetry and no hosted service. Session
   history, terminal scrollback, and worktree contents can contain anything the

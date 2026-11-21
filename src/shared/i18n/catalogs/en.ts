@@ -2289,6 +2289,21 @@ export const en = {
   'sidebar.collapseWorktree': "Collapse worktree",
   'sidebar.expandWorktree': "Expand worktree",
   'sidebar.recoverWorktree': "Recover worktree",
+  'sidebar.defaultCheckout': "Default checkout",
+  'sidebar.newSessionInDefaultCheckout': "New session in the default checkout",
+  'session.defaultCheckoutLabel': "default checkout",
+  'session.defaultCheckoutWarning': "Shared checkout — changes are not isolated.",
+  'sessionDetails.defaultCheckout': "Default checkout",
+  'worktree.defaultCheckout': "default checkout",
+  'newSession.defaultCheckout': "Default checkout (shared)",
+  'newSession.defaultCheckoutSessions.one': "{count} session",
+  'newSession.defaultCheckoutSessions.other': "{count} sessions",
+  'newSession.defaultCheckoutHint': "Runs in {path}, the project's primary checkout. Changes are not isolated.",
+  'newSession.sharedCheckoutWarning': "This agent runs in the shared default checkout. Its changes are not isolated from other sessions or the repository.",
+  'newSession.startingDefaultBody': "Starting in the shared default checkout of {project}.",
+  'newSession.checkoutUnavailable': "The project folder is missing.",
+  'scm.changes.defaultCheckoutBanner': "Repository-level changes from the shared default checkout. They are not attributed to this session; review, annotate and merge are available only in an isolated worktree.",
+  'scm.merge.defaultCheckout': "Merging is available only in an isolated worktree.",
 } as const
 
 export type MessageKey = keyof typeof en

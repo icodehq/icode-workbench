@@ -407,6 +407,80 @@ describe('session creation', () => {
     expect(f.worktrees.listBranches(f.repoId)).toHaveLength(1)
   })
 
+  it('runs a default-checkout session in the repository root without a worktree or branch', async () => {
+    const f = await withRepo()
+    const summary = await f.service.create(createInput(f, { checkout: 'default' }))
+
+    expect(summary.worktree).toBeNull()
+    expect(f.worktrees.findBySession(summary.id)).toBeNull()
+    expect(f.worktrees.listAll()).toHaveLength(0)
+    expect(f.worktrees.listBranches(f.repoId)).toHaveLength(0)
+    expect(f.host.calls.createOrAttach).toHaveLength(1)
+    expect(samePathResolved(f.host.calls.createOrAttach[0]!.cwd, f.repoPath)).toBe(true)
+
+    // Restart stays in the same shared checkout and still owns nothing.
+    const restarted = await f.service.restart(summary.id)
+    expect(restarted.worktree).toBeNull()
+    expect(samePathResolved(f.host.calls.createOrAttach[1]!.cwd, f.repoPath)).toBe(true)
+    expect(f.worktrees.findBySession(summary.id)).toBeNull()
+  })
+
+  it('rejects checkout options that do not apply to the default checkout', async () => {
+    const f = await withRepo()
+    const isolated = await f.service.create(createInput(f))
+
+    for (const overrides of [
+      { worktreeId: isolated.worktree!.id },
+      { startFrom: 'main' },
+      { branchName: 'feature/default-conflict' }
+    ]) {
+      await expect(
+        f.service.create(createInput(f, { checkout: 'default', ...overrides }))
+      ).rejects.toSatisfy(
+        (error: unknown) =>
+          error instanceof SessionServiceError && error.appError.code === 'INVALID_ARGUMENT'
+      )
+    }
+    await expect(
+      f.service.create(createInput(f, { checkout: 'default' }), {
+        base: { ref: 'main', oid: 'a'.repeat(40) }
+      })
+    ).rejects.toSatisfy(
+      (error: unknown) =>
+        error instanceof SessionServiceError && error.appError.code === 'INVALID_ARGUMENT'
+    )
+  })
+
+  it('allows a default-checkout shell in an unborn repository', async () => {
+    const f = setup()
+    const path = join(f.root.dir, 'unborn')
+    mkdirSync(path, { recursive: true })
+    execFileSync('git', ['init', '-q', '-b', 'main', path], { stdio: 'pipe' })
+    const added = await f.stores.service.addRepository(path)
+    f.repoId = added.repository.id
+
+    const summary = await f.service.create({
+      repoId: added.repository.id,
+      harness: 'shell',
+      cols: 100,
+      rows: 30,
+      checkout: 'default'
+    } as Parameters<SessionService['create']>[0])
+    expect(summary.worktree).toBeNull()
+
+    await expect(
+      f.service.create({
+        repoId: added.repository.id,
+        harness: 'shell',
+        cols: 100,
+        rows: 30
+      } as Parameters<SessionService['create']>[0])
+    ).rejects.toSatisfy(
+      (error: unknown) =>
+        error instanceof SessionServiceError && error.appError.code === 'UNBORN_REPOSITORY'
+    )
+  })
+
   it('refuses to combine an existing worktree with a new checkout request', async () => {
     const f = await withRepo()
     const first = await f.service.create(createInput(f))

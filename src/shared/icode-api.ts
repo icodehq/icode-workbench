@@ -11,6 +11,7 @@ import type {
   projectFolderInspectionSchema,
   createSessionInputSchema,
   discardSessionInputSchema,
+  currentBranchInputSchema,
   listBranchesInputSchema,
   listBranchRefsInputSchema,
   mergeSessionInputSchema,
@@ -336,6 +337,10 @@ export type IcodeProductApi = {
     refs: (
       input: z.infer<typeof listBranchRefsInputSchema>
     ) => Promise<IpcResult<BranchRefSummary[]>>
+    /** The branch checked out in the repository's primary checkout. */
+    current: (
+      input: z.infer<typeof currentBranchInputSchema>
+    ) => Promise<IpcResult<string | null>>
     remove: (input: z.infer<typeof removeBranchInputSchema>) => Promise<IpcResult<RemoveBranchResult>>
   }
   /**

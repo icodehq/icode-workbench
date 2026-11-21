@@ -596,6 +596,76 @@ async function main() {
     return { notice: await notice() }
   })
 
+  await step('show the default checkout container without creating a session', async () => {
+    await waitForSelector(`[data-testid="sidebar-default-checkout-${repoId}"]`, 10000)
+    const text = await cdp.evaluate(
+      `document.querySelector('[data-testid="sidebar-default-checkout-${repoId}"]')?.textContent ?? ''`
+    )
+    assert(text.includes('Default checkout'), 'Default checkout container label is missing')
+    assert((await sessions()).length === 0, 'Adding a project must not auto-create a session')
+
+    await click(`[data-testid="sidebar-default-checkout-new-session-${repoId}"]`)
+    await waitForSelector('[data-testid="new-session-worktree"]', 5000)
+    const choice = await cdp.evaluate(
+      `document.querySelector('[data-testid="new-session-worktree"]')?.value ?? null`
+    )
+    assert(choice === 'default', 'Default checkout action did not preselect the shared checkout')
+
+    // Run one shell session in the shared checkout, prove it owns no worktree,
+    // then remove it so the remaining steps keep their two-session expectations.
+    await click('[data-testid="harness-option-shell"]')
+    await click('[data-testid="create-session-submit"]')
+    let created = null
+    const deadline = Date.now() + 30000
+    while (Date.now() < deadline && created === null) {
+      const listed = await cdp.evaluate(
+        `window.icode.sessions.list({ repoId: ${JSON.stringify(repoId)} })`
+      )
+      created = listed?.ok
+        ? (listed.value.sessions.find((session) => session.worktree === null) ?? null)
+        : null
+      if (created === null) await sleep(250)
+    }
+    assert(created, 'The default checkout session did not appear without a worktree')
+    assert(created.state !== 'failed', `Default checkout session failed: ${JSON.stringify(created)}`)
+    await waitFor(
+      `document.querySelector('[data-testid="session-state"]')?.dataset.state === 'live'`,
+      'default checkout session live',
+      30000
+    )
+    await click('[data-testid="view-files"]')
+    await waitForSelector('[data-testid="files-entry-README.md"]', 15000)
+    await click('[data-testid="view-changes"]')
+    await waitForSelector('[data-testid="changes-default-checkout-banner"]', 15000)
+    await waitFor(
+      `document.querySelector('[data-testid="changes-panel"]')?.dataset.phase === 'ready'`,
+      'default checkout Source Control ready',
+      15000
+    )
+    await screenshot('02c-default-checkout-session')
+
+    const removed = await cdp.evaluate(
+      `window.icode.sessions.remove({ sessionId: ${JSON.stringify(created.id)}, stopIfLive: true })`
+    )
+    assert(removed?.ok, `Default checkout session removal failed: ${JSON.stringify(removed)}`)
+    // The direct IPC call bypasses the renderer's remove action, so refresh the
+    // sidebar before asserting the row is gone.
+    await click('[data-testid="sidebar-refresh"]')
+    await waitFor(
+      `!document.querySelector('[data-session-id="${created.id}"]')`,
+      'default checkout session removed',
+      15000
+    )
+    const remaining = await cdp.evaluate(
+      `window.icode.sessions.list({ repoId: ${JSON.stringify(repoId)} })`
+    )
+    assert(
+      remaining?.ok && remaining.value.sessions.length === 0,
+      'Removing the default checkout session must not leave a worktree session behind'
+    )
+    return { text, sessionId: created.id }
+  })
+
   await step('keep the custom window title bar truthful at the minimum width', async () => {
     await cdp.send('Emulation.setDeviceMetricsOverride', {
       width: 760,

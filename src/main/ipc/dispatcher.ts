@@ -10,6 +10,7 @@ import {
   createSessionInputSchema,
   harnessListInputSchema,
   discardSessionInputSchema,
+  currentBranchInputSchema,
   listBranchesInputSchema,
   listBranchRefsInputSchema,
   listSessionsInputSchema,
@@ -147,6 +148,7 @@ export type DispatcherServices = {
   sessionsRecoverWorktree: (input: { sessionId: string }) => Promise<unknown>
   branchesList: (input: { repoId: string }) => Promise<unknown>
   branchesRefs: (input: { repoId: string }) => Promise<unknown>
+  branchesCurrent: (input: { repoId: string }) => Promise<unknown>
   remotesList: (input: { repoId: string }) => Promise<unknown>
   remotesAdd: (input: { repoId: string; name: string; url: string }) => Promise<unknown>
   remotesSetUrl: (input: { repoId: string; name: string; url: string }) => Promise<unknown>
@@ -489,6 +491,12 @@ export function createDispatcher(services: DispatcherServices): Dispatcher {
         const input = parse(listBranchRefsInputSchema, rawInput)
         if ('code' in input) return { ok: false, error: input }
         return run(() => services.branchesRefs(input))
+      }
+
+      case IPC_CHANNELS.branchesCurrent: {
+        const input = parse(currentBranchInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.branchesCurrent(input))
       }
 
       case IPC_CHANNELS.branchesRemove: {

@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-11-21
+
+### Added
+
+- **Default checkout sessions.** Each project now shows an always-present
+  **Default checkout** group — the repository's primary checkout, labelled with
+  its live branch. Its **+** and the New Session dialog's **Run in** list start
+  a terminal or agent in that folder without creating a worktree. Default-checkout
+  sessions share the checkout with the user and each other, so agent sessions
+  carry a persistent shared-checkout warning. Files, Search and Source Control
+  work there, with Source Control showing repository-level changes that are not
+  attributed to the session; review, annotate and merge remain worktree-only.
+  Task, supervisor, Mira and CLI-created sessions still create isolated
+  worktrees. No database migration is required: a default-checkout session is a
+  session row without a worktree link. Legacy linkless sessions are presented in
+  the same group and gain Files and repository-level Source Control.
+
 ## [0.16.0] - 2026-11-21
 
 ### Added

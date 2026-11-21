@@ -105,6 +105,7 @@ export function createIcodeApi(
     branches: {
       list: (input) => call(IPC_CHANNELS.branchesList, input),
       refs: (input) => call(IPC_CHANNELS.branchesRefs, input),
+      current: (input) => call(IPC_CHANNELS.branchesCurrent, input),
       remove: (input) => call(IPC_CHANNELS.branchesRemove, input)
     },
     remotes: {

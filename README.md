@@ -16,7 +16,8 @@
 <p align="center">
   <sub><strong>THE UNIVERSAL AGENT DEVELOPMENT ENVIRONMENT (ADE)</strong></sub><br/>
   <strong>Every agent. Every platform. One workbench.</strong><br/>
-  Today: Claude Code, Codex, and OpenCode in parallel, each in its own Git worktree.
+  Today: Claude Code, Codex, and OpenCode in parallel, each in its own Git worktree,
+  with every project's default checkout one click away.
   Mira, your cross-project assistant, watches every repository, tells you what
   needs you, and can act across them. Review the diff, and keep the terminal
   alive when the app restarts.
@@ -45,8 +46,10 @@ made.
 - **One sidebar, two surfaces.** Projects, direct sessions, pinned items and the
   cross-project task queue share one sidebar. Sessions and task workbenches are
   the main surfaces; Mira, Settings and Schedules are temporary app tabs.
-- **Parallel by default.** Every session gets its own branch and Git worktree;
-  keep several in sight with session tabs and a resizable, nested split view.
+- **Isolated by default.** Every agent session created from the default
+  **New worktree** option gets its own branch and Git worktree; each project's
+  default checkout stays available for shared terminals and quick work. Keep
+  several in sight with session tabs and a resizable, nested split view.
 - **Review in place.** Files, Search, and Source Control live in a persistent,
   resizable inspector beside the terminal; the task workbench gives Files and
   Source Control their own full-width tabs. A file or diff takes the panel; the
@@ -68,9 +71,9 @@ The sidebar is the only navigation and the portfolio view. It is drag-resizable
 between 240 and 400px and remembers its width; double-click the seam to reset it.
 Its top row holds search, new work, notifications and refresh (refresh moves to
 the status bar at the narrowest widths). **Pinned** projects, sessions and tasks
-are shortcuts above the complete **Projects** tree, not replacements for it. A project row expands to its direct sessions, grouped by worktree branch,
-with state and agent activity on each row. Task-owned sessions never appear
-there.
+are shortcuts above the complete **Projects** tree, not replacements for it. A project row expands to an always-present **Default checkout** group
+plus one group per worktree branch, with state and agent activity on each
+session row. Task-owned sessions never appear there.
 
 The **Tasks** section at the bottom is the cross-project queue, grouped by
 project and ordered by attention. It has separate **Needs** and **History**
@@ -163,9 +166,9 @@ waits for a person.
 
 ### Isolated sessions by default
 
-Every direct session gets its own Git worktree and a new branch, starting from
-the current branch or one you choose, so two agents in the same repository never
-edit the same checkout. Open sessions
+Every direct session created from the **New worktree** option gets its own Git
+worktree and a new branch, starting from the current branch or one you choose,
+so two agents in the same repository never edit the same checkout. Open sessions
 appear as tabs above the workspace; drag them to reorder, right-click for
 **Close**, **Close other tabs**, **Close tabs to the right**, **Split left**,
 **Split right**, **Split up**, **Split down**, **Swap panes** or **Close split
@@ -178,8 +181,19 @@ macOS, `⌘D` and `⇧⌘D` split right and down, `⌥⌘` + arrows move focus, 
 `Ctrl+Shift+W` closes the focused tab and collapses its pane. A split shortcut
 starts a sibling session with the focused harness in the same worktree. The
 command palette (`Ctrl/Cmd+K`) also lists Split left/right/up/down, zoom and
-close-split actions. Each
-project can keep several split layouts; selecting a session reveals the layout
+close-split actions.
+
+Each project also has an always-present **Default checkout** group: the
+repository's own primary checkout, labelled with its live branch. Its **+**
+starts a terminal or agent there, and the New Session dialog's **Run in** list
+offers it for every project. Default-checkout sessions share the folder with the
+user and with each other, so an agent started there shows a persistent
+shared-checkout warning; task, supervisor, Mira and CLI-created sessions always
+use isolated worktrees. Files, Search and Source Control work in the default
+checkout, with Source Control showing repository-level changes that are not
+attributed to the session; review, annotate and merge remain worktree-only.
+
+Each project can keep several split layouts; selecting a session reveals the layout
 it belongs to, and a session outside every layout opens full-width. Layouts and
 divider ratios persist per project. Restart a session without
 moving its worktree; resume a finished session to continue the harness
@@ -457,9 +471,9 @@ one page.*
    machine or inside a WSL distro.
 2. **Start work.** From the sidebar, open a project and start a direct session,
    queue a task, or open Mira. A direct session launches immediately; a queued
-   task waits for a global and per-project slot. Either way, iCode creates a
-   worktree and branch at the chosen start point and launches the harness in a
-   real PTY.
+   task waits for a global and per-project slot. A direct session can create a
+   worktree and branch at the chosen start point, or run in the project's shared
+   default checkout; either way it launches the harness in a real PTY.
 3. **Approve or adjust the plan.** Your own tasks are approved on creation.
    Supervisor proposals wait for a person, and Mira tasks wait unless the
    auto-dispatch policy allows them to start. Blockers and chain branches decide
@@ -727,9 +741,10 @@ names both the uncommitted files and the unmerged commits, and one click
 completes the removal. Standalone branch deletion from Project maintenance
 still requires the exact name when the branch is unmerged.
 
-Session creation is refused for an unborn repository or while a merge, rebase,
-cherry-pick, revert, or bisect is in progress, because no trustworthy baseline
-exists. iCode never falls back to the primary checkout for a session whose
+Isolated session creation is refused for an unborn repository or while a merge,
+rebase, cherry-pick, revert, or bisect is in progress, because no trustworthy
+baseline exists. Default-checkout sessions are explicit and need no baseline.
+iCode never falls back to the primary checkout for an isolated session whose
 worktree is missing.
 
 ### Activity hooks
