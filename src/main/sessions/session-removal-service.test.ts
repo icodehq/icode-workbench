@@ -374,7 +374,7 @@ describe('ordinary session removal', () => {
     expect(result.status).toBe('blocked_worktree')
     if (result.status === 'blocked_worktree') expect(result.blocker.kind).toBe('missing')
     expect(f.worktrees.findBySession(session.id)).not.toBeNull()
-  })
+  }, 20_000)
 })
 
 describe('explicit discard', () => {

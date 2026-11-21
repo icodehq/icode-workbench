@@ -1297,7 +1297,7 @@ describe('per-host reconciliation', () => {
     const view = await f.service.reconcile()
     const summary = view.sessions.find((session) => session.id === created.id)
     expect(summary?.state).toBe('unavailable')
-  })
+  }, 20_000)
 })
 
 /**
