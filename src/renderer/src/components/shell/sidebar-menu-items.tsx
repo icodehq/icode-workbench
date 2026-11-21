@@ -65,6 +65,7 @@ export type SidebarMenuContext = {
   onOpenSchedules: () => void
   onTaskAction: (task: TaskRecordPayload, action: TaskAction) => void
   onWakeSession: (sessionId: string) => void
+  onResumeSession: (sessionId: string) => void
   onRestartSession: (sessionId: string) => void
   toggleProjectPin: (repoId: string) => void
   toggleTaskPin: (taskId: string) => void
@@ -348,6 +349,13 @@ export function createSidebarMenuItems(context: SidebarMenuContext) {
         icon: <Sunrise size={12} />,
         testId: `sidebar-session-${record.id}-wake`,
         onSelect: () => context.onWakeSession(record.id)
+      }),
+      resume: () => ({
+        id: 'resume',
+        label: t('session.resume'),
+        icon: <Play size={12} />,
+        testId: `sidebar-session-${record.id}-resume`,
+        onSelect: () => context.onResumeSession(record.id)
       }),
       restart: () => ({
         id: 'restart',

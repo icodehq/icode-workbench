@@ -7,6 +7,7 @@ import {
 function source(): SessionActionSource {
   return {
     restartSession: vi.fn(async () => undefined),
+    resumeSession: vi.fn(async () => undefined),
     sleepSession: vi.fn(async () => undefined),
     wakeSession: vi.fn(async () => undefined),
     recheckSession: vi.fn(async () => undefined),
@@ -22,6 +23,7 @@ describe('session actions', () => {
     const actions = createSessionActions(raw)
 
     expect(actions.restart('a')).toBeUndefined()
+    expect(actions.resume('a1')).toBeUndefined()
     expect(actions.sleep('b')).toBeUndefined()
     expect(actions.wake('c')).toBeUndefined()
     expect(actions.recheck('d')).toBeUndefined()
@@ -30,6 +32,7 @@ describe('session actions', () => {
     expect(actions.stop('g')).toBeUndefined()
 
     expect(raw.restartSession).toHaveBeenCalledWith('a')
+    expect(raw.resumeSession).toHaveBeenCalledWith('a1')
     expect(raw.sleepSession).toHaveBeenCalledWith('b')
     expect(raw.wakeSession).toHaveBeenCalledWith('c')
     expect(raw.recheckSession).toHaveBeenCalledWith('d')

@@ -6,6 +6,7 @@ import {
   GitBranch,
   Loader2,
   PanelLeftOpen,
+  Play,
   RefreshCw,
   RotateCcw,
   Search,
@@ -61,6 +62,12 @@ type Props = {
   pending: PendingAction | null
   panes: SessionSummary[]
   onRestart: (sessionId: string) => void
+  /**
+   * Continue a non-live session's captured harness conversation.
+   *
+   * Absent on surfaces that own continuation elsewhere, such as a task attempt.
+   */
+  onResume?: (sessionId: string) => void
   onSleep?: (sessionId: string) => void
   onWake?: (sessionId: string) => void
   /** Direct sessions support hibernate; task sessions remain scheduler-owned. */
@@ -223,10 +230,12 @@ function paneActive(session: SessionSummary, candidate: SessionSummary): boolean
 export function StatePanel({
   session,
   onRestart,
+  onResume,
   onRecheck
 }: {
   session: SessionSummary
   onRestart: () => void
+  onResume?: () => void
   onRecheck: () => void
 }): React.JSX.Element {
   const t = useT()
@@ -267,7 +276,24 @@ export function StatePanel({
           </p>
         ) : null}
         {!live ? (
-          <div className="mt-4 flex gap-2">
+          <div className="mt-4 flex flex-wrap gap-2">
+            {onResume !== undefined && session.resumable === true ? (
+              <button
+                type="button"
+                className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-[11px] hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
+                onClick={onResume}
+                disabled={hostUnavailable(session)}
+                title={
+                  hostUnavailable(session)
+                    ? t('session.hostUnreachable')
+                    : t('session.resumeDescription')
+                }
+                data-testid="state-resume"
+              >
+                <Play size={12} />
+                {t('session.resumeButton')}
+              </button>
+            ) : null}
             <button
               type="button"
               className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-[11px] hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
@@ -305,6 +331,7 @@ export default function SessionWorkspace({
   pending,
   panes,
   onRestart,
+  onResume,
   onSleep,
   onWake,
   allowSleep = false,
@@ -584,11 +611,13 @@ export default function SessionWorkspace({
             allowSleep={allowSleep}
             wakeDescription={wakeDescription(session.harness, locale)}
             sleepDisabledReason={t('session.onlyLiveCanSleep')}
+            resumeReason={t('session.resumeDescription')}
             restartReason={t('session.restartDescription')}
             removeReason={t('session.removeReason')}
             onDetails={() => setDetailsOpen(true)}
             onSleep={() => setSleepOpen(true)}
             onWake={() => onWake?.(session.id)}
+            onResume={() => onResume?.(session.id)}
             onRestart={() => onRestart(session.id)}
             onRemove={() => setRemoveOpen(true)}
           />
@@ -617,6 +646,7 @@ export default function SessionWorkspace({
           <StatePanel
             session={session}
             onRestart={() => onRestart(session.id)}
+            onResume={onResume === undefined ? undefined : () => onResume(session.id)}
             onRecheck={() => onRecheck(session.id)}
           />
         ) : null}

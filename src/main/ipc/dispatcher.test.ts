@@ -24,6 +24,7 @@ function services(overrides: Partial<DispatcherServices> = {}): DispatcherServic
     sessionsCreate: vi.fn(async () => ({})),
     sessionsClose: vi.fn(async () => null),
     sessionsRestart: vi.fn(async () => ({})),
+    sessionsResume: vi.fn(async () => ({})),
     sessionsSleep: vi.fn(async () => ({})),
     sessionsWake: vi.fn(async () => ({})),
     sessionsRemove: vi.fn(async () => ({ status: 'removed', branch: null, branchRetained: false })),

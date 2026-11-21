@@ -10,7 +10,7 @@ import type {
 } from '../../../shared/schemas/ipc'
 
 export type BootPhase = 'loading' | 'ready' | 'failed'
-export type PendingAction = 'stopping' | 'restarting' | 'sleeping' | 'waking' | 'removing'
+export type PendingAction = 'stopping' | 'restarting' | 'resuming' | 'sleeping' | 'waking' | 'removing'
 export type NoticeTone = 'info' | 'success' | 'error'
 
 export type Notice = {
@@ -166,6 +166,7 @@ function withoutPending(
     const session = sessions.find((entry) => entry.id === sessionId)
     if (!session) continue
     if (action === 'stopping' && isTerminalSessionState(session.state)) continue
+    if (action === 'resuming' && session.state === 'live') continue
     if (action === 'sleeping' && session.sleeping === true) continue
     if (action === 'waking' && session.state === 'live') continue
     next[sessionId] = action

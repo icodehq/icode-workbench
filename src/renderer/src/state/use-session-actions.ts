@@ -8,6 +8,7 @@ import {
 export function useSessionActions(source: SessionActionSource): SessionActions {
   const {
     restartSession,
+    resumeSession,
     sleepSession,
     wakeSession,
     recheckSession,
@@ -19,6 +20,7 @@ export function useSessionActions(source: SessionActionSource): SessionActions {
     () =>
       createSessionActions({
         restartSession,
+        resumeSession,
         sleepSession,
         wakeSession,
         recheckSession,
@@ -31,6 +33,7 @@ export function useSessionActions(source: SessionActionSource): SessionActions {
       recheckSession,
       requestRemoveSession,
       restartSession,
+      resumeSession,
       sleepSession,
       stopSession,
       wakeSession

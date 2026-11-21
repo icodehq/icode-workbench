@@ -57,6 +57,7 @@ export const HANDLED_CHANNELS: readonly string[] = [
   IPC_CHANNELS.sessionsCreate,
   IPC_CHANNELS.sessionsClose,
   IPC_CHANNELS.sessionsRestart,
+  IPC_CHANNELS.sessionsResume,
   IPC_CHANNELS.sessionsSleep,
   IPC_CHANNELS.sessionsWake,
   IPC_CHANNELS.sessionsRemove,
@@ -296,6 +297,7 @@ export function createAppDispatcher(
       return null
     },
     sessionsRestart: (input) => runtime.sessions.restart(input.sessionId),
+    sessionsResume: (input) => runtime.sessions.resume(input.sessionId),
     sessionsSleep: (input) => runtime.sessions.sleep(input.sessionId),
     sessionsWake: (input) => runtime.sessions.wake(input.sessionId),
     sessionsRemove: (input) =>

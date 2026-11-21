@@ -545,6 +545,7 @@ export default function SessionsSurface({
         drafts={drafts}
         sessionsListHidden={false}
         onRestart={sessionActions.restart}
+        onResume={sessionActions.resume}
         onSleep={sessionActions.sleep}
         onWake={sessionActions.wake}
         onRecheck={sessionActions.recheck}

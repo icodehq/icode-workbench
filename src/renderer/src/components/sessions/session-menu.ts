@@ -14,6 +14,7 @@ export type SessionMenuEntryId =
   | 'details'
   | 'sleep'
   | 'wake'
+  | 'resume'
   | 'restart'
   | 'pin'
   | 'remove'
@@ -21,6 +22,7 @@ export type SessionMenuEntryId =
 export type SessionMenuReason =
   | 'pending'
   | 'restarting'
+  | 'resuming'
   | 'host-unreachable'
   | 'worktree-blocked'
 
@@ -36,13 +38,16 @@ export type SessionActionState = {
   sleeping: boolean
   showSleep: boolean
   showWake: boolean
+  showResume: boolean
   showRestart: boolean
   canSleep: boolean
   canWake: boolean
+  canResume: boolean
   canRestart: boolean
   canRemove: boolean
   sleepReason: SessionMenuReason | null
   wakeReason: SessionMenuReason | null
+  resumeReason: SessionMenuReason | null
   restartReason: SessionMenuReason | null
   removeReason: SessionMenuReason | null
 }
@@ -74,16 +79,21 @@ export function sessionActionState(
   allowSleep: boolean
 ): SessionActionState {
   const live = session.state === 'live'
+  const active = live || session.state === 'starting'
   const sleeping = session.sleeping === true
   const blocked = worktreeBlocksTerminal(session.worktree)
   const unreachable = hostUnavailable(session)
 
   const showSleep = allowSleep && live && !sleeping
   const showWake = allowSleep && sleeping
+  // Resume continues the captured conversation of a process that is gone.
+  // Restart stays available as the explicit fresh start.
+  const showResume = session.resumable === true && !active && !sleeping
   const showRestart = !sleeping
 
   const canSleep = showSleep && pending === null
   const canWake = showWake && pending === null
+  const canResume = showResume && pending === null && !blocked && !unreachable
   const canRestart = showRestart && pending === null && !blocked && !unreachable
   const canRemove = pending === null
 
@@ -92,13 +102,24 @@ export function sessionActionState(
     sleeping,
     showSleep,
     showWake,
+    showResume,
     showRestart,
     canSleep,
     canWake,
+    canResume,
     canRestart,
     canRemove,
     sleepReason: showSleep && !canSleep ? 'pending' : null,
     wakeReason: showWake && !canWake ? 'pending' : null,
+    resumeReason: !showResume || canResume
+      ? null
+      : pending === 'resuming'
+        ? 'resuming'
+        : pending !== null
+          ? 'pending'
+          : unreachable
+            ? 'host-unreachable'
+            : 'worktree-blocked',
     restartReason: !showRestart || canRestart
       ? null
       : pending === 'restarting'
@@ -156,6 +177,14 @@ export function sessionHeaderMenuEntries(
       ...(state.wakeReason === null ? {} : { reason: state.wakeReason })
     })
   }
+  if (state.showResume) {
+    entries.push({
+      id: 'resume',
+      separatorBefore: false,
+      disabled: !state.canResume,
+      ...(state.resumeReason === null ? {} : { reason: state.resumeReason })
+    })
+  }
   if (!allowSleep || !state.sleeping) {
     entries.push({
       id: 'restart',
@@ -194,6 +223,14 @@ export function sessionMenuEntries(state: SessionActionState): SessionMenuEntry[
       ...(state.wakeReason === null ? {} : { reason: state.wakeReason })
     })
   }
+  if (state.showResume) {
+    entries.push({
+      id: 'resume',
+      separatorBefore: false,
+      disabled: !state.canResume,
+      ...(state.resumeReason === null ? {} : { reason: state.resumeReason })
+    })
+  }
   if (state.showRestart) {
     entries.push({
       id: 'restart',
@@ -220,6 +257,8 @@ export function sessionMenuReasonLabel(reason: SessionMenuReason): string {
       return translate('session.actionPending')
     case 'restarting':
       return translate('session.restartInProgress')
+    case 'resuming':
+      return translate('session.resumeInProgress')
     case 'host-unreachable':
       return translate('session.hostUnreachable')
     case 'worktree-blocked':

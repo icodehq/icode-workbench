@@ -56,6 +56,7 @@ import {
   type HostObservation,
   type PersistedSessionObservation,
   type ReconciledSessionState,
+  type SessionLifecycleState,
   type SessionRole
 } from '../../shared/domain/session'
 import type { HostSessionStatus } from '../../shared/domain/session'
@@ -1542,6 +1543,50 @@ export class SessionService {
   }
 
   /**
+   * Reopens a non-live session with its harness-native resume command.
+   *
+   * Restart is deliberately a fresh process; Resume is the explicit
+   * continuation path. It requires a captured conversation token and never
+   * guesses "the most recent conversation", so it cannot silently reopen an
+   * unrelated session. Explicitly slept sessions use Wake instead.
+   */
+  async resume(sessionId: string): Promise<SessionSummary> {
+    const row = this.requireRow(sessionId)
+    this.assertRepoNotRemoving(row)
+    if (row.sleepingAt !== null) {
+      throw new SessionServiceError(
+        makeAppError('INVALID_ARGUMENT', 'This session is sleeping. Wake it to resume.', {
+          context: { sessionId }
+        })
+      )
+    }
+    if (row.resumeToken === null) {
+      throw new SessionServiceError(
+        makeAppError('INVALID_ARGUMENT', 'This session has no captured conversation to resume.', {
+          context: { sessionId }
+        })
+      )
+    }
+    if (!wakePlan(row.harness, row.resumeToken).resumesConversation) {
+      throw new SessionServiceError(
+        makeAppError('INVALID_ARGUMENT', 'This harness cannot resume a conversation.', {
+          context: { sessionId, harness: row.harness }
+        })
+      )
+    }
+    // A resume must not kill a healthy process. The UI hides Resume on a live
+    // session, but the action must hold when a stale client asks anyway.
+    if (this.currentIncarnations.has(sessionId)) {
+      throw new SessionServiceError(
+        makeAppError('INVALID_ARGUMENT', 'This session is still running; stop it before resuming.', {
+          context: { sessionId }
+        })
+      )
+    }
+    return this.restart(sessionId, { resume: true })
+  }
+
+  /**
    * Hibernate a live session: stop the PTY (freeing CPU/memory) and persist the
    * sleep intent. The worktree, branch, title and resume token stay. Wake uses
    * the harness-specific resume command; nothing here pretends the process was
@@ -1613,6 +1658,24 @@ export class SessionService {
       )
     }
     return this.restart(sessionId, { resume: true })
+  }
+
+  /**
+   * Whether an explicit Resume can continue this session's conversation.
+   *
+   * A sleeping session resumes through Wake. A live process is not a resume
+   * candidate — it is already running. The token requirement is deliberate:
+   * unlike Wake, Resume never falls back to `--continue`/`resume --last`,
+   * because an explicit action must not pick a conversation the user did not
+   * choose.
+   */
+  private resumable(row: StoredSession, state: SessionLifecycleState): boolean {
+    if (state === 'live' || state === 'starting') return false
+    if (row.sleepingAt !== null) return false
+    return (
+      row.resumeToken !== null &&
+      wakePlan(row.harness, row.resumeToken).resumesConversation
+    )
   }
 
   /**
@@ -1918,6 +1981,7 @@ export class SessionService {
       error: reconciled.error ?? this.impliedError(reconciled.reason),
       updatedAt: this.now(),
       sleeping: row.sleepingAt !== null,
+      resumable: this.resumable(row, reconciled.state),
       worktree: this.worktreeSummaryFor(
         row,
         reconciled.state,

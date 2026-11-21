@@ -217,6 +217,7 @@ describe('preload API surface', () => {
     await api.sessions.create({ repoId, harness: 'claude', cols: 100, rows: 30 })
     await api.sessions.close({ sessionId })
     await api.sessions.restart({ sessionId })
+    await api.sessions.resume({ sessionId })
     await api.terminal.attach({ sessionId })
     await api.terminal.write({ sessionId, incarnationId, data: 'ls\r' })
     await api.terminal.resize({ sessionId, incarnationId, cols: 120, rows: 40 })
@@ -228,6 +229,7 @@ describe('preload API surface', () => {
       IPC_CHANNELS.sessionsCreate,
       IPC_CHANNELS.sessionsClose,
       IPC_CHANNELS.sessionsRestart,
+      IPC_CHANNELS.sessionsResume,
       IPC_CHANNELS.terminalAttach,
       IPC_CHANNELS.terminalWrite,
       IPC_CHANNELS.terminalResize,

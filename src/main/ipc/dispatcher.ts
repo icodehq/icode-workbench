@@ -131,6 +131,7 @@ export type DispatcherServices = {
   sessionsCreate: (input: z.infer<typeof createSessionInputSchema>) => Promise<unknown>
   sessionsClose: (input: { sessionId: string }) => Promise<unknown>
   sessionsRestart: (input: { sessionId: string }) => Promise<unknown>
+  sessionsResume: (input: { sessionId: string }) => Promise<unknown>
   sessionsSleep: (input: { sessionId: string }) => Promise<unknown>
   sessionsWake: (input: { sessionId: string }) => Promise<unknown>
   sessionsRemove: (input: {
@@ -440,6 +441,12 @@ export function createDispatcher(services: DispatcherServices): Dispatcher {
         const input = parse(sessionTargetInputSchema, rawInput)
         if ('code' in input) return { ok: false, error: input }
         return run(() => services.sessionsRestart(input))
+      }
+
+      case IPC_CHANNELS.sessionsResume: {
+        const input = parse(sessionTargetInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.sessionsResume(input))
       }
 
       case IPC_CHANNELS.sessionsSleep: {
