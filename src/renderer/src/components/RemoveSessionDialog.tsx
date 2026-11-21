@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Trash2, X } from 'lucide-react'
 import type { SessionSummary } from '../../../shared/schemas/ipc'
 import { useT, useTp } from '../i18n/use-i18n'
@@ -9,7 +10,7 @@ type Props = {
   /** Another session still runs in the same worktree. */
   sharedWorktree?: boolean
   onClose: () => void
-  onConfirm: () => void
+  onConfirm: (deleteBranch: boolean) => void
 }
 
 /**
@@ -29,6 +30,11 @@ export default function RemoveSessionDialog({
 }: Props): React.JSX.Element {
   const t = useT()
   const tp = useTp()
+  const [deleteBranch, setDeleteBranch] = useState(false)
+  const branch = session.worktree?.branch ?? null
+  // A shared checkout is not this session's to delete; the backend refuses it.
+  const canDeleteBranch = !sharedWorktree && branch !== null
+  const willDeleteBranch = canDeleteBranch && deleteBranch
   return (
     <div
       className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-6"
@@ -58,7 +64,12 @@ export default function RemoveSessionDialog({
                 title: session.title,
                 branch: session.worktree?.branch ?? ''
               })
-            : t('session.remove.body', { title: session.title })}
+            : willDeleteBranch
+              ? t('session.remove.bodyDeleteBranch', {
+                  title: session.title,
+                  branch: branch ?? ''
+                })
+              : t('session.remove.body', { title: session.title })}
         </p>
         {unsavedCount > 0 ? (
           <p
@@ -67,6 +78,31 @@ export default function RemoveSessionDialog({
           >
             {tp('session.remove.unsaved', unsavedCount)}
           </p>
+        ) : null}
+        {canDeleteBranch ? (
+          <label
+            className={`mt-4 flex cursor-pointer items-start gap-2 rounded-md border px-3 py-2.5 transition-colors ${
+              willDeleteBranch
+                ? 'border-destructive/50 bg-destructive/5'
+                : 'border-border hover:bg-muted/40'
+            }`}
+          >
+            <input
+              type="checkbox"
+              className="mt-0.5 size-3.5 shrink-0 accent-destructive"
+              checked={willDeleteBranch}
+              onChange={(event) => setDeleteBranch(event.target.checked)}
+              data-testid="remove-session-delete-branch"
+            />
+            <span className="min-w-0">
+              <span className="block text-[12px] font-medium">
+                {t('session.remove.deleteBranch', { branch: branch ?? '' })}
+              </span>
+              <span className="mt-0.5 block text-[10px] leading-relaxed text-muted-foreground">
+                {t('session.remove.deleteBranchBody')}
+              </span>
+            </span>
+          </label>
         ) : null}
         <div className="mt-4 flex justify-end gap-2">
           <button
@@ -80,7 +116,7 @@ export default function RemoveSessionDialog({
           <button
             type="button"
             className="h-9 rounded-md bg-destructive px-3.5 text-[12px] font-medium text-black hover:opacity-90"
-            onClick={onConfirm}
+            onClick={() => onConfirm(willDeleteBranch)}
             data-testid="remove-session-confirm"
           >
             {t('session.remove.confirm')}

@@ -191,10 +191,12 @@ Session removal is guarded by live PTYs, host reachability, uncommitted changes,
 unmerged commits, and missing worktrees. If work is at risk, the final
 confirmation is a single consequence-specific warning: uncommitted changes list
 the affected files, unmerged commits name the retained branch, and one click
-completes the removal. Nothing needs to be typed or copied, and the branch is
-kept even when the checkout is removed — an explicit **Accept & merge…** or
-branch deletion stays a separate decision. The **Sessions & branches** dialog in
-the project menu lists retained branches and any terminals the host still owns.
+completes the removal. Nothing needs to be typed or copied. By default the
+branch is kept even when the checkout is removed; **Delete branch** in the
+Remove dialog opts into deleting the owned branch too. An explicit
+**Accept & merge…** or standalone branch deletion stays a separate decision.
+The **Sessions & branches** dialog in the project menu lists retained branches
+and any terminals the host still owns.
 
 <p align="center">
   <a href=".github/assets/workbench-0916-session-split.png"><img src=".github/assets/workbench-0916-session-split.png" alt="Two direct sessions side by side in the iCode split view, each with its own terminal and branch" width="100%" /></a>
@@ -711,11 +713,17 @@ the moment of the action:
 | Unmerged commits | One warning shows the commit count; the branch is retained |
 | Missing or unregistered worktree | Blocked; explicit recovery only |
 | Clean and merged | Checkout removed, **branch retained** |
+| **Delete branch** checked | Owned branch deleted with the checkout after the same warning |
 
-The confirmation is a warning, not a typed guard: the branch is always kept, and
-the exact branch name is still sent to the backend so removal can never delete a
-branch. Branch deletion stays a separate action that still requires the exact
-name when the branch is unmerged.
+The confirmation is a warning, not a typed guard: by default the branch is
+always kept, and the exact branch name is still sent to the backend so removal
+can never delete a branch by accident. **Delete branch** is an explicit opt-in;
+it is disabled for a shared checkout and refused before anything is deleted
+while queued or running tasks use a chain branch, or another registered
+worktree has the branch checked out. When work is at risk, the cleanup dialog
+names both the uncommitted files and the unmerged commits, and one click
+completes the removal. Standalone branch deletion from Project maintenance
+still requires the exact name when the branch is unmerged.
 
 Session creation is refused for an unborn repository or while a merge, rebase,
 cherry-pick, revert, or bisect is in progress, because no trustworthy baseline

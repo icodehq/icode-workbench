@@ -39,6 +39,7 @@ export default function WorktreeCleanupDialog({
 }: Props): React.JSX.Element {
   const t = useT()
   const blocker = prompt.blocker
+  const deleteBranch = prompt.deleteBranch
   const dirty = blocker?.kind === 'dirty'
   const unmerged = blocker?.kind === 'unmerged'
   const recoverable = blocker?.kind === 'missing'
@@ -129,10 +130,14 @@ export default function WorktreeCleanupDialog({
         {dirty ? (
           <div className="mt-4 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-3">
             <p className="text-[12px] font-medium text-destructive">
-              {t('scm.cleanup.discardTitle')}
+              {deleteBranch
+                ? t('scm.cleanup.discardTitleDeleteBranch')
+                : t('scm.cleanup.discardTitle')}
             </p>
             <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
-              {t('scm.cleanup.discardBody', { branch: prompt.branch })}
+              {deleteBranch
+                ? t('scm.cleanup.discardBodyDeleteBranch', { branch: prompt.branch })
+                : t('scm.cleanup.discardBody', { branch: prompt.branch })}
             </p>
             <button
               type="button"
@@ -142,7 +147,9 @@ export default function WorktreeCleanupDialog({
               data-testid="discard-confirm"
             >
               {busy ? <Loader2 size={12} className="animate-spin" /> : null}
-              {t('scm.cleanup.discard')}
+              {deleteBranch
+                ? t('scm.cleanup.discardDeleteBranch')
+                : t('scm.cleanup.discard')}
             </button>
           </div>
         ) : null}
@@ -150,10 +157,17 @@ export default function WorktreeCleanupDialog({
         {unmerged ? (
           <div className="mt-4 rounded-md border border-border bg-muted/20 px-3 py-3">
             <p className="text-[12px] font-medium text-foreground">
-              {t('scm.cleanup.removeCheckoutTitle')}
+              {deleteBranch
+                ? t('scm.cleanup.removeCheckoutTitleDeleteBranch')
+                : t('scm.cleanup.removeCheckoutTitle')}
             </p>
             <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
-              {t('scm.cleanup.removeCheckoutBody', { branch: prompt.branch })}
+              {deleteBranch
+                ? t('scm.cleanup.removeCheckoutBodyDeleteBranch', {
+                    branch: prompt.branch,
+                    commits: blocker?.commits ?? 0
+                  })
+                : t('scm.cleanup.removeCheckoutBody', { branch: prompt.branch })}
             </p>
             <button
               type="button"
@@ -163,7 +177,9 @@ export default function WorktreeCleanupDialog({
               data-testid="remove-checkout-confirm"
             >
               {busy ? <Loader2 size={12} className="animate-spin" /> : null}
-              {t('scm.cleanup.removeCheckout')}
+              {deleteBranch
+                ? t('scm.cleanup.removeCheckoutDeleteBranch')
+                : t('scm.cleanup.removeCheckout')}
             </button>
           </div>
         ) : null}

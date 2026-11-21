@@ -8,10 +8,12 @@ import { WorktreeStore } from '../persistence/worktree-store'
 import { GitWorktreeService } from '../worktrees/git-worktree-service'
 import { samePathResolved } from '../worktrees/worktree-status'
 import { SessionService } from './session-service'
-import { SessionRemovalService } from './session-removal-service'
+import { SessionRemovalService, type SessionRemovalDeps } from './session-removal-service'
 import { SessionServiceError } from './session-errors'
 import { FakeHostGateway } from './fake-host-gateway'
 import type { Database } from '../persistence/database'
+import type { RepositoryStore } from '../persistence/repository-store'
+import type { SessionStore } from '../persistence/session-store'
 import type { SessionSummary } from '../../shared/schemas/ipc'
 import { newSessionId } from '../../shared/domain/ids'
 
@@ -21,8 +23,11 @@ type Fixture = {
   host: FakeHostGateway
   sessions: SessionService
   removals: SessionRemovalService
+  removalsWith: (overrides: Partial<SessionRemovalDeps>) => SessionRemovalService
   worktrees: WorktreeStore
   git: GitWorktreeService
+  repositories: RepositoryStore
+  sessionStore: SessionStore
   repoId: string
   repoPath: string
   createSession: () => Promise<SessionSummary>
@@ -89,15 +94,18 @@ async function setup(): Promise<Fixture> {
   ])
   const added = await stores.service.addRepository(repoPath)
 
-  const removals = new SessionRemovalService({
-    database: db,
-    sessions: stores.sessions,
-    repositories: stores.repositories,
-    worktrees,
-    gitWorktrees: gitService,
-    host,
-    summarise: (sessionId) => sessions.get(sessionId)
-  })
+  const removalsWith = (overrides: Partial<SessionRemovalDeps>): SessionRemovalService =>
+    new SessionRemovalService({
+      database: db,
+      sessions: stores.sessions,
+      repositories: stores.repositories,
+      worktrees,
+      gitWorktrees: gitService,
+      host,
+      summarise: (sessionId) => sessions.get(sessionId),
+      ...overrides
+    })
+  const removals = removalsWith({})
 
   cleanups.push(() => {
     sessions.dispose()
@@ -111,8 +119,11 @@ async function setup(): Promise<Fixture> {
     host,
     sessions,
     removals,
+    removalsWith,
     worktrees,
     git: gitService,
+    repositories: stores.repositories,
+    sessionStore: stores.sessions,
     repoId: added.repository.id,
     repoPath,
     createSession: () =>
@@ -225,6 +236,88 @@ describe('ordinary session removal', () => {
     )
   })
 
+  it('deletes the branch when removal opts in', async () => {
+    const f = await setup()
+    const session = await f.createSession()
+    f.finish(session.id)
+    const worktree = session.worktree!
+
+    const result = await f.removals.remove(session.id, { deleteBranch: true })
+    expect(result).toEqual({
+      status: 'removed',
+      branch: worktree.branch,
+      branchRetained: false
+    })
+
+    expect(existsSync(worktree.path)).toBe(false)
+    await expect(f.git.branchExists(f.repoPath, worktree.branch)).resolves.toBe(false)
+    expect(f.worktrees.findBranch(worktree.branch)).toBeNull()
+    expect(f.sessionStore.findById(session.id as never)).toBeNull()
+  })
+
+  it('refuses branch deletion for a shared checkout', async () => {
+    const f = await setup()
+    const first = await f.createSession()
+    const second = await f.sessions.create({
+      repoId: f.repoId,
+      harness: 'claude',
+      worktreeId: first.worktree!.id,
+      cols: 100,
+      rows: 30
+    })
+    f.finish(first.id)
+    f.finish(second.id)
+
+    await expect(f.removals.remove(first.id, { deleteBranch: true })).rejects.toSatisfy(
+      (error: unknown) => codeOf(error) === 'INVALID_ARGUMENT'
+    )
+    expect(existsSync(first.worktree!.path)).toBe(true)
+    expect(f.worktrees.findBySession(first.id)).not.toBeNull()
+    await expect(f.git.branchExists(f.repoPath, first.worktree!.branch)).resolves.toBe(true)
+  })
+
+  it('refuses branch deletion while an active task uses the chain', async () => {
+    const f = await setup()
+    const session = await f.createSession()
+    f.finish(session.id)
+    const guarded = f.removalsWith({ activeTasksOnChain: () => 1 })
+
+    await expect(guarded.remove(session.id, { deleteBranch: true })).rejects.toSatisfy(
+      (error: unknown) => codeOf(error) === 'GIT_BRANCH_IN_USE'
+    )
+    expect(existsSync(session.worktree!.path)).toBe(true)
+    await expect(f.git.branchExists(f.repoPath, session.worktree!.branch)).resolves.toBe(true)
+  })
+
+  it('names unmerged commits on a dirty blocker when the branch will go', async () => {
+    const f = await setup()
+    const session = await f.createSession()
+    f.finish(session.id)
+    writeFileSync(join(session.worktree!.path, 'work.txt'), 'x\\n')
+    git(session.worktree!.path, 'add', 'work.txt')
+    execFileSync('git', [
+      '-C',
+      session.worktree!.path,
+      '-c',
+      'user.email=icode@test',
+      '-c',
+      'user.name=iCode',
+      'commit',
+      '-qm',
+      'work'
+    ])
+    writeFileSync(join(session.worktree!.path, 'dirty.txt'), 'dirty\\n')
+
+    const result = await f.removals.remove(session.id, { deleteBranch: true })
+    expect(result.status).toBe('blocked_worktree')
+    if (result.status === 'blocked_worktree') {
+      expect(result.blocker.kind).toBe('dirty')
+      expect(result.blocker.files).toContain('dirty.txt')
+      expect(result.blocker.commits).toBe(1)
+    }
+    expect(existsSync(session.worktree!.path)).toBe(true)
+  })
+
   it('detaches one of two sessions without touching the shared checkout', async () => {
     const f = await setup()
     const first = await f.createSession()
@@ -302,6 +395,22 @@ describe('explicit discard', () => {
     expect(existsSync(session.worktree!.path)).toBe(false)
     await expect(f.git.branchExists(f.repoPath, session.worktree!.branch)).resolves.toBe(true)
     expect(f.worktrees.findBranch(session.worktree!.branch)).not.toBeNull()
+  })
+
+  it('discards the checkout and the branch when asked', async () => {
+    const f = await setup()
+    const session = await f.createSession()
+    f.finish(session.id)
+    writeFileSync(join(session.worktree!.path, 'agent.txt'), 'work\\n')
+
+    const result = await f.removals.discard(session.id, session.worktree!.branch, {
+      deleteBranch: true
+    })
+    expect(result.status).toBe('discarded')
+    if (result.status === 'discarded') expect(result.branchRetained).toBe(false)
+    expect(existsSync(session.worktree!.path)).toBe(false)
+    await expect(f.git.branchExists(f.repoPath, session.worktree!.branch)).resolves.toBe(false)
+    expect(f.worktrees.findBranch(session.worktree!.branch)).toBeNull()
   })
 
   it('refuses to discard when the worktree is missing', async () => {

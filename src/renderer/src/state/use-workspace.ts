@@ -12,6 +12,7 @@ import { isActiveSessionState, isTerminalSessionState } from '../../../shared/do
 import { wakeDescription, wakePlan } from '../../../shared/domain/session-sleep'
 import { callApi, errorNotice, isAbsolutePathLike } from '../lib/api'
 import { getLocale, translate, translatePlural } from '../i18n/i18n-store'
+import { localizeAppError } from '../../../shared/i18n'
 import { readTerminalSize } from '../terminal/terminal-size'
 import {
   createInitialState,
@@ -19,6 +20,7 @@ import {
   type Notice,
   type WorkspaceState
 } from './workspace'
+import type { SessionRemovalOptions } from './session-actions'
 
 const REPO_STORAGE_KEY = 'icode.activeRepoId'
 const SESSION_STORAGE_KEY = 'icode.activeSessionId'
@@ -93,8 +95,12 @@ export function useWorkspace(): {
   sleepSession: (sessionId: string) => Promise<void>
   wakeSession: (sessionId: string) => Promise<void>
   recheckSession: (sessionId: string) => Promise<void>
-  requestRemoveSession: (sessionId: string) => Promise<void>
-  discardSession: (sessionId: string, confirmBranch: string) => Promise<boolean>
+  requestRemoveSession: (sessionId: string, options?: SessionRemovalOptions) => Promise<void>
+  discardSession: (
+    sessionId: string,
+    confirmBranch: string,
+    options?: SessionRemovalOptions
+  ) => Promise<boolean>
   recoverWorktree: (sessionId: string) => Promise<void>
   dismissSessionCleanup: () => void
   requestRemoveBranch: (branch: string, confirmBranch?: string) => Promise<void>
@@ -485,10 +491,17 @@ export function useWorkspace(): {
 
   /** Ordinary removal: blocks on live, dirty, unmerged, missing or inconsistent worktrees. */
   const requestRemoveSession = useCallback(
-    async (sessionId: string): Promise<void> => {
+    async (sessionId: string, options?: SessionRemovalOptions): Promise<void> => {
       const session = state.sessions.find((entry) => entry.id === sessionId)
+      const deleteBranch = options?.deleteBranch === true
       dispatch({ type: 'pendingSet', sessionId, action: 'removing' })
-      const result = await callApi(window.icode.sessions.remove({ sessionId, stopIfLive: true }))
+      const result = await callApi(
+        window.icode.sessions.remove({
+          sessionId,
+          stopIfLive: true,
+          ...(deleteBranch ? { deleteBranch: true } : {})
+        })
+      )
       if (!result.ok) {
         dispatch({ type: 'pendingClear', sessionId })
         notify(errorNotice(result.error))
@@ -499,7 +512,22 @@ export function useWorkspace(): {
         // The backend has deleted the row. Drop it from this window immediately
         // instead of making the user wait for a full Host/Git refresh first.
         dispatch({ type: 'sessionRemoved', sessionId })
-        notify({ tone: 'success', message: translate('workspace.notice.sessionRemoved') })
+        if (outcome.branchDeleteError !== undefined) {
+          const localized = localizeAppError(outcome.branchDeleteError, getLocale())
+          notify({
+            tone: 'error',
+            message: translate('workspace.notice.branchDeleteFailed'),
+            detail: localized.detail ?? localized.message
+          })
+        } else {
+          notify({
+            tone: 'success',
+            message: translate('workspace.notice.sessionRemoved'),
+            ...(outcome.branchRetained === false && outcome.branch !== null
+              ? { detail: translate('workspace.notice.branchDeleted', { branch: outcome.branch }) }
+              : {})
+          })
+        }
         void Promise.all([refreshSessions(), refreshBranches()])
         return
       }
@@ -527,7 +555,8 @@ export function useWorkspace(): {
           sessionId,
           title: session?.title ?? outcome.session.title,
           branch: outcome.session.worktree?.branch ?? '',
-          blocker: outcome.blocker
+          blocker: outcome.blocker,
+          deleteBranch
         }
       })
       await refreshSessions()
@@ -536,9 +565,18 @@ export function useWorkspace(): {
   )
 
   const discardSession = useCallback(
-    async (sessionId: string, confirmBranch: string): Promise<boolean> => {
+    async (
+      sessionId: string,
+      confirmBranch: string,
+      options?: SessionRemovalOptions
+    ): Promise<boolean> => {
+      const deleteBranch = options?.deleteBranch === true
       const result = await callApi(
-        window.icode.sessions.discard({ sessionId, confirmBranch })
+        window.icode.sessions.discard({
+          sessionId,
+          confirmBranch,
+          ...(deleteBranch ? { deleteBranch: true } : {})
+        })
       )
       if (!result.ok) {
         notify(errorNotice(result.error))
@@ -547,14 +585,28 @@ export function useWorkspace(): {
       const outcome = result.value
       if (outcome.status === 'discarded') {
         dispatch({ type: 'sessionCleanup', prompt: null })
-        notify({
-          tone: 'success',
-          message: translate('workspace.notice.discarded', { branch: outcome.branch }),
-          detail: translate('workspace.discard.summary', {
-            files: translatePlural('workspace.discard.files', outcome.files.length),
-            commits: translatePlural('workspace.discard.commits', outcome.commits)
+        if (outcome.branchDeleteError !== undefined) {
+          const localized = localizeAppError(outcome.branchDeleteError, getLocale())
+          notify({
+            tone: 'error',
+            message: translate('workspace.notice.branchDeleteFailed'),
+            detail: localized.detail ?? localized.message
           })
-        })
+        } else {
+          notify({
+            tone: 'success',
+            message: translate(
+              outcome.branchRetained
+                ? 'workspace.notice.discarded'
+                : 'workspace.notice.discardedWithBranch',
+              { branch: outcome.branch }
+            ),
+            detail: translate('workspace.discard.summary', {
+              files: translatePlural('workspace.discard.files', outcome.files.length),
+              commits: translatePlural('workspace.discard.commits', outcome.commits)
+            })
+          })
+        }
         await Promise.all([refreshSessions(), refreshBranches()])
         return true
       }
@@ -567,7 +619,8 @@ export function useWorkspace(): {
               state.sessions.find((entry) => entry.id === sessionId)?.title ??
               translate('workspace.notice.sessionFallback'),
             branch: state.sessions.find((entry) => entry.id === sessionId)?.worktree?.branch ?? '',
-            blocker: outcome.blocker
+            blocker: outcome.blocker,
+            deleteBranch
           }
         })
         notify({

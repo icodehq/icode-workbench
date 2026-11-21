@@ -23,6 +23,7 @@ import type {
 import type { AgentSendResult } from '../lib/agent-send'
 import type { WorkbenchDraftStore } from '../review/drafts'
 import type { Notice, PendingAction } from '../state/workspace'
+import type { SessionRemovalOptions } from '../state/session-actions'
 import TerminalPane from './TerminalPane'
 import ChangesPanel from './ChangesPanel'
 import FilesPanel from './FilesPanel'
@@ -65,7 +66,7 @@ type Props = {
   /** Direct sessions support hibernate; task sessions remain scheduler-owned. */
   allowSleep?: boolean
   onRecheck: (sessionId: string) => void
-  onRemove: (sessionId: string) => void
+  onRemove: (sessionId: string, options?: SessionRemovalOptions) => void
   onRecoverWorktree: (sessionId: string) => void
   onError: (error: AppError) => void
   /** Shared notice channel for the tools panels. */
@@ -715,9 +716,9 @@ export default function SessionWorkspace({
           unsavedCount={unsavedFiles}
           sharedWorktree={worktreeShared}
           onClose={() => setRemoveOpen(false)}
-          onConfirm={() => {
+          onConfirm={(deleteBranch) => {
             setRemoveOpen(false)
-            onRemove(session.id)
+            onRemove(session.id, { deleteBranch })
           }}
         />
       ) : null}

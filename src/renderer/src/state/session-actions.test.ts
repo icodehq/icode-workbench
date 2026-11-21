@@ -37,4 +37,13 @@ describe('session actions', () => {
     expect(raw.recoverWorktree).toHaveBeenCalledWith('f')
     expect(raw.stopSession).toHaveBeenCalledWith('g')
   })
+
+  it('forwards the branch-deletion intent to removal', () => {
+    const raw = source()
+    const actions = createSessionActions(raw)
+
+    expect(actions.remove('h', { deleteBranch: true })).toBeUndefined()
+
+    expect(raw.requestRemoveSession).toHaveBeenCalledWith('h', { deleteBranch: true })
+  })
 })

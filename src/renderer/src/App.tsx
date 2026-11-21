@@ -815,7 +815,8 @@ export default function App(): React.JSX.Element {
                     setCleanupBusy(true)
                     const removed = await workspace.discardSession(
                       state.sessionCleanup!.sessionId,
-                      confirmBranch
+                      confirmBranch,
+                      { deleteBranch: state.sessionCleanup!.deleteBranch }
                     )
                     setCleanupBusy(false)
                     return removed

@@ -1,4 +1,9 @@
-export type SessionAction = (sessionId: string) => void
+export type SessionRemovalOptions = {
+  /** Delete the session's owned branch along with its checkout. */
+  deleteBranch?: boolean
+}
+
+export type SessionAction = (sessionId: string, options?: SessionRemovalOptions) => void
 
 export type SessionActions = {
   restart: SessionAction
@@ -15,7 +20,7 @@ export type SessionActionSource = {
   sleepSession: (sessionId: string) => Promise<void>
   wakeSession: (sessionId: string) => Promise<void>
   recheckSession: (sessionId: string) => Promise<void>
-  requestRemoveSession: (sessionId: string) => Promise<void>
+  requestRemoveSession: (sessionId: string, options?: SessionRemovalOptions) => Promise<void>
   recoverWorktree: (sessionId: string) => Promise<void>
   stopSession: (sessionId: string) => Promise<void>
 }
@@ -41,7 +46,10 @@ export function createSessionActions(source: SessionActionSource): SessionAction
     sleep: (sessionId) => void source.sleepSession(sessionId),
     wake: (sessionId) => void source.wakeSession(sessionId),
     recheck: (sessionId) => void source.recheckSession(sessionId),
-    remove: (sessionId) => void source.requestRemoveSession(sessionId),
+    remove: (sessionId, options) =>
+      void (options === undefined
+        ? source.requestRemoveSession(sessionId)
+        : source.requestRemoveSession(sessionId, options)),
     recoverWorktree: (sessionId) => void source.recoverWorktree(sessionId),
     stop: (sessionId) => void source.stopSession(sessionId)
   }

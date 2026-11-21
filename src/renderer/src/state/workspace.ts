@@ -29,6 +29,8 @@ export type SessionCleanupPrompt = {
   title: string
   branch: string
   blocker: WorktreeBlocker | null
+  /** The removal that produced this prompt also asked to delete the branch. */
+  deleteBranch: boolean
 }
 
 export type BranchCleanupPrompt = {

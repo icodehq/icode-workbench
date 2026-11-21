@@ -1307,10 +1307,10 @@ export default function WorkspaceSidebar({
                 session: removeSession,
                 sessions,
                 onClose: () => setRemoveSession(null),
-                onConfirm: () => {
+                onConfirm: (deleteBranch) => {
                   const sessionId = removeSession.id
                   setRemoveSession(null)
-                  sessionActions.remove(sessionId)
+                  sessionActions.remove(sessionId, { deleteBranch })
                 }
               }
         }

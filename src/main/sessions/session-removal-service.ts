@@ -15,10 +15,25 @@ import type {
 import { parseRepoId, parseSessionId, type RepoId } from '../../shared/domain/ids'
 import type { ExecutionTarget } from '../../shared/domain/repository'
 import type { StoredSession } from '../persistence/rows'
+import type { AppError } from '../../shared/domain/errors'
 import { makeAppError } from '../../shared/domain/errors'
+import type { SessionWorktreeRecord } from '../../shared/domain/worktree'
+import { samePathResolved } from '../worktrees/worktree-status'
 import { SessionServiceError, errorFromHost } from './session-errors'
 import { hostTargetFor } from '../wsl/terminal/path-a'
 import type { WorkspaceTrustService } from '../harness/trust/workspace-trust'
+
+export type SessionRemovalOptions = {
+  stopIfLive?: boolean
+  /**
+   * Delete the session's owned branch once its checkout is gone.
+   *
+   * Only meaningful for a session that solely owns its worktree. Removal
+   * re-verifies readiness before stopping the PTY, and branch deletion is
+   * attempted only after the checkout has been removed.
+   */
+  deleteBranch?: boolean
+}
 
 export type SessionRemovalDeps = {
   database: Database
@@ -86,7 +101,7 @@ export class SessionRemovalService {
 
   async remove(
     sessionId: string,
-    options: { stopIfLive?: boolean } = {}
+    options: SessionRemovalOptions = {}
   ): Promise<RemoveSessionResult> {
     const row = this.requireSession(sessionId)
     const target = this.targetForSession(row)
@@ -95,18 +110,35 @@ export class SessionRemovalService {
     if (liveness.live && options.stopIfLive !== true) {
       return { status: 'blocked_live_sessions', session: await this.deps.summarise(sessionId) }
     }
+    const record = this.deps.worktrees.findBySession(sessionId)
+    const deleteBranch = options.deleteBranch === true
+    if (deleteBranch) {
+      /*
+       * Branch deletion is a second destructive act. Verify it before the PTY
+       * is stopped or any Git command runs, so a refusal leaves everything —
+       * including a live terminal — untouched.
+       */
+      if (record === null) {
+        throw new SessionServiceError(
+          makeAppError('INVALID_ARGUMENT', 'This session has no isolated worktree branch to delete.', {
+            context: { sessionId }
+          })
+        )
+      }
+      await this.assertBranchDeletable(record)
+    }
     if (liveness.live) await this.stopForRemoval(sessionId, target)
     // Build the summary only after any stop: the cleanup decision must describe
     // the process as it is now, not the stale live state. This also avoids a
     // second full Host/Git reconciliation on the normal stop-and-remove path.
     const summary = await this.deps.summarise(sessionId)
 
-    const record = this.deps.worktrees.findBySession(sessionId)
     if (record !== null) {
       /*
        * A shared checkout is not this session's to remove. Detach only: the
        * other sessions keep running in the same directory, on the same branch,
-       * and no Git worktree command is issued.
+       * and no Git worktree command is issued. `assertBranchDeletable` has
+       * already refused a requested branch deletion in this case.
        */
       if (this.deps.worktrees.sessionCountForWorktree(record.id) > 1) {
         this.deps.database.transaction(() => {
@@ -128,7 +160,8 @@ export class SessionRemovalService {
         record.branch,
         repository.path,
         record.state,
-        repository.executionTarget
+        repository.executionTarget,
+        deleteBranch
       )
       if (blocker !== null) {
         return { status: 'blocked_worktree', session: summary, blocker }
@@ -163,12 +196,16 @@ export class SessionRemovalService {
         .catch(() => undefined)
     }
 
+    const deleted = deleteBranch && record !== null ? await this.deleteOwnedBranch(record) : null
+    const branchDeleted = deleted?.branchDeleted === true
+
     this.deps.database.transaction(() => {
       if (record !== null) {
         this.deps.worktrees.unlinkSession(sessionId)
         // Last session out: the checkout goes with it, as it did before shared
         // worktrees existed. A retained branch still guards the work.
         this.deps.worktrees.deleteWorktree(record.id)
+        if (branchDeleted) this.deps.worktrees.deleteBranch(record.branch)
       }
       this.deps.sessions.delete(row.id)
     })
@@ -176,12 +213,19 @@ export class SessionRemovalService {
     return {
       status: 'removed',
       branch: record?.branch ?? null,
-      // A retained branch is the default; branch deletion is a separate action.
-      branchRetained: record !== null
+      // A retained branch is the default; branch deletion needs the opt-in.
+      branchRetained: record !== null && !branchDeleted,
+      ...(deleted?.branchDeleteError !== undefined
+        ? { branchDeleteError: deleted.branchDeleteError }
+        : {})
     }
   }
 
-  async discard(sessionId: string, confirmBranch: string): Promise<DiscardSessionResult> {
+  async discard(
+    sessionId: string,
+    confirmBranch: string,
+    options: { deleteBranch?: boolean } = {}
+  ): Promise<DiscardSessionResult> {
     const row = this.requireSession(sessionId)
     const summary = await this.deps.summarise(sessionId)
     const record = this.deps.worktrees.findBySession(sessionId)
@@ -216,6 +260,9 @@ export class SessionRemovalService {
     const liveness = await this.liveness(sessionId, this.targetForSession(this.requireSession(sessionId)))
     if (!liveness.ok) return { status: 'host_unavailable', error: liveness.error }
     if (liveness.live) return { status: 'blocked_live_sessions', session: summary }
+
+    const deleteBranch = options.deleteBranch === true
+    if (deleteBranch) await this.assertBranchDeletable(record)
 
     const owned = this.deps.worktrees.findBranch(record.branch)
     if (!owned || owned.worktreeId !== record.id) {
@@ -277,9 +324,12 @@ export class SessionRemovalService {
         worktreePath: record.path
       })
       .catch(() => undefined)
+    const deleted = deleteBranch ? await this.deleteOwnedBranch(record) : null
+    const branchDeleted = deleted?.branchDeleted === true
     this.deps.database.transaction(() => {
       this.deps.worktrees.unlinkSession(sessionId)
       this.deps.worktrees.deleteWorktree(record.id)
+      if (branchDeleted) this.deps.worktrees.deleteBranch(record.branch)
       this.deps.sessions.delete(this.requireSession(sessionId).id)
     })
     return {
@@ -287,7 +337,10 @@ export class SessionRemovalService {
       branch: record.branch,
       files: inspection.dirtyFiles.slice(0, 200),
       commits: inspection.unmergedCommits ?? 0,
-      branchRetained: true
+      branchRetained: !branchDeleted,
+      ...(deleted?.branchDeleteError !== undefined
+        ? { branchDeleteError: deleted.branchDeleteError }
+        : {})
     }
   }
 
@@ -392,6 +445,122 @@ export class SessionRemovalService {
     return { status: 'removed', branch }
   }
 
+  /**
+   * Fail-closed preflight for deleting a session's branch as part of removal.
+   *
+   * Runs before a live PTY is stopped and before any Git mutation. A branch is
+   * not this session's to delete when another session shares the checkout, an
+   * active task chain still starts from it, or another registered worktree has
+   * it checked out (Git itself refuses to delete a checked-out branch).
+   */
+  private async assertBranchDeletable(record: SessionWorktreeRecord): Promise<void> {
+    // Only branches iCode recorded for this checkout may be deleted.
+    const owned = this.deps.worktrees.findBranch(record.branch)
+    if (!owned || owned.worktreeId !== record.id) {
+      throw new SessionServiceError(
+        makeAppError('BRANCH_NOT_OWNED', 'That branch is not owned by this worktree.', {
+          context: { worktreeId: record.id, branch: record.branch }
+        })
+      )
+    }
+    if (this.deps.worktrees.sessionCountForWorktree(record.id) > 1) {
+      throw new SessionServiceError(
+        makeAppError(
+          'INVALID_ARGUMENT',
+          'Another session still uses this checkout, so its branch was not deleted.',
+          { context: { worktreeId: record.id, branch: record.branch } }
+        )
+      )
+    }
+    const repository = this.deps.repositories.findById(record.repoId)
+    if (!repository) {
+      throw new SessionServiceError(
+        makeAppError('DB_CORRUPT', 'Session repository is missing.', {
+          context: { repoId: record.repoId }
+        })
+      )
+    }
+    const activeTasks = this.deps.activeTasksOnChain?.(record.repoId, record.branch) ?? 0
+    if (activeTasks > 0) {
+      throw new SessionServiceError(
+        makeAppError('GIT_BRANCH_IN_USE', 'This chain branch is still used by active tasks.', {
+          detail: `Finish or cancel ${String(activeTasks)} active task(s) on this chain before deleting the branch.`,
+          context: { branch: record.branch }
+        })
+      )
+    }
+    const registered = await this.deps.gitWorktrees
+      .listWorktrees(repository.path, repository.executionTarget)
+      .catch(() => null)
+    if (registered === null) {
+      throw new SessionServiceError(
+        makeAppError('INTERNAL', 'Git worktrees could not be inspected; nothing was deleted.')
+      )
+    }
+    const inUse = registered.find(
+      (entry) => entry.branch === record.branch && !samePathResolved(entry.path, record.path)
+    )
+    if (inUse) {
+      throw new SessionServiceError(
+        makeAppError('GIT_BRANCH_IN_USE', 'Another worktree still uses this branch.', {
+          detail: `The branch is checked out at ${inUse.path}.`,
+          context: { branch: record.branch, path: inUse.path }
+        })
+      )
+    }
+  }
+
+  /**
+   * Deletes the owned branch after its checkout is gone.
+   *
+   * A failure is reported, not thrown: by now the checkout and session are
+   * already being removed, so failing the whole call would leave a session row
+   * pointing at a missing directory. The branch ownership row then stays with
+   * the branch, so Project maintenance can finish the deletion later.
+   */
+  private async deleteOwnedBranch(
+    record: SessionWorktreeRecord
+  ): Promise<{ branchDeleted: boolean; branchDeleteError?: AppError }> {
+    const repository = this.deps.repositories.findById(record.repoId)
+    if (!repository) {
+      return {
+        branchDeleted: false,
+        branchDeleteError: makeAppError(
+          'DB_CORRUPT',
+          'The session repository is no longer registered.',
+          { context: { repoId: record.repoId } }
+        )
+      }
+    }
+    try {
+      const exists = await this.deps.gitWorktrees.branchExists(
+        repository.path,
+        record.branch,
+        repository.executionTarget
+      )
+      if (exists) {
+        await this.deps.gitWorktrees.deleteBranch({
+          target: repository.executionTarget,
+          primaryRoot: repository.path,
+          branch: record.branch,
+          // The user explicitly opted in and the warning named the commits.
+          force: true
+        })
+      }
+      return { branchDeleted: true }
+    } catch (error) {
+      return {
+        branchDeleted: false,
+        branchDeleteError:
+          error instanceof SessionServiceError
+            ? error.appError
+            : makeAppError('INTERNAL', 'The branch could not be deleted.', {
+                detail: error instanceof Error ? error.message : String(error)
+              })
+      }
+    }
+  }
+
   private async worktreeBlocker(
     path: string,
     branch: string,
@@ -406,7 +575,12 @@ export class SessionRemovalService {
      * neither removed nor discarded. The lookups below must name the target; the
      * eventual deletion already did.
      */
-    target: ExecutionTarget
+    target: ExecutionTarget,
+    /**
+     * When the branch is being deleted too, an unverified commit count cannot
+     * be reported to the user. Fail closed instead of hiding lost commits.
+     */
+    deleteBranch = false
   ): Promise<WorktreeBlocker | null> {
     const inspection = await this.deps.gitWorktrees
       .inspect({ primaryRoot, path, branch, target })
@@ -429,7 +603,21 @@ export class SessionRemovalService {
       return { kind: 'inconsistent', detail: 'The worktree directory is not registered with Git.' }
     }
     if (inspection.dirtyFiles.length > 0) {
-      return { kind: 'dirty', files: inspection.dirtyFiles.slice(0, 200) }
+      /*
+       * Removing the checkout already needs the dirty-file warning. With the
+       * branch going too, the same dialog must also name commits that only the
+       * branch keeps reachable.
+       */
+      if (deleteBranch && inspection.unmergedCommits === null) {
+        return { kind: 'inconsistent', detail: 'Unmerged commits could not be verified.' }
+      }
+      return {
+        kind: 'dirty',
+        files: inspection.dirtyFiles.slice(0, 200),
+        ...(deleteBranch && (inspection.unmergedCommits ?? 0) > 0
+          ? { commits: inspection.unmergedCommits ?? 0 }
+          : {})
+      }
     }
     if (inspection.unmergedCommits === null) {
       return { kind: 'inconsistent', detail: 'Unmerged commits could not be verified.' }
