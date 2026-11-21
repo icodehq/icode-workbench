@@ -59,6 +59,28 @@ describe('parseLoginEnvironment', () => {
       lang: 'C.UTF-8'
     })
   })
+
+  it('reads proxy variables exported by the login shell', () => {
+    expect(
+      parseLoginEnvironment(
+        framed([
+          'PATH=/usr/bin',
+          'LANG=C.UTF-8',
+          'http_proxy=http://127.0.0.1:7890',
+          'HTTPS_PROXY=http://127.0.0.1:7890',
+          'NO_PROXY=corp.example'
+        ])
+      )
+    ).toEqual({
+      path: '/usr/bin',
+      lang: 'C.UTF-8',
+      proxy: {
+        http_proxy: 'http://127.0.0.1:7890',
+        HTTPS_PROXY: 'http://127.0.0.1:7890',
+        NO_PROXY: 'corp.example'
+      }
+    })
+  })
 })
 
 describe('resolveLoginEnvironment', () => {
@@ -193,6 +215,25 @@ describe('applyLoginEnvironment', () => {
     })
     expect(env.LANG).toBe('en_US.UTF-8')
     expect(env.LC_ALL).toBe('en_US.UTF-8')
+  })
+
+  it('imports proxy variables without replacing an explicit environment', async () => {
+    const env: NodeJS.ProcessEnv = { http_proxy: 'http://explicit:1' }
+    await applyLoginEnvironment({
+      platform: 'linux',
+      env,
+      accountShell: null,
+      run: probe([
+        'PATH=/usr/bin',
+        'LANG=C.UTF-8',
+        'http_proxy=http://login:2',
+        'HTTPS_PROXY=http://login:3',
+        'NO_PROXY=corp.example'
+      ])
+    })
+    expect(env.http_proxy).toBe('http://explicit:1')
+    expect(env.HTTPS_PROXY).toBe('http://login:3')
+    expect(env.NO_PROXY).toBe('corp.example')
   })
 
   it('resolves once for the process lifetime', async () => {

@@ -73,6 +73,8 @@ export type GitWorktreeServiceDeps = {
    * "local only", which is exactly the pre-W6 behaviour.
    */
   router?: GitExecutorRouter
+  /** Shared local executor, so proxy env is resolved at each command. */
+  localExecutor?: GitExecutor
 }
 
 /**
@@ -117,9 +119,11 @@ export type RegisteredWorktree = {
  */
 export class GitWorktreeService {
   private readonly queues = new Map<string, Promise<unknown>>()
-  private readonly localExecutor: GitExecutor = createLocalGitExecutor()
+  private readonly localExecutor: GitExecutor
 
-  constructor(private readonly deps: GitWorktreeServiceDeps) {}
+  constructor(private readonly deps: GitWorktreeServiceDeps) {
+    this.localExecutor = deps.localExecutor ?? createLocalGitExecutor()
+  }
 
   get worktreeRoot(): string {
     return this.deps.worktreeRoot

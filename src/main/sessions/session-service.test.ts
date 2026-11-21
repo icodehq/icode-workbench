@@ -102,6 +102,7 @@ function setup(options: {
   workspaceTrust?: WorkspaceTrustService
   launchSpec?: NonNullable<SessionServiceDeps['launchSpec']>
   prepareIntegration?: NonNullable<SessionServiceDeps['prepareIntegration']>
+  proxyEnv?: NonNullable<SessionServiceDeps['proxyEnv']>
 } = {}): Fixture {
   const root = makeTempRoot('icode-session-')
   const db = openTempDatabase(root)
@@ -153,6 +154,7 @@ function setup(options: {
     ...(options.prepareIntegration === undefined
       ? {}
       : { prepareIntegration: options.prepareIntegration }),
+    ...(options.proxyEnv === undefined ? {} : { proxyEnv: options.proxyEnv }),
     resolveWslTerminal: async (_target, guestCwd) => {
       pathA.requested.push(guestCwd)
       if (pathA.fail) {
@@ -220,6 +222,7 @@ async function withRepo(options: {
   workspaceTrust?: WorkspaceTrustService
   launchSpec?: NonNullable<SessionServiceDeps['launchSpec']>
   prepareIntegration?: NonNullable<SessionServiceDeps['prepareIntegration']>
+  proxyEnv?: NonNullable<SessionServiceDeps['proxyEnv']>
 } = {}): Promise<Fixture> {
   const fixture = setup(options)
   const added = await fixture.stores.service.addRepository(fixture.repoPath)
@@ -388,6 +391,32 @@ describe('session creation', () => {
     const attach = f.host.calls.createOrAttach.at(-1)!
     expect(attach.attachOnly).toBe(true)
     expect(attach.env).toBeUndefined()
+  })
+
+  it('adds proxy env to create and restart', async () => {
+    const targets: unknown[] = []
+    const f = await withRepo({
+      proxyEnv: async (target, pathA) => {
+        targets.push({ target, pathA })
+        return {
+          http_proxy: 'http://127.0.0.1:7890',
+          https_proxy: 'http://127.0.0.1:7890'
+        }
+      }
+    })
+    const created = await f.service.create(createInput(f))
+    expect(f.host.calls.createOrAttach[0]?.env).toMatchObject({
+      http_proxy: 'http://127.0.0.1:7890'
+    })
+
+    await f.service.restart(created.id)
+    expect(f.host.calls.createOrAttach.at(-1)?.env).toMatchObject({
+      https_proxy: 'http://127.0.0.1:7890'
+    })
+    expect(targets).toContainEqual({
+      target: { kind: 'local' },
+      pathA: false
+    })
   })
 
   it('uses an optional title', async () => {

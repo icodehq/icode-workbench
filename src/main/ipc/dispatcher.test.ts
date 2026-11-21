@@ -119,6 +119,18 @@ function services(overrides: Partial<DispatcherServices> = {}): DispatcherServic
     assistantNewConversation: vi.fn(async () => ({ message: null })),
     assistantSettingsGet: vi.fn(async () => ({ personaName: 'Mira' })),
     assistantSetSettings: vi.fn(async () => ({ personaName: 'Mira' })),
+    networkSettingsGet: vi.fn(async () => ({
+      mode: 'system',
+      httpProxyUrl: '',
+      httpsProxyUrl: '',
+      noProxy: ''
+    })),
+    networkSetSettings: vi.fn(async () => ({
+      mode: 'system',
+      httpProxyUrl: '',
+      httpsProxyUrl: '',
+      noProxy: ''
+    })),
     schedulesList: vi.fn(async () => []),
     schedulesCreate: vi.fn(async () => ({ id: 'sch_1' })),
     schedulesUpdate: vi.fn(async () => ({ id: 'sch_1' })),
@@ -536,6 +548,47 @@ describe('execution-target aware IPC', () => {
       await dispatch(IPC_CHANNELS.assistantFocus, { messageId: 'msg_1' })
     ).toMatchObject({ ok: true })
     expect(service.assistantFocus).toHaveBeenCalledWith({ messageId: 'msg_1' })
+  })
+
+  it('routes and validates network settings', async () => {
+    const get = vi.fn(async () => ({
+      mode: 'system',
+      httpProxyUrl: '',
+      httpsProxyUrl: '',
+      noProxy: ''
+    }))
+    const set = vi.fn(async (_input: { settings: unknown }) => ({
+      mode: 'system',
+      httpProxyUrl: '',
+      httpsProxyUrl: '',
+      noProxy: ''
+    }))
+    const dispatch = createDispatcher(
+      services({ networkSettingsGet: get, networkSetSettings: set })
+    )
+
+    expect(await dispatch(IPC_CHANNELS.networkSettingsGet, {})).toMatchObject({ ok: true })
+    const settings = {
+      mode: 'manual',
+      httpProxyUrl: 'http://127.0.0.1:7890',
+      httpsProxyUrl: '',
+      noProxy: ''
+    }
+    expect(
+      await dispatch(IPC_CHANNELS.networkSetSettings, { settings })
+    ).toMatchObject({ ok: true })
+    expect(set).toHaveBeenCalledWith({ settings })
+
+    const invalid = await dispatch(IPC_CHANNELS.networkSetSettings, {
+      settings: {
+        mode: 'manual',
+        httpProxyUrl: 'http://host',
+        httpsProxyUrl: '',
+        noProxy: ''
+      }
+    })
+    expect(invalid).toMatchObject({ ok: false, error: { code: 'INVALID_ARGUMENT' } })
+    expect(set).toHaveBeenCalledTimes(1)
   })
 
   it('validates provider update and test requests', async () => {

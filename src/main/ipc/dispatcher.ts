@@ -83,6 +83,7 @@ import {
   assistantSendInputSchema,
   assistantSetSettingsInputSchema
 } from '../../shared/schemas/assistant'
+import { networkSetSettingsInputSchema } from '../../shared/schemas/network'
 import type { IpcResult } from '../../shared/schemas/ipc'
 import {
   providerCreateInputSchema,
@@ -255,6 +256,8 @@ export type DispatcherServices = {
   assistantNewConversation: () => Promise<unknown>
   assistantSettingsGet: () => Promise<unknown>
   assistantSetSettings: (input: { settings: unknown }) => Promise<unknown>
+  networkSettingsGet: () => Promise<unknown>
+  networkSetSettings: (input: { settings: unknown }) => Promise<unknown>
   schedulesList: (input: { repoId?: string }) => Promise<unknown>
   schedulesCreate: (input: {
     repoId: string
@@ -829,6 +832,15 @@ export function createDispatcher(services: DispatcherServices): Dispatcher {
         const input = parse(assistantSetSettingsInputSchema, rawInput)
         if ('code' in input) return { ok: false, error: input }
         return run(() => services.assistantSetSettings(input))
+      }
+
+      case IPC_CHANNELS.networkSettingsGet:
+        return run(() => services.networkSettingsGet())
+
+      case IPC_CHANNELS.networkSetSettings: {
+        const input = parse(networkSetSettingsInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.networkSetSettings(input))
       }
 
       case IPC_CHANNELS.schedulesList: {

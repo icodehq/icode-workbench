@@ -121,6 +121,8 @@ export const IPC_CHANNELS = {
   assistantStop: 'icode:assistant:stop',
   assistantSettingsGet: 'icode:assistant:settings:get',
   assistantSetSettings: 'icode:assistant:settings:set',
+  networkSettingsGet: 'icode:network:settings:get',
+  networkSetSettings: 'icode:network:settings:set',
   assistantConversationsList: 'icode:assistant:conversations:list',
   assistantNotificationsList: 'icode:assistant:notifications:list',
   assistantFocus: 'icode:assistant:focus',

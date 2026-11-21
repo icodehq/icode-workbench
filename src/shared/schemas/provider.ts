@@ -174,6 +174,8 @@ export const providerTestCodeSchema = z.enum([
   'auth_failed',
   'model_or_endpoint',
   'unreachable',
+  'proxy_auth_required',
+  'proxy_unreachable',
   'timeout',
   'invalid_response',
   'internal'

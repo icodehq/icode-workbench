@@ -26,6 +26,8 @@ export type GitReadOptions = {
   timeoutMs?: number
   byteBudget?: number
   stderrBudget?: number
+  /** Defaults to the current process environment. */
+  env?: NodeJS.ProcessEnv
 }
 
 export type GitReadResult = {
@@ -110,7 +112,11 @@ export async function runGitRead(options: GitReadOptions): Promise<GitReadResult
     try {
       child = spawn('git', ['--no-optional-locks', ...options.args], {
         cwd: options.cwd,
-        env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0' },
+        env: {
+          ...(options.env ?? process.env),
+          GIT_OPTIONAL_LOCKS: '0',
+          GIT_TERMINAL_PROMPT: '0'
+        },
         stdio: ['ignore', 'pipe', 'pipe']
       })
     } catch (error) {

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Notification } from 'electron'
+import { app, BrowserWindow, Notification, session } from 'electron'
 import { homedir } from 'node:os'
 import { getAppPersistence, closeAppPersistence } from '../persistence'
 import { HostSupervisor } from '../host/host-supervisor'
@@ -13,6 +13,10 @@ import { HARNESS_IDS, type HarnessId } from '../../shared/domain/harness'
 import { isProviderHarness } from '../../shared/domain/provider-recipes'
 import type { WslDistroListPayload } from '../../shared/schemas/ipc'
 import { discoverWslDistros } from '../wsl/distros'
+import {
+  createNetworkProxyRuntime,
+  type NetworkProxyRuntime
+} from '../network/proxy-runtime'
 import { parseRepoId, type SessionId } from '../../shared/domain/ids'
 import type { ExecutionTarget } from '../../shared/domain/repository'
 import { toWslDistroListPayload } from '../wsl/distro-list'
@@ -62,7 +66,7 @@ import {
 import { openCodePluginApi } from '../../shared/domain/harness'
 import { WorktreeStore } from '../persistence/worktree-store'
 import { GitWorktreeService } from '../worktrees/git-worktree-service'
-import { createGitExecutorRouter } from '../git/executor'
+import { createGitExecutorRouter, createLocalGitExecutor } from '../git/executor'
 import { WslCommandRunner, resolveWslExecutablePath, resolveWslInteropCwd } from '../wsl/exec'
 import { profileSocketScope } from '../../host/paths'
 import { WslHostLifecycle } from '../wsl/host/lifecycle'
@@ -99,6 +103,8 @@ import type { SessionListView } from '../../shared/schemas/ipc'
 import { loadAppPreferences, updateAppPreferences } from './preferences'
 
 export type AppRuntime = {
+  /** App-wide system/manual/off proxy configuration and effective env. */
+  network: NetworkProxyRuntime
   sessions: SessionService
   activity: ActivityService
   activityServer: ActivityHookServer
@@ -187,6 +193,13 @@ export function getAppRuntime(): AppRuntime | null {
  */
 export async function startAppRuntime(): Promise<AppRuntime> {
   if (runtime) return runtime
+
+  // Before persistence, Git, or the Host: Chromium needs its proxy config, and
+  // every later child process inherits the effective proxy environment.
+  const network = await createNetworkProxyRuntime({
+    directory: app.getPath('userData'),
+    session: session.defaultSession
+  })
 
   const persistence = getAppPersistence()
 
@@ -281,7 +294,12 @@ export async function startAppRuntime(): Promise<AppRuntime> {
    * distro restart needs no invalidation.
    */
   const isWindowsHost = process.platform === 'win32'
-  const wslRunner = new WslCommandRunner()
+  const wslRunner = new WslCommandRunner({
+    // Guest Git, clone, and the managed Host all cross this gateway. The env is
+    // applied guest-side so both proxy spellings and the NAT-rewritten address
+    // survive the Windows boundary.
+    guestEnvironment: (distro) => network.wslGuestEnvironment(distro)
+  })
   /**
    * `$HOME` is stable for a distro registration and is consulted by worktree
    * routing, trust, the relay and the folder picker. One cached probe replaces
@@ -418,15 +436,25 @@ export async function startAppRuntime(): Promise<AppRuntime> {
   const harnessProbes = createGuestHarnessProbeCache(wslRunner)
   const detectionResults = createDetectionResultCache()
   const worktrees = new WorktreeStore(persistence.database)
+  /**
+   * Both local Git paths share one executor. Its env provider reads the proxy
+   * runtime on every command, so a settings change reaches clone, fetch, push,
+   * and the session worktree operations without a restart.
+   */
+  const localGitExecutor = createLocalGitExecutor({
+    envProvider: () => network.gitEnv()
+  })
   const gitWorktrees = new GitWorktreeService({
     // Why: session checkouts live on the Linux filesystem, never beside a
     // DrvFs repository where Git operations are an order of magnitude slower.
     worktreeRoot: join(app.getPath('userData'), 'worktrees'),
+    localExecutor: localGitExecutor,
     // W6: a WSL repository's Git and worktrees run in its distro. The local root
     // above stays exactly what it was.
     router: createGitExecutorRouter({
       localWorktreeRoot: join(app.getPath('userData'), 'worktrees'),
       runner: wslRunner,
+      localExecutor: localGitExecutor,
       guestWorktreeRoot: async (distro) => {
         const home = await guestHomeCache.read(distro)
         return home === null ? null : `${home}/.icode/worktrees/${wslProfileScope()}`
@@ -690,7 +718,10 @@ export async function startAppRuntime(): Promise<AppRuntime> {
       resolvePathATerminal(target, guestCwd, {
         runner: wslRunner,
         validateTarget: createTargetValidator({ runner: wslRunner }),
-        ptyCwd: app.getPath('userData')
+        ptyCwd: app.getPath('userData'),
+        // Path A's PTY is on Windows, so the proxy values are placed in the
+        // guest argv rather than the PTY environment.
+        proxyEnv: (distro) => network.guestSessionEnv(distro)
       }),
     // Local discovery is the existing detector, unchanged. A WSL repository is
     // discovered inside its own distro, and its launch command is rewritten to run
@@ -705,6 +736,14 @@ export async function startAppRuntime(): Promise<AppRuntime> {
      * not a path inside the distro.
      */
     launchSpec: (id, target, detection) => launchSpecForHarness(id, target, detection),
+    // Path A carries its proxy values in the guest argv built by
+    // resolveWslTerminal; putting them in the Windows PTY env would collapse
+    // the two spellings and never reach the guest.
+    proxyEnv: async (target, pathA) => {
+      if (pathA) return {}
+      if (target.kind === 'wsl') return network.guestSessionEnv(target.distro)
+      return network.localSessionEnv()
+    },
     prepareIntegration: async (harness, target, detection) => {
       await managedHooks.prepareForSession(harness, target, detection)
       return openCodeIntegrations.prepareForSession(
@@ -1220,6 +1259,7 @@ export async function startAppRuntime(): Promise<AppRuntime> {
       taskListeners.add(listener)
       return () => taskListeners.delete(listener)
     },
+    network,
     sessions,
     activity,
     activityServer,

@@ -4,6 +4,11 @@ import {
   isLocalePreference,
   type LocalePreference
 } from '../../shared/i18n/locales'
+import {
+  DEFAULT_NETWORK_PROXY_SETTINGS,
+  parseNetworkProxySettings,
+  type NetworkProxySettings
+} from '../../shared/domain/network'
 
 export type AppPreferences = {
   locale: LocalePreference
@@ -11,12 +16,15 @@ export type AppPreferences = {
   opencodeIntegrationEnabled: boolean
   /** Managed status hooks for detected Gemini/Qwen/Cursor/Copilot CLIs. */
   agentStatusHooksEnabled: boolean
+  /** System/manual/off HTTP and HTTPS proxy configuration. */
+  proxy: NetworkProxySettings
 }
 
 export const DEFAULT_APP_PREFERENCES: AppPreferences = {
   locale: 'system',
   opencodeIntegrationEnabled: true,
-  agentStatusHooksEnabled: true
+  agentStatusHooksEnabled: true,
+  proxy: DEFAULT_NETWORK_PROXY_SETTINGS
 }
 
 const PREFERENCES_FILE = 'preferences.json'
@@ -35,7 +43,8 @@ export function parseAppPreferences(value: unknown): AppPreferences | null {
     agentStatusHooksEnabled:
       typeof record.agentStatusHooksEnabled === 'boolean'
         ? record.agentStatusHooksEnabled
-        : DEFAULT_APP_PREFERENCES.agentStatusHooksEnabled
+        : DEFAULT_APP_PREFERENCES.agentStatusHooksEnabled,
+    proxy: parseNetworkProxySettings(record.proxy)
   }
 }
 
@@ -64,7 +73,8 @@ export function updateAppPreferences(
     opencodeIntegrationEnabled:
       patch.opencodeIntegrationEnabled ?? current.opencodeIntegrationEnabled,
     agentStatusHooksEnabled:
-      patch.agentStatusHooksEnabled ?? current.agentStatusHooksEnabled
+      patch.agentStatusHooksEnabled ?? current.agentStatusHooksEnabled,
+    proxy: patch.proxy === undefined ? current.proxy : parseNetworkProxySettings(patch.proxy)
   })
 }
 

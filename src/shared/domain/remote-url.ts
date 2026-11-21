@@ -244,7 +244,7 @@ function isHttpProtocol(protocol: string): boolean {
  */
 export function redactRemoteUrlCredentials(value: string): string {
   return value.replace(
-    /\b(https?|ssh|git|git\+ssh|file):\/\/([^/\s@]+)@/giu,
+    /\b(https?|socks4|socks5h?|ssh|git|git\+ssh|file):\/\/([^/\s@]+)@/giu,
     (whole, scheme: string, userinfo: string) => {
       if (isHttpProtocol(`${scheme.toLowerCase()}:`) || userinfo.includes(':')) {
         return `${scheme.toLowerCase()}://***@`

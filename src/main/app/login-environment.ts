@@ -1,5 +1,9 @@
 import { execFile } from 'node:child_process'
 import { userInfo } from 'node:os'
+import {
+  MANAGED_PROXY_ENV_KEYS,
+  type ManagedProxyEnvKey
+} from '../../shared/domain/network'
 
 /**
  * Resolves the environment a GUI login session would have.
@@ -17,11 +21,16 @@ import { userInfo } from 'node:os'
 
 const START = '__ICODE_LOGIN_ENV_START__'
 const END = '__ICODE_LOGIN_ENV_END__'
+const PROXY_PROBE = MANAGED_PROXY_ENV_KEYS.map(
+  (key) => `printf '${key}=%s\\n' "\${${key}-}"`
+)
+
 const PROBE = [
   `printf '${START}\\n'`,
   `printf 'PATH=%s\\n' "$PATH"`,
   `printf 'LANG=%s\\n' "\${LANG-}"`,
   `printf 'LC_ALL=%s\\n' "\${LC_ALL-}"`,
+  ...PROXY_PROBE,
   `printf '${END}\\n'`
 ].join('; ')
 
@@ -29,6 +38,8 @@ export type LoginEnvironment = {
   shell: string
   path: string | null
   lang: string | null
+  /** Proxy variables exported by the login shell, when present. */
+  proxy?: Partial<Record<ManagedProxyEnvKey, string>>
 }
 
 export type LoginEnvironmentDeps = {
@@ -87,13 +98,24 @@ export function parseLoginEnvironment(output: string): Omit<LoginEnvironment, 's
   const body = output.slice(start + START.length, end)
   let path: string | null = null
   let lang: string | null = null
+  const proxy: Partial<Record<ManagedProxyEnvKey, string>> = {}
   for (const line of body.split(/\r?\n/u)) {
     if (line.startsWith('PATH=') && line.length > 'PATH='.length) path = line.slice('PATH='.length)
     if (line.startsWith('LANG=') && line.length > 'LANG='.length) lang = line.slice('LANG='.length)
     // LC_ALL wins when it is set; otherwise LANG is the useful value.
     if (line.startsWith('LC_ALL=') && line.length > 'LC_ALL='.length) lang = line.slice('LC_ALL='.length)
+    for (const key of MANAGED_PROXY_ENV_KEYS) {
+      const prefix = `${key}=`
+      if (!line.startsWith(prefix)) continue
+      const value = line.slice(prefix.length)
+      if (value.length > 0 && value.length <= 8_192) proxy[key] = value
+    }
   }
-  return { path, lang }
+  return {
+    path,
+    lang,
+    ...(Object.keys(proxy).length > 0 ? { proxy } : {})
+  }
 }
 
 function isUtf8Locale(value: string | null): boolean {
@@ -122,12 +144,23 @@ export async function resolveLoginEnvironment(
     return {
       shell,
       path: parsed.path,
-      lang: isUtf8Locale(parsed.lang) ? parsed.lang : localeDefault(platform)
+      lang: isUtf8Locale(parsed.lang) ? parsed.lang : localeDefault(platform),
+      ...(parsed.proxy === undefined ? {} : { proxy: parsed.proxy })
     }
   } catch {
     // A broken rc file must not prevent the app from starting.
     return null
   }
+}
+
+/**
+ * An explicit environment wins over the login shell. On macOS/Linux both
+ * spellings may exist, so either one suppresses the import.
+ */
+function hasProxyValue(env: NodeJS.ProcessEnv, key: string): boolean {
+  const lower = key.toLowerCase()
+  const upper = key.toUpperCase()
+  return (env[lower]?.length ?? 0) > 0 || (env[upper]?.length ?? 0) > 0
 }
 
 let applied: LoginEnvironment | null | undefined
@@ -157,6 +190,10 @@ export async function applyLoginEnvironment(
     ) {
       env.LC_ALL = resolved.lang
     }
+  }
+  for (const [key, value] of Object.entries(resolved.proxy ?? {})) {
+    if (value.length === 0 || hasProxyValue(env, key)) continue
+    env[key] = value
   }
   return resolved
 }

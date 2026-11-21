@@ -12,6 +12,7 @@ import SettingsCard from '../components/SettingsCard'
 import AgentsAndHarnessesCard from '../components/AgentsAndHarnessesCard'
 import AssistantSettingsCard from '../components/AssistantSettingsCard'
 import LanguageSettingsCard from '../components/LanguageSettingsCard'
+import NetworkSettingsCard from '../components/NetworkSettingsCard'
 import ProviderSettingsCard from '../components/ProviderSettingsCard'
 import { useT } from '../i18n/use-i18n'
 
@@ -124,6 +125,8 @@ export default function SettingsPage({
             </SettingsCard>
 
             <LanguageSettingsCard />
+
+            <NetworkSettingsCard />
 
             <AgentsAndHarnessesCard
               harnesses={state.harnesses}

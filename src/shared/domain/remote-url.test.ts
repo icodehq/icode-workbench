@@ -136,6 +136,13 @@ describe('redactRemoteUrlCredentials', () => {
     const line = 'Fetching https://github.com/o/r.git'
     expect(redactRemoteUrlCredentials(line)).toBe(line)
   })
+
+  it('redacts a proxy URL that carries credentials', () => {
+    const line = 'fatal: cannot connect through socks5://alice:secret@127.0.0.1:1080'
+    const redacted = redactRemoteUrlCredentials(line)
+    expect(redacted).not.toContain('secret')
+    expect(redacted).toContain('socks5://***@127.0.0.1:1080')
+  })
 })
 
 describe('containsRedactionPlaceholder', () => {

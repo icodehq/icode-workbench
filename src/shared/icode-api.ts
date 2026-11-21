@@ -60,6 +60,10 @@ import type {
   assistantSetSettingsInputSchema
 } from './schemas/assistant'
 import type {
+  NetworkProxySettingsPayload,
+  networkSetSettingsInputSchema
+} from './schemas/network'
+import type {
   aiCancelCommitMessageInputSchema,
   aiCommitMessageInputSchema,
   AiCancelCommitMessageResult,
@@ -244,6 +248,12 @@ export type IcodeProductApi = {
     get: () => Promise<IpcResult<LocaleState>>
     set: (input: LocaleSetInput) => Promise<IpcResult<LocaleState>>
     onChanged: (listener: (state: LocaleState) => void) => () => void
+  }
+  network: {
+    settings: () => Promise<IpcResult<NetworkProxySettingsPayload>>
+    setSettings: (
+      input: z.infer<typeof networkSetSettingsInputSchema>
+    ) => Promise<IpcResult<NetworkProxySettingsPayload>>
   }
   repos: {
     list: () => Promise<IpcResult<RepositorySummary[]>>

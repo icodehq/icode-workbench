@@ -18,6 +18,10 @@
 import { execFile, spawn, type ChildProcess } from 'node:child_process'
 import { constants as fsConstants, accessSync } from 'node:fs'
 import { join } from 'node:path'
+import {
+  guestEnvAssignments,
+  type ProxyEnv
+} from '../network/proxy-environment'
 
 /** Default ceiling for a guest command. Generous: a cold distro boot costs seconds. */
 export const WSL_DEFAULT_TIMEOUT_MS = 20_000
@@ -444,6 +448,14 @@ export type WslCommandRunnerOptions = {
   debugSpawns?: boolean
   /** Sink for spawn diagnostics; defaults to stderr. */
   logSpawn?: (line: string) => void
+  /**
+   * Per-distro environment injected guest-side for every guest command.
+   *
+   * It is applied as `/usr/bin/env KEY=value ... <program>` rather than through
+   * the Windows environment or `WSLENV`: Windows cannot carry both proxy
+   * spellings, and the proxy address may need a per-distro NAT rewrite.
+   */
+  guestEnvironment?: (distro: string) => Promise<ProxyEnv>
 }
 
 /** Small helper: a diagnostic value must never break the line format. */
@@ -465,11 +477,13 @@ export class WslCommandRunner {
   private readonly timeoutScale: number
   private readonly debugSpawns: boolean
   private readonly logSpawn: (line: string) => void
+  private readonly guestEnvironment: ((distro: string) => Promise<ProxyEnv>) | undefined
 
   constructor(options: WslCommandRunnerOptions = {}) {
     this.launcher = options.launcher ?? defaultLauncher
     this.byteLauncher = options.byteLauncher ?? defaultByteLauncher
     this.streamLauncher = options.streamLauncher ?? defaultStreamLauncher
+    this.guestEnvironment = options.guestEnvironment
     this.env = options.env ?? process.env
     this.program =
       options.program ?? resolveWslExecutablePath(this.env, options.platform ?? process.platform)
@@ -520,14 +534,46 @@ export class WslCommandRunner {
     return ['-d', distro, '--exec', ...request.argv]
   }
 
+  /** Guest-side env, or `{}` when none is configured or the provider fails. */
+  private async guestEnvFor(request: WslExecRequest): Promise<ProxyEnv> {
+    if (request.scope !== 'guest' || this.guestEnvironment === undefined) return {}
+    try {
+      return await this.guestEnvironment(request.distro)
+    } catch {
+      // A proxy-environment failure must not make the guest command unspawnable.
+      return {}
+    }
+  }
+
+  /**
+   * Raw argv, with guest env assignments inserted after `--exec`.
+   *
+   * `buildArgs()` stays the untransformed argv for diagnostics and tests; only
+   * the actual launch prepends `/usr/bin/env`.
+   */
+  private buildSpawnArgs(request: WslExecRequest, guestEnv: ProxyEnv): string[] {
+    const base = this.buildArgs(request)
+    const keys = Object.keys(guestEnv)
+    if (request.scope !== 'guest' || keys.length === 0) return base
+    const execIndex = base.indexOf('--exec')
+    return [
+      ...base.slice(0, execIndex + 1),
+      '/usr/bin/env',
+      ...guestEnvAssignments(guestEnv),
+      ...base.slice(execIndex + 1)
+    ]
+  }
+
   async run(request: WslExecRequest): Promise<WslExecOutcome> {
     if (request.signal?.aborted) return { status: 'cancelled' }
     if (request.argv.length === 0) {
       throw new Error('wsl.exec: argv must name a program')
     }
+    const guestEnv = await this.guestEnvFor(request)
+    if (request.signal?.aborted) return { status: 'cancelled' }
     // Validate the shape before spawning, so a caller cannot silently get the
     // default distro by forgetting `distro`, nor run a `wsl.exe` option in a guest.
-    const args = this.buildArgs(request)
+    const args = this.buildSpawnArgs(request, guestEnv)
     const startedAt = this.debugSpawns ? Date.now() : 0
 
     let result: WslProcessResult
@@ -610,7 +656,11 @@ export class WslCommandRunner {
     if (request.argv.length === 0) {
       throw new Error('wsl.exec: argv must name a program')
     }
-    const args = this.buildArgs(request)
+    const guestEnv = await this.guestEnvFor(request)
+    if (request.signal?.aborted) {
+      return { code: null, signal: null, timedOut: false, cancelled: true }
+    }
+    const args = this.buildSpawnArgs(request, guestEnv)
     const startedAt = this.debugSpawns ? Date.now() : 0
 
     let child: ChildProcess
@@ -753,10 +803,11 @@ export class WslCommandRunner {
    * not known to be text.
    */
   async runBytes(request: WslGuestCommand): Promise<WslByteResult | { status: 'wsl_missing' }> {
-    const args = this.buildArgs(request)
+    const guestEnv = await this.guestEnvFor(request)
     if (request.signal?.aborted) {
       return { code: null, signal: 'SIGTERM', stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), timedOut: false }
     }
+    const args = this.buildSpawnArgs(request, guestEnv)
     const startedAt = this.debugSpawns ? Date.now() : 0
     try {
       const result = await this.byteLauncher({

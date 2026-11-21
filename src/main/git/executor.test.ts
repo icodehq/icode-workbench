@@ -1,3 +1,7 @@
+import { createServer } from 'node:http'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { ExecutionTarget } from '../../shared/domain/repository'
 import { WslCommandRunner, type WslByteResult } from '../wsl/exec'
@@ -51,6 +55,63 @@ describe('local executor', () => {
     expect(result.exitCode).toBe(0)
     expect(Buffer.concat(chunks).toString('utf8').trim()).toBe('true')
     expect(result.stdout.length).toBe(0)
+  })
+
+  it('routes a network command through the proxy environment', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'icode-git-proxy-'))
+    const gitConfig = join(directory, 'gitconfig')
+    writeFileSync(gitConfig, '', 'utf8')
+    const seen: string[] = []
+    const server = createServer()
+    server.on('connect', (request, socket) => {
+      seen.push(request.url ?? '')
+      socket.end('HTTP/1.1 502 Bad Gateway\r\n\r\n')
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const address = server.address()
+    const port = typeof address === 'object' && address !== null ? address.port : 0
+    try {
+      const executor = createLocalGitExecutor({
+        envProvider: () => ({
+          ...process.env,
+          https_proxy: `http://127.0.0.1:${port}`,
+          GIT_CONFIG_GLOBAL: gitConfig,
+          GIT_CONFIG_NOSYSTEM: '1'
+        })
+      })
+      const result = await executor.exec({
+        cwd: process.cwd(),
+        args: ['ls-remote', 'https://example.invalid/repo.git'],
+        timeoutMs: 15_000
+      })
+      expect(result.exitCode).not.toBe(0)
+      expect(seen).toContain('example.invalid:443')
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('re-reads the environment provider for every command', async () => {
+    let editor = 'first-editor'
+    const executor = createLocalGitExecutor({
+      envProvider: () => ({ ...process.env, GIT_EDITOR: editor })
+    })
+    const first = await executor.exec({
+      cwd: process.cwd(),
+      args: ['var', 'GIT_EDITOR'],
+      timeoutMs: 5_000
+    })
+    expect(first.exitCode).toBe(0)
+    expect(first.stdout.toString('utf8').trim()).toBe('first-editor')
+
+    editor = 'second-editor'
+    const second = await executor.exec({
+      cwd: process.cwd(),
+      args: ['var', 'GIT_EDITOR'],
+      timeoutMs: 5_000
+    })
+    expect(second.stdout.toString('utf8').trim()).toBe('second-editor')
   })
 
   it('rejects a stream whose signal was already aborted', async () => {

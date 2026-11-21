@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { DEFAULT_NETWORK_PROXY_SETTINGS } from '../../shared/domain/network'
 import { loadAppPreferences } from '../app/preferences'
 import { LocaleService } from './locale-service'
 
@@ -47,7 +48,8 @@ describe('LocaleService', () => {
     expect(loadAppPreferences(directory)).toEqual({
       locale: 'zh-CN',
       opencodeIntegrationEnabled: true,
-      agentStatusHooksEnabled: true
+      agentStatusHooksEnabled: true,
+      proxy: DEFAULT_NETWORK_PROXY_SETTINGS
     })
   })
 

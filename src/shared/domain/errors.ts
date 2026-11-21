@@ -56,6 +56,8 @@ export const APP_ERROR_CODES = [
   'GIT_STALE_STATUS',
   // Remote configuration, fetch, clone, push and pull failures that are not auth.
   'GIT_REMOTE_FAILED',
+  // The proxy, not the remote, rejected or could not accept the connection.
+  'GIT_PROXY_FAILED',
   // Session-first integration: starting refs, branch naming, dependency chains.
   'START_REF_NOT_FOUND',
   'BRANCH_EXISTS',
@@ -127,6 +129,8 @@ const RETRYABLE_CODES: ReadonlySet<AppErrorCode> = new Set<AppErrorCode>([
   'GIT_READ_TIMEOUT',
   // Network and remote-server failures are commonly transient.
   'GIT_REMOTE_FAILED',
+  // A proxy can be started, reconfigured, or reachability restored.
+  'GIT_PROXY_FAILED',
   // Index lock contention is transient: the other Git process usually finishes.
   'GIT_INDEX_LOCKED',
   // The target branch moved while the merge was being prepared; retry.

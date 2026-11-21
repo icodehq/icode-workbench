@@ -3,7 +3,6 @@ import {
   clipboard,
   dialog,
   ipcMain,
-  net,
   shell,
   type IpcMainInvokeEvent,
   type WebFrameMain
@@ -126,6 +125,8 @@ export const HANDLED_CHANNELS: readonly string[] = [
   IPC_CHANNELS.assistantNewConversation,
   IPC_CHANNELS.assistantSettingsGet,
   IPC_CHANNELS.assistantSetSettings,
+  IPC_CHANNELS.networkSettingsGet,
+  IPC_CHANNELS.networkSetSettings,
   IPC_CHANNELS.schedulesList,
   IPC_CHANNELS.schedulesCreate,
   IPC_CHANNELS.schedulesUpdate,
@@ -170,9 +171,10 @@ export function createAppDispatcher(
   runtime: AppRuntime,
   getPersistence: () => import('../persistence').AppPersistence
 ): Dispatcher {
-  // `net.fetch` follows Electron's proxy and certificate configuration.
+  // The probe uses the app's configured session, so the same proxy policy that
+  // applies to Chromium applies here.
   const providerProbe = createProviderProbe({
-    fetch: (url, init) => net.fetch(url, init)
+    fetch: (url, init) => runtime.network.fetch(url, init)
   })
   return createDispatcher({
     reposList: async () => {
@@ -452,6 +454,9 @@ export function createAppDispatcher(
     assistantSettingsGet: () => Promise.resolve(runtime.assistant.settings()),
     assistantSetSettings: (input) =>
       Promise.resolve(runtime.assistant.saveSettings(input.settings as never)),
+    networkSettingsGet: () => Promise.resolve(runtime.network.settings()),
+    networkSetSettings: (input) =>
+      runtime.network.saveSettings(input.settings as never),
     schedulesList: (input) => Promise.resolve(runtime.schedules.list(input.repoId as never)),
     schedulesCreate: (input) => Promise.resolve(outcomeOrThrow(runtime.schedules.create(input as never))),
     schedulesUpdate: (input) =>

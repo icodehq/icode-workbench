@@ -16,6 +16,7 @@ import { makeAppError } from '../../shared/domain/errors'
 import type { ExecutionTarget } from '../../shared/domain/repository'
 import type { MessageKey } from '../../shared/i18n/messages'
 import { parseRemoteUrl, redactRemoteUrlCredentials } from '../../shared/domain/remote-url'
+import { isProxyFailureText } from '../../shared/domain/network'
 
 export type RemoteOperation = 'fetch' | 'clone' | 'push' | 'pull' | 'publish' | 'remote'
 
@@ -88,6 +89,21 @@ export function authMessage(
 export function classifyRemoteFailure(input: RemoteFailureInput): AppError {
   const text = textOf(input)
   const detail = cap(text)
+  // Before auth: a 407 body contains "authentication required", which the auth
+  // vocabulary would otherwise claim as a Git credential failure.
+  if (isProxyFailureText(text)) {
+    const distro = input.target.kind === 'wsl' ? input.target.distro : null
+    const message =
+      distro === null
+        ? 'Git could not reach the configured proxy. Check the proxy URL and that the proxy is running; proxy authentication is not supported.'
+        : `Git inside the ${distro} distro could not reach the configured proxy. A proxy that listens only on 127.0.0.1 needs WSL mirrored networking or "Allow LAN"; check Network settings.`
+    return makeAppError('GIT_PROXY_FAILED', message, {
+      ...(detail === undefined ? {} : { detail }),
+      messageKey: distro === null ? 'remote.proxy.local' : 'remote.proxy.wsl',
+      ...(distro === null ? {} : { messageParams: { distro } }),
+      context: { operation: input.operation }
+    })
+  }
   if (AUTH_FAILURE.test(text)) {
     const auth = authMessage(input.target, hostOf(input, text))
     return makeAppError('GIT_AUTH_FAILED', auth.message, {

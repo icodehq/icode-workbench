@@ -70,6 +70,57 @@ describe('argv construction', () => {
     // Nothing was joined into a single command string.
     expect(args.some((arg) => arg.includes(' && ') || arg.includes(' | '))).toBe(false)
   })
+
+  it('injects guest-only proxy env after --exec', async () => {
+    const { launcher, calls } = launcherReturning(result({ stdout: 'ok\n' }))
+    const runner = new WslCommandRunner({
+      launcher,
+      platform: 'win32',
+      guestEnvironment: async () => ({
+        HTTP_PROXY: 'http://172.22.48.1:7890',
+        http_proxy: 'http://172.22.48.1:7890'
+      })
+    })
+    await runner.run({ scope: 'guest', distro: 'd', argv: ['true'] })
+    expect(calls[0]?.args).toEqual([
+      '-d',
+      'd',
+      '--exec',
+      '/usr/bin/env',
+      'HTTP_PROXY=http://172.22.48.1:7890',
+      'http_proxy=http://172.22.48.1:7890',
+      'true'
+    ])
+  })
+
+  it('does not inject guest env into a host-scope command', async () => {
+    let looked = 0
+    const { launcher, calls } = launcherReturning(result({ stdout: 'ok\n' }))
+    const runner = new WslCommandRunner({
+      launcher,
+      platform: 'win32',
+      guestEnvironment: async () => {
+        looked += 1
+        return { HTTP_PROXY: 'http://proxy:1' }
+      }
+    })
+    await runner.run({ scope: 'host', argv: ['--list'] })
+    expect(calls[0]?.args).toEqual(['--list'])
+    expect(looked).toBe(0)
+  })
+
+  it('falls back to the raw argv when the guest environment provider fails', async () => {
+    const { launcher, calls } = launcherReturning(result({ stdout: 'ok\n' }))
+    const runner = new WslCommandRunner({
+      launcher,
+      platform: 'win32',
+      guestEnvironment: async () => {
+        throw new Error('probe failed')
+      }
+    })
+    await runner.run({ scope: 'guest', distro: 'd', argv: ['true'] })
+    expect(calls[0]?.args).toEqual(['-d', 'd', '--exec', 'true'])
+  })
 })
 
 describe('execution outcomes', () => {

@@ -223,16 +223,26 @@ export function createGuestHostFileSystem(
 
 /** The unchanged local behaviour: `execFile('git', ['-C', cwd, ...args])`. */
 export function createLocalGitExecutor(
-  options: { env?: NodeJS.ProcessEnv } = {}
+  options: {
+    env?: NodeJS.ProcessEnv
+    /**
+     * Re-read the environment for every command. The proxy runtime uses this so
+     * a settings change reaches the next Git command without rebuilding the
+     * executor or restarting anything.
+     */
+    envProvider?: () => NodeJS.ProcessEnv
+  } = {}
 ): GitExecutor {
-  const env = {
-    ...(options.env ?? process.env),
+  const baseEnv = options.env ?? process.env
+  const resolveEnv = (): NodeJS.ProcessEnv => ({
+    ...(options.envProvider === undefined ? baseEnv : options.envProvider()),
     GIT_TERMINAL_PROMPT: '0',
     GIT_OPTIONAL_LOCKS: '0'
-  }
+  })
   return {
     exec({ cwd, args, stdin, timeoutMs, signal, env: requestEnv }) {
       return new Promise<GuestGitResult>((resolve, reject) => {
+        const env = resolveEnv()
         const child = execFile(
           'git',
           ['-C', cwd, ...args],
@@ -276,6 +286,7 @@ export function createLocalGitExecutor(
     },
     stream({ cwd, args, timeoutMs, signal, env: requestEnv }, handlers) {
       return new Promise<GuestGitResult>((resolve, reject) => {
+        const env = resolveEnv()
         const child = spawn('git', ['-C', cwd, ...args], {
           env: requestEnv ? { ...env, ...requestEnv } : env,
           stdio: ['ignore', 'pipe', 'pipe'],
@@ -326,7 +337,7 @@ export function createLocalGitExecutor(
       })
     },
     read(request) {
-      return runGitRead(request)
+      return runGitRead({ ...request, env: resolveEnv() })
     }
   }
 }

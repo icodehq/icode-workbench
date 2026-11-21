@@ -22,6 +22,7 @@ const PTY_CWD = '/home/u/.config/iCode'
 function harness(options: {
   guestIsDirectory?: (distro: string, path: string) => Promise<boolean | null>
   validate?: (target: ExecutionTarget) => Promise<ExecutionTarget>
+  proxyEnv?: (distro: string) => Promise<Record<string, string>>
 } = {}) {
   const runner = new WslCommandRunner({
     platform: 'win32',
@@ -39,7 +40,8 @@ function harness(options: {
     ptyCwd: PTY_CWD,
     platform: 'win32',
     env: { SystemRoot: 'C:\\Windows' },
-    ...(options.guestIsDirectory ? { guestIsDirectory: options.guestIsDirectory } : {})
+    ...(options.guestIsDirectory ? { guestIsDirectory: options.guestIsDirectory } : {}),
+    ...(options.proxyEnv === undefined ? {} : { proxyEnv: options.proxyEnv })
   })
 }
 
@@ -64,6 +66,17 @@ describe('Path A argv', () => {
 
   it('names the distro explicitly so the default one can never be used', () => {
     expect(buildWslTerminalArgs('Ubuntu-26.04', '/x')).toContain('Ubuntu-26.04')
+  })
+
+  it('places guest proxy env before the login shell', () => {
+    const args = buildWslTerminalArgs('d', '/x', {
+      HTTP_PROXY: 'http://172.22.48.1:7890',
+      http_proxy: 'http://172.22.48.1:7890'
+    })
+    expect(args.slice(0, 4)).toEqual(['-d', 'd', '--exec', '/usr/bin/env'])
+    expect(args).toContain('HTTP_PROXY=http://172.22.48.1:7890')
+    expect(args).toContain('http_proxy=http://172.22.48.1:7890')
+    expect(args).toContain('sh')
   })
 
   it('fails loudly when the guest directory cannot be entered', () => {
@@ -113,6 +126,16 @@ describe('Path A resolution', () => {
     expect(outcome.launch.distro).toBe('Ubuntu-26.04')
     expect(outcome.launch.command).toContain('wsl.exe')
     expect(outcome.launch.args.at(-1)).toBe(GUEST_CWD)
+  })
+
+  it('carries the resolved guest proxy env into the launch argv', async () => {
+    const outcome = await harness({
+      guestIsDirectory: async () => true,
+      proxyEnv: async () => ({ HTTP_PROXY: 'http://172.22.48.1:7890' })
+    })
+    expect(outcome.status).toBe('ready')
+    if (outcome.status !== 'ready') return
+    expect(outcome.launch.args).toContain('HTTP_PROXY=http://172.22.48.1:7890')
   })
 
   it('refuses a guest directory that does not exist', async () => {

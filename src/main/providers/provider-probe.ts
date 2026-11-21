@@ -1,4 +1,5 @@
 import type { ProviderTestResult } from '../../shared/schemas/provider'
+import { isProxyFailureText } from '../../shared/domain/network'
 import {
   PROVIDER_RECIPES,
   type ProviderProtocol
@@ -121,6 +122,10 @@ export function sanitizeProbeMessage(value: string): string {
   return value
     .replace(/sk-[A-Za-z0-9_-]{6,}/gu, 'sk-…')
     .replace(/Bearer\s+[^\s"']+/giu, 'Bearer …')
+    .replace(
+      /\b(https?|socks4|socks5h?):\/\/[^\s/@]+@/giu,
+      (_match, scheme: string) => `${scheme}://***@`
+    )
     .replace(/[\u0000-\u001f\u007f]/gu, ' ')
     .replace(/\s+/gu, ' ')
     .trim()
@@ -179,6 +184,14 @@ export function createProviderProbe(options: {
           return result('ok', response.status, latencyMs, `Reached the provider (HTTP ${response.status}).`)
         }
         const body = sanitizeProbeMessage(await readCapped(response, BODY_CAP_BYTES))
+        if (response.status === 407) {
+          return result(
+            'proxy_auth_required',
+            response.status,
+            latencyMs,
+            'The proxy requires authentication (HTTP 407). Proxy credentials are not supported; configure an unauthenticated proxy.'
+          )
+        }
         if (response.status === 401 || response.status === 403) {
           return result(
             'auth_failed',
@@ -216,6 +229,14 @@ export function createProviderProbe(options: {
           return result('timeout', null, latencyMs, `The provider did not answer within ${timeoutMs} ms.`)
         }
         const message = error instanceof Error ? error.message : String(error)
+        if (isProxyFailureText(message)) {
+          return result(
+            'proxy_unreachable',
+            null,
+            latencyMs,
+            `Could not reach the provider through the proxy: ${sanitizeProbeMessage(message)}`
+          )
+        }
         return result(
           'unreachable',
           null,

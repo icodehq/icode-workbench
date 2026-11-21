@@ -148,4 +148,33 @@ describe('provider probe', () => {
     expect(result.code).toBe('unreachable')
     expect(result.message).toContain('ECONNREFUSED')
   })
+
+  it('maps a proxy authentication challenge', async () => {
+    const fake = fetcher(() => new Response('proxy auth required', { status: 407 }))
+    const probe = createProviderProbe({ fetch: fake.fetch })
+    const result = await probe.test(claude)
+    expect(result.code).toBe('proxy_auth_required')
+    expect(result.status).toBe(407)
+    expect(result.message).toContain('proxy')
+  })
+
+  it('maps a proxy connection failure', async () => {
+    const fake = fetcher(() => {
+      throw new Error('net::ERR_PROXY_CONNECTION_FAILED')
+    })
+    const probe = createProviderProbe({ fetch: fake.fetch })
+    const result = await probe.test(claude)
+    expect(result.code).toBe('proxy_unreachable')
+  })
+
+  it('redacts credentials from proxy URLs in provider output', async () => {
+    const fake = fetcher(
+      () =>
+        new Response('via http://user:pass@proxy.example:7890', { status: 401 })
+    )
+    const probe = createProviderProbe({ fetch: fake.fetch })
+    const result = await probe.test(claude)
+    expect(result.message).not.toContain('user:pass')
+    expect(result.message).toContain('http://***@')
+  })
 })

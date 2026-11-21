@@ -33,6 +33,7 @@
  */
 
 import type { AppError } from '../../../shared/domain/errors'
+import { guestEnvAssignments } from '../../network/proxy-environment'
 import { makeAppError } from '../../../shared/domain/errors'
 import type { ExecutionTarget } from '../../../shared/domain/repository'
 import type { HarnessId } from '../../../shared/domain/harness'
@@ -84,11 +85,17 @@ export const WSL_INTERACTIVE_LOGIN_SHELL_SCRIPT = [
  * `distro` is required: a terminal must never silently attach to whichever distro
  * happens to be the Windows default.
  */
-export function buildWslTerminalArgs(distro: string, guestCwd: string): string[] {
+export function buildWslTerminalArgs(
+  distro: string,
+  guestCwd: string,
+  guestEnv: Readonly<Record<string, string>> = {}
+): string[] {
+  const assignments = guestEnvAssignments({ ...guestEnv })
   return [
     '-d',
     distro,
     '--exec',
+    ...(assignments.length > 0 ? ['/usr/bin/env', ...assignments] : []),
     'sh',
     '-c',
     WSL_INTERACTIVE_LOGIN_SHELL_SCRIPT,
@@ -147,6 +154,8 @@ export type PathATerminalDeps = {
   ptyCwd: string
   /** Test seam: guest directory probe. */
   guestIsDirectory?: (distro: string, path: string) => Promise<boolean | null>
+  /** Guest-side proxy env, resolved per distro; empty when none is configured. */
+  proxyEnv?: (distro: string) => Promise<Record<string, string>>
   env?: NodeJS.ProcessEnv
   platform?: NodeJS.Platform
 }
@@ -217,11 +226,15 @@ export async function resolvePathATerminal(
     )
   }
 
+  const guestEnv = deps.proxyEnv === undefined
+    ? {}
+    : await deps.proxyEnv(distro).catch(() => ({}))
+
   return {
     status: 'ready',
     launch: {
       command: resolveWslExecutablePath(deps.env ?? process.env, deps.platform ?? process.platform),
-      args: buildWslTerminalArgs(distro, guestCwd),
+      args: buildWslTerminalArgs(distro, guestCwd, guestEnv),
       ptyCwd: deps.ptyCwd,
       guestCwd,
       distro

@@ -133,6 +133,17 @@ export type SessionServiceDeps = {
     detection?: HarnessDetectionResult | null
   ) => { args: string[]; env: Record<string, string> }
   /**
+   * Proxy environment for a new PTY.
+   *
+   * `pathA` is the desktop-Host WSL shell, whose proxy values must be injected
+   * guest-side; other WSL sessions receive the guest form directly through the
+   * per-session environment. Returns an empty map when no proxy is configured.
+   */
+  proxyEnv?: (
+    target: ExecutionTarget,
+    pathA: boolean
+  ) => Promise<Record<string, string>>
+  /**
    * Best-effort integration setup for one launch. A failure never blocks the
    * session; the harness simply starts without managed status.
    */
@@ -1100,6 +1111,8 @@ export class SessionService {
       }
     }
 
+    const proxyEnv = (await this.deps.proxyEnv?.(input.target, input.pathA)) ?? {}
+
     const created = input.pathA
       ? await this.deps.host.createOrAttach(
           {
@@ -1109,6 +1122,7 @@ export class SessionService {
             cwd: input.pathALaunch!.ptyCwd,
             command: input.pathALaunch!.command,
             args: input.pathALaunch!.args,
+            ...(Object.keys(proxyEnv).length > 0 ? { env: proxyEnv } : {}),
             cols: input.cols,
             rows: input.rows
           },
@@ -1121,7 +1135,7 @@ export class SessionService {
             cwd: input.cwd,
             command: input.detection!.command!.command,
             args: withLaunchArgs(input.detection!.command!, input.launchSpec.args).args,
-            env: { ...input.launchSpec.env, ...integrationEnv },
+            env: { ...input.launchSpec.env, ...integrationEnv, ...proxyEnv },
             cols: input.cols,
             rows: input.rows
           },
@@ -1434,6 +1448,7 @@ export class SessionService {
         // Integration setup is advisory; the PTY must still start.
       }
     }
+    const proxyEnv = (await this.deps.proxyEnv?.(target, pathA !== null)) ?? {}
 
     let created: CreateOrAttachPayload
     try {
@@ -1445,7 +1460,12 @@ export class SessionService {
           args:
             pathA?.args ??
             withLaunchArgs(detection!.command!, launchArgs).args,
-          env: pathA === null ? { ...launchSpec.env, ...integrationEnv } : undefined,
+          env:
+            pathA === null
+              ? { ...launchSpec.env, ...integrationEnv, ...proxyEnv }
+              : Object.keys(proxyEnv).length > 0
+                ? proxyEnv
+                : undefined,
           cols: previous?.cols ?? 100,
           rows: previous?.rows ?? 30
         },

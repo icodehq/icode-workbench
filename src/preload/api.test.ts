@@ -51,6 +51,7 @@ describe('preload API surface', () => {
         'locale',
         'managedHooks',
         'merge',
+        'network',
         'onRepoEvent',
         'onSessionEvent',
         'onTaskEvent',
@@ -135,6 +136,23 @@ describe('preload API surface', () => {
       IPC_CHANNELS.assistantStop,
       IPC_CHANNELS.assistantNewConversation,
       IPC_CHANNELS.assistantSettingsGet
+    ])
+  })
+
+  it('routes network settings to their channels', async () => {
+    const { api, invoke } = setup()
+    await api.network.settings()
+    await api.network.setSettings({
+      settings: {
+        mode: 'system',
+        httpProxyUrl: '',
+        httpsProxyUrl: '',
+        noProxy: ''
+      }
+    })
+    expect(invoke.mock.calls.map((call) => call[0])).toEqual([
+      IPC_CHANNELS.networkSettingsGet,
+      IPC_CHANNELS.networkSetSettings
     ])
   })
 

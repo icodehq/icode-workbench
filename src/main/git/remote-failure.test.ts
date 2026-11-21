@@ -48,6 +48,33 @@ describe('classifyRemoteFailure', () => {
     }
   })
 
+  it('classifies a proxy failure before the auth vocabulary', () => {
+    const error = classifyRemoteFailure({
+      stderr:
+        "fatal: unable to access 'https://github.com/o/r.git/': Received HTTP code 407 from proxy after CONNECT",
+      operation: 'fetch',
+      target: local,
+      fallback: 'The fetch failed.'
+    })
+    expect(error.code).toBe('GIT_PROXY_FAILED')
+    expect(error.retryable).toBe(true)
+    expect(error.messageKey).toBe('remote.proxy.local')
+    expect(error.message).toContain('proxy')
+  })
+
+  it('names the distro for a WSL proxy failure', () => {
+    const error = classifyRemoteFailure({
+      stderr: 'CONNECT tunnel failed, response 407',
+      operation: 'push',
+      target: wsl,
+      fallback: 'The push failed.'
+    })
+    expect(error.code).toBe('GIT_PROXY_FAILED')
+    expect(error.messageKey).toBe('remote.proxy.wsl')
+    expect(error.messageParams).toEqual({ distro: 'Ubuntu' })
+    expect(error.message).toContain('Ubuntu')
+  })
+
   it('classifies a non-auth failure as retryable remote failure', () => {
     const error = classifyRemoteFailure({
       stderr: 'fatal: unable to access: Could not resolve host: example.com',

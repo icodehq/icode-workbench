@@ -197,6 +197,10 @@ export function createIcodeApi(
     supervisor: {
       open: (input) => call(IPC_CHANNELS.supervisorOpen, input)
     },
+    network: {
+      settings: () => call(IPC_CHANNELS.networkSettingsGet),
+      setSettings: (input) => call(IPC_CHANNELS.networkSetSettings, input)
+    },
     assistant: {
       state: () => call(IPC_CHANNELS.assistantState),
       messages: (input) => call(IPC_CHANNELS.assistantMessagesList, input),
@@ -284,6 +288,7 @@ export function createIcodeApi(
   Object.freeze(api.locale)
   Object.freeze(api.repos)
   Object.freeze(api.sessions)
+  Object.freeze(api.network)
   Object.freeze(api.assistant)
   Object.freeze(api.harness)
   Object.freeze(api.branches)

@@ -390,6 +390,16 @@ a detached host owns terminal truth; there is no telemetry and no hosted service
 iCode does not call model APIs — your harness does — and the renderer is
 sandboxed behind a typed preload and validated IPC.
 
+### Network proxies
+
+**Settings → Network** selects **System**, **Manual**, or **Off**. Manual accepts
+separate HTTP and HTTPS proxy URLs plus a `NO_PROXY` list, and applies them to
+provider tests, local Git, terminals, and WSL. System reuses the operating-system
+proxy and fills the non-Chromium environment where possible. Proxy
+authentication is not supported. WSL needs a proxy that listens beyond loopback
+(enable “Allow LAN” or use WSL mirrored networking); a local address is rewritten
+to the Windows host gateway when WSL runs in NAT mode.
+
 **Also in the box:**
 
 - **Session tabs and split view**: browser-style tab menus, drag reordering,
