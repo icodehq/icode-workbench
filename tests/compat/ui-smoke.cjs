@@ -44,6 +44,8 @@ let appProcess = null
 let cdp = null
 let nextPort = 9600 + (process.pid % 300)
 let repoId = null
+/** Tip of the remote-only branch the first session starts from. */
+let remoteBaseOid = null
 
 function sleep(ms) {
   return new Promise((done) => setTimeout(done, ms))
@@ -212,6 +214,17 @@ async function setInput(selector, value) {
     return element.value === ${JSON.stringify(value)};
   })()`)
   assert(applied, `Could not set ${selector}`)
+}
+
+async function setSelect(selector, value) {
+  const applied = await cdp.evaluate(`(() => {
+    const element = document.querySelector(${JSON.stringify(selector)});
+    if (!element || element.disabled) return false;
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(element, ${JSON.stringify(value)});
+    element.dispatchEvent(new Event('change', { bubbles: true }));
+    return element.value === ${JSON.stringify(value)};
+  })()`)
+  assert(applied, `Could not select ${value} in ${selector}`)
 }
 
 async function bodyText() {
@@ -395,6 +408,23 @@ function prepareRunDir() {
     ['-c', 'user.email=icode@example.test', '-c', 'user.name=iCode', 'commit', '-qm', 'init'],
     { cwd: REPO_DIR }
   )
+  // A remote-only branch proves Start-from lists and fetches refs/remotes.
+  const originRepo = join(RUN_DIR, 'origin.git')
+  execFileSync('git', ['init', '--bare', '-q', originRepo], { cwd: RUN_DIR })
+  execFileSync('git', ['remote', 'add', 'origin', originRepo], { cwd: REPO_DIR })
+  execFileSync('git', ['checkout', '-q', '-b', 'smoke/remote-base'], { cwd: REPO_DIR })
+  writeFileSync(join(REPO_DIR, 'remote-base.txt'), 'remote baseline\n')
+  execFileSync('git', ['add', 'remote-base.txt'], { cwd: REPO_DIR })
+  execFileSync(
+    'git',
+    ['-c', 'user.email=icode@example.test', '-c', 'user.name=iCode', 'commit', '-qm', 'remote base'],
+    { cwd: REPO_DIR }
+  )
+  remoteBaseOid = execFileSync('git', ['-C', REPO_DIR, 'rev-parse', 'HEAD'], {
+    encoding: 'utf8'
+  }).trim()
+  execFileSync('git', ['push', '-q', 'origin', 'smoke/remote-base'], { cwd: REPO_DIR })
+  execFileSync('git', ['checkout', '-q', 'main'], { cwd: REPO_DIR })
   writeFileSync(BROKEN_DIR, 'not a directory\n')
 }
 
@@ -660,6 +690,33 @@ async function main() {
   await step('create a Shell session and interact with the real PTY', async () => {
     await click('[data-testid="harness-option-shell"]')
     await setInput('[data-testid="session-title-input"]', firstTitle)
+    await waitFor(
+      `(() => {
+        const select = document.querySelector('[data-testid="new-session-start-from"]');
+        return Boolean(
+          select &&
+          !select.disabled &&
+          Array.from(select.options).some(
+            (option) => option.value === 'refs/remotes/origin/smoke/remote-base'
+          )
+        );
+      })()`,
+      'remote Start-from option',
+      15000
+    )
+    const remoteOption = await cdp.evaluate(`(() => {
+      const select = document.querySelector('[data-testid="new-session-start-from"]');
+      const option = select && Array.from(select.options).find(
+        (entry) => entry.value === 'refs/remotes/origin/smoke/remote-base'
+      );
+      return option ? { text: option.innerText, group: option.parentElement?.tagName ?? null } : null;
+    })()`)
+    assert(remoteOption, 'Remote branch is missing from Start from')
+    assert(remoteOption.group === 'OPTGROUP', 'Remote branch is not grouped')
+    await setSelect(
+      '[data-testid="new-session-start-from"]',
+      'refs/remotes/origin/smoke/remote-base'
+    )
     await click('[data-testid="create-session-submit"]')
     await waitFor(
       `document.querySelector('[data-testid="session-state"]')?.getAttribute('data-state') === 'live'`,
@@ -673,6 +730,31 @@ async function main() {
     )
     firstSession = await sessionByTitle(firstTitle)
     assert(firstSession && firstSession.incarnation, 'First session has no incarnation')
+    const listed = await cdp.evaluate(
+      `window.icode.sessions.list({ repoId: ${JSON.stringify(repoId)} })`
+    )
+    const listedSession =
+      listed && listed.ok
+        ? listed.value.sessions.find((entry) => entry.title === firstTitle)
+        : null
+    assert(listedSession && listedSession.worktree, 'Created session has no worktree')
+    assert(
+      execFileSync('git', ['-C', listedSession.worktree.path, 'rev-parse', 'HEAD'], {
+        encoding: 'utf8'
+      }).trim() === remoteBaseOid,
+      'Worktree HEAD did not use the remote branch tip'
+    )
+    let upstream = null
+    try {
+      upstream = execFileSync(
+        'git',
+        ['-C', listedSession.worktree.path, 'config', '--get', `branch.${listedSession.worktree.branch}.remote`],
+        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
+      ).trim()
+    } catch {
+      upstream = null
+    }
+    assert(upstream === null, 'Generated session branch unexpectedly tracks the remote')
     await waitForTerminalLine(
       firstSession.id,
       (line) => /\$\s*$/.test(line),

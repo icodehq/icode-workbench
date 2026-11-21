@@ -7,6 +7,8 @@ import type { RepositoryService } from '../repositories/repository-service'
 import { WorktreeStore } from '../persistence/worktree-store'
 import { GitWorktreeService } from '../worktrees/git-worktree-service'
 import { SessionService } from '../sessions/session-service'
+import { BranchService } from './branch-service'
+import { RemoteService } from './remote-service'
 import { SessionServiceError } from '../sessions/session-errors'
 import { FakeHostGateway } from '../sessions/fake-host-gateway'
 import { readSessionChanges, type SessionChangesDeps } from './session-changes'
@@ -45,12 +47,20 @@ async function setup(): Promise<Fixture> {
   const host = new FakeHostGateway()
   const worktrees = new WorktreeStore(db)
   const gitWorktrees = new GitWorktreeService({ worktreeRoot: join(root.dir, 'worktrees') })
+  const remotes = new RemoteService({ repositories: stores.repositories, gitWorktrees })
+  const branches = new BranchService({
+    repositories: stores.repositories,
+    worktrees,
+    gitWorktrees,
+    remotes
+  })
   const sessions = new SessionService({
     database: db,
     repositories: stores.repositories,
     sessions: stores.sessions,
     worktrees,
     gitWorktrees,
+    branches,
     host,
     detectHarness: async () => ({
       state: 'available',

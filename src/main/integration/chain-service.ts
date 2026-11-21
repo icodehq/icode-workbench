@@ -3,6 +3,7 @@ import type { TaskStore } from '../tasks/task-store'
 import type { GitWorktreeService } from '../worktrees/git-worktree-service'
 import type { BranchService } from '../git/branch-service'
 import type { ExecutionTarget } from '../../shared/domain/repository'
+import type { RepoId } from '../../shared/domain/ids'
 import type { TaskRecord } from '../../shared/domain/task'
 import { makeAppError } from '../../shared/domain/errors'
 import { SessionServiceError } from '../sessions/session-errors'
@@ -51,7 +52,12 @@ export class ChainService {
           })
         )
       }
-      const base = await this.resolveStart(repository.path, task.startFrom, target)
+      const base = await this.resolveStart(
+        task.repoId,
+        repository.path,
+        task.startFrom,
+        target
+      )
       const created = await this.deps.branches.ensureBranch({
         repoId: task.repoId,
         branch: task.chainBranch,
@@ -60,28 +66,27 @@ export class ChainService {
       })
       return { baseRef: task.chainBranch, baseOid: created }
     }
-    return this.resolveStart(repository.path, task.startFrom, target)
+    return this.resolveStart(task.repoId, repository.path, task.startFrom, target)
   }
 
   private async resolveStart(
+    repoId: RepoId,
     repositoryPath: string,
     startFrom: string | null,
     target: ExecutionTarget
   ): Promise<TaskBase> {
     if (startFrom !== null) {
-      const oid = await this.deps.gitWorktrees.resolveBranchOid(
-        repositoryPath,
-        startFrom,
-        target
-      )
-      if (oid === null) {
+      const resolved = await this.deps.branches.resolveStartRef(repoId, startFrom, {
+        refreshRemote: true
+      })
+      if (resolved === null) {
         throw new SessionServiceError(
-          makeAppError('START_REF_NOT_FOUND', 'The start-from branch does not exist.', {
+          makeAppError('START_REF_NOT_FOUND', 'The start-from ref does not exist.', {
             context: { branch: startFrom }
           })
         )
       }
-      return { baseRef: startFrom, baseOid: oid }
+      return { baseRef: resolved.baseRef, baseOid: resolved.baseOid }
     }
     const state = await this.deps.gitWorktrees.inspectRepository(repositoryPath, target)
     if (state.unborn || state.headOid === null) {

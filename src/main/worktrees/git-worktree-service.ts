@@ -793,6 +793,54 @@ export class GitWorktreeService {
     return oid !== null && oid.length > 0 ? oid.trim() : null
   }
 
+  /**
+   * Resolves an explicit full ref (local or remote-tracking) to its commit.
+   * Bare names are refused so callers cannot smuggle revisions into argv.
+   */
+  async resolveRefOid(
+    primaryRoot: string,
+    ref: string,
+    target: ExecutionTarget = LOCAL_TARGET
+  ): Promise<string | null> {
+    if (!ref.startsWith('refs/')) return null
+    const ctx = await this.contextFor(target)
+    const oid = await ctx
+      .git(primaryRoot, ['rev-parse', '--verify', `${ref}^{commit}`], READ_TIMEOUT_MS)
+      .catch(() => null)
+    return oid !== null && oid.length > 0 ? oid.trim() : null
+  }
+
+  /**
+   * Points a branch at a remote-tracking upstream.
+   *
+   * Best-effort: tracking is a convenience for the first push, not a
+   * precondition for a usable checkout, so a missing ref or config write must
+   * never fail the session.
+   */
+  async setBranchUpstream(input: {
+    primaryRoot: string
+    worktreePath: string
+    branch: string
+    upstreamRef: string
+    target?: ExecutionTarget
+  }): Promise<boolean> {
+    if (!input.upstreamRef.startsWith('refs/remotes/')) return false
+    const target = input.target ?? LOCAL_TARGET
+    try {
+      const ctx = await this.contextFor(target)
+      await this.runRepositoryExclusive(input.primaryRoot, target, () =>
+        ctx.git(
+          input.worktreePath,
+          ['branch', `--set-upstream-to=${input.upstreamRef}`, input.branch],
+          MUTATE_TIMEOUT_MS
+        )
+      )
+      return true
+    } catch {
+      return false
+    }
+  }
+
   /** Authoritative Git branch-name validation (see `git check-ref-format`). */
   async checkBranchName(
     primaryRoot: string,

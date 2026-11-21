@@ -366,6 +366,8 @@ export const de = {
   'workspace.notice.theSession': "die Sitzung",
   'workspace.notice.sessionFallback': "Sitzung",
   'common.unavailable': "Nicht verfügbar",
+  'common.localBranches': "Lokale Branches",
+  'common.remoteBranches': "Remote-Branches",
   'newSession.title': "Neue Sitzung",
   'newSession.subtitle': "Ein Harness läuft im ausgewählten Repository über ein echtes Terminal.",
   'newSession.repository': "Repository",

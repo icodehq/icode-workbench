@@ -10,7 +10,7 @@ type BranchRefsState = {
   reload: () => Promise<void>
 }
 
-/** Local branch refs for the start-from and finish dialogs. */
+/** Local and remote-tracking branch refs for the start-from and finish dialogs. */
 export function useBranchRefs(repoId: string | null): BranchRefsState {
   const [refs, setRefs] = useState<BranchRefSummary[]>([])
   const [loading, setLoading] = useState(false)

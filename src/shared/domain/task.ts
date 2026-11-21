@@ -208,7 +208,7 @@ export type TaskRecord = {
    * dependent starts. `legacy` preserves pre-v16 behavior for old chains.
    */
   chainGate: TaskChainGate
-  /** Local branch a chain root should start from when it first dispatches. */
+  /** Local or remote-tracking ref a chain root starts from when it first dispatches. */
   startFrom: string | null
 }
 

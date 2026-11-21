@@ -10,6 +10,8 @@ import { buildWslTerminalArgs } from '../wsl/terminal/path-a'
 import { makeAppError } from '../../shared/domain/errors'
 import { WorktreeStore } from '../persistence/worktree-store'
 import { GitWorktreeService } from '../worktrees/git-worktree-service'
+import { BranchService } from '../git/branch-service'
+import { RemoteService } from '../git/remote-service'
 import { samePathResolved } from '../worktrees/worktree-status'
 import { rmSync as rmTree, writeFileSync } from 'node:fs'
 import { newSessionId } from '../../shared/domain/ids'
@@ -120,6 +122,13 @@ function setup(options: {
   }
   const worktrees = new WorktreeStore(db)
   const gitWorktrees = new GitWorktreeService({ worktreeRoot: join(root.dir, 'worktrees') })
+  const remotes = new RemoteService({ repositories: stores.repositories, gitWorktrees })
+  const branches = new BranchService({
+    repositories: stores.repositories,
+    worktrees,
+    gitWorktrees,
+    remotes
+  })
   const pathA = {
     /** Every guest cwd Path A was asked to enter. */
     requested: [] as string[],
@@ -133,6 +142,7 @@ function setup(options: {
     sessions: stores.sessions,
     worktrees,
     gitWorktrees,
+    branches,
     host,
     ...(options.workspaceTrust === undefined ? {} : { workspaceTrust: options.workspaceTrust }),
     detectHarness: async (_harness, target) => {
@@ -233,6 +243,48 @@ async function withRepo(options: {
 afterEach(() => {
   while (fixtures.length > 0) fixtures.pop()!()
 })
+
+function gitIn(cwd: string, ...args: string[]): string {
+  return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim()
+}
+
+function commitFile(
+  cwd: string,
+  file: string,
+  content: string,
+  message: string
+): string {
+  writeFileSync(join(cwd, file), content)
+  gitIn(cwd, 'add', file)
+  execFileSync(
+    'git',
+    [
+      '-C',
+      cwd,
+      '-c',
+      'user.email=icode@test',
+      '-c',
+      'user.name=iCode',
+      'commit',
+      '-qm',
+      message
+    ],
+    { stdio: 'pipe' }
+  )
+  return gitIn(cwd, 'rev-parse', 'HEAD')
+}
+
+/** Adds a bare `origin` carrying a `feature` branch and returns its first tip. */
+function addOriginWithFeature(fixture: Fixture): { bare: string; featureOid: string } {
+  const bare = join(fixture.root.dir, 'origin.git')
+  execFileSync('git', ['init', '--bare', '-q', bare])
+  gitIn(fixture.repoPath, 'remote', 'add', 'origin', bare)
+  gitIn(fixture.repoPath, 'checkout', '-q', '-b', 'feature')
+  const featureOid = commitFile(fixture.repoPath, 'feature.txt', 'feature\n', 'feature')
+  gitIn(fixture.repoPath, 'push', '-q', 'origin', 'feature')
+  gitIn(fixture.repoPath, 'checkout', '-q', 'main')
+  return { bare, featureOid }
+}
 
 function createInput(fixture: Fixture, overrides: Record<string, unknown> = {}) {
   return {
@@ -456,6 +508,88 @@ describe('session creation', () => {
 
     const summary = await f.service.create(createInput(f, { startFrom: 'feature/base' }))
     expect(summary.worktree?.baseOid).toBe(oid)
+  })
+
+  it('bases the worktree on a selected remote branch and refreshes it first', async () => {
+    const f = await withRepo()
+    const { featureOid } = addOriginWithFeature(f)
+    gitIn(f.repoPath, 'checkout', '-q', 'feature')
+    const remoteTip = commitFile(f.repoPath, 'feature.txt', 'feature two\n', 'feature two')
+    gitIn(f.repoPath, 'push', '-q', 'origin', 'feature')
+    gitIn(f.repoPath, 'checkout', '-q', 'main')
+    // Rewind the tracking ref: only the targeted fetch can produce remoteTip.
+    gitIn(f.repoPath, 'update-ref', 'refs/remotes/origin/feature', featureOid)
+    gitIn(f.repoPath, 'branch', '-D', 'feature')
+
+    const summary = await f.service.create(
+      createInput(f, { startFrom: 'refs/remotes/origin/feature' })
+    )
+
+    expect(summary.worktree?.baseOid).toBe(remoteTip)
+    expect(gitIn(summary.worktree!.path, 'rev-parse', 'HEAD')).toBe(remoteTip)
+    // A generated session branch does not inherit the remote upstream.
+    expect(() =>
+      gitIn(
+        summary.worktree!.path,
+        'config',
+        '--get',
+        `branch.${summary.worktree!.branch}.remote`
+      )
+    ).toThrow()
+  })
+
+  it('tracks a same-named remote branch after creating the worktree', async () => {
+    const f = await withRepo()
+    const { featureOid } = addOriginWithFeature(f)
+    gitIn(f.repoPath, 'branch', '-D', 'feature')
+
+    const summary = await f.service.create(
+      createInput(f, {
+        startFrom: 'refs/remotes/origin/feature',
+        branchName: 'feature'
+      })
+    )
+
+    expect(summary.worktree?.baseOid).toBe(featureOid)
+    expect(
+      gitIn(summary.worktree!.path, 'rev-parse', '--abbrev-ref', 'feature@{upstream}')
+    ).toBe('origin/feature')
+  })
+
+  it('falls back to the last fetched remote ref when refresh fails', async () => {
+    const f = await withRepo()
+    const { featureOid } = addOriginWithFeature(f)
+    gitIn(f.repoPath, 'remote', 'set-url', 'origin', join(f.root.dir, 'missing.git'))
+    gitIn(f.repoPath, 'branch', '-D', 'feature')
+
+    const summary = await f.service.create(
+      createInput(f, { startFrom: 'refs/remotes/origin/feature' })
+    )
+
+    expect(summary.worktree?.baseOid).toBe(featureOid)
+  })
+
+  it('rejects a missing remote start ref before creating a worktree', async () => {
+    const f = await withRepo()
+    gitIn(f.repoPath, 'remote', 'add', 'origin', join(f.root.dir, 'missing.git'))
+
+    await expect(
+      f.service.create(createInput(f, { startFrom: 'refs/remotes/origin/missing' }))
+    ).rejects.toMatchObject({ appError: { code: 'START_REF_NOT_FOUND' } })
+    expect(f.host.calls.createOrAttach).toHaveLength(0)
+    expect(f.worktrees.listAll()).toHaveLength(0)
+  })
+
+  it('keeps a local branch named like a remote ref local', async () => {
+    const f = await withRepo()
+    addOriginWithFeature(f)
+    const mainOid = gitIn(f.repoPath, 'rev-parse', 'main')
+    gitIn(f.repoPath, 'branch', 'origin/feature', mainOid)
+    gitIn(f.repoPath, 'branch', '-D', 'feature')
+
+    const summary = await f.service.create(createInput(f, { startFrom: 'origin/feature' }))
+
+    expect(summary.worktree?.baseOid).toBe(mainOid)
   })
 
   it('rejects a missing start-from branch before creating a worktree', async () => {

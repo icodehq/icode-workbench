@@ -8,6 +8,8 @@ import {
 
 const ref = (name: string, overrides: Partial<BranchRefSummary> = {}): BranchRefSummary => ({
   name,
+  fullName: `refs/heads/${name}`,
+  kind: 'local',
   oid: `${name}-oid`,
   primaryHead: false,
   worktreePath: null,
@@ -61,6 +63,29 @@ describe('resolveMergeTargets', () => {
     expect(resolution.targetOid).toBe('main-oid')
     expect(resolution.options.map((option) => option.name)).toEqual(['main', 'release'])
     expect(resolution.options[0]?.disabled).toBe(false)
+  })
+
+  it('never offers remote-tracking refs as merge targets', () => {
+    const resolution = resolveMergeTargets({
+      refs: [
+        ref('main', { primaryHead: true }),
+        ref('origin/main', {
+          kind: 'remote',
+          fullName: 'refs/remotes/origin/main',
+          oid: 'origin-main-oid'
+        })
+      ],
+      sourceBranch: 'session/one',
+      headOid: 'work-head',
+      hint: 'origin/main',
+      lockHint: false,
+      loading: false,
+      record: null
+    })
+
+    expect(resolution.options.map((option) => option.name)).toEqual(['main'])
+    expect(resolution.targetOid).toBeNull()
+    expect(resolution.reason).toBe('missing-target')
   })
 
   it('disables a target checked out in another linked worktree', () => {

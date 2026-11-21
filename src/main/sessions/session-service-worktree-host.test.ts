@@ -6,6 +6,8 @@ import { RepositoryStore } from '../persistence/repository-store'
 import { SessionStore } from '../persistence/session-store'
 import { WorktreeStore } from '../persistence/worktree-store'
 import { GitWorktreeService } from '../worktrees/git-worktree-service'
+import { BranchService } from '../git/branch-service'
+import { RemoteService } from '../git/remote-service'
 import { SessionService } from './session-service'
 import { FakeHostGateway } from './fake-host-gateway'
 import { newRepoId, newSessionId, newWorkspaceId, toPtyIncarnationId } from '../../shared/domain/ids'
@@ -70,6 +72,8 @@ function setup(options: { guestExists: boolean; resolveFails?: boolean; target?:
     }
   }
   const gitWorktrees = new GitWorktreeService({ worktreeRoot: join(root.dir, 'worktrees'), router })
+  const remotes = new RemoteService({ repositories, gitWorktrees })
+  const branches = new BranchService({ repositories, worktrees, gitWorktrees, remotes })
   const host = new FakeHostGateway()
 
   const service = new SessionService({
@@ -78,6 +82,7 @@ function setup(options: { guestExists: boolean; resolveFails?: boolean; target?:
     sessions,
     worktrees,
     gitWorktrees,
+    branches,
     host,
     detectHarness: async () => ({
       state: 'available',

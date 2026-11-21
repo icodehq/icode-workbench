@@ -60,7 +60,9 @@ export function resolveMergeTargets(input: ResolveMergeTargetsInput): MergeTarge
   const sourceBranch = input.sourceBranch
   const hint = input.hint !== null && input.hint !== sourceBranch ? input.hint : null
   const options: MergeTargetOption[] = input.refs
-    .filter((ref) => ref.name !== sourceBranch)
+    // Remote-tracking refs are valid start points but never merge targets:
+    // the merge service updates refs/heads/<target>.
+    .filter((ref) => ref.kind === 'local' && ref.name !== sourceBranch)
     .map((ref) => {
       const inUse = ref.worktreePath !== null && !ref.primaryHead
       return {

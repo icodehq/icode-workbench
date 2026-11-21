@@ -366,6 +366,8 @@ export const ja = {
   'workspace.notice.theSession': "セッション",
   'workspace.notice.sessionFallback': "セッション",
   'common.unavailable': "利用不可",
+  'common.localBranches': "ローカルブランチ",
+  'common.remoteBranches': "リモートブランチ",
   'newSession.title': "新しいセッション",
   'newSession.subtitle': "ハーネスは選択したリポジトリで実際のターミナルを通じて実行されます。",
   'newSession.repository': "リポジトリ",

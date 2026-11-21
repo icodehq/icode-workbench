@@ -366,6 +366,8 @@ export const zhCN = {
   'workspace.notice.theSession': "该会话",
   'workspace.notice.sessionFallback': "会话",
   'common.unavailable': "不可用",
+  'common.localBranches': "本地分支",
+  'common.remoteBranches': "远程分支",
   'newSession.title': "新建会话",
   'newSession.subtitle': "Harness 通过真实终端在所选仓库中运行。",
   'newSession.repository': "仓库",

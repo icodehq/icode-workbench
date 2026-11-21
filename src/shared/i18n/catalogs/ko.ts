@@ -366,6 +366,8 @@ export const ko = {
   'workspace.notice.theSession': "세션",
   'workspace.notice.sessionFallback': "세션",
   'common.unavailable': "사용 불가",
+  'common.localBranches': "로컬 브랜치",
+  'common.remoteBranches': "원격 브랜치",
   'newSession.title': "새 세션",
   'newSession.subtitle': "하네스는 선택한 저장소에서 실제 터미널을 통해 실행됩니다.",
   'newSession.repository': "저장소",

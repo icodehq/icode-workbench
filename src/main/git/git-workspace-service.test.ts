@@ -5,6 +5,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { GitWorkspaceService } from './git-workspace-service'
 import { GitWorktreeService } from '../worktrees/git-worktree-service'
 import { SessionService } from '../sessions/session-service'
+import { BranchService } from './branch-service'
+import { RemoteService } from './remote-service'
 import { FakeHostGateway } from '../sessions/fake-host-gateway'
 import { makeRepositoryService, makeTempRoot, openTempDatabase } from '../persistence/persistence-test-fixtures'
 import { WorktreeStore } from '../persistence/worktree-store'
@@ -79,6 +81,13 @@ async function realRepo(): Promise<Fixture> {
   const stores = makeRepositoryService(db)
   const worktrees = new WorktreeStore(db)
   const gitWorktrees = new GitWorktreeService({ worktreeRoot: join(root.dir, 'worktrees') })
+  const remotes = new RemoteService({ repositories: stores.repositories, gitWorktrees })
+  const branches = new BranchService({
+    repositories: stores.repositories,
+    worktrees,
+    gitWorktrees,
+    remotes
+  })
   // The session service is only needed to seed rows through the fixture; the
   // Git service under test reads the stores directly.
   void new SessionService({
@@ -87,6 +96,7 @@ async function realRepo(): Promise<Fixture> {
     sessions: stores.sessions,
     worktrees,
     gitWorktrees,
+    branches,
     host: new FakeHostGateway(),
     detectHarness: async () => ({
       state: 'available',

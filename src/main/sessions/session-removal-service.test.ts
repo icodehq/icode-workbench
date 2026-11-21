@@ -6,6 +6,8 @@ import { openTempDatabase, makeRepositoryService, makeTempRoot } from '../persis
 import type { TempRoot } from '../persistence/persistence-test-fixtures'
 import { WorktreeStore } from '../persistence/worktree-store'
 import { GitWorktreeService } from '../worktrees/git-worktree-service'
+import { BranchService } from '../git/branch-service'
+import { RemoteService } from '../git/remote-service'
 import { samePathResolved } from '../worktrees/worktree-status'
 import { SessionService } from './session-service'
 import { SessionRemovalService, type SessionRemovalDeps } from './session-removal-service'
@@ -47,12 +49,20 @@ async function setup(): Promise<Fixture> {
   const host = new FakeHostGateway()
   const worktrees = new WorktreeStore(db)
   const gitService = new GitWorktreeService({ worktreeRoot: join(root.dir, 'worktrees') })
+  const remotes = new RemoteService({ repositories: stores.repositories, gitWorktrees: gitService })
+  const branches = new BranchService({
+    repositories: stores.repositories,
+    worktrees,
+    gitWorktrees: gitService,
+    remotes
+  })
   const sessions = new SessionService({
     database: db,
     repositories: stores.repositories,
     sessions: stores.sessions,
     worktrees,
     gitWorktrees: gitService,
+    branches,
     host,
     detectHarness: async () => ({
       state: 'available',

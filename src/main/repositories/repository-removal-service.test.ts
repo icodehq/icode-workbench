@@ -8,6 +8,8 @@ import { FakeHostGateway } from '../sessions/fake-host-gateway'
 import { makeRepositoryService, makeTempRoot, openTempDatabase } from '../persistence/persistence-test-fixtures'
 import { WorktreeStore } from '../persistence/worktree-store'
 import { GitWorktreeService } from '../worktrees/git-worktree-service'
+import { BranchService } from '../git/branch-service'
+import { RemoteService } from '../git/remote-service'
 import { MergeStore } from '../persistence/merge-store'
 import { RepoRemovalJobStore, type RepoRemovalJobRecord } from '../persistence/repo-removal-job-store'
 import { TaskStore } from '../tasks/task-store'
@@ -68,12 +70,20 @@ async function setup(
   const host = new FakeHostGateway()
   const worktrees = new WorktreeStore(db)
   const gitWorktrees = new GitWorktreeService({ worktreeRoot: join(root.dir, 'worktrees') })
+  const remotes = new RemoteService({ repositories: stores.repositories, gitWorktrees })
+  const branches = new BranchService({
+    repositories: stores.repositories,
+    worktrees,
+    gitWorktrees,
+    remotes
+  })
   const sessions = new SessionService({
     database: db,
     repositories: stores.repositories,
     sessions: stores.sessions,
     worktrees,
     gitWorktrees,
+    branches,
     host,
     detectHarness: async () => available(),
     now: () => NOW
