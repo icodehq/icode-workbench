@@ -30,6 +30,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   settings change reaches clone, fetch, push, and session worktree operations
   without restarting the app.
 
+### Fixed
+
+- WSL guest commands without a configured proxy start synchronously again, so
+  the guest-home probe cannot race the launcher.
+
 ### Notes
 
 - Proxy authentication is not supported in this release; proxy URLs containing

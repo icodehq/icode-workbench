@@ -534,16 +534,19 @@ export class WslCommandRunner {
     return ['-d', distro, '--exec', ...request.argv]
   }
 
-  /** Guest-side env, or `{}` when none is configured or the provider fails. */
-  private async guestEnvFor(request: WslExecRequest): Promise<ProxyEnv> {
+  /**
+   * Guest-side env, or `{}` when none is configured.
+   *
+   * The conditional await matters: a runner without a provider must reach its
+   * launcher synchronously, as it did before proxy support existed. `await {}`
+   * would still yield a microtask and break callers that install a launcher
+   * continuation immediately after `run()`.
+   */
+  private guestEnvFor(request: WslExecRequest): ProxyEnv | Promise<ProxyEnv> {
     if (request.scope !== 'guest' || this.guestEnvironment === undefined) return {}
-    try {
-      return await this.guestEnvironment(request.distro)
-    } catch {
-      // A proxy-environment failure must not make the guest command unspawnable.
-      return {}
-    }
+    return this.guestEnvironment(request.distro).catch(() => ({}))
   }
+
 
   /**
    * Raw argv, with guest env assignments inserted after `--exec`.
@@ -569,7 +572,8 @@ export class WslCommandRunner {
     if (request.argv.length === 0) {
       throw new Error('wsl.exec: argv must name a program')
     }
-    const guestEnv = await this.guestEnvFor(request)
+    const envOrPromise = this.guestEnvFor(request)
+    const guestEnv = envOrPromise instanceof Promise ? await envOrPromise : envOrPromise
     if (request.signal?.aborted) return { status: 'cancelled' }
     // Validate the shape before spawning, so a caller cannot silently get the
     // default distro by forgetting `distro`, nor run a `wsl.exe` option in a guest.
@@ -656,7 +660,8 @@ export class WslCommandRunner {
     if (request.argv.length === 0) {
       throw new Error('wsl.exec: argv must name a program')
     }
-    const guestEnv = await this.guestEnvFor(request)
+    const envOrPromise = this.guestEnvFor(request)
+    const guestEnv = envOrPromise instanceof Promise ? await envOrPromise : envOrPromise
     if (request.signal?.aborted) {
       return { code: null, signal: null, timedOut: false, cancelled: true }
     }
@@ -803,7 +808,8 @@ export class WslCommandRunner {
    * not known to be text.
    */
   async runBytes(request: WslGuestCommand): Promise<WslByteResult | { status: 'wsl_missing' }> {
-    const guestEnv = await this.guestEnvFor(request)
+    const envOrPromise = this.guestEnvFor(request)
+    const guestEnv = envOrPromise instanceof Promise ? await envOrPromise : envOrPromise
     if (request.signal?.aborted) {
       return { code: null, signal: 'SIGTERM', stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), timedOut: false }
     }
