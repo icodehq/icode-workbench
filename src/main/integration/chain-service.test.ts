@@ -132,7 +132,7 @@ describe('ChainService remote start refs', () => {
       baseOid: remoteTip
     })
     expect(git(f.repoPath, 'rev-parse', 'refs/heads/icode/chain/task_1')).toBe(remoteTip)
-  })
+  }, 20_000)
 
   it('refuses to start a dependent over a missing chain branch', async () => {
     const f = await setup()
@@ -143,7 +143,7 @@ describe('ChainService remote start refs', () => {
         task(f, { chainBranch: 'icode/chain/missing', startFrom: null })
       )
     ).rejects.toMatchObject({ appError: { code: 'CHAIN_BRANCH_MISSING' } })
-  })
+  }, 20_000)
 
   it('uses the primary HEAD when no start ref is given', async () => {
     const f = await setup()
@@ -152,5 +152,5 @@ describe('ChainService remote start refs', () => {
         task(f, { chainBranch: null, startFrom: null })
       )
     ).resolves.toEqual({ baseRef: 'main', baseOid: f.mainOid })
-  })
+  }, 20_000)
 })

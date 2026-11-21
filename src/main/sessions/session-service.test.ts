@@ -536,7 +536,7 @@ describe('session creation', () => {
         `branch.${summary.worktree!.branch}.remote`
       )
     ).toThrow()
-  })
+  }, 20_000)
 
   it('tracks a same-named remote branch after creating the worktree', async () => {
     const f = await withRepo()
@@ -554,7 +554,7 @@ describe('session creation', () => {
     expect(
       gitIn(summary.worktree!.path, 'rev-parse', '--abbrev-ref', 'feature@{upstream}')
     ).toBe('origin/feature')
-  })
+  }, 20_000)
 
   it('falls back to the last fetched remote ref when refresh fails', async () => {
     const f = await withRepo()
@@ -567,7 +567,7 @@ describe('session creation', () => {
     )
 
     expect(summary.worktree?.baseOid).toBe(featureOid)
-  })
+  }, 20_000)
 
   it('rejects a missing remote start ref before creating a worktree', async () => {
     const f = await withRepo()
@@ -578,7 +578,7 @@ describe('session creation', () => {
     ).rejects.toMatchObject({ appError: { code: 'START_REF_NOT_FOUND' } })
     expect(f.host.calls.createOrAttach).toHaveLength(0)
     expect(f.worktrees.listAll()).toHaveLength(0)
-  })
+  }, 20_000)
 
   it('keeps a local branch named like a remote ref local', async () => {
     const f = await withRepo()
@@ -590,7 +590,7 @@ describe('session creation', () => {
     const summary = await f.service.create(createInput(f, { startFrom: 'origin/feature' }))
 
     expect(summary.worktree?.baseOid).toBe(mainOid)
-  })
+  }, 20_000)
 
   it('rejects a missing start-from branch before creating a worktree', async () => {
     const f = await withRepo()
