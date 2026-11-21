@@ -115,7 +115,8 @@ const definition = (source: HarnessDefinition): HarnessDefinition => source
 
 /**
  * Ordered primary entries first, then the community tail, then the terminal.
- * The picker renders the same split; detection may run over the whole list.
+ * The picker shows what is installed and keeps this order within its list;
+ * detection may run over the whole catalog.
  */
 export const HARNESS_DEFINITIONS_LIST: readonly HarnessDefinition[] = [
   definition({
