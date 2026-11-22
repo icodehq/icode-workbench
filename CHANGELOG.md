@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Terminal panes now provide a find bar, a pane context menu, platform-correct
+  copy and paste shortcuts, copy-on-select with gutter trimming, OSC 52 TUI
+  clipboard writes, and locally persisted terminal settings. Split, zoom, clear,
+  reset, copy-context and close actions target the pane that opened the menu,
+  not only the active session.
+
+### Changed
+
+- Upgraded xterm.js to the 6.1 beta family and added search and Unicode 11
+  support. Live panes and read-only previews now share one terminal options
+  builder.
+
 ## [0.17.3] - 2026-11-22
 
 ### Fixed

@@ -1,10 +1,29 @@
 import { FitAddon } from '@xterm/addon-fit'
+import { SearchAddon } from '@xterm/addon-search'
 import { Terminal } from '@xterm/xterm'
 import type { AppError } from '../../../shared/domain/errors'
+import { isMacPlatform } from '../lib/platform'
 import { isResizeActive, subscribeResizeActivity } from '../lib/resize-activity'
+import { installTerminalKeyRouter } from './interaction/key-router'
 import { SessionTerminal, type TerminalStatus } from './session-terminal'
 import { rememberTerminalSize } from './terminal-size'
-import { applyTerminalTheme, terminalThemeOptions } from './terminal-theme'
+import { applyTerminalTheme } from './terminal-theme'
+import { applyTerminalOptions, terminalOptionsFor } from './terminal-options'
+import {
+  loadTerminalSettings,
+  subscribeTerminalSettings,
+  type TerminalSettings
+} from './terminal-settings'
+import { trimTerminalSelection } from './interaction/selection-text'
+import { createOsc52Handler } from './interaction/osc52'
+import type {
+  TerminalFindDirection,
+  TerminalFindOptions,
+  TerminalInteractionHost,
+  TerminalInteractionState,
+  TerminalMetadata,
+  TerminalTranscriptOptions
+} from './terminal-interaction-host'
 import { PanePtyResizeHold } from './pane-pty-resize-hold'
 
 /**
@@ -22,6 +41,8 @@ export type TerminalInstanceOptions = {
   key: string
   sessionId: string
   onError: (error: AppError) => void
+  /** App services; null keeps the instance usable in tests and previews. */
+  host?: TerminalInteractionHost | null
 }
 
 export type TerminalInstanceLike = {
@@ -40,6 +61,27 @@ export type TerminalInstanceLike = {
   isDisposed(): boolean
   subscribe(listener: () => void): () => void
   getStatus(): TerminalStatus
+
+  hasSelection(): boolean
+  getSelectionText(): string
+  copySelection(): Promise<boolean>
+  selectAll(): void
+  clearSelection(): void
+  /** Feeds text through xterm so bracketed-paste mode is honored. */
+  paste(text: string): boolean | Promise<boolean>
+  find(
+    query: string,
+    direction: TerminalFindDirection,
+    options?: TerminalFindOptions
+  ): boolean
+  clearFind(): void
+  clear(): void
+  reset(): void
+  getMetadata(): TerminalMetadata
+  getTranscript(options?: TerminalTranscriptOptions): string
+  onInteractionState(listener: (state: TerminalInteractionState) => void): () => void
+  /** The view owns the find bar; the key router only requests it. */
+  onFindRequest(listener: () => void): () => void
 }
 
 const INITIAL_STATUS: TerminalStatus = {
@@ -60,12 +102,24 @@ export class TerminalInstance implements TerminalInstanceLike {
 
   private readonly term: Terminal
   private readonly fitAddon: FitAddon
+  private readonly searchAddon: SearchAddon
   private readonly controller: SessionTerminal
   private readonly wrapper: HTMLDivElement
+  private readonly host: TerminalInteractionHost | null
   private readonly listeners = new Set<() => void>()
+  private readonly interactionListeners = new Set<
+    (state: TerminalInteractionState) => void
+  >()
+  private readonly findRequestListeners = new Set<() => void>()
+  private readonly keyRouter: { dispose(): void }
+  private readonly osc52Disposable: { dispose(): void }
   private readonly themeObserver: MutationObserver
   private readonly inputDisposable: { dispose(): void }
   private readonly resizeDisposable: { dispose(): void }
+  private readonly selectionDisposable: { dispose(): void }
+  private readonly unsubscribeSettings: () => void
+  private settings: TerminalSettings
+  private copyOnSelectTimer: ReturnType<typeof setTimeout> | null = null
 
   private status: TerminalStatus = INITIAL_STATUS
   private attachedContainer: HTMLElement | null = null
@@ -82,30 +136,45 @@ export class TerminalInstance implements TerminalInstanceLike {
 
   constructor(options: TerminalInstanceOptions) {
     this.key = options.key
+    this.host = options.host ?? null
+    this.settings = loadTerminalSettings()
     this.wrapper = document.createElement('div')
     this.wrapper.className = 'terminal-wrapper'
     this.wrapper.style.width = '100%'
     this.wrapper.style.height = '100%'
 
-    this.term = new Terminal({
-      allowProposedApi: false,
-      convertEol: false,
-      cursorBlink: true,
-      disableStdin: false,
-      fontFamily:
-        "'JetBrains Mono', 'Cascadia Code', 'SFMono-Regular', Menlo, Consolas, monospace",
-      fontSize: 12,
-      lineHeight: 1.2,
-      scrollback: 5000,
-      ...terminalThemeOptions()
-    })
+    this.term = new Terminal(terminalOptionsFor('interactive', this.settings))
     this.fitAddon = new FitAddon()
+    this.searchAddon = new SearchAddon()
     this.term.loadAddon(this.fitAddon)
+    this.term.loadAddon(this.searchAddon)
     this.term.open(this.wrapper)
 
     this.inputDisposable = this.term.onData((data) => {
       void this.controller.write(data)
     })
+    this.selectionDisposable = this.term.onSelectionChange(() => {
+      this.emitInteractionState()
+      this.scheduleCopyOnSelect()
+    })
+    this.keyRouter = installTerminalKeyRouter(this.term, {
+      isMac: isMacPlatform(),
+      hasSelection: () => this.term.hasSelection(),
+      copySelection: () => {
+        void this.copySelection()
+      },
+      openFind: () => {
+        for (const listener of this.findRequestListeners) listener()
+      }
+    })
+    this.osc52Disposable = this.term.parser.registerOscHandler(
+      52,
+      createOsc52Handler({
+        allowWrite: () => !this.disposed && this.settings.osc52,
+        write: (text) => this.writeClipboard(text),
+        maxBase64Chars: this.settings.osc52MaxBytes
+      })
+    )
 
     /*
      * Grid changes never go straight to the host. Outside a drag the hold
@@ -162,6 +231,13 @@ export class TerminalInstance implements TerminalInstanceLike {
     this.themeObserver.observe(document.documentElement, {
       attributes: true,
       attributeFilter: ['data-theme']
+    })
+
+    this.unsubscribeSettings = subscribeTerminalSettings((next) => {
+      if (this.disposed) return
+      this.settings = next
+      applyTerminalOptions(this.term, next, 'interactive')
+      this.scheduleFitNow()
     })
 
     // The first fit can use fallback glyph metrics; fit again once the font arrives.
@@ -257,25 +333,163 @@ export class TerminalInstance implements TerminalInstanceLike {
     return this.status
   }
 
+  hasSelection(): boolean {
+    return !this.disposed && this.term.hasSelection()
+  }
+
+  getSelectionText(): string {
+    return this.disposed ? '' : this.term.getSelection()
+  }
+
+  async copySelection(): Promise<boolean> {
+    if (this.disposed) return false
+    const selected = this.term.getSelection()
+    if (selected.length === 0) return false
+    const text = this.settings.selectionTrim ? trimTerminalSelection(selected) : selected
+    if (text.length === 0) return false
+    return this.writeClipboard(text)
+  }
+
+  selectAll(): void {
+    if (!this.disposed) this.term.selectAll()
+  }
+
+  clearSelection(): void {
+    if (!this.disposed) this.term.clearSelection()
+  }
+
+  /** xterm routes paste through its data path, so bracketed paste stays correct. */
+  paste(text: string): boolean {
+    if (this.disposed || text.length === 0) return false
+    if (new TextEncoder().encode(text).length > this.settings.pasteMaxBytes) return false
+    this.term.paste(text)
+    return true
+  }
+
+  find(
+    query: string,
+    direction: TerminalFindDirection,
+    options?: TerminalFindOptions
+  ): boolean {
+    if (this.disposed || query.length === 0) return false
+    const searchOptions = {
+      caseSensitive: options?.caseSensitive ?? false,
+      regex: options?.regex ?? false,
+      incremental: false
+    }
+    return direction === 'next'
+      ? this.searchAddon.findNext(query, searchOptions)
+      : this.searchAddon.findPrevious(query, searchOptions)
+  }
+
+  clearFind(): void {
+    if (this.disposed) return
+    this.searchAddon.clearDecorations()
+    // The addon keeps the active match selected after decorations are cleared.
+    this.searchAddon.findNext('')
+  }
+
+  clear(): void {
+    if (!this.disposed) this.term.clear()
+  }
+
+  reset(): void {
+    if (!this.disposed) this.term.reset()
+  }
+
+  getMetadata(): TerminalMetadata {
+    return { cwd: null, title: null }
+  }
+
+  getTranscript(options?: TerminalTranscriptOptions): string {
+    if (this.disposed) return ''
+    const maxChars = options?.maxChars ?? 36_000
+    const buffer = this.term.buffer.active
+    const lines: string[] = []
+    for (let row = 0; row < buffer.length; row += 1) {
+      lines.push(buffer.getLine(row)?.translateToString(true) ?? '')
+    }
+    const text = lines.join('\n').replace(/\n+$/u, '')
+    return text.length > maxChars ? text.slice(-maxChars) : text
+  }
+
+  onInteractionState(listener: (state: TerminalInteractionState) => void): () => void {
+    if (this.disposed) return () => undefined
+    this.interactionListeners.add(listener)
+    listener(this.interactionState())
+    return () => this.interactionListeners.delete(listener)
+  }
+
+  onFindRequest(listener: () => void): () => void {
+    if (this.disposed) return () => undefined
+    this.findRequestListeners.add(listener)
+    return () => this.findRequestListeners.delete(listener)
+  }
+
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
     this.listeners.clear()
+    this.interactionListeners.clear()
+    this.findRequestListeners.clear()
+    if (this.copyOnSelectTimer !== null) {
+      clearTimeout(this.copyOnSelectTimer)
+      this.copyOnSelectTimer = null
+    }
+    this.keyRouter.dispose()
+    this.osc52Disposable.dispose()
     if (this.fitFrame !== null) {
       window.cancelAnimationFrame(this.fitFrame)
       this.fitFrame = null
     }
     this.clearContainerFitTimer()
     this.unsubscribeLayoutResize()
+    this.unsubscribeSettings()
     this.resizeHold.dispose()
     this.themeObserver.disconnect()
     this.inputDisposable.dispose()
     this.resizeDisposable.dispose()
+    this.selectionDisposable.dispose()
     this.controller.dispose()
     this.term.dispose()
     this.wrapper.remove()
     this.attachedContainer = null
     this.attachment = null
+  }
+
+  private async writeClipboard(text: string): Promise<boolean> {
+    try {
+      if (this.host !== null) return await this.host.writeClipboard(text)
+      await navigator.clipboard.writeText(text)
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * Copy-on-select is debounced so a drag does not write the clipboard on every
+   * intermediate selection update.
+   */
+  private scheduleCopyOnSelect(): void {
+    if (this.disposed || !this.settings.copyOnSelect || !this.term.hasSelection()) return
+    if (this.copyOnSelectTimer !== null) clearTimeout(this.copyOnSelectTimer)
+    this.copyOnSelectTimer = setTimeout(() => {
+      this.copyOnSelectTimer = null
+      if (!this.disposed && this.settings.copyOnSelect && this.term.hasSelection()) {
+        void this.copySelection()
+      }
+    }, 100)
+  }
+
+  private interactionState(): TerminalInteractionState {
+    return { hasSelection: this.term.hasSelection() }
+  }
+
+  private emitInteractionState(): void {
+    if (this.disposed) return
+    const state = this.interactionState()
+    for (const listener of this.interactionListeners) listener(state)
   }
 
   private setStatus(status: TerminalStatus): void {

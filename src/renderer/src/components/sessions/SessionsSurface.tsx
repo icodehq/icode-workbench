@@ -16,6 +16,10 @@ import SessionTabStrip from '../sessions/SessionTabStrip'
 import { moveSessionTab, orderSessionTabIds } from '../sessions/session-tab-order'
 import { worktreeIsShared } from '../sessions/session-menu'
 import SessionWorkspace from '../SessionWorkspace'
+import {
+  SessionPaneActionsProvider,
+  type SessionPaneActions
+} from './SessionPaneActions'
 import { useT } from '../../i18n/use-i18n'
 import { useSessionSplit } from '../../state/use-session-split'
 import { registerSplitCommand } from '../../state/split-commands'
@@ -204,8 +208,7 @@ export default function SessionsSurface({
   const { focus, toggleZoom, expectNewSession, cancelNewSession } = split
 
   const createBeside = useCallback(
-    (side: SplitSide): void => {
-      const anchor = activeSession
+    (side: SplitSide, anchor: SessionSummary | null = activeSession): void => {
       if (anchor === null || creatingPane.current) return
       creatingPane.current = true
       expectNewSession(anchor.id, side)
@@ -456,6 +459,16 @@ export default function SessionsSurface({
         return 'inset-[30%]'
     }
   }
+  const paneActionsFor = (target: SessionSummary): SessionPaneActions => ({
+    split: (side) => createBeside(side, target),
+    close: () => closeTab(target.id),
+    focus: () => onSelectSession(target.id),
+    toggleZoom,
+    canSplit: visibleSessions.length > 1 || split.root !== null,
+    canClose: visibleSessions.length > 1,
+    canZoom: split.root !== null && target.id === activeSession?.id
+  })
+
   const workspace = (target: SessionSummary, leafIds: Set<string> | null): React.JSX.Element => (
     <div
       className="relative flex min-h-0 min-w-0 flex-1 flex-col"
@@ -500,66 +513,68 @@ export default function SessionsSurface({
       data-session-id={target.id}
       data-active={target.id === activeSession.id}
     >
-      <SessionWorkspace
-        dragHandle={
-          leafIds === null ? undefined : (
-            <button
-              type="button"
-              className="inline-flex h-6 w-5 shrink-0 cursor-grab items-center justify-center rounded text-muted-foreground/60 hover:bg-muted hover:text-foreground active:cursor-grabbing"
-              draggable
-              aria-label={t('session.movePane')}
-              title={t('session.movePane')}
-              onDragStart={(event) => {
-                paneDragSource.current = target.id
-                event.dataTransfer.effectAllowed = 'move'
-                event.dataTransfer.setData(PANE_DRAG_TYPE, target.id)
-                event.dataTransfer.setData('text/plain', target.id)
-                setPaneDrop(null)
-              }}
-              onDragEnd={() => {
-                paneDragSource.current = null
-                setPaneDrop(null)
-              }}
-              data-testid={`session-pane-handle-${target.id}`}
-            >
-              <GripVertical size={12} />
-            </button>
-          )
-        }
-        layout="split"
-        hideHeader={focusActive}
-        showBranch={leafIds === null}
-        session={target}
-        repo={repo}
-        pending={pending[target.id] ?? null}
-        panes={paneSessions.filter((candidate) => {
-          if (leafIds === null) return true
-          if (candidate.id === target.id) return true
-          if (leafIds.has(candidate.id)) return false
-          // Hidden tabs keep their terminals mounted in the focused pane.
-          return target.id === activeSession.id
-        })}
-        worktreeShared={worktreeIsShared(target, sessions)}
-        allowSleep
-        refreshToken={refreshToken}
-        openRequest={null}
-        viewRequest={null}
-        drafts={drafts}
-        sessionsListHidden={false}
-        onRestart={sessionActions.restart}
-        onResume={sessionActions.resume}
-        onSleep={sessionActions.sleep}
-        onWake={sessionActions.wake}
-        onRecheck={sessionActions.recheck}
-        onRemove={sessionActions.remove}
-        onRecoverWorktree={sessionActions.recoverWorktree}
-        onError={onError}
-        notify={notify}
-        onSendToAgent={(text) => sendToAgent(text, target)}
-        onOpenRequestHandled={onClearOpenRequest}
-        onRequestOpenInFiles={() => undefined}
-        onViewRequestHandled={() => undefined}
-      />
+      <SessionPaneActionsProvider value={paneActionsFor(target)}>
+        <SessionWorkspace
+          dragHandle={
+            leafIds === null ? undefined : (
+              <button
+                type="button"
+                className="inline-flex h-6 w-5 shrink-0 cursor-grab items-center justify-center rounded text-muted-foreground/60 hover:bg-muted hover:text-foreground active:cursor-grabbing"
+                draggable
+                aria-label={t('session.movePane')}
+                title={t('session.movePane')}
+                onDragStart={(event) => {
+                  paneDragSource.current = target.id
+                  event.dataTransfer.effectAllowed = 'move'
+                  event.dataTransfer.setData(PANE_DRAG_TYPE, target.id)
+                  event.dataTransfer.setData('text/plain', target.id)
+                  setPaneDrop(null)
+                }}
+                onDragEnd={() => {
+                  paneDragSource.current = null
+                  setPaneDrop(null)
+                }}
+                data-testid={`session-pane-handle-${target.id}`}
+              >
+                <GripVertical size={12} />
+              </button>
+            )
+          }
+          layout="split"
+          hideHeader={focusActive}
+          showBranch={leafIds === null}
+          session={target}
+          repo={repo}
+          pending={pending[target.id] ?? null}
+          panes={paneSessions.filter((candidate) => {
+            if (leafIds === null) return true
+            if (candidate.id === target.id) return true
+            if (leafIds.has(candidate.id)) return false
+            // Hidden tabs keep their terminals mounted in the focused pane.
+            return target.id === activeSession.id
+          })}
+          worktreeShared={worktreeIsShared(target, sessions)}
+          allowSleep
+          refreshToken={refreshToken}
+          openRequest={null}
+          viewRequest={null}
+          drafts={drafts}
+          sessionsListHidden={false}
+          onRestart={sessionActions.restart}
+          onResume={sessionActions.resume}
+          onSleep={sessionActions.sleep}
+          onWake={sessionActions.wake}
+          onRecheck={sessionActions.recheck}
+          onRemove={sessionActions.remove}
+          onRecoverWorktree={sessionActions.recoverWorktree}
+          onError={onError}
+          notify={notify}
+          onSendToAgent={(text) => sendToAgent(text, target)}
+          onOpenRequestHandled={onClearOpenRequest}
+          onRequestOpenInFiles={() => undefined}
+          onViewRequestHandled={() => undefined}
+        />
+      </SessionPaneActionsProvider>
       {paneDrop !== null && paneDrop.targetId === target.id ? (
         <div
           className={`pointer-events-none absolute z-10 rounded-sm border border-accent bg-accent/15 ${dropOverlayClass(paneDrop.zone)}`}

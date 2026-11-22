@@ -45,6 +45,38 @@ class FakeInstance implements TerminalInstanceLike {
   getStatus(): TerminalStatus {
     return STATUS
   }
+  hasSelection(): boolean {
+    return false
+  }
+  getSelectionText(): string {
+    return ''
+  }
+  async copySelection(): Promise<boolean> {
+    return false
+  }
+  selectAll(): void {}
+  clearSelection(): void {}
+  paste(_text: string): boolean {
+    return false
+  }
+  find(): boolean {
+    return false
+  }
+  clearFind(): void {}
+  clear(): void {}
+  reset(): void {}
+  getMetadata(): { cwd: string | null; title: string | null } {
+    return { cwd: null, title: null }
+  }
+  getTranscript(): string {
+    return ''
+  }
+  onInteractionState(_listener: (state: { hasSelection: boolean }) => void): () => void {
+    return () => undefined
+  }
+  onFindRequest(_listener: () => void): () => void {
+    return () => undefined
+  }
 }
 
 function setup(): {
