@@ -26,6 +26,8 @@ import { useTerminalRegistry } from '../terminal/terminal-provider'
 import { useSessionPaneActions } from './sessions/SessionPaneActions'
 import TerminalContextMenu, { type TerminalMenuActions } from './terminal/TerminalContextMenu'
 import TerminalFindBar from './terminal/TerminalFindBar'
+import TerminalLinkPopover from './terminal/TerminalLinkPopover'
+import type { TerminalLinkRequest } from '../terminal/terminal-interaction-host'
 import type { SplitSide } from '../state/session-split'
 import { useT } from '../i18n/use-i18n'
 
@@ -99,7 +101,16 @@ function TerminalPaneFrame({
         ref={containerRef}
         className={`terminal-host absolute inset-0 ${preview ? 'px-1.5 py-1' : 'px-2 py-1'}`}
         data-testid={`terminal-${session.id}`}
-        onClick={preview ? undefined : onActivate}
+        onMouseDown={
+          preview
+            ? undefined
+            : (event) => {
+                // Focus on press, before mouseup. A link click opens its action
+                // popover on mouseup; focusing on click would steal focus back
+                // from the popover and leak Escape to the shell.
+                if (event.button === 0) onActivate()
+              }
+        }
         onContextMenu={preview ? undefined : onContextMenu}
       />
       {busy && !preview ? (
@@ -226,6 +237,7 @@ function RegistryTerminalPane({
   const [hasSelection, setHasSelection] = useState(false)
   const [findOpen, setFindOpen] = useState(false)
   const [menuPoint, setMenuPoint] = useState<{ x: number; y: number } | null>(null)
+  const [linkRequest, setLinkRequest] = useState<TerminalLinkRequest | null>(null)
 
   useEffect(() => {
     if (instance === null) return
@@ -235,6 +247,15 @@ function RegistryTerminalPane({
   useEffect(() => {
     if (instance === null) return
     return instance.onFindRequest(() => setFindOpen(true))
+  }, [instance])
+
+  useEffect(() => {
+    if (instance === null) return
+    const unsubscribe = instance.onLinkRequest((request) => setLinkRequest(request))
+    return () => {
+      unsubscribe()
+      setLinkRequest(null)
+    }
   }, [instance])
 
   const find = useCallback(
@@ -315,6 +336,7 @@ function RegistryTerminalPane({
         initialCaseSensitive={terminalSettings.findCaseSensitive}
         initialRegex={terminalSettings.findRegex}
       />
+      <TerminalLinkPopover request={linkRequest} onClose={() => setLinkRequest(null)} />
       <TerminalContextMenu
         open={menuPoint !== null}
         x={menuPoint?.x ?? 0}

@@ -16,3 +16,9 @@ Libraries
 Electron (MIT), electron-vite (MIT), Vite (MIT), React (MIT), TypeScript
 (Apache-2.0), xterm.js (MIT), node-pty (MIT), zod (MIT),
 Tailwind CSS (MIT), lucide-react (ISC), electron-builder (MIT).
+
+Adapted code
+------------
+Terminal link detection, wrapped-line reconstruction, URL boundary handling, and
+link gesture policy are adapted from Orca (https://github.com/stablyai/orca),
+MIT License, Copyright (c) 2026 Lovecast Inc.

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { TerminalInstanceLike } from './terminal-instance'
+import type { TerminalLinkRequest } from './terminal-interaction-host'
 import { TerminalRegistry, type TerminalFactory } from './terminal-registry'
 import type { TerminalStatus } from './session-terminal'
 
@@ -75,6 +76,9 @@ class FakeInstance implements TerminalInstanceLike {
     return () => undefined
   }
   onFindRequest(_listener: () => void): () => void {
+    return () => undefined
+  }
+  onLinkRequest(_listener: (request: TerminalLinkRequest) => void): () => void {
     return () => undefined
   }
 }
