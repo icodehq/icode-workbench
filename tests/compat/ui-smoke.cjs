@@ -358,6 +358,23 @@ async function pressEnter() {
   })
 }
 
+async function pressEscape() {
+  await cdp.send('Input.dispatchKeyEvent', {
+    type: 'keyDown',
+    key: 'Escape',
+    code: 'Escape',
+    windowsVirtualKeyCode: 27,
+    nativeVirtualKeyCode: 27
+  })
+  await cdp.send('Input.dispatchKeyEvent', {
+    type: 'keyUp',
+    key: 'Escape',
+    code: 'Escape',
+    windowsVirtualKeyCode: 27,
+    nativeVirtualKeyCode: 27
+  })
+}
+
 async function typeInSession(sessionId, text, waitMs = 700) {
   await focusTerminal(sessionId)
   await cdp.send('Input.insertText', { text })
@@ -385,6 +402,51 @@ async function waitForTerminalLine(sessionId, predicate, description, timeoutMs 
   throw new Error(
     `Timed out waiting for ${description} in the terminal (last rows: ${JSON.stringify(last.slice(0, 14))})`
   )
+}
+
+async function pointForTerminalText(sessionId, text) {
+  return cdp.evaluate(`(() => {
+    const pane = document.querySelector('[data-testid="terminal-pane-${sessionId}"]');
+    if (!pane) return null;
+    const row = Array.from(pane.querySelectorAll('.xterm-rows > div'))
+      .find((entry) => entry.textContent.includes(${JSON.stringify(text)}));
+    if (!row) return null;
+    const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const index = node.textContent.indexOf(${JSON.stringify(text)});
+      if (index === -1) continue;
+      const range = document.createRange();
+      range.setStart(node, index + Math.min(8, ${JSON.stringify(text)}.length) - 1);
+      range.setEnd(node, index + Math.min(8, ${JSON.stringify(text)}.length));
+      const rect = range.getBoundingClientRect();
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    }
+    return null;
+  })()`)
+}
+
+async function clickPoint(position) {
+  await cdp.send('Input.dispatchMouseEvent', {
+    type: 'mouseMoved',
+    x: position.x,
+    y: position.y
+  })
+  await cdp.send('Input.dispatchMouseEvent', {
+    type: 'mousePressed',
+    x: position.x,
+    y: position.y,
+    button: 'left',
+    buttons: 1,
+    clickCount: 1
+  })
+  await cdp.send('Input.dispatchMouseEvent', {
+    type: 'mouseReleased',
+    x: position.x,
+    y: position.y,
+    button: 'left',
+    buttons: 0,
+    clickCount: 1
+  })
 }
 
 function requireElectron() {
@@ -915,49 +977,9 @@ async function main() {
       return { x: rect.left + rect.width / 2, y: rect.bottom - 10 };
     })()`)
     assert(blank, 'Could not locate the terminal screen')
-    const clickPoint = async (position) => {
-      await cdp.send('Input.dispatchMouseEvent', {
-        type: 'mouseMoved',
-        x: position.x,
-        y: position.y
-      })
-      await cdp.send('Input.dispatchMouseEvent', {
-        type: 'mousePressed',
-        x: position.x,
-        y: position.y,
-        button: 'left',
-        buttons: 1,
-        clickCount: 1
-      })
-      await cdp.send('Input.dispatchMouseEvent', {
-        type: 'mouseReleased',
-        x: position.x,
-        y: position.y,
-        button: 'left',
-        buttons: 0,
-        clickCount: 1
-      })
-    }
     await clickPoint(blank)
     await sleep(150)
-    const point = await cdp.evaluate(`(() => {
-      const pane = document.querySelector('[data-testid="terminal-pane-${firstSession.id}"]');
-      if (!pane) return null;
-      const row = Array.from(pane.querySelectorAll('.xterm-rows > div'))
-        .find((entry) => entry.textContent.includes(${JSON.stringify(url)}));
-      if (!row) return null;
-      const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
-      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-        const index = node.textContent.indexOf(${JSON.stringify(url)});
-        if (index === -1) continue;
-        const range = document.createRange();
-        range.setStart(node, index + Math.min(8, ${JSON.stringify(url)}.length) - 1);
-        range.setEnd(node, index + Math.min(8, ${JSON.stringify(url)}.length));
-        const rect = range.getBoundingClientRect();
-        return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
-      }
-      return null;
-    })()`)
+    const point = await pointForTerminalText(firstSession.id, url)
     assert(point, 'Could not locate the URL cell')
     await clickPoint(point)
     await waitForSelector('[data-testid="terminal-link-popover"]')
@@ -986,25 +1008,67 @@ async function main() {
       escapeTarget?.testId === 'terminal-link-open',
       `Escape would target ${JSON.stringify(escapeTarget)}, not the link popover`
     )
-    await cdp.send('Input.dispatchKeyEvent', {
-      type: 'keyDown',
-      key: 'Escape',
-      code: 'Escape',
-      windowsVirtualKeyCode: 27,
-      nativeVirtualKeyCode: 27
-    })
-    await cdp.send('Input.dispatchKeyEvent', {
-      type: 'keyUp',
-      key: 'Escape',
-      code: 'Escape',
-      windowsVirtualKeyCode: 27,
-      nativeVirtualKeyCode: 27
-    })
+    await pressEscape()
     await waitFor(
       `!document.querySelector('[data-testid="terminal-link-popover"]')`,
       'terminal link popover closed by Escape'
     )
     return { url }
+  })
+
+  await step('open a URL in a mouse-aware TUI without leaking the click', async () => {
+    const url = 'https://example.com/tui-link'
+    const command =
+      "printf '\\033[?1000h\\033[?1006h'; " +
+      `echo ${url}; ` +
+      'if IFS= read -t 10 -r -n 1 ch; then ' +
+      "if [ \"$ch\" = $'\\033' ]; then echo TUI_GOT_CLICK; else echo TUI_NO_CLICK; fi; " +
+      'else echo TUI_NO_CLICK; fi; ' +
+      "printf '\\033[?1000l\\033[?1006l'"
+    await typeInSession(firstSession.id, command)
+    await waitForTerminalLine(
+      firstSession.id,
+      (line) => line.includes(url),
+      'the URL in the mouse-aware session'
+    )
+    const point = await pointForTerminalText(firstSession.id, url)
+    assert(point, 'Could not locate the mouse-aware URL cell')
+    await clickPoint(point)
+    await waitForSelector('[data-testid="terminal-link-popover"]')
+    await screenshot('04d-terminal-link-tui-popover')
+
+    const escapeTarget = await cdp.evaluate(
+      `document.activeElement?.getAttribute('data-testid') ?? null`
+    )
+    assert(
+      escapeTarget === 'terminal-link-open',
+      `Escape would target ${escapeTarget ?? 'no element'}, not the link popover`
+    )
+    await pressEscape()
+    await waitFor(
+      `!document.querySelector('[data-testid="terminal-link-popover"]')`,
+      'terminal link popover closed after the TUI click'
+    )
+
+    // End the shell's read and collect its verdict. The click must not have
+    // arrived as a PTY mouse report.
+    await focusTerminal(firstSession.id)
+    await pressEnter()
+    const verdict = await waitForTerminalLine(
+      firstSession.id,
+      (line) => line.trim() === 'TUI_NO_CLICK' || line.trim() === 'TUI_GOT_CLICK',
+      'the TUI mouse-report verdict'
+    )
+    assert(
+      verdict.some((line) => line.trim() === 'TUI_NO_CLICK'),
+      `The TUI received the link click: ${JSON.stringify(verdict.slice(-8))}`
+    )
+    await waitForTerminalLine(
+      firstSession.id,
+      (line) => /\$\s*$/.test(line),
+      'the shell prompt after the mouse-aware click'
+    )
+    return { url, verdict: 'no-pty-mouse-report' }
   })
 
   await step('resize the terminal through the visible UI and typed API', async () => {

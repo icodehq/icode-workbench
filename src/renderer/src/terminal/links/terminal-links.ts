@@ -32,8 +32,8 @@ export type TerminalLinks = IDisposable & {
  * Installs URL text links and OSC 8 handling on one terminal.
  *
  * Plain click opens the React action popover; the platform modifier opens
- * directly. Mouse-aware TUIs keep their plain clicks unless the modifier is
- * held, so a link click never steals a TUI mouse report.
+ * directly. In a mouse-aware TUI the click is withheld from the PTY so the
+ * program cannot act on it as well.
  */
 export function installTerminalLinks(options: TerminalLinksOptions): TerminalLinks {
   let settings = options.getSettings()
@@ -48,9 +48,16 @@ export function installTerminalLinks(options: TerminalLinksOptions): TerminalLin
       position !== null && findTerminalHttpLinkAtPosition(options.term, position) !== null
     )
   }
-  const gesture = installTerminalLinkPointerGesture(options.term, options.isMac, {
-    shouldSuppressMouseReport: (event) =>
-      isLinkModifierClick(event, options.isMac) && hasLinkUnderPointer(event)
+  const gesture = installTerminalLinkPointerGesture(options.term, {
+    shouldSuppressMouseReport: (event) => {
+      // Shift extends a selection, and a plain click is a no-op when the user
+      // opted into modifier-only links; neither is a TUI click we should eat.
+      if (event.shiftKey) return false
+      if (!isLinkModifierClick(event, options.isMac) && settings.openLinksWithModifier) {
+        return false
+      }
+      return hasLinkUnderPointer(event)
+    }
   })
 
   const openUrl = (url: string): void => {
@@ -74,12 +81,6 @@ export function installTerminalLinks(options: TerminalLinksOptions): TerminalLin
     }
     if (!gesture.canActivate(event)) return
 
-    // A mouse-aware TUI owns plain clicks; only a deliberate modifier opens a
-    // link. This keeps link activation from also poking the TUI.
-    if (options.term.modes.mouseTrackingMode !== 'none') {
-      if (isLinkModifierClick(event, options.isMac)) openUrl(decision.url)
-      return
-    }
     if (isLinkModifierClick(event, options.isMac)) {
       openUrl(decision.url)
       return
