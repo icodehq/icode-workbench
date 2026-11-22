@@ -14,219 +14,289 @@
 </p>
 
 <p align="center">
-  <sub><strong>THE UNIVERSAL AGENT DEVELOPMENT ENVIRONMENT (ADE)</strong></sub><br/>
-  <strong>Every agent. Every platform. One workbench.</strong><br/>
-  Today: Claude Code, Codex, and OpenCode in parallel, each in its own Git worktree,
-  with every project's default checkout one click away.
-  Mira, your cross-project assistant, watches every repository, tells you what
-  needs you, and can act across them. Review the diff, and keep the terminal
-  alive when the app restarts.
+  <a href="https://github.com/icodehq/icode-workbench/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/icodehq/icode-workbench?style=flat&color=08C"></a>
+  <a href="https://github.com/icodehq/icode-workbench/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/icodehq/icode-workbench/total?style=flat&color=08C"></a>
+  <a href="LICENSE"><img alt="License: AGPL-3.0" src="https://img.shields.io/github/license/icodehq/icode-workbench?style=flat&color=08C"></a>
+  <img alt="44 CLI agents" src="https://img.shields.io/badge/CLI%20agents-44-08C?style=flat">
+  <img alt="Pre-1.0" src="https://img.shields.io/badge/status-pre--1.0-orange?style=flat">
 </p>
 
-<h3 align="center"><a href="#install"><ins>Get started</ins></a></h3>
+<p align="center">
+  <strong>Run a fleet of agents. One workbench. Keep the judgment.</strong><br/>
+  The open-source agent development environment for Claude Code, Codex, OpenCode, and 40+ more CLI agents.<br/>
+  Isolated Git worktrees by default; every change reviewed in the checkout where it was made.
+</p>
+
+<h3 align="center">
+  <a href="#install"><ins>Download</ins></a> &nbsp;·&nbsp;
+  <a href="#features"><ins>Features</ins></a> &nbsp;·&nbsp;
+  <a href="#supported-harnesses"><ins>Harnesses</ins></a> &nbsp;·&nbsp;
+  <a href="CHANGELOG.md"><ins>Changelog</ins></a>
+</h3>
 
 <p align="center">
   <img src=".github/assets/workbench-0916-shell.png" alt="The iCode Workbench with a project and task sidebar, app and session tabs, a live terminal, and a Source Control diff in the inspector" width="960" />
 </p>
 
 <p align="center">
-  <sub>Pre-1.0 · Linux (WSL2/WSLg) · Windows x64 · macOS x64 / arm64</sub>
+  <sub>Pre-1.0 · Windows x64 · Linux x64 (WSL2/WSLg) · macOS x64 / arm64</sub>
 </p>
+
+## Install
+
+Download the latest installer from the
+[Releases page](https://github.com/icodehq/icode-workbench/releases/latest).
+CI builds each release from its tagged commit.
+
+| Platform | Artifacts |
+|---|---|
+| **Windows x64** | NSIS installer (`.exe`) |
+| **Linux x64** | AppImage, deb, rpm |
+| **macOS x64 / arm64** | dmg or zip |
+
+The installers are unsigned, so Windows SmartScreen and macOS Gatekeeper warn on
+first launch. On macOS, right-click the app and choose **Open** to allow it.
+iCode is pre-1.0; features and storage schemas may still change between releases.
+
+<details>
+<summary><strong>Build from source</strong></summary>
+
+**Requirements:** Node 24.x (`.nvmrc` pins 24.15.0), Corepack with pnpm 11.16.0,
+Git, and at least one harness on `PATH`. Linux also needs `build-essential` and
+`python3`; macOS needs Xcode Command Line Tools.
+
+```bash
+git clone https://github.com/icodehq/icode-workbench.git
+cd icode-workbench
+corepack enable
+pnpm install
+pnpm dev
+```
+
+`pnpm install` rebuilds `node-pty` against Electron's ABI on Linux; Windows and
+macOS use Node-API prebuilds.
+
+| Command | Output |
+|---|---|
+| `pnpm package:linux` | AppImage, deb, rpm |
+| `pnpm package:win` | NSIS installer (run on Windows) |
+| `pnpm package:mac -- --x64` | macOS x64 dmg / zip |
+| `pnpm package:mac -- --arm64` | macOS arm64 dmg / zip |
+
+Windows packaging requires the verified WSL host artifact tree at
+`artifacts/wsl-host/linux-x64`. CI builds it once on Linux and passes it to the
+Windows job; locally, `pnpm build:wsl-host` requires Docker.
+
+</details>
+
+<details>
+<summary><strong>Troubleshooting</strong></summary>
+
+- **Windows: iCode exits immediately and `--version` prints a Node version.**
+  If iCode is started from an AI terminal or automation tool that exports
+  `ELECTRON_RUN_AS_NODE=1`, Electron runs the executable as plain Node instead
+  of the app: no window appears, the exit code is 0, and there is no iCode log.
+  Clear the variable before launching (`Remove-Item Env:ELECTRON_RUN_AS_NODE`
+  in PowerShell, `set ELECTRON_RUN_AS_NODE=` in cmd), or start iCode from the
+  Start menu. The app cannot log this itself, because Electron never reaches
+  application code in that mode.
+- **Checking the database schema version.** `icode.sqlite` runs in WAL mode; a
+  migration committed by a running app lives in `icode.sqlite-wal` until a clean
+  quit checkpoints it. A tool that reads only the main file, or a copy without
+  its `-wal` and `-shm` companions, can report the previous `user_version` and
+  miss recently added tables. Quit iCode normally before inspecting the profile,
+  or inspect the whole directory.
+
+</details>
 
 ## Why iCode Workbench?
 
-iCode Workbench is the control room for a team of coding agents. It turns the
+iCode Workbench is the control room for a fleet of CLI agents. It turns the
 terminal into a portfolio: each agent works in an isolated worktree, each task
 has a durable record, and every change is reviewed in the checkout where it was
 made.
 
-- **Every agent, one workbench.** Claude Code, Codex, and OpenCode today; the
-  adapter model is built to add more harnesses.
-- **Every platform.** Linux (WSL2/WSLg), Windows x64, and macOS x64 / arm64.
-- **One sidebar, two surfaces.** Projects, direct sessions, pinned items and the
-  cross-project task queue share one sidebar. Sessions and task workbenches are
-  the main surfaces; Mira, Settings and Schedules are temporary app tabs.
-- **Isolated by default.** Every agent session created from the default
-  **New worktree** option gets its own branch and Git worktree; each project's
-  default checkout stays available for shared terminals and quick work. Keep
-  several in sight with session tabs and a resizable, nested split view.
-- **Review in place.** Files, Search, and Source Control live in a persistent,
-  resizable inspector beside the terminal; the task workbench gives Files and
-  Source Control their own full-width tabs. A file or diff takes the panel; the
-  list is one toggle away.
-- **Every session row is a control surface.** Right-click any session for
-  details, sleep or wake, restart, pin, and remove without opening it. Removal
-  never asks for the branch name, names the files or commits at risk, and keeps
-  the branch.
-- **Mira across projects.** One conversation for the real queue, blockers, and
-  cross-project actions.
+- **A fleet, not a tab.** **44 launchable CLI agents**, 21 with managed status
+  hooks, and Claude Code, Codex, and OpenCode with native provider injection.
+  Run them in parallel, each in its own Git worktree.
+- **Keep the judgment.** Task review is a human decision. Accepting a review
+  records the judgment; it does not merge, push, or delete anything. Merge is a
+  separate step in Source Control. Mira can propose, message, retry, and
+  archive; she cannot approve a review, merge, or push.
+- **WSL and Windows are first-class.** Managed WSL guest hosts, `wsl.exe` shell
+  sessions, and target-aware harness detection that knows when a CLI exists on
+  Windows but not inside the distro. Linux and macOS run natively too.
+- **Review in place.** Files, Search, and Source Control live beside the
+  terminal, scoped to the checkout the agent is editing. Stage by file, folder,
+  hunk, or line; send line notes back to the agent's terminal.
+- **One sidebar, two surfaces.** Projects, direct sessions, pinned items, and
+  the cross-project task queue share one sidebar. Sessions and task workbenches
+  are the main surfaces; Mira, Settings, and Schedules are auxiliary tabs.
 - **Terminals that outlive the app.** A detached host owns the PTYs, so closing
-  the window does not stop the agents.
+  the window or quitting iCode does not stop the agents.
+- **Local-first.** State lives in SQLite on your machine. No telemetry, no
+  hosted service, and no model API calls — your harness keeps its credentials,
+  permissions, and TUI.
 
 ## Features
 
 ### One sidebar, two surfaces
 
-The sidebar is the only navigation and the portfolio view. It is drag-resizable
-between 240 and 400px and remembers its width; double-click the seam to reset it.
-Its top row holds search, new work, notifications and refresh (refresh moves to
-the status bar at the narrowest widths). **Pinned** projects, sessions and tasks
-are shortcuts above the complete **Projects** tree, not replacements for it. A project row expands to an always-present **Default checkout** group
-plus one group per worktree branch, with state and agent activity on each
-session row. Task-owned sessions never appear there.
+The sidebar is the only navigation and the portfolio view. **Pinned** projects,
+sessions, and tasks are shortcuts above the complete **Projects** tree. A
+project expands to an always-present **Default checkout** group plus one group
+per worktree branch, with agent activity on each session row. The **Tasks**
+section is the cross-project queue, grouped by project and ordered by attention,
+with **Needs** and **History** views. The sidebar footer keeps host status, task
+slots, live session count, harness count, and app version in view.
 
-The **Tasks** section at the bottom is the cross-project queue, grouped by
-project and ordered by attention. It has separate **Needs** and **History**
-views, and a task can be pinned without leaving the queue. The sidebar footer
-keeps host status, task slots, live session count, harness count and app version
-in view; Mira and Settings sit below it.
+The main column has two work surfaces: **Sessions** (one tab per direct session,
+a resizable nested split view, and a persistent Files/Search/Source Control
+inspector) and the **Task workbench** (Overview, Terminal, Source Control, and
+Files for one task, selected from the sidebar rather than opened as a tab).
 
-The main column has two work surfaces:
-
-- **Sessions** — one tab per direct session, a resizable nested split view, and
-  a persistent Files/Search/Source Control inspector on the right. A compact
-  strip under the terminal carries branch, ahead/behind, conflicts and caret
-  blame.
-- **Task workbench** — Overview, Terminal, Source Control and Files for one task,
-  selected from the sidebar rather than opened as a tab.
-
-Sessions is the base surface, pinned first whenever the app-tab strip is visible.
-Opening Mira, Settings or Schedules adds a temporary tab beside it; closing the
-last auxiliary tab returns to Sessions. A task workbench is never an app tab. The
-project menu holds new session, queue task, pin, copy path, repository settings,
-**Sessions & branches**, and remove. Before the first repository, the main column
-is just the welcome card and **Add project**.
-
-Project, session, and task rows each have their own right-click menu. A session
+Every project, session, and task row has its own right-click menu. A session
 row carries its whole lifecycle — **Session details**, **Sleep** or **Wake**,
-**Resume**, **Restart**, **Pin**, and **Remove** — targeting that row's session
-without switching to it first. Details opens the drawer, Sleep asks once, Resume,
-Restart and Wake act immediately, Remove confirms and then names any work at
-risk, and an unavailable action explains why it is disabled.
+**Resume**, **Restart**, **Pin**, and **Remove** — without switching to it
+first.
 
 <p align="center">
   <a href=".github/assets/workbench-0916-session-menu.png"><img src=".github/assets/workbench-0916-session-menu.png" alt="A session row context menu with Session details, Sleep session, Restart session, Pin to top, and Remove session" width="100%" /></a>
 </p>
 
 *Right-click any session row, including one you are not viewing, to reach its
-lifecycle actions. The menu stays out of the way until it is needed.*
-
-The shell adapts rather than shrinking the terminal forever. Below 1280px the
-inspector collapses to a rail; below 900px the sidebar becomes a drawer and an
-expanded inspector overlays the workspace instead of taking layout width. Focus
-mode (`F11`, or `Ctrl/Cmd+J` outside the terminal) drops the sidebar, app tabs,
-session or task header, inspector and window chrome, leaving only the terminal.
+lifecycle actions.*
 
 ### Meet Mira, your cross-project assistant
 
-Mira opens from the sidebar footer, or from **Talk to Mira** in the command
-palette, as an auxiliary tab. The Sessions tab stays pinned beside her, and the
-sidebar keeps the working set visible while she answers. She is not scoped to
-one project, and she is not a terminal: one conversation spans every repository.
+Mira opens from the sidebar footer or from **Talk to Mira** in the command
+palette. She is not scoped to one project and is not a terminal: one
+conversation spans every repository.
 
-- **She can see the work.** Projects, tasks, sessions, review state and diffs are
-  in her context, so “what needs me?” is answered from the real queue rather than
-  a summary you have to assemble.
+- **She can see the work.** Projects, tasks, sessions, review state, and diffs
+  are in her context, so "what needs me?" is answered from the real queue.
 - **She can act across projects.** Through validated actions she creates,
-  cancels, retries, resumes and archives tasks, messages task sessions and
+  cancels, retries, resumes, and archives tasks, messages task sessions and
   project supervisors, records non-binding review recommendations, and remembers
-  durable preferences. She has no shell, no project working directory, and cannot
-  approve a proposal, decide a review, merge or push.
+  durable preferences. She has no shell, no project working directory, and
+  cannot approve a proposal, decide a review, merge, or push.
 - **She streams.** With Claude Code, replies render as Markdown while they are
-  written; the run line shows the current stage, elapsed time and thinking-token
-  count, and Stop terminates the harness — on Windows, its whole shim process
-  tree.
-- **She keeps the harness’s conversation.** The installed harness owns the native
-  conversation and Mira resumes it by session id. The header lists the current
-  and earlier conversations, and each loads its part of the transcript. **New
-  conversation** starts a clean one; switching harness or target starts a bridged
-  conversation with a visible boundary, and a failed resume falls back to a
-  bridged conversation rather than losing the thread.
-- **She comes to you.** Approvals, failed or waiting tasks, review-ready work and
-  completed Mira/supervisor tasks become proactive messages with a sidebar unread
-  badge, an app-tab badge when Mira is open, and an OS notification when no
-  window is focused. They stay in the notifications drawer rather than
-  cluttering the conversation. Deduplication, an hourly budget and quiet hours
-  keep it from becoming noise.
+  written; the run line shows the current stage, elapsed time, and
+  thinking-token count.
+- **She keeps the harness's conversation.** The installed harness owns the
+  native conversation and Mira resumes it by session id. Switching harness or
+  target starts a bridged conversation with a visible boundary.
+- **She comes to you.** Approvals, failed or waiting tasks, and review-ready
+  work become proactive messages with unread badges and OS notifications.
 
 <p align="center">
   <a href=".github/assets/workbench-0916-mira.png"><img src=".github/assets/workbench-0916-mira.png" alt="Mira answering a cross-project question with a Needs a decision and In flight summary, beside the live project and task sidebar" width="100%" /></a>
 </p>
 
 *Mira reads the real queue: finished work waiting for review, a running task,
-and uncommitted session changes. The sidebar keeps every project and the task
-queue visible while she answers.*
+and uncommitted session changes.*
 
-Mira is configured in **Settings → Mira**: persona name, run target (this machine,
-a WSL distro, or auto), preferred harness, auto-dispatch policy, and notification
-policy. Markdown is rendered as React nodes — headings, lists, tables, code,
-quotes and http(s) links — never as raw HTML. Low-risk tasks she creates may
-auto-dispatch under a daily cap and protected-path/keyword policy; everything else
-waits for a person.
+Mira is configured in **Settings → Mira**: persona name, run target, preferred
+harness, auto-dispatch policy, and notification policy. Low-risk tasks she
+creates may auto-dispatch under a daily cap and protected-path/keyword policy;
+everything else waits for a person.
 
 ### Isolated sessions by default
 
-Every direct session created from the **New worktree** option gets its own Git
-worktree and a new branch, starting from the current branch or one you choose,
-so two agents in the same repository never edit the same checkout. Open sessions
-appear as tabs above the workspace; drag them to reorder, right-click for
-**Close**, **Close other tabs**, **Close tabs to the right**, **Split left**,
-**Split right**, **Split up**, **Split down**, **Swap panes** or **Close split
-view**. Splits nest, so panes can combine side-by-side and stacked layouts, and
-every divider rebalances its own branch. Drag a pane's grip handle onto another
-pane's edge to re-split there, or onto its centre to swap the two panes. On
-macOS, `⌘D` and `⇧⌘D` split right and down, `⌥⌘` + arrows move focus, and
-`⇧⌘↩` zooms the focused pane; Windows and Linux use `Ctrl+Shift+D`,
-`Ctrl+Shift+Arrow`, `Ctrl+Alt+Arrow` and `Ctrl+Shift+Enter`. `⇧⌘W` (macOS) or
-`Ctrl+Shift+W` closes the focused tab and collapses its pane. A split shortcut
-starts a sibling session with the focused harness in the same worktree. The
-command palette (`Ctrl/Cmd+K`) also lists Split left/right/up/down, zoom and
-close-split actions.
+Every direct session created from **New worktree** gets its own Git worktree and
+a new branch, starting from the current branch or one you choose, so two agents
+in the same repository never edit the same checkout. Open sessions appear as
+tabs above the workspace; drag them to reorder, right-click for Close, Split,
+Swap, or Zoom actions. Splits nest, so panes can combine side-by-side and
+stacked layouts, and every divider rebalances its own branch.
 
 Each project also has an always-present **Default checkout** group: the
 repository's own primary checkout, labelled with its live branch. Its **+**
 starts a terminal or agent there, and the New Session dialog's **Run in** list
 offers it for every project. Default-checkout sessions share the folder with the
-user and with each other, so an agent started there shows a persistent
-shared-checkout warning; task, supervisor, Mira and CLI-created sessions always
-use isolated worktrees. Files, Search and Source Control work in the default
-checkout, with Source Control showing repository-level changes that are not
-attributed to the session; review, annotate and merge remain worktree-only.
-
-Each project can keep several split layouts; selecting a session reveals the layout
-it belongs to, and a session outside every layout opens full-width. Layouts and
-divider ratios persist per project. Restart a session without
-moving its worktree; resume a finished session to continue the harness
-conversation captured for it; sleep a direct session to stop the process while
-keeping the checkout and resume token; wake it to continue the harness
-conversation where the harness supports it. Every one of these actions is also
-on the session row's right-click menu, so a stuck or finished session does not
-need to be opened.
-
-Session removal is guarded by live PTYs, host reachability, uncommitted changes,
-unmerged commits, and missing worktrees. If work is at risk, the final
-confirmation is a single consequence-specific warning: uncommitted changes list
-the affected files, unmerged commits name the retained branch, and one click
-completes the removal. Nothing needs to be typed or copied. By default the
-branch is kept even when the checkout is removed; **Delete branch** in the
-Remove dialog opts into deleting the owned branch too. An explicit
-**Accept & merge…** or standalone branch deletion stays a separate decision.
-The **Sessions & branches** dialog in the project menu lists retained branches
-and any terminals the host still owns.
+user, so an agent started there shows a persistent shared-checkout warning; task,
+supervisor, Mira, and CLI-created sessions always use isolated worktrees.
 
 <p align="center">
   <a href=".github/assets/workbench-0916-session-split.png"><img src=".github/assets/workbench-0916-session-split.png" alt="Two direct sessions side by side in the iCode split view, each with its own terminal and branch" width="100%" /></a>
 </p>
 
 *Two direct sessions side by side. The divider is resizable and each pane keeps
-its own PTY; the inspector collapses to give the terminals more room.*
+its own PTY.*
+
+Session removal is guarded by live PTYs, host reachability, uncommitted changes,
+unmerged commits, and missing worktrees. If work is at risk, the final
+confirmation is a single consequence-specific warning: uncommitted changes list
+the affected files, unmerged commits name the retained branch, and one click
+completes the removal. By default the branch is kept even when the checkout is
+removed; **Delete branch** is an explicit opt-in.
 
 <p align="center">
   <a href=".github/assets/workbench-0916-session-removal.png"><img src=".github/assets/workbench-0916-session-removal.png" alt="The session removal dialog naming an uncommitted file with a single Delete changes and remove button" width="100%" /></a>
 </p>
 
-*Work that would be lost is named once. The branch is retained, the modified
-files are listed, and there is no branch name to copy or type.*
+*Work that would be lost is named once. The branch is retained, and there is no
+branch name to copy or type.*
+
+### Tasks, approvals, schedules, and chains
+
+Tasks are durable units of work, not terminal tabs. Selecting a task replaces
+the main surface with its workbench; the workbench is never an app tab, and a
+task-owned session never appears under a project or in the session tab strip.
+
+Queue work under two limits: how many tasks run at once globally (1–4) and per
+project (1–4). Statuses move through `queued`, `dispatching`, `running`,
+`waiting`, `completed`, `failed`, and `cancelled`. A retry is a new attempt;
+resume continues a failed or cancelled attempt in its existing session and
+worktree; cancellation leaves the worktree for inspection. The workbench shows
+the instruction, live session, changes against the task baseline, and a review
+decision separate from process exit.
+
+Approval depends on who asked. Your own tasks are approved when queued. A
+project supervisor always proposes for a person, and a Mira-created task waits
+unless the current auto-dispatch policy permits it. Dependencies form chains: a
+dependent waits for its blockers to complete, and for a blocker's acceptance
+when **Wait for my acceptance before dependent tasks start** is set. Chain tasks
+share a chain branch, so the dependent does not dispatch until the blocker's
+work has been merged into that branch.
+
+Schedules create ordinary queued tasks on a cadence — once, daily, weekdays,
+weekly, or every few hours — with queue-or-skip overlap handling and run-now.
+
+<p align="center">
+  <a href=".github/assets/workbench-0916-tasks.png"><img src=".github/assets/workbench-0916-tasks.png" alt="The task workbench showing a finished task waiting for review, its changes against the baseline, and the review decision" width="100%" /></a>
+</p>
+
+*Task workbench: the instruction, the session, changes against the task
+baseline, and a review decision. Execution and review are separate.*
+
+<p align="center">
+  <a href=".github/assets/workbench-0916-schedules.png"><img src=".github/assets/workbench-0916-schedules.png" alt="The Schedules tab with an enabled nightly dependency audit and a paused six-hour provider refresh" width="100%" /></a>
+</p>
+
+*Recurring tasks with queue-or-skip overlap handling.*
+
+### Review where the agent worked
+
+Source Control is scoped to the session's checkout and lives in the persistent
+inspector, or in a task's full-width Source Control tab. Source Control opens on
+the changed-file list; clicking a file gives its diff the whole panel, and the
+list returns with one toggle. A one-line dock keeps the staged/uncommitted
+counts and the primary action in sight while a diff is open; the commit composer
+expands above it on demand.
+
+Diffs are area-scoped; stage or unstage by file, folder, hunk, or line; discard
+by file, folder, or hunk; and a three-way merge editor handles conflicts. Add
+notes to exact changed lines and send them back to the agent's terminal. Commit,
+amend, commit & push, pull, push, sync, or publish the current branch, with
+paginated history and cherry-pick, revert, and reset actions.
+
+<p align="center">
+  <a href=".github/assets/workbench-0916-task-review.png"><img src=".github/assets/workbench-0916-task-review.png" alt="Source Control in the task workbench showing a committed rate-limit source file as a side-by-side diff" width="100%" /></a>
+</p>
+
+*Review and stage in the task's worktree. The full-width Source Control tab
+gives the diff both columns.*
 
 ### Terminals that survive the app
 
@@ -241,9 +311,7 @@ keeps a slow UI from blocking the agent's process.
   <a href=".github/assets/workbench-0916-session-terminal.png"><img src=".github/assets/workbench-0916-session-terminal.png" alt="A direct session with its tab strip, branch header and a live shell showing recent commits" width="100%" /></a>
 </p>
 
-*A real PTY in the session worktree; the detached host keeps it alive. The tab
-strip switches the visible session, while the collapsed inspector leaves room
-for the terminal.*
+*A real PTY in the session worktree; the detached host keeps it alive.*
 
 ### Attention, not terminal scraping
 
@@ -252,135 +320,16 @@ and turn endings. iCode turns those events into `Working · <tool>`, `Needs you`
 `Done`, and `Done · failed`. The sidebar row carries the activity line and
 unread emphasis; OS notifications fire only when no window is focused. Activity
 is advisory: it never changes process state, and a relaunch resets it to
-`unknown` rather than showing stale work. Only Claude Code reports activity
-today; Codex, OpenCode, and shell sessions stay `unknown` by design. Task-linked
-sessions do not raise a second OS notification: Mira owns the blocker message,
-and the activity stream stays the raw evidence.
-
-### Tasks, approvals, schedules, and chains
-
-Tasks are durable units of work, not terminal tabs. Selecting a task replaces the
-main surface with its workbench; the workbench is never an app tab, and a
-task-owned session never appears under a project or in the session tab strip.
-
-Queue work under two limits: how many tasks run at once globally (1–4) and how
-many run at once per project (1–4). Statuses move through `queued`,
-`dispatching`, `running`, `waiting`, `completed`, `failed`, and `cancelled`. A
-retry is a new attempt; resume continues a failed or cancelled attempt in its
-existing session and worktree; cancellation leaves the worktree for inspection.
-The workbench shows the instruction, live session, changes against the task
-baseline, and a review decision separate from process exit.
-
-Approval depends on who asked. Your own tasks are approved when queued and start
-when a slot is free. A project supervisor always proposes for a person, and a
-Mira-created task waits unless the current auto-dispatch policy permits it. That
-policy is deliberately conservative: daily caps (three per project and ten
-globally by default), protected keywords and protected paths all keep the gate
-closed.
-
-Dependencies form chains. A dependent waits for its blockers to complete, and for
-a blocker’s acceptance when **Wait for my acceptance before dependent tasks
-start** is set. Chain tasks also share a chain branch: the dependent does not
-dispatch until the blocker’s work has been merged into that branch. This makes
-review and merge ordering explicit instead of hoping two agents finish in the
-right order. A project supervisor is a control session bound to one repository;
-it proposes tasks from that project’s own context, always waits for a human
-decision, and stays in the project’s Sessions. Mira can start or message one for
-you.
-
-Review accept/reject is a human decision. Accepting records the judgment; it does
-not merge, push or delete anything. Merge remains in Source Control, where
-**Accept & merge…** is an explicit second step for a task result.
-
-Schedules create ordinary queued tasks on a cadence — once, daily, weekdays,
-weekly, or every few hours — with queue-or-skip overlap handling and run-now.
-
-<p align="center">
-  <a href=".github/assets/workbench-0916-tasks.png"><img src=".github/assets/workbench-0916-tasks.png" alt="The task workbench showing a finished task waiting for review, its changes against the baseline, and the review decision" width="100%" /></a>
-</p>
-
-*Task workbench: the instruction, the session, changes against the task
-baseline, and a review decision. Execution and review are separate; the sidebar
-stays on the project and its queue.*
-
-<p align="center">
-  <a href=".github/assets/workbench-0916-schedules.png"><img src=".github/assets/workbench-0916-schedules.png" alt="The Schedules tab with an enabled nightly dependency audit and a paused six-hour provider refresh" width="100%" /></a>
-</p>
-
-*Recurring tasks with queue-or-skip overlap handling. Schedules open as an
-auxiliary tab and create ordinary queued tasks.*
-
-<p align="center">
-  <a href=".github/assets/workbench-0916-task-composer.png"><img src=".github/assets/workbench-0916-task-composer.png" alt="The task composer with a harness picker, prompt, blocker, start-from branch and chain branch" width="100%" /></a>
-</p>
-
-*Queue unattended work with a harness, optional blockers, a start point and a
-chain branch. The new task joins the same sidebar queue.*
-
-### Task history, without the clutter
-
-The Tasks section defaults to the working list. **Needs** narrows it to work
-waiting on a person: proposals to approve, sessions waiting for an answer,
-failed tasks to retry, completions pending review, and chains blocked by a
-dead-end blocker. **History** switches the same section to archived tasks.
-
-Archive or restore a task from its Overview or the task actions menu. Archiving
-is reversible and does not delete the review, session, worktree or retry chain.
-Reviewed completions and cancellations are archived automatically after seven
-days; review-pending completions and failures stay in the working list. Retry
-chains collapse to the latest attempt, and earlier attempts remain
-under **Previous attempts**. Archived tasks are excluded from attention counts,
-Mira’s context and notifications, but remain queryable as history. There is
-deliberately no hard-delete action.
-
-<p align="center">
-  <a href=".github/assets/workbench-0916-task-history.png"><img src=".github/assets/workbench-0916-task-history.png" alt="The sidebar Tasks history with an archived task open in the workbench and a Restore action" width="100%" /></a>
-</p>
-
-*History keeps finished work out of the working list while preserving the task,
-its attempts and its review record.*
-
-### Review where the agent worked
-
-Source Control is scoped to the session's checkout and lives in the persistent
-inspector, or in a task's full-width Source Control tab. The inspector switches
-between Files, Search, and Source Control; Source Control opens on the
-changed-file list, clicking a file gives its diff the whole panel, and the list
-returns with one toggle (or by drag the inspector wider for both columns).
-A one-line dock keeps the staged/uncommitted counts and the primary action in
-sight while a diff is open; the commit composer expands above it on demand.
-The task Overview also
-summarizes changes against the baseline and opens the full diff. Diffs are
-area-scoped; stage or unstage by file, folder, hunk, or line; discard by file,
-folder, or hunk; and a three-way merge editor handles conflicts. Add notes to
-exact changed lines and send them back to the agent's terminal. Commit, commit
-all tracked changes, amend, commit & push, pull, push, sync, or publish the
-current branch, with paginated history and cherry-pick, revert, and reset
-actions. Draft a commit message with the installed harness in one-shot mode; the
-result only fills the draft.
-
-<p align="center">
-  <a href=".github/assets/workbench-0916-task-review.png"><img src=".github/assets/workbench-0916-task-review.png" alt="Source Control in the task workbench showing a committed rate-limit source file as a side-by-side diff" width="100%" /></a>
-</p>
-
-*Review and stage in the task's worktree. The full-width Source Control tab
-gives the diff both columns; the file list stays one toggle away.*
-
-<p align="center">
-  <a href=".github/assets/workbench-0916-history.png"><img src=".github/assets/workbench-0916-history.png" alt="Source Control history in the task workbench with the task commit selected and its changed files listed" width="100%" /></a>
-</p>
-
-*Commit history, scoped to the task's branch, with branch labels and the files
-behind each commit.*
+`unknown` rather than showing stale work. The same managed hook mechanism is
+available for 21 harnesses; harnesses without it stay `unknown` by design.
 
 ### Edit in the same checkout
 
 Open Files beside the terminal (or in a task's Files tab) and work in the same
 worktree the agent is editing. The explorer supports create, rename, delete,
 duplicate, and move, with app-managed trash and undo; Monaco provides editing,
-quick diffs against HEAD, inline blame, and file history. The inspector's
-Search pane keeps the tree uncluttered and opens results in Files; the tree
-column is drag-resizable. Quick-open files,
+quick diffs against HEAD, inline blame, and file history. The inspector's Search
+pane keeps the tree uncluttered and opens results in Files. Quick-open files,
 handle external changes with reload/keep, and keep unsaved buffers across an
 ordinary restart through hot exit.
 
@@ -388,10 +337,7 @@ ordinary restart through hot exit.
   <a href=".github/assets/workbench-0916-files-editor.png"><img src=".github/assets/workbench-0916-files-editor.png" alt="The task Files tab with a worktree explorer and Monaco editor open on the new rate-limit source file" width="100%" /></a>
 </p>
 
-*Files and Monaco in the task's worktree. The explorer and editor keep their
-full width in the task surface. In the session inspector the tree is the list:
-an open file takes the panel, and widening the inspector brings the tree back
-beside it.*
+*Files and Monaco in the task's worktree.*
 
 ### Run where your code lives
 
@@ -408,199 +354,106 @@ a detached host owns terminal truth; there is no telemetry and no hosted service
 iCode does not call model APIs — your harness does — and the renderer is
 sandboxed behind a typed preload and validated IPC.
 
-### Network proxies
-
-**Settings → Network** selects **System**, **Manual**, or **Off**. Manual accepts
-separate HTTP and HTTPS proxy URLs plus a `NO_PROXY` list, and applies them to
-provider tests, local Git, terminals, and WSL. System reuses the operating-system
-proxy and fills the non-Chromium environment where possible. Proxy
-authentication is not supported. WSL needs a proxy that listens beyond loopback
-(enable “Allow LAN” or use WSL mirrored networking); a local address is rewritten
-to the Windows host gateway when WSL runs in NAT mode.
-
-**Also in the box:**
-
-- **Session tabs and split view**: browser-style tab menus, drag reordering,
-  and a resizable split tree that nests both axes.
-- **Focus mode**: `F11` or `Ctrl/Cmd+J` leaves only the terminal.
-- **Pinned working set**: pin projects, sessions and tasks as sidebar
-  shortcuts; the project tree stays complete.
-- **Project onboarding**: open an existing checkout, clone from a URL with live
-  progress, or initialize a folder’s first commit; repositories can live locally
-  or inside a WSL distro.
-- **Repository settings**: add, edit, fetch and remove Git remotes from the
-  project menu.
-- **Sessions & branches**: retained branches and orphan terminal reporting from
-  the project menu.
-- **Instant project removal**: the row disappears immediately while cleanup
-  stops sessions, snapshots dirty worktrees and reports retry/discard in the
-  sidebar footer.
-- **Command palette**: `Ctrl/Cmd+K` for projects, sessions, tasks, Source
-  Control actions, and “Talk to Mira”; `Ctrl/Cmd+P` for quick open.
-- **Mira settings**: persona, local/WSL/auto target, preferred harness,
-  auto-dispatch policy, notifications and quiet hours.
-- **Task history**: archive/restore, collapsed retry attempts, and seven-day
-  retention for reviewed completions and cancellations.
-- **Themes**: light by default, with System and Dark available, applied before
-  first paint; terminals follow the same appearance, with a light ANSI palette
-  on the light canvas and the afterglow palette in dark mode.
-- **Configurable workflow**: global and per-project task concurrency, Source
-  Control, and Files preferences.
-- **Session diagnostics**: host authority, PTY incarnation, worktree state, and
-  exit codes in Session details.
-- **Session row actions**: details, sleep or wake, resume, restart, pin and
-  remove from any session row without switching to it.
-- **Warning-only removal**: dirty or unmerged work is named before anything is
-  deleted, no branch name is typed, and iCode-owned branches survive session
-  removal; deletion is separate and requires the exact name when unmerged.
-- **Native window chrome**: native traffic lights on macOS; custom controls on
-  Windows and Linux.
-
 <p align="center">
   <a href=".github/assets/workbench-0916-settings.png"><img src=".github/assets/workbench-0916-settings.png" alt="The Settings tab with appearance, language, Mira, host and runtime, and Source Control sections" width="100%" /></a>
 </p>
 
 *Settings open as an auxiliary tab. Appearance, language, Mira, task execution,
-Source Control, Files, agent providers, harnesses, host/runtime and About share
+Source Control, Files, agent providers, harnesses, host/runtime, and About share
 one page.*
+
+### Also in the box
+
+- **Session tabs and split view** with drag reordering and a nested split tree.
+- **Focus mode**: `F11` or `Ctrl/Cmd+J` leaves only the terminal.
+- **Pinned working set**: pin projects, sessions, and tasks as shortcuts.
+- **Project onboarding**: open an existing checkout, clone from a URL, or
+  initialize a folder's first commit.
+- **Repository settings**: add, edit, fetch, and remove Git remotes.
+- **Instant project removal**: the row disappears immediately while cleanup
+  stops sessions, snapshots dirty worktrees, and reports retry/discard.
+- **Command palette**: `Ctrl/Cmd+K` for projects, sessions, tasks, Source Control
+  actions, and "Talk to Mira"; `Ctrl/Cmd+P` for quick open.
+- **Themes**: light by default, with System and Dark applied before first paint;
+  terminals follow the same appearance.
+- **Session diagnostics**: host authority, PTY incarnation, worktree state, and
+  exit codes in Session details.
+- **Task history**: archive/restore, collapsed retry attempts, and seven-day
+  retention for reviewed completions and cancellations.
+- **Sessions & branches**: retained branches and orphan terminal reporting from
+  the project menu.
+- **Network proxies**: System, Manual, or Off, with HTTP/HTTPS and `NO_PROXY`;
+  applies to provider tests, local Git, terminals, and WSL.
+- **Native window chrome**: native traffic lights on macOS; custom controls on
+  Windows and Linux.
+
+## Supported harnesses
+
+iCode runs the harness itself, not a chat reimplementation, so its TUI,
+permissions, and hooks keep working.
+
+**Native provider injection + Mira conversation (3):**
+Claude Code, Codex, OpenCode.
+
+**Managed status hooks (21):**
+Gemini, Qwen Code, Cursor, GitHub Copilot, Grok, Kimi, Amp, Droid, OpenClaude,
+Qoder CLI, Qoder CLI China, CodeBuddy, Antigravity, Command Code, Devin, Muse,
+ZCode, Kiro, DeepSeek Harness, Jcode, Hermes.
+
+**Launchable (44):**
+
+<details>
+<summary><strong>View all 44 CLI agents</strong></summary>
+
+**Primary (20):**
+Claude Code, OpenClaude, Codex, Grok, GitHub Copilot, OpenCode 2, OpenCode,
+MiMo Code, Ante, Trae, Muse, DeepSeek Harness, Qoder CLI, Qoder CLI China, ZCode,
+Pi, OMP, Prime Agent, Gemini, Antigravity.
+
+**Secondary (24):**
+Aider, Goose, Amp, Kilocode, Kiro, Charm, Auggie, Autohand Code, Cline, Codebuff,
+Freebuff, Command Code, Continue, Cursor, Droid, Kimi, Mistral Vibe, Qwen Code,
+Rovo Dev, Hermes, Devin, OpenClaw, CodeBuddy, Jcode.
+
+</details>
+
+`Shell` is iCode's terminal entry, not an agent. One catalog entry,
+Claude Agent Teams, is a third-party CLI wrapper that cannot be launched from
+iCode.
+
+Detection is tri-state and target-aware: available, unavailable after a real
+probe, or a retryable detection failure. A tool installed on Windows but missing
+inside a WSL distro is reported correctly.
+
+Resume support follows the harness's own CLI. The catalog carries a resume
+recipe per entry where one is known; a harness or target switch starts a bridged
+conversation with a visible boundary. Claude Code supplies token-by-token
+streaming; Codex and OpenCode report run stages and the final reply rather than a
+live text draft.
 
 ## How it works
 
 1. **Add a project.** Register an existing Git checkout, clone from a URL, or
    initialize a folder on its first commit. Repositories can live on this
    machine or inside a WSL distro.
-2. **Start work.** From the sidebar, open a project and start a direct session,
-   queue a task, or open Mira. A direct session launches immediately; a queued
-   task waits for a global and per-project slot. A direct session can create a
-   worktree and branch at the chosen start point, or run in the project's shared
-   default checkout; either way it launches the harness in a real PTY.
-3. **Approve or adjust the plan.** Your own tasks are approved on creation.
-   Supervisor proposals wait for a person, and Mira tasks wait unless the
-   auto-dispatch policy allows them to start. Blockers and chain branches decide
-   when dependents may start.
+2. **Start work.** Start a direct session, queue a task, or open Mira. A direct
+   session launches immediately; a queued task waits for a global and
+   per-project slot. Either way, the harness runs in a real PTY.
+3. **Approve or adjust.** Your own tasks are approved on creation. Supervisor
+   proposals wait for a person, and Mira tasks wait unless the auto-dispatch
+   policy allows them. Blockers and chain branches decide when dependents start.
 4. **Work in the terminal.** Switch sessions with the tab strip, split when two
-   need to be visible, and open Source Control or Files in the inspector. Every
-   pane is tied to the same worktree the agent is editing.
+   need to be visible, and open Source Control or Files in the inspector.
 5. **Review.** Stage by file, folder, hunk, or line; send line notes to the
    agent; accept a task review when the result is right. Accept does not merge.
-   When the result should land, merge from Source Control; for a chain, merge
-   each blocker into the shared chain branch so its dependents can dispatch.
-6. **Archive the finished work.** Archive reviewed completions and cancellations
-   as you go; those older than seven days are archived automatically. A retry
-   chain stays one row with its attempts preserved.
-7. **Finish safely.** Removing a project is instant: the row disappears and a
-   background cleanup job stops its sessions, snapshots dirty worktrees to
-   recovery refs, and reports progress with Retry/Discard in the sidebar footer.
-   Removing an individual session stops the PTY and asks for confirmation; if
-   work is at risk, the files or commits are named before anything is deleted,
-   and the checkout is removed while the branch is kept.
+   Merge from Source Control when the result should land.
+6. **Finish safely.** Archive reviewed completions; older ones are archived
+   automatically after seven days. Removing a session stops the PTY and, if work
+   is at risk, names the files or commits before anything is deleted.
 
 > **iCode is the environment, not the agent.** It does not call model APIs or
 > answer permission prompts. Your harness keeps its TUI, credentials, and
 > permissions; you keep the decisions.
-
-## Supported harnesses
-
-Works with the coding-agent CLIs you already use. iCode runs the harness itself,
-not a chat reimplementation, so its TUI, permissions, and hooks keep working.
-
-<p>
-  <kbd>Claude Code</kbd> &nbsp;
-  <kbd>Codex</kbd> &nbsp;
-  <kbd>OpenCode</kbd> &nbsp;
-  <kbd>Shell</kbd>
-</p>
-
-Detection is tri-state and target-aware: available, unavailable after a real
-probe, or a retryable detection failure. A tool installed on Windows but missing
-inside a WSL distro is reported correctly.
-
-Mira uses the same installed CLI in a one-shot mode in a scratch directory on
-this machine or inside a WSL distro. All three agent harnesses can resume their
-own native conversation by session id; a harness or target switch starts a
-bridged conversation with a visible boundary. Claude Code supplies
-token-by-token streaming; Codex and OpenCode currently report run stages and the
-final reply rather than a live text draft.
-
-## Install
-
-Download the latest installer from the
-[Releases page](https://github.com/icodehq/icode-workbench/releases/latest).
-CI builds each release from its tagged commit:
-
-| Platform | Download |
-|---|---|
-| **Linux x64** | AppImage, deb, or rpm |
-| **Windows x64** | NSIS installer (`.exe`) |
-| **macOS x64 / arm64** | dmg or zip |
-
-The installers are unsigned, so Windows SmartScreen and macOS Gatekeeper warn on
-first launch. On macOS, right-click the app and choose **Open** to allow it.
-iCode is pre-1.0; features and storage schemas may still change between releases.
-
-### From source
-
-**Requirements:** Node 24.x (`.nvmrc` pins 24.15.0), Corepack with pnpm 11.16.0,
-Git, and at least one harness on `PATH`. Linux also needs `build-essential` and
-`python3`; macOS needs Xcode Command Line Tools.
-
-```bash
-git clone https://github.com/icodehq/icode-workbench.git
-cd icode-workbench
-corepack enable
-pnpm install
-pnpm dev
-```
-
-Then choose **Add project**, start a session, queue a task, or open **Mira** and
-ask what needs you.
-`pnpm install` rebuilds `node-pty` against Electron's ABI on Linux; Windows and
-macOS use Node-API prebuilds.
-
-### Packages
-
-| Platform | Artifacts |
-|---|---|
-| **Linux x64** | AppImage, deb, rpm |
-| **Windows x64** | NSIS installer |
-| **macOS x64 / arm64** | dmg, zip |
-
-```bash
-pnpm package:linux         # AppImage, deb, rpm
-pnpm package:win           # NSIS; run on Windows
-pnpm package:mac -- --x64
-pnpm package:mac -- --arm64
-```
-
-Windows packaging requires the verified WSL host artifact tree at
-`artifacts/wsl-host/linux-x64`. CI builds it once on Linux and passes it to the
-Windows job; locally, `pnpm build:wsl-host` requires Docker. Linux and macOS
-packages never ship that tree.
-
-Artifacts are unsigned unless signing credentials are configured, so Windows
-SmartScreen and macOS Gatekeeper warnings are expected.
-
-On Linux, the unpacked build runs with `./dist/linux-unpacked/icode`. Its profile
-is `$XDG_CONFIG_HOME/iCode` (default `~/.config/iCode`), with the database at
-`icode.sqlite` and host runtime files under `run/`. Quitting the window leaves
-the host and its PTYs alive.
-
-### Troubleshooting
-
-- **Windows: iCode exits immediately and `--version` prints a Node version.**
-  If iCode is started from an AI terminal or automation tool that exports
-  `ELECTRON_RUN_AS_NODE=1`, Electron runs the executable as plain Node instead
-  of the app: no window appears, the exit code is 0, and there is no iCode log.
-  Clear the variable before launching (`Remove-Item Env:ELECTRON_RUN_AS_NODE`
-  in PowerShell, `set ELECTRON_RUN_AS_NODE=` in cmd), or start iCode from the
-  Start menu. The app cannot log this itself, because Electron never reaches
-  application code in that mode.
-- **Checking the database schema version.** `icode.sqlite` runs in WAL mode; a
-  migration committed by a running app lives in `icode.sqlite-wal` until a clean
-  quit checkpoints it. A tool that reads only the main file, or a copy without
-  its `-wal` and `-shm` companions, can report the previous `user_version` and
-  miss recently added tables. Quit iCode normally before inspecting the profile,
-  or inspect the whole directory.
 
 ## Community & support
 
@@ -774,7 +627,7 @@ even when iCode is down. A broken iCode must never block the agent.
   individually.
 - Main registers a fixed IPC channel table, validates each payload with Zod,
   checks the calling frame, and maps failures to stable `AppError` codes.
-- Mira’s Markdown renderer produces React elements, never HTML. Only http(s)
+- Mira's Markdown renderer produces React elements, never HTML. Only http(s)
   links can reach `shell.openExternal`; `file:`, `javascript:` and custom schemes
   are rejected in both the parser and the IPC handler.
 - The host protocol is NDJSON with a 4 MiB frame limit; malformed, oversized,
