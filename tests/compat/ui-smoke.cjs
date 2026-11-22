@@ -1378,6 +1378,63 @@ async function main() {
     return { before, after: expected }
   })
 
+  await step('reorder worktrees with a sidebar drag', async () => {
+    /*
+     * The drag is dispatched in one task, so the reorder cannot depend on a
+     * React render landing between dragstart and drop. The order is persisted
+     * through the sidebarOrder IPC; restore it so later steps keep their
+     * natural worktree order.
+     */
+    const groupsExpression = `(() => {
+      const root = document.querySelector('[data-testid="sidebar-sessions-${repoId}"]');
+      if (!root) return null;
+      return Array.from(root.querySelectorAll('[data-testid^="sidebar-worktree-"]'))
+        .filter((el) => /^sidebar-worktree-(?!toggle-|new-session-)/.test(el.getAttribute('data-testid')))
+        .map((el) => el.getAttribute('data-testid'));
+    })()`
+    await waitFor(`(${groupsExpression} || []).length >= 2`, 'two sidebar worktrees', 10000)
+    const before = await cdp.evaluate(groupsExpression)
+    assert(before.length >= 2, `Expected two worktrees in the sidebar, saw ${before.length}`)
+
+    const dragFirstOntoSecond = async () => {
+      const accepted = await cdp.evaluate(`(() => {
+        const root = document.querySelector('[data-testid="sidebar-sessions-${repoId}"]');
+        const groups = Array.from(root.querySelectorAll('[data-testid^="sidebar-worktree-"]'))
+          .filter((el) => /^sidebar-worktree-(?!toggle-|new-session-)/.test(el.getAttribute('data-testid')));
+        const source = groups[0].querySelector('[data-testid^="sidebar-worktree-toggle-"]');
+        const target = groups[1].querySelector('[data-testid^="sidebar-worktree-toggle-"]');
+        const data = new DataTransfer();
+        const rect = target.getBoundingClientRect();
+        const point = { clientX: rect.left + rect.width / 2, clientY: rect.bottom - 2 };
+        source.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: data }));
+        const over = new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: data, ...point });
+        target.dispatchEvent(over);
+        const overAccepted = over.defaultPrevented;
+        target.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: data, ...point }));
+        source.dispatchEvent(new DragEvent('dragend', { bubbles: true, cancelable: true, dataTransfer: data }));
+        return overAccepted;
+      })()`)
+      assert(accepted, 'The worktree row did not accept dragover')
+    }
+
+    await dragFirstOntoSecond()
+    const expected = [before[1], before[0], ...before.slice(2)]
+    await waitFor(
+      `JSON.stringify(${groupsExpression}) === ${JSON.stringify(JSON.stringify(expected))}`,
+      'sidebar worktree reorder',
+      5000
+    )
+    await screenshot('06d-sidebar-worktrees-reordered')
+
+    await dragFirstOntoSecond()
+    await waitFor(
+      `JSON.stringify(${groupsExpression}) === ${JSON.stringify(JSON.stringify(before))}`,
+      'sidebar worktree order restored',
+      5000
+    )
+    return { before, after: expected }
+  })
+
   await step('exit a live shell and keep its session record', async () => {
     await click(`[data-testid="session-item-${firstSession.id}"]`)
     await typeInSession(firstSession.id, 'exit')

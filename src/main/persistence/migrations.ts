@@ -1075,5 +1075,18 @@ export const MIGRATIONS: readonly Migration[] = [
       `DROP TABLE harness_provider_selection_old`,
       `DROP TABLE providers_old`
     ]
+  },
+  {
+    version: 21,
+    name: 'sidebar-order',
+    statements: [
+      // Why: one document holds the whole manual order, so a drag writes one
+      // row atomically and a removed project/session cannot orphan a row.
+      `CREATE TABLE sidebar_order (
+         id INTEGER PRIMARY KEY NOT NULL CHECK (id = 1),
+         document TEXT NOT NULL,
+         updated_at INTEGER NOT NULL
+       ) STRICT`
+    ]
   }
 ]

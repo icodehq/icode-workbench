@@ -30,6 +30,8 @@ export const IPC_CHANNELS = {
   localeGet: 'icode:locale:get',
   localeSet: 'icode:locale:set',
   localeChangedEvent: 'icode:locale:changed',
+  sidebarOrderGet: 'icode:sidebar-order:get',
+  sidebarOrderSet: 'icode:sidebar-order:set',
   reposList: 'icode:repos:list',
   reposAdd: 'icode:repos:add',
   reposInspect: 'icode:repos:inspect',

@@ -5,6 +5,7 @@ import { openDatabase, type Database } from './database'
 import { MIGRATIONS } from './migrations'
 import { RepositoryStore } from './repository-store'
 import { SessionStore } from './session-store'
+import { SidebarOrderStore } from './sidebar-order-store'
 import { UiStateStore } from './ui-state-store'
 import { createRepositoryService } from '../repositories/repository-service'
 import type { RepositoryService } from '../repositories/repository-service'
@@ -52,10 +53,12 @@ export function makeRepositoryService(
   service: RepositoryService
   repositories: RepositoryStore
   sessions: SessionStore
+  sidebarOrder: SidebarOrderStore
   uiState: UiStateStore
 } {
   const repositories = new RepositoryStore(database)
   const sessions = new SessionStore(database)
+  const sidebarOrder = new SidebarOrderStore(database)
   const uiState = new UiStateStore(database)
   const service = createRepositoryService({
     database,
@@ -73,5 +76,5 @@ export function makeRepositoryService(
       }
     }
   })
-  return { service, repositories, sessions, uiState }
+  return { service, repositories, sessions, sidebarOrder, uiState }
 }

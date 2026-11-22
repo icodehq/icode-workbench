@@ -172,6 +172,7 @@ import type {
   ManagedHooksStatePayload
 } from './schemas/managed-hooks'
 import type { Locale } from './i18n/locales'
+import type { SidebarOrderPayload } from './schemas/sidebar-order'
 
 export type RuntimeInfo = {
   appVersion: string
@@ -249,6 +250,10 @@ export type IcodeProductApi = {
     get: () => Promise<IpcResult<LocaleState>>
     set: (input: LocaleSetInput) => Promise<IpcResult<LocaleState>>
     onChanged: (listener: (state: LocaleState) => void) => () => void
+  }
+  sidebarOrder: {
+    get: () => Promise<IpcResult<SidebarOrderPayload>>
+    set: (input: SidebarOrderPayload) => Promise<IpcResult<SidebarOrderPayload>>
   }
   network: {
     settings: () => Promise<IpcResult<NetworkProxySettingsPayload>>

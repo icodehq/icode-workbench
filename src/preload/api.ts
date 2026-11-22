@@ -74,6 +74,10 @@ export function createIcodeApi(
           listener(payload as LocaleState)
         )
     },
+    sidebarOrder: {
+      get: () => call(IPC_CHANNELS.sidebarOrderGet),
+      set: (input) => call(IPC_CHANNELS.sidebarOrderSet, input)
+    },
     repos: {
       list: () => call(IPC_CHANNELS.reposList),
       add: (input) => call(IPC_CHANNELS.reposAdd, input),
@@ -288,6 +292,7 @@ export function createIcodeApi(
     }
   }
   Object.freeze(api.locale)
+  Object.freeze(api.sidebarOrder)
   Object.freeze(api.repos)
   Object.freeze(api.sessions)
   Object.freeze(api.network)

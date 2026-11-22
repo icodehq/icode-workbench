@@ -9,6 +9,8 @@ import { newRepoId, newSessionId } from '../../shared/domain/ids'
 
 function services(overrides: Partial<DispatcherServices> = {}): DispatcherServices {
   return {
+    sidebarOrderGet: vi.fn(async () => ({ projects: [], worktrees: {}, sessions: {} })),
+    sidebarOrderSet: vi.fn(async (input) => input),
     reposList: vi.fn(async () => []),
     reposAdd: vi.fn(async () => ({})),
     reposInspect: vi.fn(async () => ({})),
@@ -714,5 +716,30 @@ describe('remote and clone IPC', () => {
       ok: false,
       error: { code: 'INVALID_ARGUMENT' }
     })
+  })
+})
+
+describe('sidebar order dispatch', () => {
+  it('routes and validates the persisted order document', async () => {
+    const get = vi.fn(async () => ({ projects: [], worktrees: {}, sessions: {} }))
+    const set = vi.fn(async (input) => input)
+    const dispatch = createDispatcher(services({ sidebarOrderGet: get, sidebarOrderSet: set }))
+
+    expect(await dispatch(IPC_CHANNELS.sidebarOrderGet, {})).toMatchObject({ ok: true })
+    expect(get).toHaveBeenCalled()
+
+    const order = {
+      projects: ['repo_1'],
+      worktrees: { repo_1: ['/tmp/wt'] },
+      sessions: { 'worktree:/tmp/wt': ['ses_1'] }
+    }
+    expect(await dispatch(IPC_CHANNELS.sidebarOrderSet, order)).toMatchObject({ ok: true })
+    expect(set).toHaveBeenCalledWith(order)
+
+    const invalid = await dispatch(IPC_CHANNELS.sidebarOrderSet, {
+      projects: 'nope'
+    })
+    expect(invalid).toMatchObject({ ok: false, error: { code: 'INVALID_ARGUMENT' } })
+    expect(set).toHaveBeenCalledTimes(1)
   })
 })

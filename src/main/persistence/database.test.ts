@@ -64,6 +64,8 @@ describe('database initialization', () => {
       // v18: a worktree is repo-owned; sessions attach through a link table.
       'session_worktree_links',
       'sessions',
+      // v21: the persisted manual order of sidebar rows.
+      'sidebar_order',
       'sqlite_sequence',
       'supervisor_actions',
       'supervisor_bindings',
@@ -606,7 +608,7 @@ describe('migrations', () => {
 
     const current = openDatabase({ path, migrations: MIGRATIONS })
     cleanups.push(() => current.close())
-    expect(current.userVersion()).toBe(20)
+    expect(current.userVersion()).toBe(SCHEMA_VERSION)
     expect(
       (current.raw.prepare('SELECT id FROM harnesses ORDER BY id').all() as Array<{ id: string }>)
         .map((row) => row.id)
