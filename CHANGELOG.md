@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.2] - 2026-11-22
+
+### Changed
+
+- A second readability pass on the workspace sidebar: project, session and task
+  titles are 13px, worktree and default-checkout names 12px, state, branch,
+  activity and task-status lines 11px, section headers 11px, and counts and
+  badges 10px, with taller rows to match. The first pass in 0.17.1 still left
+  secondary sidebar text hard to read.
+
 ## [0.17.1] - 2026-11-22
 
 ### Changed

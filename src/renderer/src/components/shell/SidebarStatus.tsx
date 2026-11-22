@@ -43,7 +43,7 @@ export default function SidebarStatus({
       (session.state === 'live' || session.state === 'starting')
   ).length
   return (
-    <div className="shrink-0 border-t border-border px-2 py-1.5 text-[10px] text-muted-foreground">
+    <div className="shrink-0 border-t border-border px-2 py-1.5 text-[11px] text-muted-foreground">
       <div className="flex min-w-0 items-center gap-2">
         <button
           type="button"
@@ -56,7 +56,7 @@ export default function SidebarStatus({
           data-testid="host-status"
           data-host-status={host}
         >
-          <Server size={10} />
+          <Server size={11} />
           <span className="truncate">
             {host === 'reachable'
               ? t('host.short')
@@ -77,7 +77,7 @@ export default function SidebarStatus({
           title={tp('status.liveSessions', liveSessions)}
           data-testid="live-sessions"
         >
-          <TerminalSquare size={10} />
+          <TerminalSquare size={11} />
           {liveSessions}
         </span>
         <CleanupIndicator
@@ -93,10 +93,10 @@ export default function SidebarStatus({
           title={t('status.refreshTitle')}
           data-testid="refresh-all"
         >
-          <RefreshCw size={10} className={refreshing ? 'animate-spin' : ''} />
+          <RefreshCw size={11} className={refreshing ? 'animate-spin' : ''} />
         </button>
       </div>
-      <div className="mt-0.5 flex items-center justify-between font-mono text-[9px] text-muted-foreground/70">
+      <div className="mt-0.5 flex items-center justify-between font-mono text-[10px] text-muted-foreground/70">
         <span title={t('status.harnessesTooltip')} data-testid="harness-summary">
           {t('status.harnessesCount', {
             available,
