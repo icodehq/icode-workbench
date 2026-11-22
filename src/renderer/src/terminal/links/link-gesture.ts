@@ -1,7 +1,10 @@
 import type { IDisposable, Terminal } from '@xterm/xterm'
 
 /**
- * Distinguishes a link click from a text selection or a TUI mouse report.
+ * Distinguishes a link click from a text selection or a modified click.
+ *
+ * A click in a mouse-aware TUI is still a link click when it lands on a link;
+ * the PTY mouse-report suppression below keeps the TUI from acting on it.
  *
  * Adapted from Orca (MIT, Copyright (c) 2026 Lovecast Inc.),
  * `terminal-link-pointer-gesture.ts` and `terminal-link-activation.ts`.
@@ -14,15 +17,14 @@ export type LinkGestureDecisionInput = {
   hadSelection: boolean
   hasSelection: boolean
   button: number
-  mouseTracking: boolean
-  modifier: boolean
+  shiftKey: boolean
+  altKey: boolean
 }
 
 export function shouldActivateLinkGesture(input: LinkGestureDecisionInput): boolean {
   if (input.button !== 0 || input.moved) return false
+  if (input.shiftKey || input.altKey) return false
   if (input.hadSelection || input.hasSelection) return false
-  // A mouse-aware TUI owns plain clicks; the modifier is the explicit override.
-  if (input.mouseTracking && !input.modifier) return false
   return true
 }
 
@@ -56,7 +58,6 @@ type TerminalLinkGestureOptions = {
 
 export function installTerminalLinkPointerGesture(
   term: Terminal,
-  isMac: boolean,
   options: TerminalLinkGestureOptions = {}
 ): TerminalLinkGesture {
   const element = term.element
@@ -90,6 +91,7 @@ export function installTerminalLinkPointerGesture(
     if (
       term.modes.mouseTrackingMode !== 'none' &&
       !event.altKey &&
+      !pending.hadSelection &&
       options.shouldSuppressMouseReport?.(event) === true
     ) {
       savedMouseEventsRequireAlt = term.options.mouseEventsRequireAlt
@@ -126,8 +128,8 @@ export function installTerminalLinkPointerGesture(
         hadSelection: pending.hadSelection,
         hasSelection: term.hasSelection(),
         button: event.button,
-        mouseTracking: term.modes.mouseTrackingMode !== 'none',
-        modifier: isLinkModifierClick(event, isMac)
+        shiftKey: event.shiftKey,
+        altKey: event.altKey
       })
     },
     dispose: () => {

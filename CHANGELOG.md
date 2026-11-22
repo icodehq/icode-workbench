@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.1] - 2026-11-22
+
+### Fixed
+
+- URL links in mouse-aware terminal programs, such as Claude Code, now open
+  the link action popover on a plain click instead of doing nothing. The click
+  is withheld from the program, and Ctrl/Cmd-click still opens the browser
+  directly.
+
 ## [0.19.0] - 2026-11-22
 
 ### Added

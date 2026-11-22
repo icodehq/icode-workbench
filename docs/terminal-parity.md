@@ -28,8 +28,8 @@ administrator mode, cloud pairing, and theme imports.
 | T-LINK-03 | Links | Handle OSC 8 hyperlinks; the text provider does not claim OSC-only text | Done | `osc8-nonurl.raw`, xterm provider priority |
 | T-LINK-04 | Links | Route only http and https to the OS browser; reject javascript/data/file/relative/malformed/oversized URLs in the renderer and at IPC | Done | `url-routing.test.ts`, main-process schema |
 | T-LINK-05 | Links | Plain click opens Open in Browser / Copy Link; Cmd/Ctrl-click opens directly; `openLinksWithModifier` keeps plain clicks inert | Done | UI smoke |
-| T-LINK-06 | Links | Reject drags, prior/current selections, and non-primary clicks; mouse-aware TUIs keep plain clicks | Done | `link-gesture.test.ts` |
-| T-LINK-07 | Links | A modified link click in a mouse-aware TUI does not also become a PTY mouse report | Done | manual |
+| T-LINK-06 | Links | Reject drags, prior/current selections, shift/alt clicks, and non-primary clicks | Done | `link-gesture.test.ts` |
+| T-LINK-07 | Links | A plain click on a link in a mouse-aware TUI opens the action popover and does not also become a PTY mouse report | Done | UI smoke (VT200 mouse tracking) |
 | T-LINK-08 | Links | Preview/standalone panes install no link handling (no interaction host) | Done | code path |
 | T-SET-01 | Settings | Terminal settings card for font, cursor, scrolling, clipboard, links, find, and quick commands | Planned (R1b) | — |
 | T-CMD-01 | Commands | Terminal quick commands from the pane menu (insert and run) | Planned (R1b) | — |

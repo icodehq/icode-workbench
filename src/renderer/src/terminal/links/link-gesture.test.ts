@@ -6,8 +6,8 @@ const base = {
   hadSelection: false,
   hasSelection: false,
   button: 0,
-  mouseTracking: false,
-  modifier: false
+  shiftKey: false,
+  altKey: false
 }
 
 describe('link gesture policy', () => {
@@ -15,15 +15,13 @@ describe('link gesture policy', () => {
     expect(shouldActivateLinkGesture(base)).toBe(true)
   })
 
-  it('rejects drags, selections, non-left clicks, and unmodified TUI clicks', () => {
+  it('rejects drags, selections, modified clicks, and non-left clicks', () => {
     expect(shouldActivateLinkGesture({ ...base, moved: true })).toBe(false)
     expect(shouldActivateLinkGesture({ ...base, hadSelection: true })).toBe(false)
     expect(shouldActivateLinkGesture({ ...base, hasSelection: true })).toBe(false)
     expect(shouldActivateLinkGesture({ ...base, button: 1 })).toBe(false)
-    expect(shouldActivateLinkGesture({ ...base, mouseTracking: true })).toBe(false)
-    expect(
-      shouldActivateLinkGesture({ ...base, mouseTracking: true, modifier: true })
-    ).toBe(true)
+    expect(shouldActivateLinkGesture({ ...base, shiftKey: true })).toBe(false)
+    expect(shouldActivateLinkGesture({ ...base, altKey: true })).toBe(false)
   })
 
   it('uses Cmd on macOS and Ctrl elsewhere', () => {
