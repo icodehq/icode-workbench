@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.1] - 2026-11-22
+
+### Changed
+
+- The workspace sidebar uses a readable type scale: session and task titles are
+  12px, state, branch and activity lines are 10px, and section headers are 9px,
+  with taller rows to match. Secondary sidebar text was previously as small as
+  7.5px, and the footer status bar follows the same scale.
+
 ## [0.17.0] - 2026-11-21
 
 ### Added
