@@ -43,6 +43,18 @@ import {
   repositoryRemovalImpact,
   type WorktreeSessionGroup
 } from './sidebar-model'
+import {
+  moveRowId,
+  orderByStoredIds,
+  pruneSidebarOrder,
+  sessionGroupKey,
+  PROJECTS_GROUP_KEY,
+  SIDEBAR_ROW_DRAG_TYPE,
+  type SidebarDragSource,
+  type SidebarDropTarget,
+  type SidebarKnownRows
+} from './sidebar-order'
+import { emptySidebarOrder, type SidebarOrderPayload } from '../../../../shared/schemas/sidebar-order'
 import WorkspaceSidebarDialogs from './WorkspaceSidebarDialogs'
 import { createSidebarMenuItems } from './sidebar-menu-items'
 import { sidebarBrandInset } from './window-chrome'
@@ -236,6 +248,36 @@ export default function WorkspaceSidebar({
     opener: HTMLElement | null
   } | null>(null)
 
+  /*
+   * Sidebar order is a persisted, per-account preference. The ref is the
+   * synchronous read used by drop handlers; state mirrors it for rendering.
+   */
+  const [rowOrder, setRowOrder] = useState<SidebarOrderPayload>(() => emptySidebarOrder())
+  const rowOrderRef = useRef(rowOrder)
+  const [dragSource, setDragSource] = useState<SidebarDragSource | null>(null)
+  const [dropTarget, setDropTarget] = useState<SidebarDropTarget | null>(null)
+  const dragSourceRef = useRef<SidebarDragSource | null>(null)
+
+  const applyRowOrder = (next: SidebarOrderPayload): void => {
+    rowOrderRef.current = next
+    setRowOrder(next)
+  }
+
+  useEffect(() => {
+    let cancelled = false
+    void window.icode.sidebarOrder
+      .get()
+      .then((result) => {
+        if (!cancelled && result.ok) applyRowOrder(result.value)
+      })
+      .catch(() => {
+        // The order is a preference; a failed read falls back to natural order.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   useEffect(() => {
     setPins((current) => {
       const next = pruneSidebarPins(
@@ -288,9 +330,170 @@ export default function WorkspaceSidebar({
     onCommit: persistWidth
   })
 
+  const orderedRepos = useMemo(() => {
+    const byId = new Map(repos.map((repo) => [repo.id, repo]))
+    return orderByStoredIds(
+      repos.map((repo) => repo.id),
+      rowOrder.projects,
+      (id) => id
+    ).flatMap((id) => {
+      const repo = byId.get(id)
+      return repo === undefined ? [] : [repo]
+    })
+  }, [repos, rowOrder.projects])
+
+  /*
+   * Rows that currently exist, grouped exactly as the store keys them. Saving a
+   * reorder prunes ids and groups that are gone instead of accumulating them.
+   */
+  const knownSidebarRows = useMemo<SidebarKnownRows>(() => {
+    const worktrees: Record<string, Set<string>> = {}
+    const sessionsByGroup: Record<string, Set<string>> = {}
+    for (const repo of repos) {
+      const repoSessions = sessions.filter((session) => session.repoId === repo.id)
+      const groups = groupDirectSessions(repoSessions)
+      sessionsByGroup[sessionGroupKey(repo.id, null)] = new Set(
+        groups.defaultCheckout.map((session) => session.id)
+      )
+      const paths = new Set<string>()
+      for (const group of groups.worktrees) {
+        paths.add(group.path)
+        sessionsByGroup[sessionGroupKey(repo.id, group.path)] = new Set(
+          group.sessions.map((session) => session.id)
+        )
+      }
+      if (paths.size > 0) worktrees[repo.id] = paths
+    }
+    return {
+      projects: new Set(repos.map((repo) => repo.id)),
+      worktrees,
+      sessions: sessionsByGroup
+    }
+  }, [repos, sessions])
+
+  const persistRowOrder = (next: SidebarOrderPayload): void => {
+    const pruned = pruneSidebarOrder(next, knownSidebarRows)
+    applyRowOrder(pruned)
+    void window.icode.sidebarOrder
+      .set(pruned)
+      .then((result) => {
+        if (!result.ok) onNotify({ tone: 'error', message: result.error.message })
+      })
+      .catch((error: unknown) => {
+        onNotify({
+          tone: 'error',
+          message: error instanceof Error ? error.message : String(error)
+        })
+      })
+  }
+
+  const resetRowDrag = (): void => {
+    dragSourceRef.current = null
+    setDragSource(null)
+    setDropTarget(null)
+  }
+
+  const startRowDrag = (event: React.DragEvent, source: SidebarDragSource): void => {
+    dragSourceRef.current = source
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData(SIDEBAR_ROW_DRAG_TYPE, source.id)
+    setDragSource(source)
+    setDropTarget(null)
+  }
+
+  const rowDragOver = (event: React.DragEvent, target: SidebarDragSource): void => {
+    const source = dragSourceRef.current
+    if (
+      source === null ||
+      source.kind !== target.kind ||
+      source.groupKey !== target.groupKey ||
+      source.id === target.id
+    ) {
+      return
+    }
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'move'
+    const rect = event.currentTarget.getBoundingClientRect()
+    const after = event.clientY > rect.top + rect.height / 2
+    setDropTarget((current) =>
+      current !== null &&
+      current.kind === target.kind &&
+      current.groupKey === target.groupKey &&
+      current.id === target.id &&
+      current.after === after
+        ? current
+        : { ...target, after }
+    )
+  }
+
+  const rowDragLeave = (event: React.DragEvent, target: SidebarDragSource): void => {
+    if (event.currentTarget.contains(event.relatedTarget as Node | null)) return
+    setDropTarget((current) =>
+      current !== null &&
+      current.kind === target.kind &&
+      current.groupKey === target.groupKey &&
+      current.id === target.id
+        ? null
+        : current
+    )
+  }
+
+  const rowDrop = (
+    event: React.DragEvent,
+    target: SidebarDragSource,
+    apply: (sourceId: string, targetId: string, after: boolean) => void
+  ): void => {
+    const source = dragSourceRef.current
+    if (
+      source === null ||
+      source.kind !== target.kind ||
+      source.groupKey !== target.groupKey ||
+      source.id === target.id
+    ) {
+      return
+    }
+    event.preventDefault()
+    const rect = event.currentTarget.getBoundingClientRect()
+    apply(source.id, target.id, event.clientY > rect.top + rect.height / 2)
+    resetRowDrag()
+  }
+
+  const rowDropClass = (target: SidebarDragSource): string => {
+    const current = dropTarget
+    if (
+      current === null ||
+      current.kind !== target.kind ||
+      current.groupKey !== target.groupKey ||
+      current.id !== target.id
+    ) {
+      return ''
+    }
+    return current.after ? 'border-b-2 border-accent' : 'border-t-2 border-accent'
+  }
+
+  const rowDraggingClass = (target: SidebarDragSource): string =>
+    dragSource !== null &&
+    dragSource.kind === target.kind &&
+    dragSource.groupKey === target.groupKey &&
+    dragSource.id === target.id
+      ? 'opacity-50'
+      : ''
+
+  const applyProjectDrop = (sourceId: string, targetId: string, after: boolean): void => {
+    persistRowOrder({
+      ...rowOrderRef.current,
+      projects: moveRowId(
+        orderedRepos.map((repo) => repo.id),
+        sourceId,
+        targetId,
+        after
+      )
+    })
+  }
+
   const { pinned } = useMemo(
-    () => pinnedProjectsFirst(repos, pins.projects),
-    [pins.projects, repos]
+    () => pinnedProjectsFirst(orderedRepos, pins.projects),
+    [orderedRepos, pins.projects]
   )
   const pinnedSessions = useMemo(
     () => sessions.filter((session) => pins.sessions.includes(session.id)),
@@ -426,16 +629,35 @@ export default function WorkspaceSidebar({
    * any session, including one that is not open. The header menu stays the
    * descriptive surface; both read the plan in `sessions/session-menu`.
    */
-  const sessionRow = (session: SessionSummary): React.JSX.Element => {
+  const sessionRow = (
+    session: SessionSummary,
+    groupKey: string,
+    orderedGroupIds: readonly string[]
+  ): React.JSX.Element => {
     const active = session.id === activeSessionId
     const suffix = activitySuffix(session.activity)
     const menuOpen = sessionMenu?.session.id === session.id
     const subagents = visibleSubagents(session.activity)
+    const dragTarget: SidebarDragSource = { kind: 'session', groupKey, id: session.id }
+    const applyDrop = (sourceId: string, targetId: string, after: boolean): void => {
+      persistRowOrder({
+        ...rowOrderRef.current,
+        sessions: {
+          ...rowOrderRef.current.sessions,
+          [groupKey]: moveRowId(orderedGroupIds, sourceId, targetId, after)
+        }
+      })
+    }
     return (
       <div
         key={session.id}
-        className={`flex min-h-10 flex-col justify-center rounded-md ${menuOpen ? 'bg-hover' : ''}`}
+        className={`flex min-h-10 flex-col justify-center rounded-md ${
+          menuOpen ? 'bg-hover' : ''
+        } ${rowDropClass(dragTarget)} ${rowDraggingClass(dragTarget)}`}
         data-menu-open={menuOpen ? 'true' : undefined}
+        onDragOver={(event) => rowDragOver(event, dragTarget)}
+        onDragLeave={(event) => rowDragLeave(event, dragTarget)}
+        onDrop={(event) => rowDrop(event, dragTarget, applyDrop)}
       >
         <button
           type="button"
@@ -444,6 +666,12 @@ export default function WorkspaceSidebar({
               ? 'bg-sel text-foreground shadow-[inset_2px_0_0_var(--icode-accent)]'
               : 'text-muted-foreground hover:bg-hover hover:text-foreground'
           }`}
+          draggable
+          onDragStart={(event) => startRowDrag(event, dragTarget)}
+          onDragEnd={resetRowDrag}
+          onDragOver={(event) => rowDragOver(event, dragTarget)}
+          onDragLeave={(event) => rowDragLeave(event, dragTarget)}
+          onDrop={(event) => rowDrop(event, dragTarget, applyDrop)}
           onClick={() => onOpenSession(session.id)}
           onContextMenu={(event) => {
             event.preventDefault()
@@ -555,6 +783,37 @@ export default function WorkspaceSidebar({
     const sessionCount = directSessionCount.get(repo.id) ?? 0
     const expanded = !collapsedRepos.has(repo.id)
     const groups = groupDirectSessions(repoSessions)
+    const projectDragTarget: SidebarDragSource = {
+      kind: 'project',
+      groupKey: PROJECTS_GROUP_KEY,
+      id: repo.id
+    }
+    const defaultGroupKey = sessionGroupKey(repo.id, null)
+    const orderedDefaultSessions = orderByStoredIds(
+      groups.defaultCheckout,
+      rowOrder.sessions[defaultGroupKey] ?? [],
+      (session) => session.id
+    )
+    const orderedDefaultIds = orderedDefaultSessions.map((session) => session.id)
+    const orderedWorktrees = orderByStoredIds(
+      groups.worktrees,
+      rowOrder.worktrees[repo.id] ?? [],
+      (group) => group.path
+    )
+    const worktreeIds = orderedWorktrees.map((group) => group.path)
+    const applyWorktreeDrop = (
+      sourceId: string,
+      targetId: string,
+      after: boolean
+    ): void => {
+      persistRowOrder({
+        ...rowOrderRef.current,
+        worktrees: {
+          ...rowOrderRef.current.worktrees,
+          [repo.id]: moveRowId(worktreeIds, sourceId, targetId, after)
+        }
+      })
+    }
     const defaultCollapsed = collapsedDefaultCheckouts.has(repo.id)
     const canAddDefault = !hostUnreachable && repo.availability !== 'missing'
     const menuOpen = projectMenu?.repo.id === repo.id
@@ -564,8 +823,11 @@ export default function WorkspaceSidebar({
           key={`pin-${repo.id}`}
           className={`flex h-9 min-w-0 items-center rounded-md ${
             menuOpen && !isActive ? 'bg-hover' : ''
-          }`}
+          } ${rowDropClass(projectDragTarget)} ${rowDraggingClass(projectDragTarget)}`}
           data-menu-open={menuOpen ? 'true' : undefined}
+          onDragOver={(event) => rowDragOver(event, projectDragTarget)}
+          onDragLeave={(event) => rowDragLeave(event, projectDragTarget)}
+          onDrop={(event) => rowDrop(event, projectDragTarget, applyProjectDrop)}
           onContextMenu={(event) => {
             event.preventDefault()
             requestProjectMenu(repo, {
@@ -584,6 +846,12 @@ export default function WorkspaceSidebar({
                 ? 'bg-sel text-foreground'
                 : 'text-muted-foreground hover:bg-hover hover:text-foreground'
             }`}
+            draggable
+            onDragStart={(event) => startRowDrag(event, projectDragTarget)}
+            onDragEnd={resetRowDrag}
+            onDragOver={(event) => rowDragOver(event, projectDragTarget)}
+            onDragLeave={(event) => rowDragLeave(event, projectDragTarget)}
+            onDrop={(event) => rowDrop(event, projectDragTarget, applyProjectDrop)}
             onClick={() => onOpenProject(repo.id, 'sessions')}
             aria-haspopup="menu"
             aria-expanded={menuOpen}
@@ -613,10 +881,13 @@ export default function WorkspaceSidebar({
               : menuOpen
                 ? 'bg-hover text-foreground'
                 : 'text-muted-foreground hover:bg-hover hover:text-foreground'
-          }`}
+          } ${rowDropClass(projectDragTarget)} ${rowDraggingClass(projectDragTarget)}`}
           data-testid={`sidebar-project-${repo.id}`}
           data-active={isActive ? 'true' : 'false'}
           data-menu-open={menuOpen ? 'true' : undefined}
+          onDragOver={(event) => rowDragOver(event, projectDragTarget)}
+          onDragLeave={(event) => rowDragLeave(event, projectDragTarget)}
+          onDrop={(event) => rowDrop(event, projectDragTarget, applyProjectDrop)}
           onContextMenu={(event) => {
             event.preventDefault()
             requestProjectMenu(repo, {
@@ -649,6 +920,12 @@ export default function WorkspaceSidebar({
             type="button"
             className="flex h-full min-w-0 flex-1 items-center gap-1 px-1 text-left"
             data-testid={`project-row-${repo.id}`}
+            draggable
+            onDragStart={(event) => startRowDrag(event, projectDragTarget)}
+            onDragEnd={resetRowDrag}
+            onDragOver={(event) => rowDragOver(event, projectDragTarget)}
+            onDragLeave={(event) => rowDragLeave(event, projectDragTarget)}
+            onDrop={(event) => rowDrop(event, projectDragTarget, applyProjectDrop)}
             onClick={() => onOpenProject(repo.id, 'sessions')}
             aria-current={isActive ? 'page' : undefined}
             aria-haspopup="menu"
@@ -750,23 +1027,50 @@ export default function WorkspaceSidebar({
                 </button>
               </div>
               {defaultCollapsed ? null : (
-                <div className="pl-1">{groups.defaultCheckout.map(sessionRow)}</div>
+                <div className="pl-1">
+                  {orderedDefaultSessions.map((session) =>
+                    sessionRow(session, defaultGroupKey, orderedDefaultIds)
+                  )}
+                </div>
               )}
             </div>
-            {groups.worktrees.map((group) => {
+            {orderedWorktrees.map((group) => {
               const status = group.sessions[0]?.worktree?.status
               // A checkout Git cannot hand to a PTY must not offer a session.
               const canAdd = status === 'ready-to-start' || status === 'active'
               const collapsed = collapsedWorktrees.has(group.worktreeId)
+              const groupKey = sessionGroupKey(repo.id, group.path)
+              const orderedGroupSessions = orderByStoredIds(
+                group.sessions,
+                rowOrder.sessions[groupKey] ?? [],
+                (session) => session.id
+              )
+              const orderedGroupIds = orderedGroupSessions.map((session) => session.id)
+              const dragTarget: SidebarDragSource = {
+                kind: 'worktree',
+                groupKey: repo.id,
+                id: group.path
+              }
               return (
                 <div key={group.worktreeId} data-testid={`sidebar-worktree-${group.worktreeId}`}>
-                  <div className="group/wt flex h-7 items-center gap-1 px-1 font-mono text-[12px] text-muted-foreground">
+                  <div
+                    className={`group/wt flex h-7 items-center gap-1 px-1 font-mono text-[12px] text-muted-foreground ${rowDropClass(dragTarget)} ${rowDraggingClass(dragTarget)}`}
+                    onDragOver={(event) => rowDragOver(event, dragTarget)}
+                    onDragLeave={(event) => rowDragLeave(event, dragTarget)}
+                    onDrop={(event) => rowDrop(event, dragTarget, applyWorktreeDrop)}
+                  >
                     <button
                       type="button"
                       className="flex h-full min-w-0 flex-1 items-center gap-1 text-left hover:text-foreground focus-visible:text-foreground"
                       aria-expanded={!collapsed}
                       aria-label={group.branch}
                       data-testid={`sidebar-worktree-toggle-${group.worktreeId}`}
+                      draggable
+                      onDragStart={(event) => startRowDrag(event, dragTarget)}
+                      onDragEnd={resetRowDrag}
+                      onDragOver={(event) => rowDragOver(event, dragTarget)}
+                      onDragLeave={(event) => rowDragLeave(event, dragTarget)}
+                      onDrop={(event) => rowDrop(event, dragTarget, applyWorktreeDrop)}
                       onClick={() => toggleWorktreeCollapsed(group.worktreeId)}
                       onContextMenu={(event) => {
                         event.preventDefault()
@@ -806,7 +1110,11 @@ export default function WorkspaceSidebar({
                     </button>
                   </div>
                   {collapsed ? null : (
-                    <div className="pl-1">{group.sessions.map(sessionRow)}</div>
+                    <div className="pl-1">
+                      {orderedGroupSessions.map((session) =>
+                        sessionRow(session, groupKey, orderedGroupIds)
+                      )}
+                    </div>
                   )}
                 </div>
               )
@@ -1041,7 +1349,7 @@ export default function WorkspaceSidebar({
                   {t('projects.empty.title')}
                 </button>
               ) : (
-                repos.map((repo) => projectRow(repo, false))
+                orderedRepos.map((repo) => projectRow(repo, false))
               )}
             </div>
           ) : null}

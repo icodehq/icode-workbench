@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-11-23
+
+### Added
+
+- **Sidebar drag reordering.** Projects, worktrees and sessions can be dragged
+  to reorder the workspace sidebar. The order is stored in the app database, so
+  it survives restarts; worktrees reorder within their project and sessions
+  within their checkout group (the default checkout or a worktree).
+
 ## [0.19.2] - 2026-11-23
 
 ### Fixed

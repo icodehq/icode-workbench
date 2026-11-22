@@ -85,6 +85,10 @@ import {
   assistantSetSettingsInputSchema
 } from '../../shared/schemas/assistant'
 import { networkSetSettingsInputSchema } from '../../shared/schemas/network'
+import {
+  sidebarOrderPayloadSchema,
+  type SidebarOrderPayload
+} from '../../shared/schemas/sidebar-order'
 import type { IpcResult } from '../../shared/schemas/ipc'
 import {
   providerCreateInputSchema,
@@ -109,6 +113,8 @@ import { localizeAppError } from '../../shared/i18n'
 import { getMainLocale } from '../i18n/main-i18n'
 
 export type DispatcherServices = {
+  sidebarOrderGet: () => Promise<unknown>
+  sidebarOrderSet: (input: SidebarOrderPayload) => Promise<unknown>
   reposList: () => Promise<unknown>
   reposAdd: (input: { path: string; target?: ExecutionTarget }) => Promise<unknown>
   reposInspect: (input: { path: string; target: ExecutionTarget }) => Promise<unknown>
@@ -360,6 +366,15 @@ async function run<T>(work: () => Promise<T> | T): Promise<IpcResult<unknown>> {
 export function createDispatcher(services: DispatcherServices): Dispatcher {
   return async (channel, rawInput) => {
     switch (channel) {
+      case IPC_CHANNELS.sidebarOrderGet:
+        return run(() => services.sidebarOrderGet())
+
+      case IPC_CHANNELS.sidebarOrderSet: {
+        const input = parse(sidebarOrderPayloadSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.sidebarOrderSet(input))
+      }
+
       case IPC_CHANNELS.reposList:
         return run(() => services.reposList())
 

@@ -42,6 +42,8 @@ export const LOCALE_CHANNELS: readonly string[] = [
 
 export const HANDLED_CHANNELS: readonly string[] = [
   ...LOCALE_CHANNELS,
+  IPC_CHANNELS.sidebarOrderGet,
+  IPC_CHANNELS.sidebarOrderSet,
   IPC_CHANNELS.reposList,
   IPC_CHANNELS.reposAdd,
   IPC_CHANNELS.reposInspect,
@@ -179,6 +181,8 @@ export function createAppDispatcher(
     fetch: (url, init) => runtime.network.fetch(url, init)
   })
   return createDispatcher({
+    sidebarOrderGet: async () => getPersistence().sidebarOrder.get(),
+    sidebarOrderSet: async (input) => getPersistence().sidebarOrder.set(input),
     reposList: async () => {
       const persistence = getPersistence()
       // Remote projects are asked about by their own host before the list is
