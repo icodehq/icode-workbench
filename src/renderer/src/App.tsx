@@ -10,6 +10,7 @@ import SchedulesView from './components/SchedulesView'
 import WorkspaceWelcome from './components/shell/WorkspaceWelcome'
 import SessionsSurface from './components/sessions/SessionsSurface'
 import { TerminalProvider } from './terminal/terminal-provider'
+import type { TerminalInteractionHost } from './terminal/terminal-interaction-host'
 import SettingsPage from './pages/SettingsPage'
 import TasksSurface from './components/tasks/TasksSurface'
 import TaskComposerDialog from './components/tasks/TaskComposerDialog'
@@ -411,6 +412,49 @@ export default function App(): React.JSX.Element {
     [active, workspace]
   )
 
+  const terminalInteractionHost = useMemo<TerminalInteractionHost>(
+    () => ({
+      openFile: (path, line = 1) => commands.openFileFromPalette(path, line),
+      openExternal: async (url) => {
+        const result = await window.icode.window.openExternal({ url })
+        if (!result.ok) {
+          workspace.notify({ tone: 'error', message: result.error.message })
+        }
+      },
+      notify: (notice) => workspace.notify(notice),
+      getSession: (sessionId) =>
+        state.sessions.find((session) => session.id === sessionId) ?? null,
+      statFile: async (sessionId, path) => {
+        try {
+          const result = await window.icode.files.stat({ sessionId, path })
+          return result.ok && result.value.status === 'ok'
+        } catch {
+          return false
+        }
+      },
+      readClipboard: async () => {
+        try {
+          return await navigator.clipboard.readText()
+        } catch {
+          return ''
+        }
+      },
+      writeClipboard: async (text) => {
+        try {
+          await navigator.clipboard.writeText(text)
+          return true
+        } catch {
+          return false
+        }
+      },
+      sendToAgent: async (sessionId, text) => {
+        const session = state.sessions.find((entry) => entry.id === sessionId) ?? null
+        return sendToAgent(text, session)
+      }
+    }),
+    [commands.openFileFromPalette, sendToAgent, state.sessions, workspace]
+  )
+
   const refreshEverything = useCallback((): void => {
     setRefreshToken((current) => current + 1)
     void workspace.refreshAll()
@@ -627,7 +671,7 @@ export default function App(): React.JSX.Element {
   }
 
   return (
-    <TerminalProvider sessions={state.sessions}>
+    <TerminalProvider sessions={state.sessions} host={terminalInteractionHost}>
     <>
     <AppLayout
       focusActive={focusActive}

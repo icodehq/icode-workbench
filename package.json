@@ -1,6 +1,6 @@
 {
   "name": "icode",
-  "version": "0.17.3",
+  "version": "0.18.0",
   "private": true,
   "description": "iCode Workbench — the universal agent development environment for every agent and platform",
   "license": "AGPL-3.0-only",
@@ -63,10 +63,12 @@
     "verify:providers": "vitest run --config config/vitest.config.mts src/main/providers/provider-live.test.ts"
   },
   "dependencies": {
-    "@xterm/addon-fit": "0.11.0",
-    "@xterm/addon-serialize": "0.14.0",
-    "@xterm/headless": "6.0.0",
-    "@xterm/xterm": "6.0.0",
+    "@xterm/addon-fit": "0.12.0-beta.332",
+    "@xterm/addon-search": "0.17.0-beta.330",
+    "@xterm/addon-serialize": "0.15.0-beta.330",
+    "@xterm/addon-unicode11": "0.10.0-beta.330",
+    "@xterm/headless": "6.1.0-beta.334",
+    "@xterm/xterm": "6.1.0-beta.336",
     "chokidar": "4.0.3",
     "jsonc-parser": "3.3.1",
     "lucide-react": "0.577.0",

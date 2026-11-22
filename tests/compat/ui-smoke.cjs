@@ -851,6 +851,53 @@ async function main() {
     return { session: firstSession, pid: firstPid }
   })
 
+  await step('open terminal find and the pane context menu', async () => {
+    const terminal = `[data-testid="terminal-${firstSession.id}"]`
+    await rightClick(terminal, 40, 40)
+    await waitForSelector('[data-testid="terminal-context-menu"]')
+    const copyDisabled = await cdp.evaluate(
+      `document.querySelector('[data-testid="terminal-menu-copy"]')?.getAttribute('aria-disabled')`
+    )
+    assert(copyDisabled === 'true', 'Copy should be disabled without a selection')
+    await click('[data-testid="terminal-menu-select-all"]')
+    await sleep(150)
+
+    await rightClick(terminal, 40, 40)
+    await waitForSelector('[data-testid="terminal-context-menu"]')
+    const copyEnabled = await cdp.evaluate(
+      `document.querySelector('[data-testid="terminal-menu-copy"]')?.getAttribute('aria-disabled')`
+    )
+    assert(copyEnabled === 'false', 'Copy should be enabled after Select All')
+    await click('[data-testid="terminal-menu-find"]')
+    await waitForSelector('[data-testid="terminal-find-bar"]')
+    const placeholder = await cdp.evaluate(
+      `document.querySelector('[data-testid="terminal-find-bar"] input')?.getAttribute('placeholder')`
+    )
+    assert(placeholder, 'Terminal find input is missing')
+    await cdp.send('Input.insertText', { text: 'FIRST_READY' })
+    await sleep(250)
+    await cdp.send('Input.dispatchKeyEvent', {
+      type: 'keyDown',
+      key: 'Escape',
+      code: 'Escape',
+      windowsVirtualKeyCode: 27,
+      nativeVirtualKeyCode: 27
+    })
+    await cdp.send('Input.dispatchKeyEvent', {
+      type: 'keyUp',
+      key: 'Escape',
+      code: 'Escape',
+      windowsVirtualKeyCode: 27,
+      nativeVirtualKeyCode: 27
+    })
+    await waitFor(
+      `!document.querySelector('[data-testid="terminal-find-bar"]')`,
+      'terminal find closed'
+    )
+    await screenshot('04b-terminal-find-menu')
+    return { placeholder }
+  })
+
   await step('resize the terminal through the visible UI and typed API', async () => {
     const parseSize = (list) => {
       for (let index = list.length - 1; index >= 0; index -= 1) {
