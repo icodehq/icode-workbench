@@ -206,7 +206,7 @@ export default function WorkspaceSidebar({
   // On macOS the traffic lights take the header's leading inset, so the
   // narrowest widths need to drop the refresh verb (the status bar still has
   // one) rather than squeeze the brand into the controls.
-  const compactHeader = width < (isMacPlatform(platform) ? 280 : 240)
+  const compactHeader = width < (isMacPlatform(platform) ? 290 : 250)
   const widthRef = useRef(width)
   const asideRef = useRef<HTMLElement | null>(null)
   const resizerRef = useRef<HTMLDivElement | null>(null)
@@ -280,7 +280,7 @@ export default function WorkspaceSidebar({
       if (aside === null) return
       const widthText = String(Math.round(next))
       if (aside.dataset.width !== widthText) aside.dataset.width = widthText
-      const compact = next < (isMacPlatform(platform) ? 280 : 240)
+      const compact = next < (isMacPlatform(platform) ? 290 : 250)
       const compactText = compact ? 'true' : 'false'
       if (aside.dataset.compact !== compactText) aside.dataset.compact = compactText
       resizerRef.current?.setAttribute('aria-valuenow', widthText)
@@ -434,12 +434,12 @@ export default function WorkspaceSidebar({
     return (
       <div
         key={session.id}
-        className={`flex min-h-9 flex-col justify-center rounded-md ${menuOpen ? 'bg-hover' : ''}`}
+        className={`flex min-h-10 flex-col justify-center rounded-md ${menuOpen ? 'bg-hover' : ''}`}
         data-menu-open={menuOpen ? 'true' : undefined}
       >
         <button
           type="button"
-          className={`flex min-h-9 w-full min-w-0 items-start gap-1.5 rounded-md px-1.5 py-1 text-left ${
+          className={`flex min-h-10 w-full min-w-0 items-start gap-1.5 rounded-md px-1.5 py-1 text-left ${
             active
               ? 'bg-sel text-foreground shadow-[inset_2px_0_0_var(--icode-accent)]'
               : 'text-muted-foreground hover:bg-hover hover:text-foreground'
@@ -477,8 +477,8 @@ export default function WorkspaceSidebar({
             className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${sessionStateDotClass(session, pendingFor(session))}`}
           />
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-[12px]">{session.title}</span>
-            <span className="block truncate font-mono text-[10px] text-muted-foreground">
+            <span className="block truncate text-[13px]">{session.title}</span>
+            <span className="block truncate font-mono text-[11px] text-muted-foreground">
               {sessionStateLabelFor(session, pendingFor(session))}
               {session.worktree
                 ? ` · ${
@@ -490,7 +490,7 @@ export default function WorkspaceSidebar({
             </span>
             {suffix === null ? null : (
               <span
-                className={`mt-0.5 flex items-center gap-1 truncate text-[10px] ${activityTone(
+                className={`mt-0.5 flex items-center gap-1 truncate text-[11px] ${activityTone(
                   session.activity
                 )}${session.activity?.unread ? ' font-semibold' : ''}`}
                 data-testid={`session-activity-${session.id}`}
@@ -505,7 +505,7 @@ export default function WorkspaceSidebar({
             )}
             {session.activity?.prompt ? (
               <span
-                className="mt-0.5 block truncate text-[10px] text-muted-foreground/80"
+                className="mt-0.5 block truncate text-[11px] text-muted-foreground/80"
                 title={session.activity.prompt}
                 data-testid={`session-prompt-${session.id}`}
               >
@@ -520,7 +520,7 @@ export default function WorkspaceSidebar({
               <button
                 key={child.id}
                 type="button"
-                className="flex h-5 w-full min-w-0 items-center gap-1 rounded px-1 text-left text-[10px] hover:bg-hover"
+                className="flex h-6 w-full min-w-0 items-center gap-1 rounded px-1 text-left text-[11px] hover:bg-hover"
                 onClick={() => onOpenSession(session.id)}
                 title={child.toolName ? `${child.label} · ${child.toolName}` : child.label}
                 data-testid={`session-subagent-${session.id}-${child.id}`}
@@ -532,7 +532,7 @@ export default function WorkspaceSidebar({
               </button>
             ))}
             {subagents.hidden > 0 ? (
-              <span className="block px-1 text-[10px] text-muted-foreground">
+              <span className="block px-1 text-[11px] text-muted-foreground">
                 +{subagents.hidden}
               </span>
             ) : null}
@@ -562,7 +562,7 @@ export default function WorkspaceSidebar({
       return (
         <div
           key={`pin-${repo.id}`}
-          className={`flex h-8 min-w-0 items-center rounded-md ${
+          className={`flex h-9 min-w-0 items-center rounded-md ${
             menuOpen && !isActive ? 'bg-hover' : ''
           }`}
           data-menu-open={menuOpen ? 'true' : undefined}
@@ -579,7 +579,7 @@ export default function WorkspaceSidebar({
         >
           <button
             type="button"
-            className={`flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 text-left text-[12px] ${
+            className={`flex h-9 min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 text-left text-[13px] ${
               isActive
                 ? 'bg-sel text-foreground'
                 : 'text-muted-foreground hover:bg-hover hover:text-foreground'
@@ -592,11 +592,11 @@ export default function WorkspaceSidebar({
             data-active={isActive ? 'true' : 'false'}
           >
             <FolderGit2 size={11} className="shrink-0" />
-            <span className="min-w-0 flex-1 truncate text-[12px] font-medium">
+            <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
               {repo.displayName}
             </span>
             {needs > 0 ? (
-              <span className="shrink-0 rounded-full bg-signal-weak px-1 font-mono text-[9px] text-signal">
+              <span className="shrink-0 rounded-full bg-signal-weak px-1 font-mono text-[10px] text-signal">
                 {needs}
               </span>
             ) : null}
@@ -655,19 +655,19 @@ export default function WorkspaceSidebar({
             title={repo.path}
           >
             <FolderGit2 size={12} className="shrink-0" />
-            <span className="min-w-0 flex-1 truncate text-[12px] font-medium">
+            <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
               {repo.displayName}
             </span>
             {isPinned ? <Pin size={9} className="shrink-0 text-muted-foreground" /> : null}
             {needs > 0 ? (
               <span
-                className="shrink-0 rounded-full bg-signal-weak px-1 font-mono text-[9px] text-signal"
+                className="shrink-0 rounded-full bg-signal-weak px-1 font-mono text-[10px] text-signal"
                 title={t('projectHeader.needsCount', { count: needs })}
               >
                 {needs}
               </span>
             ) : null}
-            <span className="shrink-0 font-mono text-[9px] text-muted-foreground">
+            <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
               {sessionCount}
             </span>
             {preparation?.kind === 'failed' ? (
@@ -700,7 +700,7 @@ export default function WorkspaceSidebar({
           >
             <MoreHorizontal size={12} />
           </button>
-          <span className="hidden shrink-0 items-center gap-1 pr-1 font-mono text-[9px] text-muted-foreground group-hover:flex">
+          <span className="hidden shrink-0 items-center gap-1 pr-1 font-mono text-[11px] text-muted-foreground group-hover:flex">
             <GitBranch size={9} />
             {repo.currentBranch ?? '—'}
           </span>
@@ -712,7 +712,7 @@ export default function WorkspaceSidebar({
             data-testid={`sidebar-sessions-${repo.id}`}
           >
             <div data-testid={`sidebar-default-checkout-${repo.id}`}>
-              <div className="group/dc flex h-6 items-center gap-1 px-1 font-mono text-[10px] text-muted-foreground">
+              <div className="group/dc flex h-7 items-center gap-1 px-1 font-mono text-[12px] text-muted-foreground">
                 <button
                   type="button"
                   className="flex h-full min-w-0 flex-1 items-center gap-1 text-left hover:text-foreground focus-visible:text-foreground"
@@ -735,7 +735,7 @@ export default function WorkspaceSidebar({
                 </button>
                 <button
                   type="button"
-                  className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded opacity-0 hover:bg-muted hover:text-foreground focus-visible:opacity-100 disabled:cursor-not-allowed disabled:opacity-30 group-hover/dc:opacity-100 group-hover/dc:disabled:opacity-30"
+                  className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded opacity-0 hover:bg-muted hover:text-foreground focus-visible:opacity-100 disabled:cursor-not-allowed disabled:opacity-30 group-hover/dc:opacity-100 group-hover/dc:disabled:opacity-30"
                   aria-label={t('sidebar.newSessionInDefaultCheckout')}
                   title={
                     canAddDefault
@@ -760,7 +760,7 @@ export default function WorkspaceSidebar({
               const collapsed = collapsedWorktrees.has(group.worktreeId)
               return (
                 <div key={group.worktreeId} data-testid={`sidebar-worktree-${group.worktreeId}`}>
-                  <div className="group/wt flex h-6 items-center gap-1 px-1 font-mono text-[10px] text-muted-foreground">
+                  <div className="group/wt flex h-7 items-center gap-1 px-1 font-mono text-[12px] text-muted-foreground">
                     <button
                       type="button"
                       className="flex h-full min-w-0 flex-1 items-center gap-1 text-left hover:text-foreground focus-visible:text-foreground"
@@ -791,7 +791,7 @@ export default function WorkspaceSidebar({
                     </button>
                     <button
                       type="button"
-                      className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded opacity-0 hover:bg-muted hover:text-foreground focus-visible:opacity-100 disabled:cursor-not-allowed disabled:opacity-30 group-hover/wt:opacity-100 group-hover/wt:disabled:opacity-30"
+                      className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded opacity-0 hover:bg-muted hover:text-foreground focus-visible:opacity-100 disabled:cursor-not-allowed disabled:opacity-30 group-hover/wt:opacity-100 group-hover/wt:disabled:opacity-30"
                       aria-label={t('sidebar.newSessionHere')}
                       title={
                         canAdd
@@ -837,10 +837,10 @@ export default function WorkspaceSidebar({
             <TerminalSquare size={13} />
           </span>
           <span className="min-w-0 leading-none">
-            <span className="block truncate text-[13px] font-semibold tracking-tight">
+            <span className="block truncate text-[14px] font-semibold tracking-tight">
               <span className="text-brand">i</span>Code
             </span>
-            <span className="mt-0.5 block text-[9px] uppercase tracking-[0.14em] text-muted-foreground">
+            <span className="mt-0.5 block text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
               Workbench
             </span>
           </span>
@@ -882,7 +882,7 @@ export default function WorkspaceSidebar({
         >
           <Bell size={13} />
           {attention > 0 ? (
-            <span className="absolute -right-0.5 -top-0.5 min-w-3 rounded-full bg-signal px-1 text-center text-[9px] font-semibold leading-3 text-signal-ink">
+            <span className="absolute -right-0.5 -top-0.5 min-w-3 rounded-full bg-signal px-1 text-center text-[10px] font-semibold leading-3 text-signal-ink">
               {attention > 9 ? '9+' : attention}
             </span>
           ) : null}
@@ -902,7 +902,7 @@ export default function WorkspaceSidebar({
       <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
         {pinned.length + pinnedSessions.length + pinnedTasks.length > 0 ? (
           <section aria-label={t('sidebar.pinned')} data-testid="sidebar-pinned">
-            <div className="flex h-7 items-center gap-1 px-1 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+            <div className="flex h-8 items-center gap-1 px-1 font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
               <Pin size={9} />
               {t('sidebar.pinned')}
             </div>
@@ -915,12 +915,12 @@ export default function WorkspaceSidebar({
                 return (
                   <div
                     key={`pin-session-${session.id}`}
-                    className={`flex min-h-8 items-center rounded-md ${menuOpen ? 'bg-hover' : ''}`}
+                    className={`flex min-h-9 items-center rounded-md ${menuOpen ? 'bg-hover' : ''}`}
                     data-menu-open={menuOpen ? 'true' : undefined}
                   >
                     <button
                       type="button"
-                      className={`flex min-h-8 min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 py-1 text-left ${
+                      className={`flex min-h-9 min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 py-1 text-left ${
                         active ? 'bg-sel text-foreground' : 'text-muted-foreground hover:bg-hover hover:text-foreground'
                       }`}
                       onClick={() => onOpenSession(session.id)}
@@ -946,8 +946,8 @@ export default function WorkspaceSidebar({
                       <span
                         className={`h-1.5 w-1.5 shrink-0 rounded-full ${sessionStateDotClass(session, pendingFor(session))}`}
                       />
-                      <span className="min-w-0 flex-1 truncate text-[12px]">{session.title}</span>
-                      <span className="max-w-[110px] shrink-0 truncate font-mono text-[10px] text-muted-foreground">
+                      <span className="min-w-0 flex-1 truncate text-[13px]">{session.title}</span>
+                      <span className="max-w-[110px] shrink-0 truncate font-mono text-[11px] text-muted-foreground">
                         {repo?.displayName ?? session.repoId}
                         {session.worktree ? ` / ${session.worktree.branch.split('/').pop()}` : ''}
                       </span>
@@ -962,12 +962,12 @@ export default function WorkspaceSidebar({
                 return (
                   <div
                     key={`pin-task-${task.id}`}
-                    className={`flex min-h-8 items-center rounded-md ${menuOpen ? 'bg-hover' : ''}`}
+                    className={`flex min-h-9 items-center rounded-md ${menuOpen ? 'bg-hover' : ''}`}
                     data-menu-open={menuOpen ? 'true' : undefined}
                   >
                     <button
                       type="button"
-                      className={`flex min-h-8 min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 py-1 text-left ${
+                      className={`flex min-h-9 min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 py-1 text-left ${
                         active ? 'bg-sel text-foreground' : 'text-muted-foreground hover:bg-hover hover:text-foreground'
                       }`}
                       onClick={() => onOpenTask(task)}
@@ -990,8 +990,8 @@ export default function WorkspaceSidebar({
                       data-testid={`pinned-task-${task.id}`}
                     >
                       <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${taskDotClass(task)}`} />
-                      <span className="min-w-0 flex-1 truncate text-[12px]">{task.title}</span>
-                      <span className="max-w-[110px] shrink-0 truncate font-mono text-[10px] text-muted-foreground">
+                      <span className="min-w-0 flex-1 truncate text-[13px]">{task.title}</span>
+                      <span className="max-w-[110px] shrink-0 truncate font-mono text-[11px] text-muted-foreground">
                         {repo?.displayName ?? task.repoId}
                       </span>
                     </button>
@@ -1003,10 +1003,10 @@ export default function WorkspaceSidebar({
         ) : null}
 
         <section aria-label={t('sidebar.projects')} data-testid="sidebar-projects" className="mt-1">
-          <div className="flex h-7 items-center gap-1 px-1">
+          <div className="flex h-8 items-center gap-1 px-1">
             <button
               type="button"
-              className="flex min-w-0 flex-1 items-center gap-1 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-muted-foreground hover:text-foreground"
+              className="flex min-w-0 flex-1 items-center gap-1 font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground hover:text-foreground"
               onClick={() => setProjectsCollapsed((current) => !current)}
               aria-expanded={!projectsCollapsed}
               data-testid="sidebar-projects-toggle"
@@ -1034,7 +1034,7 @@ export default function WorkspaceSidebar({
               {repos.length === 0 ? (
                 <button
                   type="button"
-                  className="w-full rounded-md px-2 py-2 text-left text-[11px] leading-relaxed text-muted-foreground hover:bg-hover hover:text-foreground"
+                  className="w-full rounded-md px-2 py-2 text-left text-[12px] leading-relaxed text-muted-foreground hover:bg-hover hover:text-foreground"
                   onClick={onAddProject}
                   data-testid="sidebar-empty-add-project"
                 >
@@ -1053,10 +1053,10 @@ export default function WorkspaceSidebar({
         aria-label={t('sidebar.tasks')}
         data-testid="sidebar-tasks"
       >
-        <div className="flex h-7 shrink-0 items-center gap-1 px-1">
+        <div className="flex h-8 shrink-0 items-center gap-1 px-1">
           <button
             type="button"
-            className="flex min-w-0 flex-1 items-center gap-1 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-muted-foreground hover:text-foreground"
+            className="flex min-w-0 flex-1 items-center gap-1 font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground hover:text-foreground"
             onClick={() => setTasksCollapsed((current) => !current)}
             aria-expanded={!tasksCollapsed}
             data-testid="sidebar-tasks-toggle"
@@ -1117,7 +1117,7 @@ export default function WorkspaceSidebar({
         {!tasksCollapsed ? (
           <div className="min-h-0 flex-1 overflow-y-auto" data-testid="sidebar-task-rows">
             {taskGroups.length === 0 ? (
-              <p className="px-2 py-2 text-[11px] leading-relaxed text-muted-foreground">
+              <p className="px-2 py-2 text-[12px] leading-relaxed text-muted-foreground">
                 {tasksHistory
                   ? t('tasks.emptyHistory')
                   : tasksNeedsOnly
@@ -1127,7 +1127,7 @@ export default function WorkspaceSidebar({
             ) : (
               taskGroups.map((group) => (
                 <div key={group.repo.id} className="mb-1" data-testid={`sidebar-task-group-${group.repo.id}`}>
-                  <div className="flex h-6 items-center gap-1 px-1 font-mono text-[9px] uppercase tracking-[0.08em] text-muted-foreground">
+                  <div className="flex h-7 items-center gap-1 px-1 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
                     <span className="min-w-0 flex-1 truncate">{group.repo.displayName}</span>
                     <span>{group.tasks.length}</span>
                   </div>
@@ -1137,12 +1137,12 @@ export default function WorkspaceSidebar({
                     return (
                       <div
                         key={task.id}
-                        className={`flex min-h-9 items-center rounded-md ${menuOpen ? 'bg-hover' : ''}`}
+                        className={`flex min-h-10 items-center rounded-md ${menuOpen ? 'bg-hover' : ''}`}
                         data-menu-open={menuOpen ? 'true' : undefined}
                       >
                         <button
                           type="button"
-                          className={`flex min-h-9 min-w-0 flex-1 items-start gap-1.5 rounded-md px-1.5 py-1 text-left ${
+                          className={`flex min-h-10 min-w-0 flex-1 items-start gap-1.5 rounded-md px-1.5 py-1 text-left ${
                             active ? 'bg-sel text-foreground shadow-[inset_2px_0_0_var(--icode-accent)]' : 'text-muted-foreground hover:bg-hover hover:text-foreground'
                           }`}
                           onClick={() => onOpenTask(task)}
@@ -1172,8 +1172,8 @@ export default function WorkspaceSidebar({
                             className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${taskDotClass(task)}`}
                           />
                           <span className="min-w-0 flex-1">
-                            <span className="block truncate text-[12px]">{task.title}</span>
-                            <span className="block truncate font-mono text-[10px] text-muted-foreground">
+                            <span className="block truncate text-[13px]">{task.title}</span>
+                            <span className="block truncate font-mono text-[11px] text-muted-foreground">
                               {taskStatusLabel(task)}
                               {task.attempt ? ` · ${t('task.attempt', { count: task.attempt })}` : ''}
                             </span>
@@ -1199,9 +1199,9 @@ export default function WorkspaceSidebar({
           data-testid="sidebar-mira"
         >
           <AssistantAvatar name={assistantName} status={assistantStatus} size="sm" />
-          <span className="min-w-0 flex-1 truncate text-[12px]">{assistantName}</span>
+          <span className="min-w-0 flex-1 truncate text-[13px]">{assistantName}</span>
           {assistantUnread > 0 ? (
-            <span className="rounded-full bg-signal-weak px-1 text-[9px] font-medium text-signal">
+            <span className="rounded-full bg-signal-weak px-1 text-[10px] font-medium text-signal">
               {assistantUnread > 9 ? '9+' : assistantUnread}
             </span>
           ) : null}
