@@ -1337,6 +1337,47 @@ async function main() {
     return { firstPid: Number(pidNow[1]), activePanes: allPanes }
   })
 
+  await step('reorder session tabs when a drag is dispatched in one task', async () => {
+    /*
+     * A native drag runs its own event loop, so React state written in
+     * dragstart is not guaranteed to be committed before dragover/drop.
+     * Dispatch the whole sequence in one task: the reorder must not depend on
+     * a React render landing between the events.
+     */
+    const before = await cdp.evaluate(
+      `Array.from(document.querySelectorAll('[data-testid="session-tabs"] [role="tab"]')).map((el) => el.getAttribute('data-session-id'))`
+    )
+    assert(before.length === 2, `Expected two session tabs, saw ${before.length}`)
+    const prevented = await cdp.evaluate(`(() => {
+      const tabs = Array.from(document.querySelectorAll('[data-testid="session-tabs"] [role="tab"]'));
+      const source = tabs[0];
+      const target = tabs[1];
+      const data = new DataTransfer();
+      const fire = (element, type) =>
+        element.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: data }));
+      fire(source, 'dragstart');
+      fire(target, 'dragenter');
+      const over = new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: data });
+      target.dispatchEvent(over);
+      const overPrevented = over.defaultPrevented;
+      fire(target, 'drop');
+      fire(source, 'dragend');
+      return overPrevented;
+    })()`)
+    assert(prevented, 'The tab strip did not accept dragover for a tab drag')
+    const expected = [before[1], before[0]]
+    await waitFor(
+      `(() => {
+        const ids = Array.from(document.querySelectorAll('[data-testid="session-tabs"] [role="tab"]')).map((el) => el.getAttribute('data-session-id'));
+        return JSON.stringify(ids) === ${JSON.stringify(JSON.stringify(expected))} ? ids : null;
+      })()`,
+      'session tab drag reorder',
+      5000
+    )
+    await screenshot('06c-session-tabs-reordered')
+    return { before, after: expected }
+  })
+
   await step('exit a live shell and keep its session record', async () => {
     await click(`[data-testid="session-item-${firstSession.id}"]`)
     await typeInSession(firstSession.id, 'exit')
