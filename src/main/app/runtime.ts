@@ -11,7 +11,7 @@ import {
 } from '../harness/harness-detector'
 import { HARNESS_IDS, type HarnessId } from '../../shared/domain/harness'
 import { isProviderHarness } from '../../shared/domain/provider-recipes'
-import type { WslDistroListPayload } from '../../shared/schemas/ipc'
+import { IPC_CHANNELS, type WslDistroListPayload } from '../../shared/schemas/ipc'
 import { discoverWslDistros } from '../wsl/distros'
 import {
   createNetworkProxyRuntime,
@@ -48,6 +48,11 @@ import { AssistantService } from '../assistant/assistant-service'
 import { AssistantRunner } from '../assistant/assistant-runner'
 import { AssistantActions } from '../assistant/assistant-actions'
 import { AssistantPolicy } from '../assistant/assistant-policy'
+import { presentWindow } from '../window-present'
+import {
+  notificationDestination,
+  notificationTaskId
+} from '../assistant/notification-destination'
 import { AssistantNotifier } from '../assistant/assistant-notifier'
 import { ActivityService } from '../activity/activity-service'
 import type { ActivitySource } from '../../shared/domain/activity'
@@ -1169,11 +1174,26 @@ export async function startAppRuntime(): Promise<AppRuntime> {
       const notification = new Notification({ title, body })
       notification.on('click', () => {
         const window = BrowserWindow.getAllWindows().find((entry) => !entry.isDestroyed())
-        if (window) {
-          window.show()
-          window.focus()
+        if (window) presentWindow(window)
+        // The message card is persisted, so the destination is resolved at
+        // click time against the current task rather than the notify-time need.
+        const message = assistantStore.getMessage(messageId)
+        const taskId = message === null ? null : notificationTaskId(message.card)
+        const task = taskId === null ? null : taskStore.findById(taskId)
+        const destination = notificationDestination(message?.notificationKind ?? null, task)
+        if (destination.kind === 'assistant' || message === null) {
+          assistantService.focus(messageId)
+          return
         }
-        assistantService.focus(messageId)
+        // The user is acting on the task, not reading the card. Acknowledge the
+        // message so the Mira badge clears without emitting a competing focus.
+        assistantService.markNotificationRead(messageId)
+        if (window !== undefined && !window.webContents.isDestroyed()) {
+          window.webContents.send(IPC_CHANNELS.sessionEvent, {
+            type: 'notification-focus',
+            destination
+          })
+        }
       })
       notification.show()
     }

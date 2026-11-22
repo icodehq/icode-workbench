@@ -70,6 +70,26 @@ describe('AssistantService', () => {
     expect(service.markRead({ threadId: state.threadId })).toBe(0)
   })
 
+  it('marks one notification read without emitting a Mira focus event', () => {
+    const { service } = fixture()
+    const message = service.postNotification({
+      body: 'A task needs approval.',
+      kind: 'notification',
+      notificationKind: 'approval-needed',
+      priority: 'high',
+      dedupeKey: 'test:notification'
+    })
+    expect(message).not.toBeNull()
+    expect(service.state().unread).toBe(1)
+
+    const events: string[] = []
+    service.subscribe((event) => events.push(event.type))
+    service.markNotificationRead(message!.id)
+
+    expect(service.state().unread).toBe(0)
+    expect(events).not.toContain('focus')
+  })
+
   it('relays runner progress and draft deltas', async () => {
     const runner: AssistantRunnerLike = {
       run: vi.fn(async (_input, onEvent) => {

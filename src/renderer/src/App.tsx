@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import type { SessionSummary } from '../../shared/schemas/ipc'
+import type { RendererSessionEvent, SessionSummary } from '../../shared/schemas/ipc'
 import type { TaskRecordPayload } from '../../shared/icode-api'
 import AppTabStrip from './components/AppTabStrip'
 import WindowChrome from './components/shell/WindowChrome'
@@ -85,6 +85,11 @@ export default function App(): React.JSX.Element {
     assistantTarget,
     commands
   } = useAppNavigation({ workspace, tasks })
+
+  // Session events are registered once, but navigation commands are recreated
+  // every render; the ref keeps the subscription stable.
+  const commandsRef = useRef(commands)
+  commandsRef.current = commands
 
   const assistant = useAssistant(workspace.notify, (event) =>
     commands.showAssistant({ threadId: event.threadId, messageId: event.messageId })
@@ -323,6 +328,28 @@ export default function App(): React.JSX.Element {
         if (focusableSessionId !== null) setTerminalFocus((current) => !current)
       }),
     [focusableSessionId]
+  )
+
+  // An OS notification click is a navigation command from main. Route both
+  // shapes through the same commands the sidebar uses so the surface and the
+  // project mode change together.
+  useEffect(
+    () =>
+      window.icode.onSessionEvent((event: RendererSessionEvent) => {
+        if (event.type === 'activity-focus') {
+          commandsRef.current.openDirectSession(event.sessionId)
+          setSidebarOpen(false)
+          return
+        }
+        if (event.type !== 'notification-focus') return
+        if (event.destination.kind === 'session') {
+          commandsRef.current.openTaskSession(event.destination.sessionId, event.destination.view)
+        } else {
+          commandsRef.current.openTaskById(event.destination.taskId)
+        }
+        setSidebarOpen(false)
+      }),
+    []
   )
 
   useEffect(() => {
@@ -564,10 +591,7 @@ export default function App(): React.JSX.Element {
         request={assistantTarget}
         repos={state.repos}
         tasks={tasks.tasks}
-        onOpenTask={(taskId) => {
-          const task = tasks.tasks.find((entry) => entry.id === taskId)
-          if (task) commands.openTask(task)
-        }}
+        onOpenTask={commands.openTaskById}
         onTaskAction={(action, taskId) => void runAssistantTaskAction(action, taskId)}
         onOpenSettings={commands.showSettings}
       />

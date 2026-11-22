@@ -3,6 +3,7 @@ import type { ActivityTransition } from './activity-service'
 import { IPC_CHANNELS } from '../../shared/schemas/ipc'
 import type { ActivityEvent } from '../../shared/schemas/activity'
 import { mainT } from '../i18n/main-i18n'
+import { presentWindow } from '../window-present'
 
 export type ActivityBroadcasterOptions = {
   /** Test seam; production uses `Notification`. */
@@ -54,10 +55,7 @@ export class ActivityBroadcaster {
         const notification = new Notification({ title, body })
         notification.on('click', () => {
           const window = BrowserWindow.getAllWindows()[0]
-          if (!window || window.isDestroyed()) return
-          if (window.isMinimized()) window.restore()
-          window.show()
-          window.focus()
+          if (!window || !presentWindow(window)) return
           window.webContents.send(IPC_CHANNELS.sessionEvent, {
             type: 'activity-focus',
             sessionId

@@ -237,6 +237,21 @@ describe('attach and snapshot ordering', () => {
     expect(h.controller.getStatus().phase).toBe('live')
   })
 
+  it('ignores shell notification-navigation events', () => {
+    const h = harness()
+    h.attach.mockReturnValueOnce(new Promise(() => undefined))
+    h.controller.start()
+
+    expect(() =>
+      h.emit({
+        type: 'notification-focus',
+        destination: { kind: 'session', sessionId: SESSION_ID, view: 'changes' }
+      })
+    ).not.toThrow()
+    expect(h.sink.writes).toEqual([])
+    expect(h.statuses).toEqual([])
+  })
+
   it('discards an attach response superseded by a newer attempt', async () => {
     const h = harness()
     const first = deferred<IpcResult<TerminalAttachPayload>>()

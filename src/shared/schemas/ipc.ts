@@ -766,6 +766,21 @@ export const rendererSessionEventSchema = z.union([
   z.strictObject({
     type: z.literal('activity-focus'),
     sessionId: sessionIdSchema
+  }),
+  /** A kind-aware notification click asked the shell to navigate somewhere. */
+  z.strictObject({
+    type: z.literal('notification-focus'),
+    destination: z.discriminatedUnion('kind', [
+      z.strictObject({
+        kind: z.literal('session'),
+        sessionId: sessionIdSchema,
+        view: z.enum(['terminal', 'changes', 'files']).optional()
+      }),
+      z.strictObject({
+        kind: z.literal('task'),
+        taskId: z.string().min(1).max(128)
+      })
+    ])
   })
 ])
 
