@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Terminal links. HTTP(S) URLs printed in terminal output are clickable, and a
+  URL that soft-wraps across rows is detected as one link. A plain click opens a
+  small action popover with **Open in Browser** and **Copy Link**;
+  Cmd/Ctrl-click opens the browser directly. OSC 8 hyperlinks follow the same
+  policy. Only http and https URLs can reach the OS browser, and a link click
+  never overrides a text selection or a plain click in a mouse-aware TUI.
+
 ## [0.18.0] - 2026-11-22
 
 ### Added

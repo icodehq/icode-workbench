@@ -898,6 +898,115 @@ async function main() {
     return { placeholder }
   })
 
+  await step('open a terminal URL through the link popover', async () => {
+    const url = 'https://example.com/icode-link'
+    await typeInSession(firstSession.id, `echo ${url}`)
+    await waitForTerminalLine(
+      firstSession.id,
+      (line) => line.includes(url),
+      'the printed URL'
+    )
+    // The find step above selected all; a plain click clears it so the link
+    // gesture is not rejected as a selection click.
+    const blank = await cdp.evaluate(`(() => {
+      const screen = document.querySelector('[data-testid="terminal-pane-${firstSession.id}"] .xterm-screen');
+      if (!screen) return null;
+      const rect = screen.getBoundingClientRect();
+      return { x: rect.left + rect.width / 2, y: rect.bottom - 10 };
+    })()`)
+    assert(blank, 'Could not locate the terminal screen')
+    const clickPoint = async (position) => {
+      await cdp.send('Input.dispatchMouseEvent', {
+        type: 'mouseMoved',
+        x: position.x,
+        y: position.y
+      })
+      await cdp.send('Input.dispatchMouseEvent', {
+        type: 'mousePressed',
+        x: position.x,
+        y: position.y,
+        button: 'left',
+        buttons: 1,
+        clickCount: 1
+      })
+      await cdp.send('Input.dispatchMouseEvent', {
+        type: 'mouseReleased',
+        x: position.x,
+        y: position.y,
+        button: 'left',
+        buttons: 0,
+        clickCount: 1
+      })
+    }
+    await clickPoint(blank)
+    await sleep(150)
+    const point = await cdp.evaluate(`(() => {
+      const pane = document.querySelector('[data-testid="terminal-pane-${firstSession.id}"]');
+      if (!pane) return null;
+      const row = Array.from(pane.querySelectorAll('.xterm-rows > div'))
+        .find((entry) => entry.textContent.includes(${JSON.stringify(url)}));
+      if (!row) return null;
+      const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const index = node.textContent.indexOf(${JSON.stringify(url)});
+        if (index === -1) continue;
+        const range = document.createRange();
+        range.setStart(node, index + Math.min(8, ${JSON.stringify(url)}.length) - 1);
+        range.setEnd(node, index + Math.min(8, ${JSON.stringify(url)}.length));
+        const rect = range.getBoundingClientRect();
+        return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+      }
+      return null;
+    })()`)
+    assert(point, 'Could not locate the URL cell')
+    await clickPoint(point)
+    await waitForSelector('[data-testid="terminal-link-popover"]')
+    await screenshot('04c-terminal-link-popover')
+    await click('[data-testid="terminal-link-copy"]')
+    await waitFor(
+      `!document.querySelector('[data-testid="terminal-link-popover"]')`,
+      'terminal link popover closed by Copy Link'
+    )
+
+    // Escape is the other dismissal path; do not open the system browser.
+    await clickPoint(point)
+    await waitForSelector('[data-testid="terminal-link-popover"]')
+    await sleep(150)
+    const escapeTarget = await cdp.evaluate(`(() => {
+      const element = document.activeElement;
+      return element
+        ? {
+            tag: element.tagName,
+            testId: element.getAttribute('data-testid'),
+            className: String(element.className).slice(0, 120)
+          }
+        : null;
+    })()`)
+    assert(
+      escapeTarget?.testId === 'terminal-link-open',
+      `Escape would target ${JSON.stringify(escapeTarget)}, not the link popover`
+    )
+    await cdp.send('Input.dispatchKeyEvent', {
+      type: 'keyDown',
+      key: 'Escape',
+      code: 'Escape',
+      windowsVirtualKeyCode: 27,
+      nativeVirtualKeyCode: 27
+    })
+    await cdp.send('Input.dispatchKeyEvent', {
+      type: 'keyUp',
+      key: 'Escape',
+      code: 'Escape',
+      windowsVirtualKeyCode: 27,
+      nativeVirtualKeyCode: 27
+    })
+    await waitFor(
+      `!document.querySelector('[data-testid="terminal-link-popover"]')`,
+      'terminal link popover closed by Escape'
+    )
+    return { url }
+  })
+
   await step('resize the terminal through the visible UI and typed API', async () => {
     const parseSize = (list) => {
       for (let index = list.length - 1; index >= 0; index -= 1) {

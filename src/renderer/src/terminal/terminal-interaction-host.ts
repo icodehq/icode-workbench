@@ -47,6 +47,15 @@ export type TerminalTranscriptOptions = {
   maxChars?: number
 }
 
+/** A click that should open the React link action popover. */
+export type TerminalLinkRequest = {
+  url: string
+  x: number
+  y: number
+  open: () => void
+  copy: () => void
+}
+
 /**
  * Stable host for instances that outlive React views.
  *

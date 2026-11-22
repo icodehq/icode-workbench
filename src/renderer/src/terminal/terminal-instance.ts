@@ -21,9 +21,11 @@ import type {
   TerminalFindOptions,
   TerminalInteractionHost,
   TerminalInteractionState,
+  TerminalLinkRequest,
   TerminalMetadata,
   TerminalTranscriptOptions
 } from './terminal-interaction-host'
+import { installTerminalLinks, type TerminalLinks } from './links/terminal-links'
 import { PanePtyResizeHold } from './pane-pty-resize-hold'
 
 /**
@@ -82,6 +84,8 @@ export type TerminalInstanceLike = {
   onInteractionState(listener: (state: TerminalInteractionState) => void): () => void
   /** The view owns the find bar; the key router only requests it. */
   onFindRequest(listener: () => void): () => void
+  /** A link click that should open the React action popover. */
+  onLinkRequest(listener: (request: TerminalLinkRequest) => void): () => void
 }
 
 const INITIAL_STATUS: TerminalStatus = {
@@ -111,8 +115,10 @@ export class TerminalInstance implements TerminalInstanceLike {
     (state: TerminalInteractionState) => void
   >()
   private readonly findRequestListeners = new Set<() => void>()
+  private readonly linkRequestListeners = new Set<(request: TerminalLinkRequest) => void>()
   private readonly keyRouter: { dispose(): void }
   private readonly osc52Disposable: { dispose(): void }
+  private readonly links: TerminalLinks | null
   private readonly themeObserver: MutationObserver
   private readonly inputDisposable: { dispose(): void }
   private readonly resizeDisposable: { dispose(): void }
@@ -175,6 +181,18 @@ export class TerminalInstance implements TerminalInstanceLike {
         maxBase64Chars: this.settings.osc52MaxBytes
       })
     )
+    this.links =
+      this.host === null
+        ? null
+        : installTerminalLinks({
+            term: this.term,
+            host: this.host,
+            isMac: isMacPlatform(),
+            getSettings: () => this.settings,
+            onRequest: (request) => {
+              for (const listener of this.linkRequestListeners) listener(request)
+            }
+          })
 
     /*
      * Grid changes never go straight to the host. Outside a drag the hold
@@ -237,6 +255,7 @@ export class TerminalInstance implements TerminalInstanceLike {
       if (this.disposed) return
       this.settings = next
       applyTerminalOptions(this.term, next, 'interactive')
+      this.links?.update(next)
       this.scheduleFitNow()
     })
 
@@ -426,12 +445,20 @@ export class TerminalInstance implements TerminalInstanceLike {
     return () => this.findRequestListeners.delete(listener)
   }
 
+  onLinkRequest(listener: (request: TerminalLinkRequest) => void): () => void {
+    if (this.disposed) return () => undefined
+    this.linkRequestListeners.add(listener)
+    return () => this.linkRequestListeners.delete(listener)
+  }
+
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
     this.listeners.clear()
     this.interactionListeners.clear()
     this.findRequestListeners.clear()
+    this.linkRequestListeners.clear()
+    this.links?.dispose()
     if (this.copyOnSelectTimer !== null) {
       clearTimeout(this.copyOnSelectTimer)
       this.copyOnSelectTimer = null
