@@ -295,6 +295,36 @@ describe('output contracts', () => {
     ).toBe(true)
     expect(
       rendererSessionEventSchema.safeParse({
+        type: 'notification-focus',
+        destination: { kind: 'session', sessionId, view: 'changes' }
+      }).success
+    ).toBe(true)
+    expect(
+      rendererSessionEventSchema.safeParse({
+        type: 'notification-focus',
+        destination: { kind: 'session', sessionId }
+      }).success
+    ).toBe(true)
+    expect(
+      rendererSessionEventSchema.safeParse({
+        type: 'notification-focus',
+        destination: { kind: 'task', taskId: 'task_1' }
+      }).success
+    ).toBe(true)
+    expect(
+      rendererSessionEventSchema.safeParse({
+        type: 'notification-focus',
+        destination: { kind: 'session', sessionId: 'not-a-session' }
+      }).success
+    ).toBe(false)
+    expect(
+      rendererSessionEventSchema.safeParse({
+        type: 'notification-focus',
+        destination: { kind: 'task', taskId: '' }
+      }).success
+    ).toBe(false)
+    expect(
+      rendererSessionEventSchema.safeParse({
         type: 'activity',
         sessionId,
         activity: { state: 'bogus' }

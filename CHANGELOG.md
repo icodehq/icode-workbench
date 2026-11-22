@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- OS notification clicks now land where the user can act: direct-session
+  finishes and waits open the session terminal, task approvals open the task
+  workbench, waiting and failed tasks open their terminal, review-ready tasks
+  open Changes, and repo setup failures open the Mira card. Clicking a
+  notification also restores a minimized window.
+
 ## [0.17.2] - 2026-11-22
 
 ### Changed

@@ -307,6 +307,8 @@ export class SessionTerminal {
       this.handleState(event.session)
       return
     }
+    // Notification navigation belongs to the shell, not to a PTY.
+    if (event.type === 'notification-focus') return
     if (event.sessionId !== this.sessionId) return
 
     if (event.type === 'data') {
