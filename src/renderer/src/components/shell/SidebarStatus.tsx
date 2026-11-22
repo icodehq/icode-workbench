@@ -43,7 +43,7 @@ export default function SidebarStatus({
       (session.state === 'live' || session.state === 'starting')
   ).length
   return (
-    <div className="shrink-0 border-t border-border px-2 py-1.5 text-[9px] text-muted-foreground">
+    <div className="shrink-0 border-t border-border px-2 py-1.5 text-[10px] text-muted-foreground">
       <div className="flex min-w-0 items-center gap-2">
         <button
           type="button"
@@ -96,7 +96,7 @@ export default function SidebarStatus({
           <RefreshCw size={10} className={refreshing ? 'animate-spin' : ''} />
         </button>
       </div>
-      <div className="mt-0.5 flex items-center justify-between font-mono text-[7.5px] text-muted-foreground/70">
+      <div className="mt-0.5 flex items-center justify-between font-mono text-[9px] text-muted-foreground/70">
         <span title={t('status.harnessesTooltip')} data-testid="harness-summary">
           {t('status.harnessesCount', {
             available,
