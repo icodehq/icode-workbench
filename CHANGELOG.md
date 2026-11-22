@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.2] - 2026-11-23
+
+### Fixed
+
+- **Session tab drag reordering.** Dragging a session tab now moves it to the
+  target tab's slot. The drag source is tracked in a ref instead of React
+  state, so `dragover` accepts the drop while the native drag loop is running;
+  previously the drop never landed with real mouse input.
+
 ## [0.19.1] - 2026-11-22
 
 ### Fixed
