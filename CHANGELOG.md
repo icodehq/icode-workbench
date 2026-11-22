@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-11-22
+
 ### Added
 
 - Terminal panes now provide a find bar, a pane context menu, platform-correct
