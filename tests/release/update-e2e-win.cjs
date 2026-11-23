@@ -223,7 +223,8 @@ async function main() {
 
   killApp()
   rmSync(options.installDir, { recursive: true, force: true })
-  mkdirSync(dirname(options.installDir), { recursive: true })
+  const installParent = dirname(options.installDir)
+  if (!existsSync(installParent)) mkdirSync(installParent, { recursive: true })
 
   log(`installing old build ${options.oldVersion} into ${options.installDir}`)
   const install = spawnSync(

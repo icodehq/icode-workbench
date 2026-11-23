@@ -5,6 +5,12 @@ on:
     branches: [master]
   pull_request:
   workflow_dispatch:
+    inputs:
+      update_e2e:
+        description: Run the packaged Windows update E2E
+        required: false
+        type: boolean
+        default: false
   # Release calls this workflow so the tag's installers are built by exactly the
   # same jobs and verification as a normal CI run.
   workflow_call:
@@ -260,8 +266,10 @@ jobs:
   update-e2e-windows:
     name: Update E2E (Windows)
     # A real NSIS install/update takes several minutes, so this is opt-in:
-    # run the workflow manually, or push to a PR carrying the `update-e2e` label.
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'update-e2e'))
+    # set `update_e2e` when dispatching CI, or push to a PR carrying the
+    # `update-e2e` label. A release workflow dispatch does not set the input,
+    # so it never pays this cost.
+    if: (github.event_name == 'workflow_dispatch' && inputs.update_e2e) || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'update-e2e'))
     runs-on: windows-2022
     timeout-minutes: 60
     needs: [package-windows]
