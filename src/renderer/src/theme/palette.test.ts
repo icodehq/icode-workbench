@@ -31,4 +31,18 @@ describe('Workbench palette contract', () => {
     expect(light).toContain('--icode-canvas: #FAFAFA;')
     expect(light).toContain('--icode-accent: #2F62D8;')
   })
+
+  it('keeps light ink dark enough for small text', () => {
+    const light = css.slice(css.indexOf(":root[data-theme='light']"))
+    expect(light).toContain('--icode-ink-1: #1F2328;')
+    expect(light).toContain('--icode-ink-2: #4A4F57;')
+    expect(light).toContain('--icode-ink-3: #5E636C;')
+  })
+
+  it('keeps light status colours readable as text', () => {
+    const light = css.slice(css.indexOf(":root[data-theme='light']"))
+    expect(light).toContain('--icode-add: #2A7230;')
+    expect(light).toContain('--icode-danger: #B9372A;')
+    expect(light).toContain('--icode-brand: #2A7230;')
+  })
 })

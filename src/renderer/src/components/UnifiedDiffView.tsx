@@ -231,7 +231,7 @@ function HunkView({
                       </span>
                       <button
                         type="button"
-                        className="rounded border border-destructive bg-destructive px-1.5 py-0.5 font-sans text-[9.5px] text-white hover:opacity-90 disabled:opacity-50"
+                        className="rounded border border-destructive bg-destructive px-1.5 py-0.5 font-sans text-[9.5px] text-danger-ink hover:opacity-90 disabled:opacity-50"
                         disabled={lineAction.discard.pending === index}
                         data-testid={`hunk-lines-discard-yes-${String(index)}`}
                         onClick={() => {
@@ -304,7 +304,7 @@ function HunkView({
                   <span className="font-sans text-[9px] text-destructive">{t('diff.discardHunkConfirm')}</span>
                   <button
                     type="button"
-                    className="rounded border border-destructive bg-destructive px-1.5 py-0.5 font-sans text-[9.5px] text-white hover:opacity-90 disabled:opacity-50"
+                    className="rounded border border-destructive bg-destructive px-1.5 py-0.5 font-sans text-[9.5px] text-danger-ink hover:opacity-90 disabled:opacity-50"
                     disabled={hunkAction.discard.pending === index}
                     data-testid={`hunk-discard-yes-${String(index)}`}
                     onClick={() => hunkAction.discard?.onRun(index)}

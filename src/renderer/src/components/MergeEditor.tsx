@@ -204,7 +204,7 @@ export default function MergeEditor({
         </button>
         <button
           type="button"
-          className="rounded border border-signal-line bg-signal px-2 py-0.5 text-[9.5px] font-medium text-white hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-40"
+          className="rounded border border-signal-line bg-signal px-2 py-0.5 text-[9.5px] font-medium text-signal-ink hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-40"
           disabled={saving || loading || sides === null || blocks.length > 0 || loadError !== null}
           title={
             blocks.length > 0

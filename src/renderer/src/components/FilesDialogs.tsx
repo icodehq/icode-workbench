@@ -167,7 +167,7 @@ export function SaveConflictDialog({
         </button>
         <button
           type="button"
-          className="h-9 rounded-md bg-destructive px-3.5 text-[12px] font-medium text-black hover:opacity-90"
+          className="h-9 rounded-md bg-destructive px-3.5 text-[12px] font-medium text-danger-ink hover:opacity-90"
           onClick={onOverwrite}
           disabled={busy}
           data-testid="files-conflict-overwrite"
@@ -257,7 +257,7 @@ export function DeleteFilesDialog({
         ) : null}
         <button
           type="button"
-          className="h-9 rounded-md bg-destructive px-3.5 text-[12px] font-medium text-black hover:opacity-90"
+          className="h-9 rounded-md bg-destructive px-3.5 text-[12px] font-medium text-danger-ink hover:opacity-90"
           onClick={onConfirm}
           disabled={busy}
           data-testid="files-delete-confirm"

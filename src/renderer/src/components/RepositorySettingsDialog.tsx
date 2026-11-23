@@ -411,7 +411,7 @@ export default function RepositorySettingsDialog({
                         </button>
                         <button
                           type="button"
-                          className="inline-flex h-7 items-center gap-1.5 rounded bg-destructive px-2 text-[10.5px] font-medium text-black hover:opacity-90 disabled:opacity-50"
+                          className="inline-flex h-7 items-center gap-1.5 rounded bg-destructive px-2 text-[10.5px] font-medium text-danger-ink hover:opacity-90 disabled:opacity-50"
                           onClick={() => void removeRemote(remote)}
                           disabled={removing !== null}
                           data-testid={`remote-remove-commit-${remote.name}`}

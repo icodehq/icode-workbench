@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.1] - 2026-11-23
+
+### Fixed
+
+- **Light appearance legibility.** Light-theme text is darker across the shell,
+  source control, diffs and settings: primary ink is near-black, secondary and
+  tertiary ink clear 7:1 and 5:1 on the panel, and the green/red status hues are
+  deepened for text use. Filled danger and info buttons now pick their ink per
+  appearance instead of assuming black. The terminal palette follows with a
+  near-black default foreground and a 4.5:1 dynamic contrast floor, and the
+  Monaco light theme uses the same ink.
+
 ## [0.22.0] - 2026-11-23
 
 ### Added

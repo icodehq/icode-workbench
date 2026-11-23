@@ -74,7 +74,7 @@ export default function BranchCleanupDialog({
           </button>
           <button
             type="button"
-            className="inline-flex items-center gap-1.5 h-9 rounded-md bg-destructive px-3.5 text-[12px] font-medium text-black hover:opacity-90 disabled:opacity-40"
+            className="inline-flex items-center gap-1.5 h-9 rounded-md bg-destructive px-3.5 text-[12px] font-medium text-danger-ink hover:opacity-90 disabled:opacity-40"
             disabled={typed.trim() !== prompt.branch || busy}
             onClick={() => void onConfirm(prompt.branch)}
             data-testid="branch-confirm-delete"

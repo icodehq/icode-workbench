@@ -54,9 +54,15 @@ function stubAppearance(theme: 'light' | 'dark' | null): void {
 describe('terminal palette', () => {
   it('draws the light terminal on the light canvas and keeps the dark ground', () => {
     expect(TERMINAL_THEMES.light.background).toBe('#FAFAFA')
-    expect(TERMINAL_THEMES.light.foreground).toBe('#383A42')
+    expect(TERMINAL_THEMES.light.foreground).toBe('#1F2328')
     expect(TERMINAL_THEMES.dark.background).toBe('#212121')
     expect(TERMINAL_THEMES.dark.foreground).toBe('#E6E6E8')
+  })
+
+  it('keeps the default light text well above body-text contrast', () => {
+    const light = TERMINAL_THEMES.light
+    const background = light.background as string
+    expect(contrast(light.foreground as string, background)).toBeGreaterThanOrEqual(10)
   })
 
   it('keeps every ANSI colour at 4.5:1 or better on the light canvas', () => {
@@ -77,7 +83,7 @@ describe('terminal palette', () => {
   })
 
   it('gives light themes a contrast floor and leaves dark themes alone', () => {
-    expect(TERMINAL_MINIMUM_CONTRAST).toEqual({ light: 1.5, dark: 1 })
+    expect(TERMINAL_MINIMUM_CONTRAST).toEqual({ light: 4.5, dark: 1 })
   })
 })
 
@@ -91,7 +97,7 @@ describe('terminal theme resolution', () => {
     expect(currentThemeName()).toBe('light')
     const light = terminalThemeOptions()
     expect(light.theme.background).toBe('#FAFAFA')
-    expect(light.minimumContrastRatio).toBe(1.5)
+    expect(light.minimumContrastRatio).toBe(4.5)
     // xterm compares themes by reference; a fresh object is what repaints.
     expect(light.theme).not.toBe(TERMINAL_THEMES.light)
 
@@ -113,7 +119,7 @@ describe('terminal theme resolution', () => {
       options: {} as { theme?: unknown; minimumContrastRatio?: number }
     } as unknown as Parameters<typeof applyTerminalTheme>[0]
     applyTerminalTheme(term)
-    expect(term.options.minimumContrastRatio).toBe(1.5)
+    expect(term.options.minimumContrastRatio).toBe(4.5)
     expect(term.options.theme).toMatchObject({ background: '#FAFAFA' })
   })
 })

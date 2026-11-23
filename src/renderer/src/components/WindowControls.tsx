@@ -51,7 +51,7 @@ export default function WindowControls({ platform }: Props): React.JSX.Element |
       </button>
       <button
         type="button"
-        className="flex w-[42px] items-center justify-center text-muted-foreground hover:bg-destructive hover:text-white [-webkit-app-region:no-drag] min-[900px]:w-[46px]"
+        className="flex w-[42px] items-center justify-center text-muted-foreground hover:bg-destructive hover:text-danger-ink [-webkit-app-region:no-drag] min-[900px]:w-[46px]"
         onClick={() => {
           void window.icode.window.close()
         }}
