@@ -207,6 +207,32 @@ describe('guest executor', () => {
     ).rejects.toThrow('Invalid Git environment override.')
   })
 
+  it('passes the clone-auth askpass suppressors through to guest Git', async () => {
+    const calls: string[][] = []
+    const runner = new WslCommandRunner({
+      platform: 'win32',
+      byteLauncher: async (spec): Promise<WslByteResult> => {
+        const guest = [...spec.args].slice([...spec.args].indexOf('--exec') + 1)
+        if (isProbe(guest)) {
+          return { code: 0, signal: null, stdout: probeAnswer(), stderr: Buffer.alloc(0), timedOut: false }
+        }
+        calls.push(guest)
+        return { code: 0, signal: null, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), timedOut: false }
+      }
+    })
+    // The private-clone preflight hands Git these three; only SSH_ASKPASS is
+    // not named with a GIT_ prefix, and refusing it broke every WSL clone.
+    await createGuestGitExecutor(runner, 'd').exec({
+      cwd: '/home/u/r',
+      args: ['ls-remote', '--', 'https://example.com/o/r.git', 'HEAD'],
+      timeoutMs: 1_000,
+      env: { GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: '', SSH_ASKPASS: '' }
+    })
+    const direct = calls[0]!
+    expect(direct).toContain('GIT_ASKPASS=')
+    expect(direct).toContain('SSH_ASKPASS=')
+  })
+
   it('preserves a Git exit code and stderr exactly', async () => {
     const runner = new WslCommandRunner({
       platform: 'win32',

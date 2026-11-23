@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import type { SessionSummary } from '../../../../shared/schemas/ipc'
 import type { PendingAction } from '../../state/workspace'
 import {
@@ -85,6 +85,13 @@ export default function SessionTabStrip({
   const [menu, setMenu] = useState<TabMenuState | null>(null)
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [dropTargetId, setDropTargetId] = useState<string | null>(null)
+  /*
+   * The drag source must be readable synchronously from dragover/drop. React
+   * state set in dragstart is not guaranteed to be committed while the native
+   * drag loop is running, so dragover would see null, skip preventDefault and
+   * the drop would never land. The ref is the gate; the state is only paint.
+   */
+  const draggingIdRef = useRef<string | null>(null)
 
   if (sessions.length === 0) return null
 
@@ -247,6 +254,7 @@ export default function SessionTabStrip({
   }
 
   const resetDrag = (): void => {
+    draggingIdRef.current = null
     setDraggingId(null)
     setDropTargetId(null)
   }
@@ -298,12 +306,14 @@ export default function SessionTabStrip({
                   }
                 }}
                 onDragStart={(event) => {
+                  draggingIdRef.current = session.id
                   event.dataTransfer.effectAllowed = 'move'
                   event.dataTransfer.setData('text/plain', session.id)
                   setDraggingId(session.id)
                 }}
                 onDragOver={(event) => {
-                  if (draggingId === null || draggingId === session.id) return
+                  const sourceId = draggingIdRef.current
+                  if (sourceId === null || sourceId === session.id) return
                   event.preventDefault()
                   event.dataTransfer.dropEffect = 'move'
                   setDropTargetId(session.id)
@@ -314,8 +324,9 @@ export default function SessionTabStrip({
                 }}
                 onDrop={(event) => {
                   event.preventDefault()
-                  if (draggingId !== null && draggingId !== session.id) {
-                    onReorder?.(draggingId, session.id)
+                  const sourceId = draggingIdRef.current
+                  if (sourceId !== null && sourceId !== session.id) {
+                    onReorder?.(sourceId, session.id)
                   }
                   resetDrag()
                 }}

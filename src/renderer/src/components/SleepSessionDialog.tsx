@@ -67,7 +67,7 @@ export default function SleepSessionDialog({
           </button>
           <button
             type="button"
-            className="h-9 rounded-md bg-info px-3.5 text-[12px] font-medium text-black hover:opacity-90"
+            className="h-9 rounded-md bg-info px-3.5 text-[12px] font-medium text-info-ink hover:opacity-90"
             onClick={onConfirm}
             data-testid="sleep-session-confirm"
           >

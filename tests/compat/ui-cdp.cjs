@@ -53,11 +53,12 @@ class Cdp {
       this.ws.send(JSON.stringify({ id, method, params }))
     })
   }
-  async evaluate(expression) {
+  async evaluate(expression, options = {}) {
     const response = await this.send('Runtime.evaluate', {
       expression,
       awaitPromise: true,
-      returnByValue: true
+      returnByValue: true,
+      userGesture: options.userGesture === true
     })
     if (response.exceptionDetails) {
       throw new Error(

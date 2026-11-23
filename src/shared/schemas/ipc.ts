@@ -30,6 +30,8 @@ export const IPC_CHANNELS = {
   localeGet: 'icode:locale:get',
   localeSet: 'icode:locale:set',
   localeChangedEvent: 'icode:locale:changed',
+  sidebarOrderGet: 'icode:sidebar-order:get',
+  sidebarOrderSet: 'icode:sidebar-order:set',
   reposList: 'icode:repos:list',
   reposAdd: 'icode:repos:add',
   reposInspect: 'icode:repos:inspect',
@@ -73,6 +75,11 @@ export const IPC_CHANNELS = {
   remotesFetch: 'icode:remotes:fetch',
   cloneStart: 'icode:clone:start',
   cloneCancel: 'icode:clone:cancel',
+  clonePersist: 'icode:clone:persist',
+  cloneSshStatus: 'icode:clone:ssh-status',
+  cloneSshGenerate: 'icode:clone:ssh-generate',
+  cloneSshTest: 'icode:clone:ssh-test',
+  cloneSshTrustHost: 'icode:clone:ssh-trust-host',
   cloneProgress: 'icode:clone:progress',
   mergeStart: 'icode:merge:start',
   mergeContinue: 'icode:merge:continue',
@@ -773,6 +780,21 @@ export const rendererSessionEventSchema = z.union([
   z.strictObject({
     type: z.literal('activity-focus'),
     sessionId: sessionIdSchema
+  }),
+  /** A kind-aware notification click asked the shell to navigate somewhere. */
+  z.strictObject({
+    type: z.literal('notification-focus'),
+    destination: z.discriminatedUnion('kind', [
+      z.strictObject({
+        kind: z.literal('session'),
+        sessionId: sessionIdSchema,
+        view: z.enum(['terminal', 'changes', 'files']).optional()
+      }),
+      z.strictObject({
+        kind: z.literal('task'),
+        taskId: z.string().min(1).max(128)
+      })
+    ])
   })
 ])
 

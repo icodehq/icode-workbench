@@ -266,7 +266,7 @@ export class GitWorktreeService {
     (
       cwd: string,
       args: string[],
-      input: string,
+      input: Buffer | string,
       timeoutMs?: number
     ) => Promise<{ stdout: string; stderr: string; exitCode: number | null; timedOut: boolean }>
   > {
@@ -299,7 +299,11 @@ export class GitWorktreeService {
           onStdout?(chunk: Buffer): void
           onStderr?(chunk: Buffer): void
         },
-        options?: { timeoutMs?: number; signal?: AbortSignal }
+        options?: {
+          timeoutMs?: number
+          signal?: AbortSignal
+          env?: Readonly<Record<string, string>>
+        }
       ) => Promise<GuestGitResult>)
     | null
   > {
@@ -312,7 +316,8 @@ export class GitWorktreeService {
           cwd,
           args,
           timeoutMs: options.timeoutMs ?? READ_TIMEOUT_MS,
-          ...(options.signal ? { signal: options.signal } : {})
+          ...(options.signal ? { signal: options.signal } : {}),
+          ...(options.env === undefined ? {} : { env: options.env })
         },
         {
           onStdout: handlers.onStdout ?? (() => undefined),
@@ -370,7 +375,7 @@ export class GitWorktreeService {
       cwd: string,
       args: string[],
       timeoutMs?: number,
-      options?: { env?: Readonly<Record<string, string>> }
+      options?: { env?: Readonly<Record<string, string>>; signal?: AbortSignal }
     ) => Promise<GuestGitResult>
   > {
     const executor = await this.executorFor(target)
@@ -379,7 +384,8 @@ export class GitWorktreeService {
         cwd,
         args,
         timeoutMs,
-        ...(options.env !== undefined ? { env: options.env } : {})
+        ...(options.env !== undefined ? { env: options.env } : {}),
+        ...(options.signal !== undefined ? { signal: options.signal } : {})
       })
   }
 

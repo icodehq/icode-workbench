@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import type { SessionSummary } from '../../shared/schemas/ipc'
+import type { RendererSessionEvent, SessionSummary } from '../../shared/schemas/ipc'
 import type { TaskRecordPayload } from '../../shared/icode-api'
 import AppTabStrip from './components/AppTabStrip'
 import WindowChrome from './components/shell/WindowChrome'
@@ -10,6 +10,7 @@ import SchedulesView from './components/SchedulesView'
 import WorkspaceWelcome from './components/shell/WorkspaceWelcome'
 import SessionsSurface from './components/sessions/SessionsSurface'
 import { TerminalProvider } from './terminal/terminal-provider'
+import type { TerminalInteractionHost } from './terminal/terminal-interaction-host'
 import SettingsPage from './pages/SettingsPage'
 import TasksSurface from './components/tasks/TasksSurface'
 import TaskComposerDialog from './components/tasks/TaskComposerDialog'
@@ -87,6 +88,11 @@ export default function App(): React.JSX.Element {
     assistantTarget,
     commands
   } = useAppNavigation({ workspace, tasks })
+
+  // Session events are registered once, but navigation commands are recreated
+  // every render; the ref keeps the subscription stable.
+  const commandsRef = useRef(commands)
+  commandsRef.current = commands
 
   const assistant = useAssistant(workspace.notify, (event) =>
     commands.showAssistant({ threadId: event.threadId, messageId: event.messageId })
@@ -332,6 +338,28 @@ export default function App(): React.JSX.Element {
     [focusableSessionId]
   )
 
+  // An OS notification click is a navigation command from main. Route both
+  // shapes through the same commands the sidebar uses so the surface and the
+  // project mode change together.
+  useEffect(
+    () =>
+      window.icode.onSessionEvent((event: RendererSessionEvent) => {
+        if (event.type === 'activity-focus') {
+          commandsRef.current.openDirectSession(event.sessionId)
+          setSidebarOpen(false)
+          return
+        }
+        if (event.type !== 'notification-focus') return
+        if (event.destination.kind === 'session') {
+          commandsRef.current.openTaskSession(event.destination.sessionId, event.destination.view)
+        } else {
+          commandsRef.current.openTaskById(event.destination.taskId)
+        }
+        setSidebarOpen(false)
+      }),
+    []
+  )
+
   useEffect(() => {
     setRendererPlatform(workspace.runtime?.platform ?? null)
   }, [workspace.runtime?.platform])
@@ -391,11 +419,62 @@ export default function App(): React.JSX.Element {
     [active, workspace]
   )
 
+  const terminalInteractionHost = useMemo<TerminalInteractionHost>(
+    () => ({
+      openFile: (path, line = 1) => commands.openFileFromPalette(path, line),
+      openExternal: async (url) => {
+        const result = await window.icode.window.openExternal({ url })
+        if (!result.ok) {
+          workspace.notify({ tone: 'error', message: result.error.message })
+        }
+      },
+      notify: (notice) => workspace.notify(notice),
+      getSession: (sessionId) =>
+        state.sessions.find((session) => session.id === sessionId) ?? null,
+      statFile: async (sessionId, path) => {
+        try {
+          const result = await window.icode.files.stat({ sessionId, path })
+          return result.ok && result.value.status === 'ok'
+        } catch {
+          return false
+        }
+      },
+      readClipboard: async () => {
+        try {
+          return await navigator.clipboard.readText()
+        } catch {
+          return ''
+        }
+      },
+      writeClipboard: async (text) => {
+        try {
+          await navigator.clipboard.writeText(text)
+          return true
+        } catch {
+          return false
+        }
+      },
+      sendToAgent: async (sessionId, text) => {
+        const session = state.sessions.find((entry) => entry.id === sessionId) ?? null
+        return sendToAgent(text, session)
+      }
+    }),
+    [commands.openFileFromPalette, sendToAgent, state.sessions, workspace]
+  )
+
+  /*
+   * Depend on the stable functions, not the hook result objects. Both
+   * `workspace` and `tasks` are new literals every render, and a callback that
+   * changes every render used to make the removal-jobs subscription reload
+   * forever.
+   */
+  const refreshAll = workspace.refreshAll
+  const reloadTasks = tasks.reload
   const refreshEverything = useCallback((): void => {
     setRefreshToken((current) => current + 1)
-    void workspace.refreshAll()
-    void tasks.reload(true)
-  }, [tasks, workspace])
+    void refreshAll()
+    void reloadTasks(true)
+  }, [refreshAll, reloadTasks])
 
   const cleanup = useRemovalJobs({
     notify: workspace.notify,
@@ -571,10 +650,7 @@ export default function App(): React.JSX.Element {
         request={assistantTarget}
         repos={state.repos}
         tasks={tasks.tasks}
-        onOpenTask={(taskId) => {
-          const task = tasks.tasks.find((entry) => entry.id === taskId)
-          if (task) commands.openTask(task)
-        }}
+        onOpenTask={commands.openTaskById}
         onTaskAction={(action, taskId) => void runAssistantTaskAction(action, taskId)}
         onOpenSettings={commands.showSettings}
       />
@@ -610,7 +686,7 @@ export default function App(): React.JSX.Element {
   }
 
   return (
-    <TerminalProvider sessions={state.sessions}>
+    <TerminalProvider sessions={state.sessions} host={terminalInteractionHost}>
     <>
     <AppLayout
       focusActive={focusActive}

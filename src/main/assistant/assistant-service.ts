@@ -275,6 +275,19 @@ export class AssistantService {
     this.deps.store.markNotificationDelivered(messageId, this.deps.now())
   }
 
+  /**
+   * Acknowledge one notification without asking the renderer to open Mira.
+   *
+   * Used when a toast click lands on a task or session instead of the card.
+   * A missing message is a no-op: the click still navigates.
+   */
+  markNotificationRead(messageId: string): void {
+    const thread = this.ensureThread()
+    const message = this.deps.store.getMessage(messageId)
+    if (message === null || message.threadId !== thread.id) return
+    this.markRead({ threadId: thread.id, messageId })
+  }
+
   /** Ask the renderer to open one message (used by OS notification clicks). */
   focus(messageId: string): void {
     const thread = this.ensureThread()

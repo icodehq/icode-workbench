@@ -43,6 +43,18 @@ import {
   repositoryRemovalImpact,
   type WorktreeSessionGroup
 } from './sidebar-model'
+import {
+  moveRowId,
+  orderByStoredIds,
+  pruneSidebarOrder,
+  sessionGroupKey,
+  PROJECTS_GROUP_KEY,
+  SIDEBAR_ROW_DRAG_TYPE,
+  type SidebarDragSource,
+  type SidebarDropTarget,
+  type SidebarKnownRows
+} from './sidebar-order'
+import { emptySidebarOrder, type SidebarOrderPayload } from '../../../../shared/schemas/sidebar-order'
 import WorkspaceSidebarDialogs from './WorkspaceSidebarDialogs'
 import { createSidebarMenuItems } from './sidebar-menu-items'
 import { sidebarBrandInset } from './window-chrome'
@@ -206,7 +218,7 @@ export default function WorkspaceSidebar({
   // On macOS the traffic lights take the header's leading inset, so the
   // narrowest widths need to drop the refresh verb (the status bar still has
   // one) rather than squeeze the brand into the controls.
-  const compactHeader = width < (isMacPlatform(platform) ? 280 : 240)
+  const compactHeader = width < (isMacPlatform(platform) ? 290 : 250)
   const widthRef = useRef(width)
   const asideRef = useRef<HTMLElement | null>(null)
   const resizerRef = useRef<HTMLDivElement | null>(null)
@@ -235,6 +247,36 @@ export default function WorkspaceSidebar({
     returnFocus: HTMLElement | null
     opener: HTMLElement | null
   } | null>(null)
+
+  /*
+   * Sidebar order is a persisted, per-account preference. The ref is the
+   * synchronous read used by drop handlers; state mirrors it for rendering.
+   */
+  const [rowOrder, setRowOrder] = useState<SidebarOrderPayload>(() => emptySidebarOrder())
+  const rowOrderRef = useRef(rowOrder)
+  const [dragSource, setDragSource] = useState<SidebarDragSource | null>(null)
+  const [dropTarget, setDropTarget] = useState<SidebarDropTarget | null>(null)
+  const dragSourceRef = useRef<SidebarDragSource | null>(null)
+
+  const applyRowOrder = (next: SidebarOrderPayload): void => {
+    rowOrderRef.current = next
+    setRowOrder(next)
+  }
+
+  useEffect(() => {
+    let cancelled = false
+    void window.icode.sidebarOrder
+      .get()
+      .then((result) => {
+        if (!cancelled && result.ok) applyRowOrder(result.value)
+      })
+      .catch(() => {
+        // The order is a preference; a failed read falls back to natural order.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     setPins((current) => {
@@ -280,7 +322,7 @@ export default function WorkspaceSidebar({
       if (aside === null) return
       const widthText = String(Math.round(next))
       if (aside.dataset.width !== widthText) aside.dataset.width = widthText
-      const compact = next < (isMacPlatform(platform) ? 280 : 240)
+      const compact = next < (isMacPlatform(platform) ? 290 : 250)
       const compactText = compact ? 'true' : 'false'
       if (aside.dataset.compact !== compactText) aside.dataset.compact = compactText
       resizerRef.current?.setAttribute('aria-valuenow', widthText)
@@ -288,9 +330,170 @@ export default function WorkspaceSidebar({
     onCommit: persistWidth
   })
 
+  const orderedRepos = useMemo(() => {
+    const byId = new Map(repos.map((repo) => [repo.id, repo]))
+    return orderByStoredIds(
+      repos.map((repo) => repo.id),
+      rowOrder.projects,
+      (id) => id
+    ).flatMap((id) => {
+      const repo = byId.get(id)
+      return repo === undefined ? [] : [repo]
+    })
+  }, [repos, rowOrder.projects])
+
+  /*
+   * Rows that currently exist, grouped exactly as the store keys them. Saving a
+   * reorder prunes ids and groups that are gone instead of accumulating them.
+   */
+  const knownSidebarRows = useMemo<SidebarKnownRows>(() => {
+    const worktrees: Record<string, Set<string>> = {}
+    const sessionsByGroup: Record<string, Set<string>> = {}
+    for (const repo of repos) {
+      const repoSessions = sessions.filter((session) => session.repoId === repo.id)
+      const groups = groupDirectSessions(repoSessions)
+      sessionsByGroup[sessionGroupKey(repo.id, null)] = new Set(
+        groups.defaultCheckout.map((session) => session.id)
+      )
+      const paths = new Set<string>()
+      for (const group of groups.worktrees) {
+        paths.add(group.path)
+        sessionsByGroup[sessionGroupKey(repo.id, group.path)] = new Set(
+          group.sessions.map((session) => session.id)
+        )
+      }
+      if (paths.size > 0) worktrees[repo.id] = paths
+    }
+    return {
+      projects: new Set(repos.map((repo) => repo.id)),
+      worktrees,
+      sessions: sessionsByGroup
+    }
+  }, [repos, sessions])
+
+  const persistRowOrder = (next: SidebarOrderPayload): void => {
+    const pruned = pruneSidebarOrder(next, knownSidebarRows)
+    applyRowOrder(pruned)
+    void window.icode.sidebarOrder
+      .set(pruned)
+      .then((result) => {
+        if (!result.ok) onNotify({ tone: 'error', message: result.error.message })
+      })
+      .catch((error: unknown) => {
+        onNotify({
+          tone: 'error',
+          message: error instanceof Error ? error.message : String(error)
+        })
+      })
+  }
+
+  const resetRowDrag = (): void => {
+    dragSourceRef.current = null
+    setDragSource(null)
+    setDropTarget(null)
+  }
+
+  const startRowDrag = (event: React.DragEvent, source: SidebarDragSource): void => {
+    dragSourceRef.current = source
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData(SIDEBAR_ROW_DRAG_TYPE, source.id)
+    setDragSource(source)
+    setDropTarget(null)
+  }
+
+  const rowDragOver = (event: React.DragEvent, target: SidebarDragSource): void => {
+    const source = dragSourceRef.current
+    if (
+      source === null ||
+      source.kind !== target.kind ||
+      source.groupKey !== target.groupKey ||
+      source.id === target.id
+    ) {
+      return
+    }
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'move'
+    const rect = event.currentTarget.getBoundingClientRect()
+    const after = event.clientY > rect.top + rect.height / 2
+    setDropTarget((current) =>
+      current !== null &&
+      current.kind === target.kind &&
+      current.groupKey === target.groupKey &&
+      current.id === target.id &&
+      current.after === after
+        ? current
+        : { ...target, after }
+    )
+  }
+
+  const rowDragLeave = (event: React.DragEvent, target: SidebarDragSource): void => {
+    if (event.currentTarget.contains(event.relatedTarget as Node | null)) return
+    setDropTarget((current) =>
+      current !== null &&
+      current.kind === target.kind &&
+      current.groupKey === target.groupKey &&
+      current.id === target.id
+        ? null
+        : current
+    )
+  }
+
+  const rowDrop = (
+    event: React.DragEvent,
+    target: SidebarDragSource,
+    apply: (sourceId: string, targetId: string, after: boolean) => void
+  ): void => {
+    const source = dragSourceRef.current
+    if (
+      source === null ||
+      source.kind !== target.kind ||
+      source.groupKey !== target.groupKey ||
+      source.id === target.id
+    ) {
+      return
+    }
+    event.preventDefault()
+    const rect = event.currentTarget.getBoundingClientRect()
+    apply(source.id, target.id, event.clientY > rect.top + rect.height / 2)
+    resetRowDrag()
+  }
+
+  const rowDropClass = (target: SidebarDragSource): string => {
+    const current = dropTarget
+    if (
+      current === null ||
+      current.kind !== target.kind ||
+      current.groupKey !== target.groupKey ||
+      current.id !== target.id
+    ) {
+      return ''
+    }
+    return current.after ? 'border-b-2 border-accent' : 'border-t-2 border-accent'
+  }
+
+  const rowDraggingClass = (target: SidebarDragSource): string =>
+    dragSource !== null &&
+    dragSource.kind === target.kind &&
+    dragSource.groupKey === target.groupKey &&
+    dragSource.id === target.id
+      ? 'opacity-50'
+      : ''
+
+  const applyProjectDrop = (sourceId: string, targetId: string, after: boolean): void => {
+    persistRowOrder({
+      ...rowOrderRef.current,
+      projects: moveRowId(
+        orderedRepos.map((repo) => repo.id),
+        sourceId,
+        targetId,
+        after
+      )
+    })
+  }
+
   const { pinned } = useMemo(
-    () => pinnedProjectsFirst(repos, pins.projects),
-    [pins.projects, repos]
+    () => pinnedProjectsFirst(orderedRepos, pins.projects),
+    [orderedRepos, pins.projects]
   )
   const pinnedSessions = useMemo(
     () => sessions.filter((session) => pins.sessions.includes(session.id)),
@@ -426,24 +629,49 @@ export default function WorkspaceSidebar({
    * any session, including one that is not open. The header menu stays the
    * descriptive surface; both read the plan in `sessions/session-menu`.
    */
-  const sessionRow = (session: SessionSummary): React.JSX.Element => {
+  const sessionRow = (
+    session: SessionSummary,
+    groupKey: string,
+    orderedGroupIds: readonly string[]
+  ): React.JSX.Element => {
     const active = session.id === activeSessionId
     const suffix = activitySuffix(session.activity)
     const menuOpen = sessionMenu?.session.id === session.id
     const subagents = visibleSubagents(session.activity)
+    const dragTarget: SidebarDragSource = { kind: 'session', groupKey, id: session.id }
+    const applyDrop = (sourceId: string, targetId: string, after: boolean): void => {
+      persistRowOrder({
+        ...rowOrderRef.current,
+        sessions: {
+          ...rowOrderRef.current.sessions,
+          [groupKey]: moveRowId(orderedGroupIds, sourceId, targetId, after)
+        }
+      })
+    }
     return (
       <div
         key={session.id}
-        className={`flex min-h-7 flex-col justify-center rounded-md ${menuOpen ? 'bg-hover' : ''}`}
+        className={`flex min-h-10 flex-col justify-center rounded-md ${
+          menuOpen ? 'bg-hover' : ''
+        } ${rowDropClass(dragTarget)} ${rowDraggingClass(dragTarget)}`}
         data-menu-open={menuOpen ? 'true' : undefined}
+        onDragOver={(event) => rowDragOver(event, dragTarget)}
+        onDragLeave={(event) => rowDragLeave(event, dragTarget)}
+        onDrop={(event) => rowDrop(event, dragTarget, applyDrop)}
       >
         <button
           type="button"
-          className={`flex min-h-7 w-full min-w-0 items-start gap-1.5 rounded-md px-1.5 py-1 text-left ${
+          className={`flex min-h-10 w-full min-w-0 items-start gap-1.5 rounded-md px-1.5 py-1 text-left ${
             active
               ? 'bg-sel text-foreground shadow-[inset_2px_0_0_var(--icode-accent)]'
               : 'text-muted-foreground hover:bg-hover hover:text-foreground'
           }`}
+          draggable
+          onDragStart={(event) => startRowDrag(event, dragTarget)}
+          onDragEnd={resetRowDrag}
+          onDragOver={(event) => rowDragOver(event, dragTarget)}
+          onDragLeave={(event) => rowDragLeave(event, dragTarget)}
+          onDrop={(event) => rowDrop(event, dragTarget, applyDrop)}
           onClick={() => onOpenSession(session.id)}
           onContextMenu={(event) => {
             event.preventDefault()
@@ -477,8 +705,8 @@ export default function WorkspaceSidebar({
             className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${sessionStateDotClass(session, pendingFor(session))}`}
           />
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-[10px]">{session.title}</span>
-            <span className="block truncate font-mono text-[7.5px] text-muted-foreground">
+            <span className="block truncate text-[13px]">{session.title}</span>
+            <span className="block truncate font-mono text-[11px] text-muted-foreground">
               {sessionStateLabelFor(session, pendingFor(session))}
               {session.worktree
                 ? ` · ${
@@ -490,7 +718,7 @@ export default function WorkspaceSidebar({
             </span>
             {suffix === null ? null : (
               <span
-                className={`mt-0.5 flex items-center gap-1 truncate text-[7.5px] ${activityTone(
+                className={`mt-0.5 flex items-center gap-1 truncate text-[11px] ${activityTone(
                   session.activity
                 )}${session.activity?.unread ? ' font-semibold' : ''}`}
                 data-testid={`session-activity-${session.id}`}
@@ -505,7 +733,7 @@ export default function WorkspaceSidebar({
             )}
             {session.activity?.prompt ? (
               <span
-                className="mt-0.5 block truncate text-[7.5px] text-muted-foreground/80"
+                className="mt-0.5 block truncate text-[11px] text-muted-foreground/80"
                 title={session.activity.prompt}
                 data-testid={`session-prompt-${session.id}`}
               >
@@ -520,7 +748,7 @@ export default function WorkspaceSidebar({
               <button
                 key={child.id}
                 type="button"
-                className="flex h-4 w-full min-w-0 items-center gap-1 rounded px-1 text-left text-[7.5px] hover:bg-hover"
+                className="flex h-6 w-full min-w-0 items-center gap-1 rounded px-1 text-left text-[11px] hover:bg-hover"
                 onClick={() => onOpenSession(session.id)}
                 title={child.toolName ? `${child.label} · ${child.toolName}` : child.label}
                 data-testid={`session-subagent-${session.id}-${child.id}`}
@@ -532,7 +760,7 @@ export default function WorkspaceSidebar({
               </button>
             ))}
             {subagents.hidden > 0 ? (
-              <span className="block px-1 text-[7.5px] text-muted-foreground">
+              <span className="block px-1 text-[11px] text-muted-foreground">
                 +{subagents.hidden}
               </span>
             ) : null}
@@ -555,6 +783,37 @@ export default function WorkspaceSidebar({
     const sessionCount = directSessionCount.get(repo.id) ?? 0
     const expanded = !collapsedRepos.has(repo.id)
     const groups = groupDirectSessions(repoSessions)
+    const projectDragTarget: SidebarDragSource = {
+      kind: 'project',
+      groupKey: PROJECTS_GROUP_KEY,
+      id: repo.id
+    }
+    const defaultGroupKey = sessionGroupKey(repo.id, null)
+    const orderedDefaultSessions = orderByStoredIds(
+      groups.defaultCheckout,
+      rowOrder.sessions[defaultGroupKey] ?? [],
+      (session) => session.id
+    )
+    const orderedDefaultIds = orderedDefaultSessions.map((session) => session.id)
+    const orderedWorktrees = orderByStoredIds(
+      groups.worktrees,
+      rowOrder.worktrees[repo.id] ?? [],
+      (group) => group.path
+    )
+    const worktreeIds = orderedWorktrees.map((group) => group.path)
+    const applyWorktreeDrop = (
+      sourceId: string,
+      targetId: string,
+      after: boolean
+    ): void => {
+      persistRowOrder({
+        ...rowOrderRef.current,
+        worktrees: {
+          ...rowOrderRef.current.worktrees,
+          [repo.id]: moveRowId(worktreeIds, sourceId, targetId, after)
+        }
+      })
+    }
     const defaultCollapsed = collapsedDefaultCheckouts.has(repo.id)
     const canAddDefault = !hostUnreachable && repo.availability !== 'missing'
     const menuOpen = projectMenu?.repo.id === repo.id
@@ -562,10 +821,13 @@ export default function WorkspaceSidebar({
       return (
         <div
           key={`pin-${repo.id}`}
-          className={`flex h-7 min-w-0 items-center rounded-md ${
+          className={`flex h-9 min-w-0 items-center rounded-md ${
             menuOpen && !isActive ? 'bg-hover' : ''
-          }`}
+          } ${rowDropClass(projectDragTarget)} ${rowDraggingClass(projectDragTarget)}`}
           data-menu-open={menuOpen ? 'true' : undefined}
+          onDragOver={(event) => rowDragOver(event, projectDragTarget)}
+          onDragLeave={(event) => rowDragLeave(event, projectDragTarget)}
+          onDrop={(event) => rowDrop(event, projectDragTarget, applyProjectDrop)}
           onContextMenu={(event) => {
             event.preventDefault()
             requestProjectMenu(repo, {
@@ -579,11 +841,17 @@ export default function WorkspaceSidebar({
         >
           <button
             type="button"
-            className={`flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 text-left text-[10px] ${
+            className={`flex h-9 min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 text-left text-[13px] ${
               isActive
                 ? 'bg-sel text-foreground'
                 : 'text-muted-foreground hover:bg-hover hover:text-foreground'
             }`}
+            draggable
+            onDragStart={(event) => startRowDrag(event, projectDragTarget)}
+            onDragEnd={resetRowDrag}
+            onDragOver={(event) => rowDragOver(event, projectDragTarget)}
+            onDragLeave={(event) => rowDragLeave(event, projectDragTarget)}
+            onDrop={(event) => rowDrop(event, projectDragTarget, applyProjectDrop)}
             onClick={() => onOpenProject(repo.id, 'sessions')}
             aria-haspopup="menu"
             aria-expanded={menuOpen}
@@ -592,11 +860,11 @@ export default function WorkspaceSidebar({
             data-active={isActive ? 'true' : 'false'}
           >
             <FolderGit2 size={11} className="shrink-0" />
-            <span className="min-w-0 flex-1 truncate text-[10px] font-medium">
+            <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
               {repo.displayName}
             </span>
             {needs > 0 ? (
-              <span className="shrink-0 rounded-full bg-signal-weak px-1 font-mono text-[8px] text-signal">
+              <span className="shrink-0 rounded-full bg-signal-weak px-1 font-mono text-[10px] text-signal">
                 {needs}
               </span>
             ) : null}
@@ -613,10 +881,13 @@ export default function WorkspaceSidebar({
               : menuOpen
                 ? 'bg-hover text-foreground'
                 : 'text-muted-foreground hover:bg-hover hover:text-foreground'
-          }`}
+          } ${rowDropClass(projectDragTarget)} ${rowDraggingClass(projectDragTarget)}`}
           data-testid={`sidebar-project-${repo.id}`}
           data-active={isActive ? 'true' : 'false'}
           data-menu-open={menuOpen ? 'true' : undefined}
+          onDragOver={(event) => rowDragOver(event, projectDragTarget)}
+          onDragLeave={(event) => rowDragLeave(event, projectDragTarget)}
+          onDrop={(event) => rowDrop(event, projectDragTarget, applyProjectDrop)}
           onContextMenu={(event) => {
             event.preventDefault()
             requestProjectMenu(repo, {
@@ -649,25 +920,31 @@ export default function WorkspaceSidebar({
             type="button"
             className="flex h-full min-w-0 flex-1 items-center gap-1 px-1 text-left"
             data-testid={`project-row-${repo.id}`}
+            draggable
+            onDragStart={(event) => startRowDrag(event, projectDragTarget)}
+            onDragEnd={resetRowDrag}
+            onDragOver={(event) => rowDragOver(event, projectDragTarget)}
+            onDragLeave={(event) => rowDragLeave(event, projectDragTarget)}
+            onDrop={(event) => rowDrop(event, projectDragTarget, applyProjectDrop)}
             onClick={() => onOpenProject(repo.id, 'sessions')}
             aria-current={isActive ? 'page' : undefined}
             aria-haspopup="menu"
             title={repo.path}
           >
             <FolderGit2 size={12} className="shrink-0" />
-            <span className="min-w-0 flex-1 truncate text-[11px] font-medium">
+            <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
               {repo.displayName}
             </span>
             {isPinned ? <Pin size={9} className="shrink-0 text-muted-foreground" /> : null}
             {needs > 0 ? (
               <span
-                className="shrink-0 rounded-full bg-signal-weak px-1 font-mono text-[8px] text-signal"
+                className="shrink-0 rounded-full bg-signal-weak px-1 font-mono text-[10px] text-signal"
                 title={t('projectHeader.needsCount', { count: needs })}
               >
                 {needs}
               </span>
             ) : null}
-            <span className="shrink-0 font-mono text-[8px] text-muted-foreground">
+            <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
               {sessionCount}
             </span>
             {preparation?.kind === 'failed' ? (
@@ -700,7 +977,7 @@ export default function WorkspaceSidebar({
           >
             <MoreHorizontal size={12} />
           </button>
-          <span className="hidden shrink-0 items-center gap-1 pr-1 font-mono text-[8px] text-muted-foreground group-hover:flex">
+          <span className="hidden shrink-0 items-center gap-1 pr-1 font-mono text-[11px] text-muted-foreground group-hover:flex">
             <GitBranch size={9} />
             {repo.currentBranch ?? '—'}
           </span>
@@ -712,7 +989,7 @@ export default function WorkspaceSidebar({
             data-testid={`sidebar-sessions-${repo.id}`}
           >
             <div data-testid={`sidebar-default-checkout-${repo.id}`}>
-              <div className="group/dc flex h-5 items-center gap-1 px-1 font-mono text-[7.5px] text-muted-foreground">
+              <div className="group/dc flex h-7 items-center gap-1 px-1 font-mono text-[12px] text-muted-foreground">
                 <button
                   type="button"
                   className="flex h-full min-w-0 flex-1 items-center gap-1 text-left hover:text-foreground focus-visible:text-foreground"
@@ -735,7 +1012,7 @@ export default function WorkspaceSidebar({
                 </button>
                 <button
                   type="button"
-                  className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded opacity-0 hover:bg-muted hover:text-foreground focus-visible:opacity-100 disabled:cursor-not-allowed disabled:opacity-30 group-hover/dc:opacity-100 group-hover/dc:disabled:opacity-30"
+                  className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded opacity-0 hover:bg-muted hover:text-foreground focus-visible:opacity-100 disabled:cursor-not-allowed disabled:opacity-30 group-hover/dc:opacity-100 group-hover/dc:disabled:opacity-30"
                   aria-label={t('sidebar.newSessionInDefaultCheckout')}
                   title={
                     canAddDefault
@@ -750,23 +1027,50 @@ export default function WorkspaceSidebar({
                 </button>
               </div>
               {defaultCollapsed ? null : (
-                <div className="pl-1">{groups.defaultCheckout.map(sessionRow)}</div>
+                <div className="pl-1">
+                  {orderedDefaultSessions.map((session) =>
+                    sessionRow(session, defaultGroupKey, orderedDefaultIds)
+                  )}
+                </div>
               )}
             </div>
-            {groups.worktrees.map((group) => {
+            {orderedWorktrees.map((group) => {
               const status = group.sessions[0]?.worktree?.status
               // A checkout Git cannot hand to a PTY must not offer a session.
               const canAdd = status === 'ready-to-start' || status === 'active'
               const collapsed = collapsedWorktrees.has(group.worktreeId)
+              const groupKey = sessionGroupKey(repo.id, group.path)
+              const orderedGroupSessions = orderByStoredIds(
+                group.sessions,
+                rowOrder.sessions[groupKey] ?? [],
+                (session) => session.id
+              )
+              const orderedGroupIds = orderedGroupSessions.map((session) => session.id)
+              const dragTarget: SidebarDragSource = {
+                kind: 'worktree',
+                groupKey: repo.id,
+                id: group.path
+              }
               return (
                 <div key={group.worktreeId} data-testid={`sidebar-worktree-${group.worktreeId}`}>
-                  <div className="group/wt flex h-5 items-center gap-1 px-1 font-mono text-[7.5px] text-muted-foreground">
+                  <div
+                    className={`group/wt flex h-7 items-center gap-1 px-1 font-mono text-[12px] text-muted-foreground ${rowDropClass(dragTarget)} ${rowDraggingClass(dragTarget)}`}
+                    onDragOver={(event) => rowDragOver(event, dragTarget)}
+                    onDragLeave={(event) => rowDragLeave(event, dragTarget)}
+                    onDrop={(event) => rowDrop(event, dragTarget, applyWorktreeDrop)}
+                  >
                     <button
                       type="button"
                       className="flex h-full min-w-0 flex-1 items-center gap-1 text-left hover:text-foreground focus-visible:text-foreground"
                       aria-expanded={!collapsed}
                       aria-label={group.branch}
                       data-testid={`sidebar-worktree-toggle-${group.worktreeId}`}
+                      draggable
+                      onDragStart={(event) => startRowDrag(event, dragTarget)}
+                      onDragEnd={resetRowDrag}
+                      onDragOver={(event) => rowDragOver(event, dragTarget)}
+                      onDragLeave={(event) => rowDragLeave(event, dragTarget)}
+                      onDrop={(event) => rowDrop(event, dragTarget, applyWorktreeDrop)}
                       onClick={() => toggleWorktreeCollapsed(group.worktreeId)}
                       onContextMenu={(event) => {
                         event.preventDefault()
@@ -791,7 +1095,7 @@ export default function WorkspaceSidebar({
                     </button>
                     <button
                       type="button"
-                      className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded opacity-0 hover:bg-muted hover:text-foreground focus-visible:opacity-100 disabled:cursor-not-allowed disabled:opacity-30 group-hover/wt:opacity-100 group-hover/wt:disabled:opacity-30"
+                      className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded opacity-0 hover:bg-muted hover:text-foreground focus-visible:opacity-100 disabled:cursor-not-allowed disabled:opacity-30 group-hover/wt:opacity-100 group-hover/wt:disabled:opacity-30"
                       aria-label={t('sidebar.newSessionHere')}
                       title={
                         canAdd
@@ -806,7 +1110,11 @@ export default function WorkspaceSidebar({
                     </button>
                   </div>
                   {collapsed ? null : (
-                    <div className="pl-1">{group.sessions.map(sessionRow)}</div>
+                    <div className="pl-1">
+                      {orderedGroupSessions.map((session) =>
+                        sessionRow(session, groupKey, orderedGroupIds)
+                      )}
+                    </div>
                   )}
                 </div>
               )
@@ -837,10 +1145,10 @@ export default function WorkspaceSidebar({
             <TerminalSquare size={13} />
           </span>
           <span className="min-w-0 leading-none">
-            <span className="block truncate text-[12px] font-semibold tracking-tight">
+            <span className="block truncate text-[14px] font-semibold tracking-tight">
               <span className="text-brand">i</span>Code
             </span>
-            <span className="mt-0.5 block text-[8px] uppercase tracking-[0.14em] text-muted-foreground">
+            <span className="mt-0.5 block text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
               Workbench
             </span>
           </span>
@@ -882,7 +1190,7 @@ export default function WorkspaceSidebar({
         >
           <Bell size={13} />
           {attention > 0 ? (
-            <span className="absolute -right-0.5 -top-0.5 min-w-3 rounded-full bg-signal px-1 text-center text-[8px] font-semibold leading-3 text-signal-ink">
+            <span className="absolute -right-0.5 -top-0.5 min-w-3 rounded-full bg-signal px-1 text-center text-[10px] font-semibold leading-3 text-signal-ink">
               {attention > 9 ? '9+' : attention}
             </span>
           ) : null}
@@ -902,7 +1210,7 @@ export default function WorkspaceSidebar({
       <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
         {pinned.length + pinnedSessions.length + pinnedTasks.length > 0 ? (
           <section aria-label={t('sidebar.pinned')} data-testid="sidebar-pinned">
-            <div className="flex h-7 items-center gap-1 px-1 font-mono text-[8px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+            <div className="flex h-8 items-center gap-1 px-1 font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
               <Pin size={9} />
               {t('sidebar.pinned')}
             </div>
@@ -915,12 +1223,12 @@ export default function WorkspaceSidebar({
                 return (
                   <div
                     key={`pin-session-${session.id}`}
-                    className={`flex min-h-7 items-center rounded-md ${menuOpen ? 'bg-hover' : ''}`}
+                    className={`flex min-h-9 items-center rounded-md ${menuOpen ? 'bg-hover' : ''}`}
                     data-menu-open={menuOpen ? 'true' : undefined}
                   >
                     <button
                       type="button"
-                      className={`flex min-h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 py-1 text-left ${
+                      className={`flex min-h-9 min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 py-1 text-left ${
                         active ? 'bg-sel text-foreground' : 'text-muted-foreground hover:bg-hover hover:text-foreground'
                       }`}
                       onClick={() => onOpenSession(session.id)}
@@ -946,8 +1254,8 @@ export default function WorkspaceSidebar({
                       <span
                         className={`h-1.5 w-1.5 shrink-0 rounded-full ${sessionStateDotClass(session, pendingFor(session))}`}
                       />
-                      <span className="min-w-0 flex-1 truncate text-[10px]">{session.title}</span>
-                      <span className="max-w-[110px] shrink-0 truncate font-mono text-[7.5px] text-muted-foreground">
+                      <span className="min-w-0 flex-1 truncate text-[13px]">{session.title}</span>
+                      <span className="max-w-[110px] shrink-0 truncate font-mono text-[11px] text-muted-foreground">
                         {repo?.displayName ?? session.repoId}
                         {session.worktree ? ` / ${session.worktree.branch.split('/').pop()}` : ''}
                       </span>
@@ -962,12 +1270,12 @@ export default function WorkspaceSidebar({
                 return (
                   <div
                     key={`pin-task-${task.id}`}
-                    className={`flex min-h-7 items-center rounded-md ${menuOpen ? 'bg-hover' : ''}`}
+                    className={`flex min-h-9 items-center rounded-md ${menuOpen ? 'bg-hover' : ''}`}
                     data-menu-open={menuOpen ? 'true' : undefined}
                   >
                     <button
                       type="button"
-                      className={`flex min-h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 py-1 text-left ${
+                      className={`flex min-h-9 min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 py-1 text-left ${
                         active ? 'bg-sel text-foreground' : 'text-muted-foreground hover:bg-hover hover:text-foreground'
                       }`}
                       onClick={() => onOpenTask(task)}
@@ -990,8 +1298,8 @@ export default function WorkspaceSidebar({
                       data-testid={`pinned-task-${task.id}`}
                     >
                       <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${taskDotClass(task)}`} />
-                      <span className="min-w-0 flex-1 truncate text-[10px]">{task.title}</span>
-                      <span className="max-w-[110px] shrink-0 truncate font-mono text-[7.5px] text-muted-foreground">
+                      <span className="min-w-0 flex-1 truncate text-[13px]">{task.title}</span>
+                      <span className="max-w-[110px] shrink-0 truncate font-mono text-[11px] text-muted-foreground">
                         {repo?.displayName ?? task.repoId}
                       </span>
                     </button>
@@ -1003,10 +1311,10 @@ export default function WorkspaceSidebar({
         ) : null}
 
         <section aria-label={t('sidebar.projects')} data-testid="sidebar-projects" className="mt-1">
-          <div className="flex h-7 items-center gap-1 px-1">
+          <div className="flex h-8 items-center gap-1 px-1">
             <button
               type="button"
-              className="flex min-w-0 flex-1 items-center gap-1 font-mono text-[8px] font-semibold uppercase tracking-[0.1em] text-muted-foreground hover:text-foreground"
+              className="flex min-w-0 flex-1 items-center gap-1 font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground hover:text-foreground"
               onClick={() => setProjectsCollapsed((current) => !current)}
               aria-expanded={!projectsCollapsed}
               data-testid="sidebar-projects-toggle"
@@ -1034,14 +1342,14 @@ export default function WorkspaceSidebar({
               {repos.length === 0 ? (
                 <button
                   type="button"
-                  className="w-full rounded-md px-2 py-2 text-left text-[10px] leading-relaxed text-muted-foreground hover:bg-hover hover:text-foreground"
+                  className="w-full rounded-md px-2 py-2 text-left text-[12px] leading-relaxed text-muted-foreground hover:bg-hover hover:text-foreground"
                   onClick={onAddProject}
                   data-testid="sidebar-empty-add-project"
                 >
                   {t('projects.empty.title')}
                 </button>
               ) : (
-                repos.map((repo) => projectRow(repo, false))
+                orderedRepos.map((repo) => projectRow(repo, false))
               )}
             </div>
           ) : null}
@@ -1053,10 +1361,10 @@ export default function WorkspaceSidebar({
         aria-label={t('sidebar.tasks')}
         data-testid="sidebar-tasks"
       >
-        <div className="flex h-7 shrink-0 items-center gap-1 px-1">
+        <div className="flex h-8 shrink-0 items-center gap-1 px-1">
           <button
             type="button"
-            className="flex min-w-0 flex-1 items-center gap-1 font-mono text-[8px] font-semibold uppercase tracking-[0.1em] text-muted-foreground hover:text-foreground"
+            className="flex min-w-0 flex-1 items-center gap-1 font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground hover:text-foreground"
             onClick={() => setTasksCollapsed((current) => !current)}
             aria-expanded={!tasksCollapsed}
             data-testid="sidebar-tasks-toggle"
@@ -1117,7 +1425,7 @@ export default function WorkspaceSidebar({
         {!tasksCollapsed ? (
           <div className="min-h-0 flex-1 overflow-y-auto" data-testid="sidebar-task-rows">
             {taskGroups.length === 0 ? (
-              <p className="px-2 py-2 text-[10px] leading-relaxed text-muted-foreground">
+              <p className="px-2 py-2 text-[12px] leading-relaxed text-muted-foreground">
                 {tasksHistory
                   ? t('tasks.emptyHistory')
                   : tasksNeedsOnly
@@ -1127,7 +1435,7 @@ export default function WorkspaceSidebar({
             ) : (
               taskGroups.map((group) => (
                 <div key={group.repo.id} className="mb-1" data-testid={`sidebar-task-group-${group.repo.id}`}>
-                  <div className="flex h-5 items-center gap-1 px-1 font-mono text-[7.5px] uppercase tracking-[0.08em] text-muted-foreground">
+                  <div className="flex h-7 items-center gap-1 px-1 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
                     <span className="min-w-0 flex-1 truncate">{group.repo.displayName}</span>
                     <span>{group.tasks.length}</span>
                   </div>
@@ -1137,12 +1445,12 @@ export default function WorkspaceSidebar({
                     return (
                       <div
                         key={task.id}
-                        className={`flex min-h-7 items-center rounded-md ${menuOpen ? 'bg-hover' : ''}`}
+                        className={`flex min-h-10 items-center rounded-md ${menuOpen ? 'bg-hover' : ''}`}
                         data-menu-open={menuOpen ? 'true' : undefined}
                       >
                         <button
                           type="button"
-                          className={`flex min-h-7 min-w-0 flex-1 items-start gap-1.5 rounded-md px-1.5 py-1 text-left ${
+                          className={`flex min-h-10 min-w-0 flex-1 items-start gap-1.5 rounded-md px-1.5 py-1 text-left ${
                             active ? 'bg-sel text-foreground shadow-[inset_2px_0_0_var(--icode-accent)]' : 'text-muted-foreground hover:bg-hover hover:text-foreground'
                           }`}
                           onClick={() => onOpenTask(task)}
@@ -1172,8 +1480,8 @@ export default function WorkspaceSidebar({
                             className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${taskDotClass(task)}`}
                           />
                           <span className="min-w-0 flex-1">
-                            <span className="block truncate text-[10px]">{task.title}</span>
-                            <span className="block truncate font-mono text-[7.5px] text-muted-foreground">
+                            <span className="block truncate text-[13px]">{task.title}</span>
+                            <span className="block truncate font-mono text-[11px] text-muted-foreground">
                               {taskStatusLabel(task)}
                               {task.attempt ? ` · ${t('task.attempt', { count: task.attempt })}` : ''}
                             </span>
@@ -1199,9 +1507,9 @@ export default function WorkspaceSidebar({
           data-testid="sidebar-mira"
         >
           <AssistantAvatar name={assistantName} status={assistantStatus} size="sm" />
-          <span className="min-w-0 flex-1 truncate text-[10.5px]">{assistantName}</span>
+          <span className="min-w-0 flex-1 truncate text-[13px]">{assistantName}</span>
           {assistantUnread > 0 ? (
-            <span className="rounded-full bg-signal-weak px-1 text-[8px] font-medium text-signal">
+            <span className="rounded-full bg-signal-weak px-1 text-[10px] font-medium text-signal">
               {assistantUnread > 9 ? '9+' : assistantUnread}
             </span>
           ) : null}

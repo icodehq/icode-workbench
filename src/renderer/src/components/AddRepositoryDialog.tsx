@@ -20,7 +20,10 @@ import type {
   WslDistroSummary
 } from '../../../shared/schemas/ipc'
 import {
-  type ClonePhasePayload
+  type CloneAuthPayload,
+  type ClonePhasePayload,
+  type CloneSshStatusPayload,
+  type CloneSshTestPayload
 } from '../../../shared/schemas/remotes'
 import { callApi, isAbsolutePathLike } from '../lib/api'
 import { isAbsolutePathLike as isAbsolutePathLikeShared } from '../../../shared/domain/paths'
@@ -33,7 +36,9 @@ import type { MessageKey } from '../../../shared/i18n/messages'
 import {
   containsRedactionPlaceholder,
   isCloneableRemoteInput,
-  parseRemoteUrl
+  parseRemoteUrl,
+  toHttpsRemoteUrl,
+  toSshRemoteUrl
 } from '../../../shared/domain/remote-url'
 import { isValidCloneName, joinCloneDestination } from '../../../shared/domain/clone'
 import RemoteProviderBadge from './RemoteProviderBadge'
@@ -80,6 +85,24 @@ function reasonText(
   if (reason === 'not_windows') return t('addRepo.wslOnlyWindows')
   if (reason === 'undecodable_names') return t('addRepo.distroUndecodable')
   return t('addRepo.registryUnreadable')
+}
+
+/** Provider token pages. Unknown hosts simply get no link. */
+function tokenSettingsUrl(host: string | null | undefined): string | null {
+  const normalized = host?.replace(/^www\./u, '').toLowerCase() ?? ''
+  if (normalized === 'gitee.com') return 'https://gitee.com/profile/personal_access_tokens'
+  if (normalized === 'github.com') return 'https://github.com/settings/tokens'
+  if (normalized === 'gitlab.com') return 'https://gitlab.com/-/user_settings/personal_access_tokens'
+  return null
+}
+
+/** Provider SSH key pages. Unknown hosts simply get no link. */
+function sshSettingsUrl(host: string | null | undefined): string | null {
+  const normalized = host?.replace(/^www\./u, '').toLowerCase() ?? ''
+  if (normalized === 'gitee.com') return 'https://gitee.com/profile/sshkeys'
+  if (normalized === 'github.com') return 'https://github.com/settings/keys'
+  if (normalized === 'gitlab.com') return 'https://gitlab.com/-/user_settings/ssh_keys'
+  return null
 }
 
 export default function AddRepositoryDialog({
@@ -139,8 +162,42 @@ export default function AddRepositoryDialog({
   } | null>(null)
   const [cloneNotice, setCloneNotice] = useState<AppError | null>(null)
   const [cloneCleanupFailedPath, setCloneCleanupFailedPath] = useState<string | null>(null)
+  /**
+   * The interactive authentication step. It is entered only after a failed
+   * clone whose error says credentials can fix it; `authNotice` keeps the
+   * original message so Back can show it again without re-running the clone.
+   */
+  const [cloneAuthStep, setCloneAuthStep] = useState<'none' | 'choose' | 'https' | 'ssh'>('none')
+  const [authNotice, setAuthNotice] = useState<AppError | null>(null)
+  const [authError, setAuthError] = useState<AppError | null>(null)
+  const [authUsername, setAuthUsername] = useState('')
+  const [authPassword, setAuthPassword] = useState('')
+  const [sshStatus, setSshStatus] = useState<CloneSshStatusPayload | null>(null)
+  const [sshLoading, setSshLoading] = useState(false)
+  const [sshError, setSshError] = useState<AppError | null>(null)
+  const [sshUrl, setSshUrl] = useState('')
+  const [sshTest, setSshTest] = useState<CloneSshTestPayload | null>(null)
+  const [sshBusy, setSshBusy] = useState(false)
+  const [sshConsent, setSshConsent] = useState(false)
+  const [sshTrustConfirmed, setSshTrustConfirmed] = useState(false)
+  const [sshCopied, setSshCopied] = useState(false)
+  /**
+   * After a successful HTTPS clone with no credential helper, the dialog stays
+   * open for one explicit choice: save (plaintext store), switch to SSH, or
+   * skip. The credential itself lives in main's TTL record, never here.
+   */
+  const [persistRequestId, setPersistRequestId] = useState<string | null>(null)
+  const [persistHost, setPersistHost] = useState('')
+  const [persistHttpsUrl, setPersistHttpsUrl] = useState('')
+  const [persistBusy, setPersistBusy] = useState(false)
+  const [persistError, setPersistError] = useState<AppError | null>(null)
+  const [persistStoreConfirmed, setPersistStoreConfirmed] = useState(false)
   const activeCloneRef = useRef<string | null>(null)
+  const activeCloneUrlRef = useRef<string>('')
   const cloneTargetRef = useRef<ExecutionTarget | null>(null)
+  /** The event subscription is installed once, so it reads the step via a ref. */
+  const cloneAuthStepRef = useRef<'none' | 'choose' | 'https' | 'ssh'>('none')
+  cloneAuthStepRef.current = cloneAuthStep
   /**
    * The event subscription is installed once; these refs keep the callbacks it
    * invokes current without tearing the subscription down on every render.
@@ -188,6 +245,11 @@ export default function AddRepositoryDialog({
     setCloneNotice(null)
     setCloneCleanupFailedPath(null)
     setCloneProgress(null)
+    setCloneAuthStep('none')
+    setAuthNotice(null)
+    setAuthError(null)
+    setAuthUsername('')
+    setAuthPassword('')
   }, [targetKey])
 
   useEffect(() => {
@@ -210,6 +272,11 @@ export default function AddRepositoryDialog({
         setCloneBusy(false)
         setCloneProgress(null)
         setCloneCleanupFailedPath(event.cleanup === 'failed' ? event.destination : null)
+        setCloneAuthStep('none')
+        setAuthNotice(null)
+        setAuthError(null)
+        setAuthUsername('')
+        setAuthPassword('')
         setCloneNotice(
           makeAppError('INVALID_ARGUMENT', '', {
             messageKey:
@@ -225,8 +292,38 @@ export default function AddRepositoryDialog({
       if (event.type === 'failed') {
         setCloneBusy(false)
         setCloneProgress(null)
-        setCloneNotice(event.error)
         setCloneCleanupFailedPath(event.cleanup === 'failed' ? event.destination : null)
+        if (cloneAuthStepRef.current !== 'none') {
+          // A retry that still fails keeps the form and its input.
+          if (cloneAuthStepRef.current === 'ssh') setSshError(event.error)
+          else setAuthError(event.error)
+          return
+        }
+        const failedUrl = activeCloneUrlRef.current
+        const parsed = parseRemoteUrl(failedUrl)
+        if (
+          event.error.code === 'GIT_AUTH_REQUIRED' &&
+          parsed !== null &&
+          parsed.kind === 'url' &&
+          !parsed.isLocalPath &&
+          (parsed.scheme === 'https' || parsed.scheme === 'ssh')
+        ) {
+          setAuthNotice(event.error)
+          setAuthError(null)
+          setSshError(null)
+          setSshTest(null)
+          setSshStatus(null)
+          setSshTrustConfirmed(false)
+          setSshCopied(false)
+          setSshUrl(
+            toSshRemoteUrl(failedUrl) ??
+              (parsed.scheme === 'ssh' ? failedUrl : '')
+          )
+          setCloneNotice(null)
+          setCloneAuthStep('choose')
+          return
+        }
+        setCloneNotice(event.error)
         return
       }
 
@@ -234,6 +331,11 @@ export default function AddRepositoryDialog({
       // normal checkout, an unborn repository and a Gitless folder all end in
       // one place. An empty remote hands control back to the adoption panel.
       setCloneProgress({ phase: 'done', percent: 100, detail: '' })
+      setCloneAuthStep('none')
+      setAuthNotice(null)
+      setAuthError(null)
+      setAuthUsername('')
+      setAuthPassword('')
       const cloneTarget = cloneTargetRef.current
       if (cloneTarget === null) return
       void (async () => {
@@ -243,6 +345,15 @@ export default function AddRepositoryDialog({
         })
         setCloneBusy(false)
         if (failure === null) {
+          if (event.credential?.persistence === 'no-helper') {
+            setPersistRequestId(event.requestId)
+            setPersistHost(parseRemoteUrl(activeCloneUrlRef.current)?.host ?? '')
+            setPersistHttpsUrl(activeCloneUrlRef.current)
+            setPersistBusy(false)
+            setPersistError(null)
+            setPersistStoreConfirmed(false)
+            return
+          }
           onCloseRef.current()
           return
         }
@@ -392,15 +503,92 @@ export default function AddRepositoryDialog({
     cloneNameValid
   const cloneNoticeLocalized =
     cloneNotice === null ? null : localizeAppError(cloneNotice, locale)
+  const authErrorLocalized = authError === null ? null : localizeAppError(authError, locale)
+  const persistErrorLocalized =
+    persistError === null ? null : localizeAppError(persistError, locale)
+  const sshErrorLocalized = sshError === null ? null : localizeAppError(sshError, locale)
+  /** A request-level retry failure lands in authError; show it in the SSH panel too. */
+  const sshPanelError = sshErrorLocalized ?? authErrorLocalized
+  const authTokenUrl = tokenSettingsUrl(clonePreview?.host)
+  const sshPreview = parseRemoteUrl(sshUrl.trim())
+  const sshProviderUrl = sshSettingsUrl(sshPreview?.host)
+  const sshDefaultKey =
+    sshStatus === null
+      ? null
+      : (sshStatus.keys.find(
+          (key) =>
+            sshStatus.defaultKeyPath !== null &&
+            key.path === `${sshStatus.defaultKeyPath}.pub`
+        ) ??
+        sshStatus.keys[0] ??
+        null)
+
+  const clearAuth = (): void => {
+    setCloneAuthStep('none')
+    setAuthNotice(null)
+    setAuthError(null)
+    setAuthUsername('')
+    setAuthPassword('')
+    setSshStatus(null)
+    setSshLoading(false)
+    setSshError(null)
+    setSshUrl('')
+    setSshTest(null)
+    setSshBusy(false)
+    setSshConsent(false)
+    setSshTrustConfirmed(false)
+    setSshCopied(false)
+  }
+
+  const closeDialog = (): void => {
+    if (persistBusy) return
+    if (persistRequestId !== null) {
+      // Closing the dialog is an explicit skip; it also zeroes main's copy now
+      // instead of waiting for the TTL.
+      void window.icode.clone.persist({ requestId: persistRequestId, mode: 'skip' })
+      setPersistRequestId(null)
+    }
+    clearAuth()
+    onClose()
+  }
+
+  const choosePersist = async (mode: 'store' | 'ssh' | 'skip'): Promise<void> => {
+    const requestId = persistRequestId
+    if (requestId === null || persistBusy) return
+    const sshUrl = mode === 'ssh' ? toSshRemoteUrl(persistHttpsUrl) : null
+    if (mode === 'ssh' && sshUrl === null) {
+      setPersistError(
+        makeAppError('INVALID_ARGUMENT', '', { messageKey: 'addRepo.clone.auth.sshOnly' })
+      )
+      return
+    }
+    setPersistBusy(true)
+    setPersistError(null)
+    const result = await callApi(
+      window.icode.clone.persist({
+        requestId,
+        mode,
+        ...(sshUrl === null ? {} : { sshUrl })
+      })
+    )
+    setPersistBusy(false)
+    if (!result.ok) {
+      setPersistError(result.error)
+      return
+    }
+    setPersistRequestId(null)
+    onClose()
+  }
 
   const selectMode = (next: 'open' | 'clone'): void => {
-    if (busy || cloneBusy || mode === next) return
+    if (busy || cloneBusy || persistRequestId !== null || mode === next) return
     setMode(next)
     setError(null)
     setInspection(null)
     setCloneNotice(null)
     setCloneCleanupFailedPath(null)
     setCloneProgress(null)
+    clearAuth()
   }
 
   const browseCloneParent = async (): Promise<void> => {
@@ -436,8 +624,15 @@ export default function AddRepositoryDialog({
     }
   }
 
-  const startClone = async (): Promise<void> => {
-    if (!cloneReady || target === null) {
+  const startClone = async (
+    options: { auth?: CloneAuthPayload; url?: string } = {}
+  ): Promise<void> => {
+    const url = options.url ?? cloneUrlTrimmed
+    const ready =
+      options.auth === undefined
+        ? cloneReady
+        : !busy && !cloneBusy && target !== null && cloneParentValid && cloneNameValid
+    if (!ready || target === null) {
       setCloneNotice(
         makeAppError('INVALID_ARGUMENT', '', { messageKey: 'addRepo.clone.nothing' })
       )
@@ -445,27 +640,203 @@ export default function AddRepositoryDialog({
     }
     const requestId = crypto.randomUUID()
     activeCloneRef.current = requestId
+    activeCloneUrlRef.current = url
     cloneTargetRef.current = target
     setCloneBusy(true)
     setCloneCancelling(false)
     setCloneNotice(null)
     setCloneCleanupFailedPath(null)
+    setAuthError(null)
+    setSshError(null)
     setCloneProgress({ phase: 'starting', percent: null, detail: '' })
     const result = await callApi(
       window.icode.clone.start({
         requestId,
-        url: cloneUrlTrimmed,
+        url,
         target,
         parentPath: cloneParentTrimmed,
-        name: cloneNameTrimmed
+        name: cloneNameTrimmed,
+        ...(options.auth === undefined ? {} : { auth: options.auth })
       })
     )
     if (!result.ok) {
       activeCloneRef.current = null
       setCloneBusy(false)
       setCloneProgress(null)
-      setCloneNotice(result.error)
+      if (options.auth === undefined) setCloneNotice(result.error)
+      else setAuthError(result.error)
     }
+  }
+
+  const submitAuth = async (): Promise<void> => {
+    if (cloneAuthStep !== 'https' || cloneBusy) return
+    const username = authUsername.trim()
+    if (username.length === 0) {
+      setAuthError(
+        makeAppError('INVALID_ARGUMENT', '', {
+          messageKey: 'addRepo.clone.auth.usernameRequired'
+        })
+      )
+      return
+    }
+    if (authPassword.length === 0) {
+      setAuthError(
+        makeAppError('INVALID_ARGUMENT', '', {
+          messageKey: 'addRepo.clone.auth.passwordRequired'
+        })
+      )
+      return
+    }
+    setAuthError(null)
+    await startClone({ auth: { kind: 'https', username, password: authPassword } })
+  }
+
+  const backFromAuth = (): void => {
+    if (cloneBusy || sshBusy) return
+    clearAuth()
+    setCloneNotice(authNotice)
+    setAuthNotice(null)
+  }
+
+  const backToChoose = (): void => {
+    if (cloneBusy || sshBusy) return
+    setCloneAuthStep('choose')
+    setAuthError(null)
+    setAuthUsername('')
+    setAuthPassword('')
+    setSshError(null)
+    setSshTest(null)
+    setSshTrustConfirmed(false)
+  }
+
+  const chooseHttps = (): void => {
+    const parsed = parseRemoteUrl(cloneUrlTrimmed)
+    if (parsed !== null && parsed.scheme === 'ssh') {
+      const converted = toHttpsRemoteUrl(cloneUrlTrimmed)
+      if (converted === null) {
+        setAuthError(
+          makeAppError('INVALID_ARGUMENT', '', {
+            messageKey: 'addRepo.clone.auth.httpsOnly'
+          })
+        )
+        return
+      }
+      setCloneUrl(converted)
+    }
+    setAuthError(null)
+    setCloneAuthStep('https')
+  }
+
+  const loadSshStatus = async (): Promise<void> => {
+    if (target === null) return
+    setSshLoading(true)
+    setSshError(null)
+    const result = await callApi(window.icode.clone.sshStatus({ target }))
+    setSshLoading(false)
+    if (!result.ok) {
+      setSshError(result.error)
+      return
+    }
+    setSshStatus(result.value)
+  }
+
+  const chooseSsh = (): void => {
+    const parsed = parseRemoteUrl(cloneUrlTrimmed)
+    const converted =
+      toSshRemoteUrl(cloneUrlTrimmed) ??
+      (parsed !== null && parsed.scheme === 'ssh' ? cloneUrlTrimmed : '')
+    setSshUrl(converted)
+    setSshTest(null)
+    setSshError(null)
+    setSshTrustConfirmed(false)
+    setAuthError(null)
+    setAuthUsername('')
+    setAuthPassword('')
+    setCloneAuthStep('ssh')
+    void loadSshStatus()
+  }
+
+  const generateSshKey = async (): Promise<void> => {
+    if (target === null || !sshConsent || sshBusy) return
+    setSshBusy(true)
+    setSshError(null)
+    const result = await callApi(window.icode.clone.sshGenerate({ target, consent: true }))
+    setSshBusy(false)
+    if (!result.ok) {
+      setSshError(result.error)
+      return
+    }
+    setSshCopied(false)
+    await loadSshStatus()
+  }
+
+  const runSshTest = async (): Promise<void> => {
+    if (target === null) return
+    const url = sshUrl.trim()
+    if (url.length === 0) {
+      setSshError(
+        makeAppError('INVALID_ARGUMENT', '', { messageKey: 'addRepo.clone.auth.sshOnly' })
+      )
+      return
+    }
+    setSshBusy(true)
+    setSshError(null)
+    setSshTest(null)
+    setSshTrustConfirmed(false)
+    const result = await callApi(window.icode.clone.sshTest({ target, url }))
+    setSshBusy(false)
+    if (!result.ok) {
+      setSshError(result.error)
+      return
+    }
+    setSshTest(result.value)
+  }
+
+  const testSsh = async (): Promise<void> => {
+    if (sshBusy) return
+    await runSshTest()
+  }
+
+  const trustSshHost = async (): Promise<void> => {
+    if (
+      target === null ||
+      sshTest?.status !== 'host_key_unknown' ||
+      !sshTrustConfirmed ||
+      sshBusy
+    ) {
+      return
+    }
+    setSshBusy(true)
+    setSshError(null)
+    const result = await callApi(
+      window.icode.clone.sshTrustHost({
+        target,
+        host: sshTest.host,
+        port: sshTest.port,
+        fingerprints: sshTest.fingerprints.map((entry) => entry.fingerprint)
+      })
+    )
+    setSshBusy(false)
+    if (!result.ok) {
+      setSshError(result.error)
+      return
+    }
+    setSshTrustConfirmed(false)
+    await runSshTest()
+  }
+
+  const cloneWithSsh = async (): Promise<void> => {
+    if (sshTest?.status !== 'ok' || sshBusy) return
+    await startClone({ auth: { kind: 'ssh' }, url: sshUrl.trim() })
+  }
+
+  const copySshKey = (text: string): void => {
+    const clipboard = navigator.clipboard
+    if (clipboard === undefined) return
+    void clipboard
+      .writeText(text)
+      .then(() => setSshCopied(true))
+      .catch(() => setSshCopied(false))
   }
 
   const cancelClone = async (): Promise<void> => {
@@ -531,6 +902,9 @@ export default function AddRepositoryDialog({
   const submit = async (event: React.FormEvent): Promise<void> => {
     event.preventDefault()
     if (mode === 'clone') {
+      // The auth and persistence panels own the submit while they are open; an
+      // Enter key in a field must not start a second clone attempt.
+      if (cloneAuthStep !== 'none' || persistRequestId !== null) return
       await startClone()
       return
     }
@@ -663,9 +1037,9 @@ export default function AddRepositoryDialog({
           <button
             type="button"
             className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
-            onClick={onClose}
+            onClick={closeDialog}
             aria-label={t('common.close')}
-            disabled={busy || cloneBusy}
+            disabled={busy || cloneBusy || persistBusy}
           >
             <X size={14} />
           </button>
@@ -1054,6 +1428,7 @@ export default function AddRepositoryDialog({
                     const next = event.target.value
                     setCloneUrl(next)
                     setCloneNotice(null)
+                    clearAuth()
                     const parsed = parseRemoteUrl(next)
                     if (!cloneNameEdited && parsed?.suggestedName !== null && parsed?.suggestedName !== undefined) {
                       setCloneName(parsed.suggestedName)
@@ -1155,6 +1530,488 @@ export default function AddRepositoryDialog({
               </p>
             ) : null}
 
+            {cloneAuthStep === 'choose' ? (
+              <section
+                className="mt-3 rounded-md border border-signal-line bg-signal-weak/40 p-3"
+                data-testid="add-repo-clone-auth"
+              >
+                <p className="text-[12px] font-medium">{t('addRepo.clone.auth.title')}</p>
+                <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                  {t('addRepo.clone.auth.chooseHint', {
+                    host: clonePreview?.host ?? cloneUrlTrimmed
+                  })}
+                </p>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    className="rounded-md border border-border bg-background px-3 py-2 text-left hover:border-accent/60 disabled:opacity-50"
+                    onClick={chooseHttps}
+                    disabled={cloneBusy}
+                    data-testid="add-repo-clone-auth-https"
+                  >
+                    <span className="block text-[11.5px] font-medium">
+                      {t('addRepo.clone.auth.https')}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-md border border-border bg-background px-3 py-2 text-left hover:border-accent/60 disabled:opacity-50"
+                    onClick={chooseSsh}
+                    disabled={cloneBusy}
+                    data-testid="add-repo-clone-auth-ssh"
+                  >
+                    <span className="block text-[11.5px] font-medium">
+                      {t('addRepo.clone.auth.ssh')}
+                    </span>
+                  </button>
+                </div>
+                {authErrorLocalized !== null ? (
+                  <div
+                    className="mt-2 rounded border border-destructive/40 bg-destructive/10 px-2 py-1.5 text-[10.5px] text-destructive"
+                    role="alert"
+                    data-testid="add-repo-clone-auth-error"
+                  >
+                    <span className="font-medium">{authErrorLocalized.message}</span>
+                  </div>
+                ) : null}
+                <div className="mt-3 flex justify-end">
+                  <button
+                    type="button"
+                    className="h-8 rounded-md border border-border px-3 text-[11px] hover:bg-muted disabled:opacity-50"
+                    onClick={backFromAuth}
+                    disabled={cloneBusy}
+                    data-testid="add-repo-clone-auth-back"
+                  >
+                    {t('addRepo.clone.auth.back')}
+                  </button>
+                </div>
+              </section>
+            ) : null}
+
+            {cloneAuthStep === 'ssh' ? (
+              <section
+                className="mt-3 rounded-md border border-signal-line bg-signal-weak/40 p-3"
+                data-testid="add-repo-clone-auth-ssh-panel"
+              >
+                <div className="flex items-center justify-between">
+                  <p className="text-[12px] font-medium">{t('addRepo.clone.auth.ssh')}</p>
+                  <button
+                    type="button"
+                    className="text-[10.5px] text-muted-foreground underline hover:text-foreground disabled:opacity-50"
+                    onClick={backToChoose}
+                    disabled={sshBusy || cloneBusy}
+                    data-testid="add-repo-clone-auth-back"
+                  >
+                    {t('addRepo.clone.auth.back')}
+                  </button>
+                </div>
+                <label className="mt-2 block text-[10.5px] font-medium text-muted-foreground">
+                  {t('addRepo.clone.ssh.url')}
+                  <input
+                    className="mt-1 w-full rounded-md border border-border bg-background px-2.5 py-2 font-mono text-[11.5px] text-foreground outline-none focus:border-accent disabled:opacity-60"
+                    value={sshUrl}
+                    onChange={(event) => {
+                      setSshUrl(event.target.value)
+                      setSshTest(null)
+                      setSshError(null)
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+                        event.preventDefault()
+                        void testSsh()
+                      }
+                    }}
+                    disabled={sshBusy || cloneBusy}
+                    spellCheck={false}
+                    data-testid="add-repo-clone-ssh-url"
+                  />
+                </label>
+                <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
+                  {t('addRepo.clone.ssh.urlHelp')}
+                </p>
+
+                {sshLoading ? (
+                  <p className="mt-2 flex items-center gap-1.5 text-[10.5px] text-muted-foreground">
+                    <Loader2 size={11} className="animate-spin" />
+                    {t('addRepo.clone.ssh.checking')}
+                  </p>
+                ) : null}
+
+                {sshStatus !== null ? (
+                  <div className="mt-2 text-[10.5px] leading-relaxed text-muted-foreground">
+                    {!sshStatus.sshAvailable ? (
+                      <p className="text-destructive">
+                        {t('addRepo.clone.ssh.sshUnavailable')}
+                      </p>
+                    ) : (
+                      <p>
+                        {sshStatus.agentAvailable
+                          ? t('addRepo.clone.ssh.agentAvailable', {
+                              count: sshStatus.agentIdentities ?? 0
+                            })
+                          : t('addRepo.clone.ssh.agentUnavailable')}
+                      </p>
+                    )}
+                    {sshStatus.sshAvailable && !sshStatus.agentAvailable ? (
+                      <p className="mt-1">{t('addRepo.clone.ssh.agentHint')}</p>
+                    ) : null}
+
+                    {sshDefaultKey !== null ? (
+                      <div className="mt-2">
+                        <p className="font-medium">{t('addRepo.clone.ssh.publicKey')}</p>
+                        <textarea
+                          className="mt-1 h-20 w-full resize-none rounded-md border border-border bg-background px-2 py-1.5 font-mono text-[9.5px] text-foreground outline-none"
+                          value={sshDefaultKey.publicKey}
+                          readOnly
+                          data-testid="add-repo-clone-ssh-public-key"
+                        />
+                        <div className="mt-1 flex items-center gap-2">
+                          <button
+                            type="button"
+                            className="rounded border border-border px-2 py-0.5 text-[10.5px] hover:bg-muted disabled:opacity-50"
+                            onClick={() => copySshKey(sshDefaultKey.publicKey)}
+                            disabled={sshBusy}
+                            data-testid="add-repo-clone-ssh-copy"
+                          >
+                            {sshCopied
+                              ? t('addRepo.clone.ssh.copied')
+                              : t('addRepo.clone.ssh.copy')}
+                          </button>
+                          {sshProviderUrl !== null ? (
+                            <button
+                              type="button"
+                              className="inline-flex items-center gap-1 text-[10.5px] text-accent underline disabled:opacity-50"
+                              onClick={() =>
+                                void window.icode.window.openExternal({ url: sshProviderUrl })
+                              }
+                              disabled={sshBusy}
+                              data-testid="add-repo-clone-ssh-settings"
+                            >
+                              <ExternalLink size={10} />
+                              {t('addRepo.clone.ssh.openSettings')}
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+                    ) : sshStatus.defaultKeyExists ? (
+                      <p className="mt-2">{t('addRepo.clone.ssh.keyExists')}</p>
+                    ) : (
+                      <div className="mt-2">
+                        <label className="flex items-start gap-2">
+                          <input
+                            type="checkbox"
+                            className="mt-0.5"
+                            checked={sshConsent}
+                            onChange={(event) => setSshConsent(event.target.checked)}
+                            disabled={sshBusy}
+                            data-testid="add-repo-clone-ssh-consent"
+                          />
+                          <span>
+                            {t('addRepo.clone.ssh.generateConsent', {
+                              path: sshStatus.defaultKeyPath ?? ''
+                            })}
+                          </span>
+                        </label>
+                        <button
+                          type="button"
+                          className="mt-2 rounded-md border border-border px-2.5 py-1 text-[10.5px] hover:bg-muted disabled:opacity-50"
+                          onClick={() => void generateSshKey()}
+                          disabled={!sshConsent || sshBusy || cloneBusy}
+                          data-testid="add-repo-clone-ssh-generate"
+                        >
+                          {sshBusy
+                            ? t('addRepo.clone.ssh.generating')
+                            : t('addRepo.clone.ssh.generate')}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+
+                {sshPanelError !== null ? (
+                  <div
+                    className="mt-2 rounded border border-destructive/40 bg-destructive/10 px-2 py-1.5 text-[10.5px] text-destructive"
+                    role="alert"
+                    data-testid="add-repo-clone-ssh-error"
+                  >
+                    <span className="font-medium">{sshPanelError.message}</span>
+                    {sshPanelError.detail ? (
+                      <span className="mt-0.5 block break-all font-mono text-[9px] opacity-80">
+                        {sshPanelError.detail}
+                      </span>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {sshTest !== null ? (
+                  sshTest.status === 'ok' ? (
+                    <p className="mt-2 text-[10.5px] text-add">
+                      {t('addRepo.clone.ssh.accessOk')}
+                    </p>
+                  ) : sshTest.status === 'host_key_unknown' ? (
+                    <div className="mt-2 rounded border border-signal-line bg-background px-2 py-1.5 text-[10.5px]">
+                      <p className="font-medium">{t('addRepo.clone.ssh.hostUnknown')}</p>
+                      <ul className="mt-1 space-y-0.5">
+                        {sshTest.fingerprints.map((entry) => (
+                          <li
+                            key={entry.fingerprint}
+                            className="break-all font-mono text-[9.5px] text-muted-foreground"
+                          >
+                            {entry.type} {entry.fingerprint}
+                          </li>
+                        ))}
+                      </ul>
+                      <p className="mt-1 text-muted-foreground">
+                        {t('addRepo.clone.ssh.fingerprintHelp')}
+                      </p>
+                      <label className="mt-2 flex items-start gap-2">
+                        <input
+                          type="checkbox"
+                          className="mt-0.5"
+                          checked={sshTrustConfirmed}
+                          onChange={(event) => setSshTrustConfirmed(event.target.checked)}
+                          disabled={sshBusy}
+                          data-testid="add-repo-clone-ssh-trust-confirm"
+                        />
+                        <span>{t('addRepo.clone.ssh.trustConfirm')}</span>
+                      </label>
+                      <button
+                        type="button"
+                        className="mt-2 rounded-md border border-border px-2.5 py-1 text-[10.5px] hover:bg-muted disabled:opacity-50"
+                        onClick={() => void trustSshHost()}
+                        disabled={!sshTrustConfirmed || sshBusy}
+                        data-testid="add-repo-clone-ssh-trust"
+                      >
+                        {sshBusy
+                          ? t('addRepo.clone.ssh.trusting')
+                          : t('addRepo.clone.ssh.trustHost')}
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-[10.5px] text-destructive">
+                      {t('addRepo.clone.ssh.accessFailed')}
+                      {'detail' in sshTest && sshTest.detail ? ` ${sshTest.detail}` : ''}
+                    </p>
+                  )
+                ) : null}
+
+                <div className="mt-3 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    className="h-8 rounded-md border border-border px-3 text-[11px] hover:bg-muted disabled:opacity-50"
+                    onClick={() => void testSsh()}
+                    disabled={sshBusy || cloneBusy || sshUrl.trim().length === 0}
+                    data-testid="add-repo-clone-ssh-test"
+                  >
+                    {sshBusy
+                      ? t('addRepo.clone.ssh.testing')
+                      : t('addRepo.clone.ssh.test')}
+                  </button>
+                  <button
+                    type="button"
+                    className="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-3 text-[11px] font-medium text-accent-ink hover:opacity-90 disabled:opacity-50"
+                    onClick={() => void cloneWithSsh()}
+                    disabled={sshTest?.status !== 'ok' || sshBusy || cloneBusy}
+                    data-testid="add-repo-clone-ssh-clone"
+                  >
+                    <Check size={11} />
+                    {t('addRepo.clone.ssh.cloneWithSsh')}
+                  </button>
+                </div>
+              </section>
+            ) : null}
+
+            {cloneAuthStep === 'https' ? (
+              <section
+                className="mt-3 rounded-md border border-signal-line bg-signal-weak/40 p-3"
+                data-testid="add-repo-clone-auth"
+              >
+                <p className="text-[12px] font-medium">{t('addRepo.clone.auth.title')}</p>
+                <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                  {t('addRepo.clone.auth.subtitle', {
+                    host: clonePreview?.host ?? cloneUrlTrimmed
+                  })}
+                </p>
+                <label className="mt-3 grid gap-1 text-[10.5px] text-muted-foreground">
+                  {t('addRepo.clone.auth.username')}
+                  <input
+                    className="rounded-md border border-border bg-background px-2.5 py-2 font-mono text-[11.5px] text-foreground outline-none focus:border-accent disabled:opacity-60"
+                    value={authUsername}
+                    onChange={(event) => {
+                      setAuthUsername(event.target.value)
+                      setAuthError(null)
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+                        event.preventDefault()
+                        void submitAuth()
+                      }
+                    }}
+                    disabled={cloneBusy}
+                    autoComplete="username"
+                    spellCheck={false}
+                    data-testid="add-repo-clone-auth-username"
+                  />
+                </label>
+                <label className="mt-2 grid gap-1 text-[10.5px] text-muted-foreground">
+                  {t('addRepo.clone.auth.password')}
+                  <input
+                    type="password"
+                    className="rounded-md border border-border bg-background px-2.5 py-2 font-mono text-[11.5px] text-foreground outline-none focus:border-accent disabled:opacity-60"
+                    value={authPassword}
+                    onChange={(event) => {
+                      setAuthPassword(event.target.value)
+                      setAuthError(null)
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+                        event.preventDefault()
+                        void submitAuth()
+                      }
+                    }}
+                    disabled={cloneBusy}
+                    autoComplete="current-password"
+                    spellCheck={false}
+                    data-testid="add-repo-clone-auth-password"
+                  />
+                </label>
+                <p className="mt-2 text-[10px] leading-relaxed text-muted-foreground">
+                  {t('addRepo.clone.auth.tokenHelp')}
+                </p>
+                {authTokenUrl !== null ? (
+                  <button
+                    type="button"
+                    className="mt-1 inline-flex items-center gap-1 text-[10.5px] text-accent underline disabled:opacity-50"
+                    onClick={() => void window.icode.window.openExternal({ url: authTokenUrl })}
+                    disabled={cloneBusy}
+                    data-testid="add-repo-clone-auth-tokens"
+                  >
+                    <ExternalLink size={10} />
+                    {t('addRepo.clone.auth.openTokens')}
+                  </button>
+                ) : null}
+                {authErrorLocalized !== null ? (
+                  <div
+                    className="mt-2 rounded border border-destructive/40 bg-destructive/10 px-2 py-1.5 text-[10.5px] text-destructive"
+                    role="alert"
+                    data-testid="add-repo-clone-auth-error"
+                  >
+                    <span className="font-medium">{authErrorLocalized.message}</span>
+                    {authErrorLocalized.detail ? (
+                      <span className="mt-0.5 block break-all font-mono text-[9px] opacity-80">
+                        {authErrorLocalized.detail}
+                      </span>
+                    ) : null}
+                  </div>
+                ) : null}
+                <div className="mt-3 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    className="h-8 rounded-md border border-border px-3 text-[11px] hover:bg-muted disabled:opacity-50"
+                    onClick={backToChoose}
+                    disabled={cloneBusy}
+                    data-testid="add-repo-clone-auth-back"
+                  >
+                    {t('addRepo.clone.auth.back')}
+                  </button>
+                  <button
+                    type="button"
+                    className="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-3 text-[11px] font-medium text-accent-ink hover:opacity-90 disabled:opacity-50"
+                    onClick={() => void submitAuth()}
+                    disabled={cloneBusy}
+                    data-testid="add-repo-clone-auth-submit"
+                  >
+                    {cloneBusy ? (
+                      <Loader2 size={11} className="animate-spin" />
+                    ) : (
+                      <Check size={11} />
+                    )}
+                    {cloneBusy
+                      ? t('addRepo.clone.auth.checking')
+                      : t('addRepo.clone.auth.submit')}
+                  </button>
+                </div>
+              </section>
+            ) : null}
+
+            {persistRequestId !== null ? (
+              <section
+                className="mt-3 rounded-md border border-signal-line bg-signal-weak/40 p-3"
+                data-testid="add-repo-clone-persist"
+              >
+                <p className="text-[12px] font-medium">
+                  {t('addRepo.clone.persist.title')}
+                </p>
+                <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                  {t('addRepo.clone.persist.body', { host: persistHost })}
+                </p>
+                {persistErrorLocalized !== null ? (
+                  <div
+                    className="mt-2 rounded border border-destructive/40 bg-destructive/10 px-2 py-1.5 text-[10.5px] text-destructive"
+                    role="alert"
+                    data-testid="add-repo-clone-persist-error"
+                  >
+                    <span className="font-medium">{persistErrorLocalized.message}</span>
+                    {persistErrorLocalized.detail ? (
+                      <span className="mt-0.5 block break-all font-mono text-[9px] opacity-80">
+                        {persistErrorLocalized.detail}
+                      </span>
+                    ) : null}
+                  </div>
+                ) : null}
+                <label className="mt-3 flex items-start gap-2 text-[10.5px] leading-relaxed text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={persistStoreConfirmed}
+                    onChange={(event) => setPersistStoreConfirmed(event.target.checked)}
+                    disabled={persistBusy}
+                    data-testid="add-repo-clone-persist-store-confirm"
+                  />
+                  <span>{t('addRepo.clone.persist.storeWarning')}</span>
+                </label>
+                <p className="mt-2 text-[10px] leading-relaxed text-muted-foreground">
+                  {t('addRepo.clone.persist.useSshHint')}
+                </p>
+                <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    className="h-8 rounded-md border border-border px-3 text-[11px] hover:bg-muted disabled:opacity-50"
+                    onClick={() => void choosePersist('ssh')}
+                    disabled={persistBusy || toSshRemoteUrl(persistHttpsUrl) === null}
+                    data-testid="add-repo-clone-persist-ssh"
+                  >
+                    {t('addRepo.clone.persist.useSsh')}
+                  </button>
+                  <button
+                    type="button"
+                    className="h-8 rounded-md border border-border px-3 text-[11px] hover:bg-muted disabled:opacity-50"
+                    onClick={() => void choosePersist('skip')}
+                    disabled={persistBusy}
+                    data-testid="add-repo-clone-persist-skip"
+                  >
+                    {t('addRepo.clone.persist.skip')}
+                  </button>
+                  <button
+                    type="button"
+                    className="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-3 text-[11px] font-medium text-accent-ink hover:opacity-90 disabled:opacity-50"
+                    onClick={() => void choosePersist('store')}
+                    disabled={persistBusy || !persistStoreConfirmed}
+                    data-testid="add-repo-clone-persist-store"
+                  >
+                    {persistBusy ? (
+                      <Loader2 size={11} className="animate-spin" />
+                    ) : (
+                      <Check size={11} />
+                    )}
+                    {persistBusy
+                      ? t('addRepo.clone.persist.saving')
+                      : t('addRepo.clone.persist.store')}
+                  </button>
+                </div>
+              </section>
+            ) : null}
+
             {cloneProgress !== null ? (
               <div
                 className="mt-3 rounded-md border border-border bg-background px-3 py-2"
@@ -1185,7 +2042,7 @@ export default function AddRepositoryDialog({
               </div>
             ) : null}
 
-            {cloneNoticeLocalized !== null ? (
+            {cloneAuthStep === 'none' && cloneNoticeLocalized !== null ? (
               <div
                 className="mt-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-[11px] text-destructive"
                 role="alert"
@@ -1238,35 +2095,37 @@ export default function AddRepositoryDialog({
           <button
             type="button"
             className="rounded-md border border-border h-9 px-3 text-[12px] hover:bg-muted disabled:opacity-50"
-            onClick={onClose}
-            disabled={busy || cloneBusy}
+            onClick={closeDialog}
+            disabled={busy || cloneBusy || persistBusy}
             data-testid="add-repo-cancel"
           >
             {t('addRepo.cancel')}
           </button>
-          <button
-            type="submit"
-            className="inline-flex items-center gap-1.5 rounded-md bg-accent h-9 px-3.5 text-[12.5px] font-medium text-accent-ink hover:opacity-90 disabled:opacity-50"
-            disabled={mode === 'clone' ? !cloneReady : !canSubmit}
-            data-testid="add-repo-submit"
-          >
-            {mode === 'clone' ? (
-              cloneBusy ? (
+          {cloneAuthStep === 'none' && persistRequestId === null ? (
+            <button
+              type="submit"
+              className="inline-flex items-center gap-1.5 rounded-md bg-accent h-9 px-3.5 text-[12.5px] font-medium text-accent-ink hover:opacity-90 disabled:opacity-50"
+              disabled={mode === 'clone' ? !cloneReady : !canSubmit}
+              data-testid="add-repo-submit"
+            >
+              {mode === 'clone' ? (
+                cloneBusy ? (
+                  <Loader2 size={12} className="animate-spin" />
+                ) : (
+                  <Download size={12} />
+                )
+              ) : busy ? (
                 <Loader2 size={12} className="animate-spin" />
               ) : (
-                <Download size={12} />
-              )
-            ) : busy ? (
-              <Loader2 size={12} className="animate-spin" />
-            ) : (
-              <Check size={12} />
-            )}
-            {mode === 'clone'
-              ? cloneBusy
-                ? t('addRepo.clone.starting')
-                : t('addRepo.clone.start')
-              : submitLabel}
-          </button>
+                <Check size={12} />
+              )}
+              {mode === 'clone'
+                ? cloneBusy
+                  ? t('addRepo.clone.starting')
+                  : t('addRepo.clone.start')
+                : submitLabel}
+            </button>
+          ) : null}
         </div>
       </form>
     </div>

@@ -51,6 +51,9 @@ export const APP_ERROR_CODES = [
   'GIT_CONFLICT',
   'GIT_DIVERGED',
   'GIT_AUTH_FAILED',
+  // A clone can recover interactively: the user is present and can supply a
+  // credential or switch to SSH. Fetch/push keep GIT_AUTH_FAILED.
+  'GIT_AUTH_REQUIRED',
   'GIT_NON_FAST_FORWARD',
   'GIT_BRANCH_IN_USE',
   'GIT_STALE_STATUS',

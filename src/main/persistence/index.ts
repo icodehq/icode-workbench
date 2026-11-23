@@ -4,6 +4,7 @@ import { openDatabase, type Database } from './database'
 import { MIGRATIONS } from './migrations'
 import { RepositoryStore } from './repository-store'
 import { SessionStore } from './session-store'
+import { SidebarOrderStore } from './sidebar-order-store'
 import { UiStateStore } from './ui-state-store'
 import { ProviderStore } from './provider-store'
 import { createSafeStorageCipher } from '../secrets/secret-cipher'
@@ -21,6 +22,7 @@ export type AppPersistence = {
   database: Database
   repositories: RepositoryStore
   sessions: SessionStore
+  sidebarOrder: SidebarOrderStore
   uiState: UiStateStore
   providers: ProviderStore
   repositoryService: RepositoryService
@@ -51,12 +53,14 @@ export function getAppPersistence(): AppPersistence {
   const database = openDatabase({ path: databasePath(), migrations: MIGRATIONS })
   const repositories = new RepositoryStore(database)
   const sessions = new SessionStore(database)
+  const sidebarOrder = new SidebarOrderStore(database)
   const uiState = new UiStateStore(database)
   const providers = new ProviderStore(database, createSafeStorageCipher(safeStorage))
   instance = {
     database,
     repositories,
     sessions,
+    sidebarOrder,
     uiState,
     providers,
     repositoryService: createRepositoryService({

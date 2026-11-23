@@ -62,6 +62,7 @@ describe('preload API surface', () => {
         'repos',
         'schedules',
         'sessions',
+        'sidebarOrder',
         'supervisor',
         'tasks',
         'terminal',
@@ -138,6 +139,19 @@ describe('preload API surface', () => {
       IPC_CHANNELS.assistantNewConversation,
       IPC_CHANNELS.assistantSettingsGet
     ])
+  })
+
+  it('routes the sidebar order to its channels', async () => {
+    const { api, invoke } = setup()
+    const order = {
+      projects: ['repo_1'],
+      worktrees: { repo_1: ['/tmp/wt'] },
+      sessions: { 'worktree:/tmp/wt': ['ses_1'] }
+    }
+    await api.sidebarOrder.get()
+    await api.sidebarOrder.set(order)
+    expect(invoke).toHaveBeenNthCalledWith(1, IPC_CHANNELS.sidebarOrderGet, undefined)
+    expect(invoke).toHaveBeenNthCalledWith(2, IPC_CHANNELS.sidebarOrderSet, order)
   })
 
   it('routes network settings to their channels', async () => {

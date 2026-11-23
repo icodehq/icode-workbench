@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { TerminalInstanceLike } from './terminal-instance'
+import type { TerminalLinkRequest, TerminalNotice } from './terminal-interaction-host'
 import { TerminalRegistry, type TerminalFactory } from './terminal-registry'
 import type { TerminalStatus } from './session-terminal'
 
@@ -39,11 +40,53 @@ class FakeInstance implements TerminalInstanceLike {
   isDisposed(): boolean {
     return this.disposed
   }
+  isMouseTrackingActive(): boolean {
+    return false
+  }
   subscribe(): () => void {
     return () => undefined
   }
   getStatus(): TerminalStatus {
     return STATUS
+  }
+  notify(_notice: TerminalNotice): void {}
+  hasSelection(): boolean {
+    return false
+  }
+  getSelectionText(): string {
+    return ''
+  }
+  async copySelection(): Promise<boolean> {
+    return false
+  }
+  async copyScreenContent(): Promise<boolean> {
+    return false
+  }
+  selectAll(): void {}
+  clearSelection(): void {}
+  paste(_text: string): boolean {
+    return false
+  }
+  find(): boolean {
+    return false
+  }
+  clearFind(): void {}
+  clear(): void {}
+  reset(): void {}
+  getMetadata(): { cwd: string | null; title: string | null } {
+    return { cwd: null, title: null }
+  }
+  getTranscript(): string {
+    return ''
+  }
+  onInteractionState(_listener: (state: { hasSelection: boolean }) => void): () => void {
+    return () => undefined
+  }
+  onFindRequest(_listener: () => void): () => void {
+    return () => undefined
+  }
+  onLinkRequest(_listener: (request: TerminalLinkRequest) => void): () => void {
+    return () => undefined
   }
 }
 

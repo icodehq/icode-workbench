@@ -12,10 +12,10 @@ import {
 import { createGuestGitEnvironmentCache } from './guest-git-environment'
 import { resetGuestGitEnvironments, runGuestGit } from './guest-git'
 
-function probeBody(path: string, git: string, home: string): Buffer {
+function probeBody(path: string, git: string, home: string, socket = ''): Buffer {
   return Buffer.concat([
     Buffer.from(`${LOGIN_FENCE_START}`),
-    Buffer.from(`${path}\u0000${git}\u0000${home}`),
+    Buffer.from(`${path}\u0000${git}\u0000${home}\u0000${socket}`),
     Buffer.from(`${LOGIN_FENCE_END}${LOGIN_FENCE_STATUS}0`)
   ])
 }
@@ -43,8 +43,23 @@ describe('probe parsing', () => {
     expect(parseGuestGitProbe(probeBody('/usr/bin:/bin', '/usr/bin/git', '/home/u'))).toEqual({
       gitPath: '/usr/bin/git',
       path: '/usr/bin:/bin',
-      home: '/home/u'
+      home: '/home/u',
+      sshAuthSock: null
     })
+  })
+
+  it('captures the login shell agent socket', () => {
+    expect(
+      parseGuestGitProbe(
+        probeBody('/usr/bin', '/usr/bin/git', '/home/u', '/run/user/1000/openssh_agent')
+      )
+    ).toMatchObject({ sshAuthSock: '/run/user/1000/openssh_agent' })
+  })
+
+  it('rejects a malformed agent socket', () => {
+    expect(
+      parseGuestGitProbe(probeBody('/usr/bin', '/usr/bin/git', '/home/u', 'relative.sock'))
+    ).toBeNull()
   })
 
   it('discards a login banner printed before the fence', () => {
@@ -230,6 +245,51 @@ describe('runGuestGit environment strategy', () => {
     expect(fallback[1]).toBe('-lc')
     // The path is quoted, never interpolated.
     expect(fallback[2]).toContain("'/home/u/r'")
+  })
+
+  it('carries the askpass suppressors down both routes', async () => {
+    const direct = runnerFor((guest) => {
+      if (guest[1] === '-lc') return ok(probeBody('/usr/bin', '/usr/bin/git', '/home/u'))
+      return ok(Buffer.from('abc\n'))
+    })
+    await runGuestGit(
+      direct.runner,
+      {
+        distro: 'd',
+        cwd: '/r',
+        args: ['ls-remote', '--', 'https://example.com/o/r.git', 'HEAD'],
+        env: { GIT_ASKPASS: '', SSH_ASKPASS: '' }
+      },
+      { environments: createGuestGitEnvironmentCache(direct.runner) }
+    )
+    expect(direct.calls[1]).toContain('GIT_ASKPASS=')
+    expect(direct.calls[1]).toContain('SSH_ASKPASS=')
+
+    const fallback = runnerFor((guest) => {
+      if (guest[1] === '-lc' && guest[2]?.includes('command -v git')) {
+        return ok(Buffer.alloc(0), 127)
+      }
+      return ok(
+        Buffer.concat([
+          Buffer.from(LOGIN_FENCE_START),
+          Buffer.from('fenced-output'),
+          Buffer.from(LOGIN_FENCE_END),
+          Buffer.from(`${LOGIN_FENCE_STATUS}0`)
+        ])
+      )
+    })
+    await runGuestGit(
+      fallback.runner,
+      {
+        distro: 'd',
+        cwd: '/r',
+        args: ['ls-remote', '--', 'https://example.com/o/r.git', 'HEAD'],
+        env: { GIT_ASKPASS: '', SSH_ASKPASS: '' }
+      },
+      { environments: createGuestGitEnvironmentCache(fallback.runner) }
+    )
+    expect(fallback.calls[1]![2]).toContain('GIT_ASKPASS=')
+    expect(fallback.calls[1]![2]).toContain('SSH_ASKPASS=')
   })
 
   it('retries in the login shell when direct-git reports "not found"', async () => {

@@ -18,6 +18,164 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   installer can replace the app. The first build with this feature must still be
   installed manually once.
 
+## [0.22.3] - 2026-11-23
+
+### Fixed
+
+- **Renderer busy-loop.** The removal-jobs subscription re-ran its load effect
+  on every render because the shell's `onChanged` callback was recreated each
+  time, so each state update scheduled another IPC read and pinned a CPU core.
+  The hook now keeps its callbacks in latest-value refs, and the shell builds
+  its refresh callback from stable members, so an idle window stops spinning
+  and clicks no longer queue behind the loop.
+
+## [0.22.2] - 2026-11-23
+
+### Fixed
+
+- **Private clone into a WSL project.** An authenticated clone no longer fails
+  with "Invalid Git environment override." The one-attempt auth environment
+  sets `SSH_ASKPASS` to suppress askpass prompts, but the guest Git executor
+  admitted only `GIT_*` keys, so the credential preflight threw before
+  `git ls-remote` ran. The guest allowlist now admits that exact key, and the
+  streaming guest clone forwards it on both its direct and login-shell routes.
+
+## [0.22.1] - 2026-11-23
+
+### Fixed
+
+- **Light appearance legibility.** Light-theme text is darker across the shell,
+  source control, diffs and settings: primary ink is near-black, secondary and
+  tertiary ink clear 7:1 and 5:1 on the panel, and the green/red status hues are
+  deepened for text use. Filled danger and info buttons now pick their ink per
+  appearance instead of assuming black. The terminal palette follows with a
+  near-black default foreground and a 4.5:1 dynamic contrast floor, and the
+  Monaco light theme uses the same ink.
+
+## [0.22.0] - 2026-11-23
+
+### Added
+
+- **Authenticated clone.** Cloning a private repository now opens an in-dialog
+  authentication step when Git reports an authentication failure. HTTPS
+  credentials (username plus password or access token) are verified with
+  `git ls-remote` before the clone and delivered through a one-attempt
+  credential helper. The helper answers only the exact host and path, and its
+  files are removed on success, failure, cancel or timeout. On WSL the handoff
+  is a 0600 file plus a fixed helper script inside the distro. SSH is an equal
+  entry point: check the key and agent, generate an ed25519 key with explicit
+  consent, copy the public key, confirm and trust the host fingerprint, test
+  access, then clone. After a successful HTTPS clone iCode offers to save the
+  credential with the environment's existing helper, switch the origin to SSH,
+  or opt in to the plaintext `store` helper with a warning. Background and
+  agent Git operations still never prompt.
+
+### Fixed
+
+- WSL Git now carries the login shell's `SSH_AUTH_SOCK` into the direct spawn,
+  so an agent started from the shell profile is visible to clone and fetch.
+  The login-shell fallback also sets `GIT_TERMINAL_PROMPT=0` like the direct
+  route instead of leaving the outcome to the profile.
+
+## [0.21.0] - 2026-11-23
+
+### Added
+
+- **Copy Screen Content.** The terminal menu can copy the visible screen even
+  when the program owns the selection, and terminal copy actions now report
+  success or failure.
+
+### Fixed
+
+- **Terminal right-click with a program-owned selection.** A plain right-click
+  now copies an existing terminal selection and otherwise opens the pane menu;
+  Ctrl+right-click always opens the menu. In mouse-aware TUI programs such as
+  Claude Code the right button is no longer forwarded to the program, so its
+  own selection survives the menu. Alt+right-click still passes through.
+
+## [0.20.0] - 2026-11-23
+
+### Added
+
+- **Sidebar drag reordering.** Projects, worktrees and sessions can be dragged
+  to reorder the workspace sidebar. The order is stored in the app database, so
+  it survives restarts; worktrees reorder within their project and sessions
+  within their checkout group (the default checkout or a worktree).
+
+## [0.19.2] - 2026-11-23
+
+### Fixed
+
+- **Session tab drag reordering.** Dragging a session tab now moves it to the
+  target tab's slot. The drag source is tracked in a ref instead of React
+  state, so `dragover` accepts the drop while the native drag loop is running;
+  previously the drop never landed with real mouse input.
+
+## [0.19.1] - 2026-11-22
+
+### Fixed
+
+- URL links in mouse-aware terminal programs, such as Claude Code, now open
+  the link action popover on a plain click instead of doing nothing. The click
+  is withheld from the program, and Ctrl/Cmd-click still opens the browser
+  directly.
+
+## [0.19.0] - 2026-11-22
+
+### Added
+
+- Terminal links. HTTP(S) URLs printed in terminal output are clickable, and a
+  URL that soft-wraps across rows is detected as one link. A plain click opens a
+  small action popover with **Open in Browser** and **Copy Link**;
+  Cmd/Ctrl-click opens the browser directly. OSC 8 hyperlinks follow the same
+  policy. Only http and https URLs can reach the OS browser, and a link click
+  never overrides a text selection or a plain click in a mouse-aware TUI.
+
+## [0.18.0] - 2026-11-22
+
+### Added
+
+- Terminal panes now provide a find bar, a pane context menu, platform-correct
+  copy and paste shortcuts, copy-on-select with gutter trimming, OSC 52 TUI
+  clipboard writes, and locally persisted terminal settings. Split, zoom, clear,
+  reset, copy-context and close actions target the pane that opened the menu,
+  not only the active session.
+
+### Changed
+
+- Upgraded xterm.js to the 6.1 beta family and added search and Unicode 11
+  support. Live panes and read-only previews now share one terminal options
+  builder.
+
+## [0.17.3] - 2026-11-22
+
+### Fixed
+
+- OS notification clicks now land where the user can act: direct-session
+  finishes and waits open the session terminal, task approvals open the task
+  workbench, waiting and failed tasks open their terminal, review-ready tasks
+  open Changes, and repo setup failures open the Mira card. Clicking a
+  notification also restores a minimized window.
+
+## [0.17.2] - 2026-11-22
+
+### Changed
+
+- A second readability pass on the workspace sidebar: project, session and task
+  titles are 13px, worktree and default-checkout names 12px, state, branch,
+  activity and task-status lines 11px, section headers 11px, and counts and
+  badges 10px, with taller rows to match. The first pass in 0.17.1 still left
+  secondary sidebar text hard to read.
+
+## [0.17.1] - 2026-11-22
+
+### Changed
+
+- The workspace sidebar uses a readable type scale: session and task titles are
+  12px, state, branch and activity lines are 10px, and section headers are 9px,
+  with taller rows to match. Secondary sidebar text was previously as small as
+  7.5px, and the footer status bar follows the same scale.
+
 ## [0.17.0] - 2026-11-21
 
 ### Added

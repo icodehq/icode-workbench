@@ -10,36 +10,38 @@ import type { ITheme, Terminal } from '@xterm/xterm'
  * ANSI white and bright white are ink, not paper (Termio learned this the hard
  * way — agents such as Claude Code print the version, cwd and shortcut hints in
  * SGR 37, which disappears at 1.07:1 on a white ground). Slots 7 and 15 are
- * therefore mapped to #4D4D4D and #262626, as Termio maps them in its light
+ * therefore mapped to #383A42 and #1F2328, as Termio maps them in its light
  * default.
  *
- * Every ANSI colour below clears 4.5:1 against `#FAFAFA`; `terminal-theme.test`
- * enforces it. Keep the dark palette as the afterglow surface the shell uses.
+ * The light slots lean darker than the usual One Light values: default text is
+ * near-black and every ANSI colour clears 4.5:1 against `#FAFAFA`;
+ * `terminal-theme.test` enforces it. Keep the dark palette as the afterglow
+ * surface the shell uses.
  */
 export const TERMINAL_THEMES: Record<'light' | 'dark', ITheme> = {
   light: {
     background: '#FAFAFA',
-    foreground: '#383A42',
+    foreground: '#1F2328',
     cursor: '#2F62D8',
     cursorAccent: '#FAFAFA',
-    selectionBackground: 'rgba(47, 98, 216, 0.16)',
-    selectionInactiveBackground: 'rgba(47, 98, 216, 0.08)',
-    black: '#383A42',
-    red: '#CF222E',
+    selectionBackground: 'rgba(47, 98, 216, 0.22)',
+    selectionInactiveBackground: 'rgba(47, 98, 216, 0.1)',
+    black: '#1F2328',
+    red: '#B9372A',
     green: '#116329',
-    yellow: '#9A6700',
-    blue: '#0969DA',
+    yellow: '#7A4F00',
+    blue: '#0550AE',
     magenta: '#8250DF',
     cyan: '#1B7C83',
-    white: '#4D4D4D',
-    brightBlack: '#57606A',
+    white: '#383A42',
+    brightBlack: '#4A4F57',
     brightRed: '#A40E26',
     brightGreen: '#1A7F37',
     brightYellow: '#633C01',
     brightBlue: '#0550AE',
     brightMagenta: '#6639BA',
     brightCyan: '#0A6C74',
-    brightWhite: '#262626'
+    brightWhite: '#1F2328'
   },
   dark: {
     background: '#212121',
@@ -69,14 +71,15 @@ export const TERMINAL_THEMES: Record<'light' | 'dark', ITheme> = {
 
 /**
  * xterm's dynamic contrast floor. Light themes get a floor because programs can
- * set colours at runtime (OSC 4) that the palette above cannot protect against;
- * dark themes keep xterm's default of 1 because their intentionally dim slots
- * are part of the design. Termio uses 1.5 for light themes; xterm adjusts the
- * foreground instead of snapping it to black or white, so the same floor only
- * rescues genuinely invisible text here.
+ * set colours at runtime (OSC 4, 256-colour and truecolour output) that the
+ * palette above cannot protect against. The light floor is 4.5 so every cell
+ * clears the normal-text requirement; dark themes keep xterm's default of 1
+ * because their intentionally dim slots are part of the design. xterm adjusts
+ * the foreground instead of snapping it to black or white, so the floor only
+ * darkens text that would otherwise be hard to read on paper.
  */
 export const TERMINAL_MINIMUM_CONTRAST: Record<'light' | 'dark', number> = {
-  light: 1.5,
+  light: 4.5,
   dark: 1
 }
 

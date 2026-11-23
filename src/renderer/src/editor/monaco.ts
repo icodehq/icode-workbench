@@ -121,27 +121,27 @@ function defineWorkbenchThemes(api: MonacoApi): void {
     base: 'vs',
     inherit: true,
     rules: [
-      { token: 'comment', foreground: '696C77' },
+      { token: 'comment', foreground: '4A4F57' },
       { token: 'keyword', foreground: '2F62D8' },
-      { token: 'string', foreground: '50A14F' },
-      { token: 'number', foreground: '986801' },
-      { token: 'type', foreground: '1B7C83' }
+      { token: 'string', foreground: '116329' },
+      { token: 'number', foreground: '7A4F00' },
+      { token: 'type', foreground: '0A6C74' }
     ],
     colors: {
       'editor.background': '#FAFAFA',
-      'editor.foreground': '#383A42',
-      'editorLineNumber.foreground': '#9A9CA3',
-      'editorLineNumber.activeForeground': '#383A42',
+      'editor.foreground': '#1F2328',
+      'editorLineNumber.foreground': '#6B7078',
+      'editorLineNumber.activeForeground': '#1F2328',
       'editorCursor.foreground': '#2F62D8',
-      'editor.selectionBackground': '#E4E6EB',
-      'editor.inactiveSelectionBackground': '#EDEDEE',
+      'editor.selectionBackground': '#D9DEE7',
+      'editor.inactiveSelectionBackground': '#EBEBED',
       'editor.lineHighlightBackground': '#F0F0F1',
       'editorIndentGuide.background1': '#D6D6D9',
       'editorIndentGuide.activeBackground1': '#BDBDC1',
       'editorWidget.background': '#F0F0F1',
-      'editorWidget.border': '#BDBDC1',
+      'editorWidget.border': '#ADADB4',
       'editorSuggestWidget.background': '#F0F0F1',
-      'editorSuggestWidget.selectedBackground': '#E4E6EB'
+      'editorSuggestWidget.selectedBackground': '#D9DEE7'
     }
   })
 }

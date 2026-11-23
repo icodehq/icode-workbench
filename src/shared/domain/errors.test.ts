@@ -50,6 +50,7 @@ describe('app error codes', () => {
       'GIT_CONFLICT',
       'GIT_DIVERGED',
       'GIT_AUTH_FAILED',
+      'GIT_AUTH_REQUIRED',
       'GIT_NON_FAST_FORWARD',
       'GIT_BRANCH_IN_USE',
       'GIT_STALE_STATUS',
@@ -91,6 +92,7 @@ describe('app error codes', () => {
     expect(isRetryableAppErrorCode('PATH_NOT_FOUND')).toBe(false)
     expect(isRetryableAppErrorCode('SPAWN_FAILED')).toBe(false)
     expect(isRetryableAppErrorCode('DB_CORRUPT')).toBe(false)
+    expect(isRetryableAppErrorCode('GIT_AUTH_REQUIRED')).toBe(false)
   })
 
   it('builds structured errors with optional diagnostics', () => {

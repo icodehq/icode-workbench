@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore
@@ -13,9 +14,22 @@ import type { AppError } from '../../../shared/domain/errors'
 import type { SessionSummary } from '../../../shared/schemas/ipc'
 import { SessionTerminal, type TerminalStatus } from '../terminal/session-terminal'
 import { rememberTerminalSize } from '../terminal/terminal-size'
-import { applyTerminalTheme, terminalThemeOptions } from '../terminal/terminal-theme'
+import { applyTerminalTheme } from '../terminal/terminal-theme'
+import { terminalOptionsFor } from '../terminal/terminal-options'
+import {
+  loadTerminalSettings,
+  useTerminalSettings
+} from '../terminal/terminal-settings'
+import type { TerminalFindDirection } from '../terminal/terminal-interaction-host'
 import type { TerminalInstanceLike } from '../terminal/terminal-instance'
+import { terminalRightClickIntent } from '../terminal/interaction/right-click-policy'
 import { useTerminalRegistry } from '../terminal/terminal-provider'
+import { useSessionPaneActions } from './sessions/SessionPaneActions'
+import TerminalContextMenu, { type TerminalMenuActions } from './terminal/TerminalContextMenu'
+import TerminalFindBar from './terminal/TerminalFindBar'
+import TerminalLinkPopover from './terminal/TerminalLinkPopover'
+import type { TerminalLinkRequest } from '../terminal/terminal-interaction-host'
+import type { SplitSide } from '../state/session-split'
 import { useT } from '../i18n/use-i18n'
 
 type Props = {
@@ -34,6 +48,14 @@ const INITIAL_STATUS: TerminalStatus = {
   error: null
 }
 
+/** Menu state is a snapshot: xterm has no mouse-mode change event. */
+type TerminalMenuPoint = {
+  x: number
+  y: number
+  hasSelection: boolean
+  mouseTracking: boolean
+}
+
 const NO_SUBSCRIBE = (): (() => void) => () => undefined
 const getInitialStatus = (): TerminalStatus => INITIAL_STATUS
 
@@ -49,6 +71,8 @@ type FrameProps = {
   containerRef: React.RefObject<HTMLDivElement | null>
   onActivate: () => void
   onRetry: () => void
+  onContextMenu?: (event: React.MouseEvent<HTMLDivElement>) => void
+  children?: React.ReactNode
 }
 
 /**
@@ -62,7 +86,9 @@ function TerminalPaneFrame({
   status,
   containerRef,
   onActivate,
-  onRetry
+  onRetry,
+  onContextMenu,
+  children
 }: FrameProps): React.JSX.Element {
   const t = useT()
   const showOverlay = status.phase === 'error'
@@ -84,7 +110,17 @@ function TerminalPaneFrame({
         ref={containerRef}
         className={`terminal-host absolute inset-0 ${preview ? 'px-1.5 py-1' : 'px-2 py-1'}`}
         data-testid={`terminal-${session.id}`}
-        onClick={preview ? undefined : onActivate}
+        onMouseDown={
+          preview
+            ? undefined
+            : (event) => {
+                // Focus on press, before mouseup. A link click opens its action
+                // popover on mouseup; focusing on click would steal focus back
+                // from the popover and leak Escape to the shell.
+                if (event.button === 0) onActivate()
+              }
+        }
+        onContextMenu={preview ? undefined : onContextMenu}
       />
       {busy && !preview ? (
         <div className="pointer-events-none absolute left-3 top-2 z-10 flex items-center gap-2 rounded-md border border-border bg-card/95 px-2 py-1 text-[10px] text-muted-foreground">
@@ -138,6 +174,7 @@ function TerminalPaneFrame({
           </div>
         )
       ) : null}
+      {children}
     </div>
   )
 }
@@ -204,6 +241,130 @@ function RegistryTerminalPane({
     [instance]
   )
   const status = useSyncExternalStore(subscribe, getSnapshot)
+  const paneActions = useSessionPaneActions()
+  const terminalSettings = useTerminalSettings()
+  const t = useT()
+  const [findOpen, setFindOpen] = useState(false)
+  const [menu, setMenu] = useState<TerminalMenuPoint | null>(null)
+  const [linkRequest, setLinkRequest] = useState<TerminalLinkRequest | null>(null)
+
+  useEffect(() => {
+    if (instance === null) return
+    return instance.onFindRequest(() => setFindOpen(true))
+  }, [instance])
+
+  useEffect(() => {
+    if (instance === null) return
+    const unsubscribe = instance.onLinkRequest((request) => setLinkRequest(request))
+    return () => {
+      unsubscribe()
+      setLinkRequest(null)
+    }
+  }, [instance])
+
+  const find = useCallback(
+    (
+      query: string,
+      direction: TerminalFindDirection,
+      options: { caseSensitive: boolean; regex: boolean }
+    ) => instance?.find(query, direction, options) ?? false,
+    [instance]
+  )
+  const clearFind = useCallback(() => instance?.clearFind(), [instance])
+  const closeFind = useCallback(() => {
+    setFindOpen(false)
+    instance?.focus()
+  }, [instance])
+  const copySelectionWithNotice = useCallback(async (): Promise<boolean> => {
+    if (instance === null) return false
+    const ok = await instance.copySelection()
+    instance.notify({
+      tone: ok ? 'success' : 'error',
+      message: t(ok ? 'terminal.copiedSelection' : 'terminal.copyFailed')
+    })
+    return ok
+  }, [instance, t])
+  const copy = useCallback(() => {
+    void copySelectionWithNotice()
+  }, [copySelectionWithNotice])
+  const copyScreenContent = useCallback(() => {
+    if (instance === null) return
+    void instance.copyScreenContent().then((ok) => {
+      instance.notify({
+        tone: ok ? 'success' : 'error',
+        message: t(ok ? 'terminal.copiedScreen' : 'terminal.copyFailed')
+      })
+    })
+  }, [instance, t])
+  const paste = useCallback(() => {
+    void navigator.clipboard
+      .readText()
+      .then((text) => {
+        instance?.paste(text)
+      })
+      .catch(() => undefined)
+  }, [instance])
+  const selectAll = useCallback(() => instance?.selectAll(), [instance])
+  const copyContext = useCallback(() => {
+    const text = instance?.getTranscript()
+    if (text !== undefined && text.length > 0) {
+      void navigator.clipboard.writeText(text).catch(() => undefined)
+    }
+  }, [instance])
+  const copySessionId = useCallback(() => {
+    void navigator.clipboard.writeText(session.id).catch(() => undefined)
+  }, [session.id])
+  const menuActions = useMemo<TerminalMenuActions>(
+    () => ({
+      copy,
+      copyScreenContent,
+      paste,
+      selectAll,
+      find: () => setFindOpen(true),
+      copyContext,
+      copySessionId,
+      split: (side: SplitSide) => paneActions?.split(side),
+      toggleZoom: () => paneActions?.toggleZoom(),
+      clear: () => instance?.clear(),
+      reset: () => instance?.reset(),
+      close: () => paneActions?.close()
+    }),
+    [copy, copyScreenContent, copyContext, copySessionId, instance, paneActions, paste, selectAll]
+  )
+
+  const handleContextMenu = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      event.preventDefault()
+      const target = instance
+      if (target === null) return
+      const x = event.clientX
+      const y = event.clientY
+      const mouseTracking = target.isMouseTrackingActive()
+      const hasSelection = target.hasSelection()
+      const intent = terminalRightClickIntent({
+        button: event.button,
+        altKey: event.altKey,
+        ctrlKey: event.ctrlKey,
+        mouseTracking,
+        hasSelection,
+        rightClickPaste: terminalSettings.rightClickPaste
+      })
+      if (intent === 'passthrough') return
+      if (intent === 'copy') {
+        void copySelectionWithNotice().then((ok) => {
+          if (ok) return
+          setMenu({ x, y, hasSelection: target.hasSelection(), mouseTracking })
+        })
+        return
+      }
+      if (intent === 'paste') {
+        paste()
+        return
+      }
+      setMenu({ x, y, hasSelection, mouseTracking })
+    },
+    [copySelectionWithNotice, instance, paste, terminalSettings.rightClickPaste]
+  )
 
   return (
     <TerminalPaneFrame
@@ -214,7 +375,33 @@ function RegistryTerminalPane({
       containerRef={containerRef}
       onActivate={() => instance?.focus()}
       onRetry={() => instance?.retry()}
-    />
+      onContextMenu={handleContextMenu}
+    >
+      <TerminalFindBar
+        open={findOpen}
+        onClose={closeFind}
+        find={find}
+        clearFind={clearFind}
+        initialCaseSensitive={terminalSettings.findCaseSensitive}
+        initialRegex={terminalSettings.findRegex}
+      />
+      <TerminalLinkPopover request={linkRequest} onClose={() => setLinkRequest(null)} />
+      <TerminalContextMenu
+        open={menu !== null}
+        x={menu?.x ?? 0}
+        y={menu?.y ?? 0}
+        hasSelection={menu?.hasSelection ?? false}
+        mouseTracking={menu?.mouseTracking ?? false}
+        canSplit={paneActions?.canSplit ?? false}
+        canClose={paneActions?.canClose ?? false}
+        canZoom={paneActions?.canZoom ?? false}
+        onClose={() => {
+          setMenu(null)
+          instance?.focus()
+        }}
+        actions={menuActions}
+      />
+    </TerminalPaneFrame>
   )
 }
 
@@ -265,18 +452,9 @@ function StandaloneTerminalPane({ session, active, onError, preview = false }: P
     const container = containerRef.current
     if (!container) return
 
-    const term = new Terminal({
-      allowProposedApi: false,
-      convertEol: false,
-      cursorBlink: !preview,
-      disableStdin: preview,
-      fontFamily:
-        "'JetBrains Mono', 'Cascadia Code', 'SFMono-Regular', Menlo, Consolas, monospace",
-      fontSize: preview ? 10 : 12,
-      lineHeight: 1.2,
-      scrollback: preview ? 1000 : 5000,
-      ...terminalThemeOptions()
-    })
+    const term = new Terminal(
+      terminalOptionsFor(preview ? 'preview' : 'interactive', loadTerminalSettings())
+    )
     const fitAddon = new FitAddon()
     term.loadAddon(fitAddon)
     term.open(container)

@@ -151,7 +151,10 @@ async function click(selector) {
   assert(clicked, `Could not click ${selector}`)
 }
 
-async function rightClick(selector, x = null, y = null) {
+async function rightClick(selector, x = null, y = null, options = {}) {
+  const ctrlKey = options.ctrlKey === true
+  const shiftKey = options.shiftKey === true
+  const altKey = options.altKey === true
   const clicked = await cdp.evaluate(`(() => {
     const element = document.querySelector(${JSON.stringify(selector)});
     if (!element) return false;
@@ -163,11 +166,14 @@ async function rightClick(selector, x = null, y = null) {
       cancelable: true,
       view: window,
       button: 2,
+      ctrlKey: ${ctrlKey},
+      shiftKey: ${shiftKey},
+      altKey: ${altKey},
       clientX,
       clientY
     }));
     return true;
-  })()`)
+  })()`, { userGesture: true })
   assert(clicked, `Could not right-click ${selector}`)
 }
 
@@ -358,6 +364,23 @@ async function pressEnter() {
   })
 }
 
+async function pressEscape() {
+  await cdp.send('Input.dispatchKeyEvent', {
+    type: 'keyDown',
+    key: 'Escape',
+    code: 'Escape',
+    windowsVirtualKeyCode: 27,
+    nativeVirtualKeyCode: 27
+  })
+  await cdp.send('Input.dispatchKeyEvent', {
+    type: 'keyUp',
+    key: 'Escape',
+    code: 'Escape',
+    windowsVirtualKeyCode: 27,
+    nativeVirtualKeyCode: 27
+  })
+}
+
 async function typeInSession(sessionId, text, waitMs = 700) {
   await focusTerminal(sessionId)
   await cdp.send('Input.insertText', { text })
@@ -383,8 +406,100 @@ async function waitForTerminalLine(sessionId, predicate, description, timeoutMs 
     await sleep(150)
   }
   throw new Error(
-    `Timed out waiting for ${description} in the terminal (last rows: ${JSON.stringify(last.slice(0, 14))})`
+    `Timed out waiting for ${description} in the terminal (last rows: ${JSON.stringify(last.slice(-14))})`
   )
+}
+
+async function pointForTerminalText(sessionId, text) {
+  return cdp.evaluate(`(() => {
+    const pane = document.querySelector('[data-testid="terminal-pane-${sessionId}"]');
+    if (!pane) return null;
+    const row = Array.from(pane.querySelectorAll('.xterm-rows > div'))
+      .find((entry) => entry.textContent.includes(${JSON.stringify(text)}));
+    if (!row) return null;
+    const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const index = node.textContent.indexOf(${JSON.stringify(text)});
+      if (index === -1) continue;
+      const range = document.createRange();
+      range.setStart(node, index + Math.min(8, ${JSON.stringify(text)}.length) - 1);
+      range.setEnd(node, index + Math.min(8, ${JSON.stringify(text)}.length));
+      const rect = range.getBoundingClientRect();
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    }
+    return null;
+  })()`)
+}
+
+async function clickPoint(position) {
+  await cdp.send('Input.dispatchMouseEvent', {
+    type: 'mouseMoved',
+    x: position.x,
+    y: position.y
+  })
+  await cdp.send('Input.dispatchMouseEvent', {
+    type: 'mousePressed',
+    x: position.x,
+    y: position.y,
+    button: 'left',
+    buttons: 1,
+    clickCount: 1
+  })
+  await cdp.send('Input.dispatchMouseEvent', {
+    type: 'mouseReleased',
+    x: position.x,
+    y: position.y,
+    button: 'left',
+    buttons: 0,
+    clickCount: 1
+  })
+}
+
+/**
+ * Real right-button input, so xterm's mousedown/mouseup reporting is exercised
+ * (the synthetic contextmenu helper cannot test PTY suppression).
+ */
+async function rightClickPoint(position, modifiers = 0) {
+  await cdp.send('Input.dispatchMouseEvent', {
+    type: 'mousePressed',
+    x: position.x,
+    y: position.y,
+    button: 'right',
+    buttons: 2,
+    clickCount: 1,
+    modifiers
+  })
+  await cdp.send('Input.dispatchMouseEvent', {
+    type: 'mouseReleased',
+    x: position.x,
+    y: position.y,
+    button: 'right',
+    buttons: 0,
+    clickCount: 1,
+    modifiers
+  })
+}
+
+/** Real left click on a selector, for clipboard calls that need user activation. */
+async function clickSelectorWithMouse(selector) {
+  const point = await cdp.evaluate(`(() => {
+    const element = document.querySelector(${JSON.stringify(selector)});
+    if (!element) return null;
+    const rect = element.getBoundingClientRect();
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  })()`)
+  assert(point, `Could not locate ${selector}`)
+  await clickPoint(point)
+}
+
+/** Reads the clipboard when Electron grants it; null means the probe was denied. */
+async function readClipboardText() {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const text = await cdp.evaluate(`navigator.clipboard.readText().catch(() => null)`)
+    if (typeof text === 'string' && text.length > 0) return text
+    await sleep(100)
+  }
+  return null
 }
 
 function requireElectron() {
@@ -851,6 +966,303 @@ async function main() {
     return { session: firstSession, pid: firstPid }
   })
 
+  await step('open terminal find and the pane context menu', async () => {
+    const terminal = `[data-testid="terminal-${firstSession.id}"]`
+    await rightClick(terminal, 40, 40)
+    await waitForSelector('[data-testid="terminal-context-menu"]')
+    const copyDisabled = await cdp.evaluate(
+      `document.querySelector('[data-testid="terminal-menu-copy"]')?.getAttribute('aria-disabled')`
+    )
+    assert(copyDisabled === 'true', 'Copy should be disabled without a selection')
+
+    // Copy Screen Content is the always-available fallback.
+    await clickSelectorWithMouse('[data-testid="terminal-menu-copy-screen"]')
+    await waitFor(
+      `!document.querySelector('[data-testid="terminal-context-menu"]')`,
+      'terminal menu closed after Copy Screen Content'
+    )
+    await waitFor(
+      `(document.querySelector('[data-testid="notice"]')?.textContent ?? '').includes('screen content')`,
+      'Copy Screen Content notice',
+      5000
+    )
+    const screenClipboard = await readClipboardText()
+    assert(
+      screenClipboard === null || screenClipboard.includes('FIRST_READY'),
+      `Copy Screen Content clipboard: ${JSON.stringify(screenClipboard)}`
+    )
+
+    // Select All gives xterm a selection; a plain right-click must copy
+    // instead of opening the menu.
+    await rightClick(terminal, 40, 40)
+    await waitForSelector('[data-testid="terminal-context-menu"]')
+    await click('[data-testid="terminal-menu-select-all"]')
+    await sleep(150)
+    const copyPoint = await pointForTerminalText(firstSession.id, 'FIRST_READY')
+    assert(copyPoint, 'Could not locate the line to copy')
+    await rightClickPoint(copyPoint)
+    await rightClick(terminal, copyPoint.x, copyPoint.y)
+    await waitFor(
+      `(document.querySelector('[data-testid="notice"]')?.textContent ?? '').includes('selection')`,
+      'right-click copy notice',
+      5000
+    )
+    const menuAfterCopy = await cdp.evaluate(
+      `Boolean(document.querySelector('[data-testid="terminal-context-menu"]'))`
+    )
+    assert(
+      menuAfterCopy === false,
+      'A plain right-click with a selection opened the menu instead of copying'
+    )
+    const selectionClipboard = await readClipboardText()
+    assert(
+      selectionClipboard === null || selectionClipboard.includes('FIRST_READY'),
+      `Right-click copy clipboard: ${JSON.stringify(selectionClipboard)}`
+    )
+
+    // Ctrl+right-click always opens the menu.
+    await rightClick(terminal, 40, 40, { ctrlKey: true })
+    await waitForSelector('[data-testid="terminal-context-menu"]')
+    const copyEnabled = await cdp.evaluate(
+      `document.querySelector('[data-testid="terminal-menu-copy"]')?.getAttribute('aria-disabled')`
+    )
+    assert(copyEnabled === 'false', 'Copy should be enabled after Select All')
+    await click('[data-testid="terminal-menu-find"]')
+    await waitForSelector('[data-testid="terminal-find-bar"]')
+    const placeholder = await cdp.evaluate(
+      `document.querySelector('[data-testid="terminal-find-bar"] input')?.getAttribute('placeholder')`
+    )
+    assert(placeholder, 'Terminal find input is missing')
+    await cdp.send('Input.insertText', { text: 'FIRST_READY' })
+    await sleep(250)
+    await cdp.send('Input.dispatchKeyEvent', {
+      type: 'keyDown',
+      key: 'Escape',
+      code: 'Escape',
+      windowsVirtualKeyCode: 27,
+      nativeVirtualKeyCode: 27
+    })
+    await cdp.send('Input.dispatchKeyEvent', {
+      type: 'keyUp',
+      key: 'Escape',
+      code: 'Escape',
+      windowsVirtualKeyCode: 27,
+      nativeVirtualKeyCode: 27
+    })
+    await waitFor(
+      `!document.querySelector('[data-testid="terminal-find-bar"]')`,
+      'terminal find closed'
+    )
+    await screenshot('04b-terminal-find-menu')
+    return { placeholder }
+  })
+
+  await step('open a terminal URL through the link popover', async () => {
+    const url = 'https://example.com/icode-link'
+    await typeInSession(firstSession.id, `echo ${url}`)
+    await waitForTerminalLine(
+      firstSession.id,
+      (line) => line.includes(url),
+      'the printed URL'
+    )
+    // The find step above selected all; a plain click clears it so the link
+    // gesture is not rejected as a selection click.
+    const blank = await cdp.evaluate(`(() => {
+      const screen = document.querySelector('[data-testid="terminal-pane-${firstSession.id}"] .xterm-screen');
+      if (!screen) return null;
+      const rect = screen.getBoundingClientRect();
+      return { x: rect.left + rect.width / 2, y: rect.bottom - 10 };
+    })()`)
+    assert(blank, 'Could not locate the terminal screen')
+    await clickPoint(blank)
+    await sleep(150)
+    const point = await pointForTerminalText(firstSession.id, url)
+    assert(point, 'Could not locate the URL cell')
+    await clickPoint(point)
+    await waitForSelector('[data-testid="terminal-link-popover"]')
+    await screenshot('04c-terminal-link-popover')
+    await click('[data-testid="terminal-link-copy"]')
+    await waitFor(
+      `!document.querySelector('[data-testid="terminal-link-popover"]')`,
+      'terminal link popover closed by Copy Link'
+    )
+
+    // Escape is the other dismissal path; do not open the system browser.
+    await clickPoint(point)
+    await waitForSelector('[data-testid="terminal-link-popover"]')
+    await sleep(150)
+    const escapeTarget = await cdp.evaluate(`(() => {
+      const element = document.activeElement;
+      return element
+        ? {
+            tag: element.tagName,
+            testId: element.getAttribute('data-testid'),
+            className: String(element.className).slice(0, 120)
+          }
+        : null;
+    })()`)
+    assert(
+      escapeTarget?.testId === 'terminal-link-open',
+      `Escape would target ${JSON.stringify(escapeTarget)}, not the link popover`
+    )
+    await pressEscape()
+    await waitFor(
+      `!document.querySelector('[data-testid="terminal-link-popover"]')`,
+      'terminal link popover closed by Escape'
+    )
+    return { url }
+  })
+
+  await step('open a URL in a mouse-aware TUI without leaking the click', async () => {
+    const url = 'https://example.com/tui-link'
+    const command =
+      "printf '\\033[?1000h\\033[?1006h'; " +
+      `echo ${url}; ` +
+      'if IFS= read -t 10 -r -n 1 ch; then ' +
+      "if [ \"$ch\" = $'\\033' ]; then echo TUI_GOT_CLICK; else echo TUI_NO_CLICK; fi; " +
+      'else echo TUI_NO_CLICK; fi; ' +
+      "printf '\\033[?1000l\\033[?1006l'"
+    await typeInSession(firstSession.id, command)
+    await waitForTerminalLine(
+      firstSession.id,
+      (line) => line.includes(url),
+      'the URL in the mouse-aware session'
+    )
+    const point = await pointForTerminalText(firstSession.id, url)
+    assert(point, 'Could not locate the mouse-aware URL cell')
+    await clickPoint(point)
+    await waitForSelector('[data-testid="terminal-link-popover"]')
+    await screenshot('04d-terminal-link-tui-popover')
+
+    const escapeTarget = await cdp.evaluate(
+      `document.activeElement?.getAttribute('data-testid') ?? null`
+    )
+    assert(
+      escapeTarget === 'terminal-link-open',
+      `Escape would target ${escapeTarget ?? 'no element'}, not the link popover`
+    )
+    await pressEscape()
+    await waitFor(
+      `!document.querySelector('[data-testid="terminal-link-popover"]')`,
+      'terminal link popover closed after the TUI click'
+    )
+
+    // End the shell's read and collect its verdict. The click must not have
+    // arrived as a PTY mouse report.
+    await focusTerminal(firstSession.id)
+    await pressEnter()
+    const verdict = await waitForTerminalLine(
+      firstSession.id,
+      (line) => line.trim() === 'TUI_NO_CLICK' || line.trim() === 'TUI_GOT_CLICK',
+      'the TUI mouse-report verdict'
+    )
+    assert(
+      verdict.some((line) => line.trim() === 'TUI_NO_CLICK'),
+      `The TUI received the link click: ${JSON.stringify(verdict.slice(-8))}`
+    )
+    await waitForTerminalLine(
+      firstSession.id,
+      (line) => /\$\s*$/.test(line),
+      'the shell prompt after the mouse-aware click'
+    )
+    return { url, verdict: 'no-pty-mouse-report' }
+  })
+
+  await step('right-click in a mouse-aware TUI stays with iCode', async () => {
+    const terminal = `[data-testid="terminal-${firstSession.id}"]`
+    const rightCommand =
+      "printf '\\033[?1000h\\033[?1006h'; " +
+      'echo TUI_RIGHT_TARGET; ' +
+      'if IFS= read -t 5 -r -n 1 ch; then ' +
+      "if [ \"$ch\" = $'\\033' ]; then echo TUI_GOT_RIGHT; else echo TUI_NO_RIGHT; fi; " +
+      'else echo TUI_NO_RIGHT; fi; ' +
+      'if IFS= read -t 0.5 -r -n 64 rest; then :; fi; ' +
+      "printf '\\033[?1000l\\033[?1006l'; echo TUI_RIGHT_DONE"
+    await typeInSession(firstSession.id, rightCommand)
+    await waitForTerminalLine(
+      firstSession.id,
+      (line) => line.includes('TUI_RIGHT_TARGET'),
+      'the TUI right-click target'
+    )
+    const point = await pointForTerminalText(firstSession.id, 'TUI_RIGHT_TARGET')
+    assert(point, 'Could not locate the TUI right-click target')
+    await rightClickPoint(point)
+    await rightClick(terminal, point.x, point.y)
+    await waitForSelector('[data-testid="terminal-context-menu"]')
+    const hint = await cdp.evaluate(
+      `document.querySelector('[data-testid="terminal-menu-copy-hint"]')?.textContent ?? ''`
+    )
+    assert(hint.length > 0, 'TUI right-click menu is missing the selection hint')
+    const copyDisabled = await cdp.evaluate(
+      `document.querySelector('[data-testid="terminal-menu-copy"]')?.getAttribute('aria-disabled')`
+    )
+    assert(copyDisabled === 'true', 'Copy should be disabled without an xterm selection')
+    const copyScreen = await cdp.evaluate(
+      `Boolean(document.querySelector('[data-testid="terminal-menu-copy-screen"]'))`
+    )
+    assert(copyScreen, 'TUI right-click menu is missing Copy Screen Content')
+    await pressEscape()
+    await waitFor(
+      `!document.querySelector('[data-testid="terminal-context-menu"]')`,
+      'TUI right-click menu closed'
+    )
+    await focusTerminal(firstSession.id)
+    await pressEnter()
+    const rightVerdict = await waitForTerminalLine(
+      firstSession.id,
+      (line) => line.trim() === 'TUI_NO_RIGHT' || line.trim() === 'TUI_GOT_RIGHT',
+      'the TUI right-click verdict'
+    )
+    assert(
+      rightVerdict.some((line) => line.trim() === 'TUI_NO_RIGHT'),
+      `The TUI received the right click: ${JSON.stringify(rightVerdict.slice(-8))}`
+    )
+    await waitForTerminalLine(
+      firstSession.id,
+      (line) => line.trim() === 'TUI_RIGHT_DONE',
+      'the TUI right-click cleanup'
+    )
+
+    // The shared suppression option must be restored: a left click still reaches the TUI.
+    const leftCommand =
+      "printf '\\033[?1000h\\033[?1006h'; " +
+      'echo TUI_LEFT_TARGET; ' +
+      'if IFS= read -t 5 -r -n 1 ch; then ' +
+      "if [ \"$ch\" = $'\\033' ]; then echo TUI_LEFT_GOT; else echo TUI_LEFT_NONE; fi; " +
+      'else echo TUI_LEFT_NONE; fi; ' +
+      'if IFS= read -t 0.5 -r -n 64 rest; then :; fi; ' +
+      "printf '\\033[?1000l\\033[?1006l'; echo TUI_LEFT_DONE"
+    await typeInSession(firstSession.id, leftCommand)
+    await waitForTerminalLine(
+      firstSession.id,
+      (line) => line.includes('TUI_LEFT_TARGET'),
+      'the TUI left-click target'
+    )
+    const leftPoint = await pointForTerminalText(firstSession.id, 'TUI_LEFT_TARGET')
+    assert(leftPoint, 'Could not locate the TUI left-click target')
+    await clickPoint(leftPoint)
+    // Let the report end the read before Enter can be mistaken for it.
+    await sleep(200)
+    await focusTerminal(firstSession.id)
+    await pressEnter()
+    await screenshot('04e-tui-left-click-verdict')
+    const leftVerdict = await waitForTerminalLine(
+      firstSession.id,
+      (line) => line.trim().endsWith('TUI_LEFT_GOT') || line.trim().endsWith('TUI_LEFT_NONE'),
+      'the TUI left-click verdict'
+    )
+    assert(
+      leftVerdict.some((line) => line.trim().endsWith('TUI_LEFT_GOT')),
+      'TUI mouse reporting stayed suppressed after the right click'
+    )
+    await waitForTerminalLine(
+      firstSession.id,
+      (line) => line.trim() === 'TUI_LEFT_DONE',
+      'the TUI left-click cleanup'
+    )
+    return { right: 'no-pty-right-report', left: 'pty-report-restored' }
+  })
+
   await step('resize the terminal through the visible UI and typed API', async () => {
     const parseSize = (list) => {
       for (let index = list.length - 1; index >= 0; index -= 1) {
@@ -1115,6 +1527,104 @@ async function main() {
       5000
     )
     return { firstPid: Number(pidNow[1]), activePanes: allPanes }
+  })
+
+  await step('reorder session tabs when a drag is dispatched in one task', async () => {
+    /*
+     * A native drag runs its own event loop, so React state written in
+     * dragstart is not guaranteed to be committed before dragover/drop.
+     * Dispatch the whole sequence in one task: the reorder must not depend on
+     * a React render landing between the events.
+     */
+    const before = await cdp.evaluate(
+      `Array.from(document.querySelectorAll('[data-testid="session-tabs"] [role="tab"]')).map((el) => el.getAttribute('data-session-id'))`
+    )
+    assert(before.length === 2, `Expected two session tabs, saw ${before.length}`)
+    const prevented = await cdp.evaluate(`(() => {
+      const tabs = Array.from(document.querySelectorAll('[data-testid="session-tabs"] [role="tab"]'));
+      const source = tabs[0];
+      const target = tabs[1];
+      const data = new DataTransfer();
+      const fire = (element, type) =>
+        element.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: data }));
+      fire(source, 'dragstart');
+      fire(target, 'dragenter');
+      const over = new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: data });
+      target.dispatchEvent(over);
+      const overPrevented = over.defaultPrevented;
+      fire(target, 'drop');
+      fire(source, 'dragend');
+      return overPrevented;
+    })()`)
+    assert(prevented, 'The tab strip did not accept dragover for a tab drag')
+    const expected = [before[1], before[0]]
+    await waitFor(
+      `(() => {
+        const ids = Array.from(document.querySelectorAll('[data-testid="session-tabs"] [role="tab"]')).map((el) => el.getAttribute('data-session-id'));
+        return JSON.stringify(ids) === ${JSON.stringify(JSON.stringify(expected))} ? ids : null;
+      })()`,
+      'session tab drag reorder',
+      5000
+    )
+    await screenshot('06c-session-tabs-reordered')
+    return { before, after: expected }
+  })
+
+  await step('reorder worktrees with a sidebar drag', async () => {
+    /*
+     * The drag is dispatched in one task, so the reorder cannot depend on a
+     * React render landing between dragstart and drop. The order is persisted
+     * through the sidebarOrder IPC; restore it so later steps keep their
+     * natural worktree order.
+     */
+    const groupsExpression = `(() => {
+      const root = document.querySelector('[data-testid="sidebar-sessions-${repoId}"]');
+      if (!root) return null;
+      return Array.from(root.querySelectorAll('[data-testid^="sidebar-worktree-"]'))
+        .filter((el) => /^sidebar-worktree-(?!toggle-|new-session-)/.test(el.getAttribute('data-testid')))
+        .map((el) => el.getAttribute('data-testid'));
+    })()`
+    await waitFor(`(${groupsExpression} || []).length >= 2`, 'two sidebar worktrees', 10000)
+    const before = await cdp.evaluate(groupsExpression)
+    assert(before.length >= 2, `Expected two worktrees in the sidebar, saw ${before.length}`)
+
+    const dragFirstOntoSecond = async () => {
+      const accepted = await cdp.evaluate(`(() => {
+        const root = document.querySelector('[data-testid="sidebar-sessions-${repoId}"]');
+        const groups = Array.from(root.querySelectorAll('[data-testid^="sidebar-worktree-"]'))
+          .filter((el) => /^sidebar-worktree-(?!toggle-|new-session-)/.test(el.getAttribute('data-testid')));
+        const source = groups[0].querySelector('[data-testid^="sidebar-worktree-toggle-"]');
+        const target = groups[1].querySelector('[data-testid^="sidebar-worktree-toggle-"]');
+        const data = new DataTransfer();
+        const rect = target.getBoundingClientRect();
+        const point = { clientX: rect.left + rect.width / 2, clientY: rect.bottom - 2 };
+        source.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: data }));
+        const over = new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: data, ...point });
+        target.dispatchEvent(over);
+        const overAccepted = over.defaultPrevented;
+        target.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: data, ...point }));
+        source.dispatchEvent(new DragEvent('dragend', { bubbles: true, cancelable: true, dataTransfer: data }));
+        return overAccepted;
+      })()`)
+      assert(accepted, 'The worktree row did not accept dragover')
+    }
+
+    await dragFirstOntoSecond()
+    const expected = [before[1], before[0], ...before.slice(2)]
+    await waitFor(
+      `JSON.stringify(${groupsExpression}) === ${JSON.stringify(JSON.stringify(expected))}`,
+      'sidebar worktree reorder',
+      5000
+    )
+    await screenshot('06d-sidebar-worktrees-reordered')
+
+    await dragFirstOntoSecond()
+    await waitFor(
+      `JSON.stringify(${groupsExpression}) === ${JSON.stringify(JSON.stringify(before))}`,
+      'sidebar worktree order restored',
+      5000
+    )
+    return { before, after: expected }
   })
 
   await step('exit a live shell and keep its session record', async () => {

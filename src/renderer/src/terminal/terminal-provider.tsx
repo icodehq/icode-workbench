@@ -1,6 +1,10 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { SessionSummary } from '../../../shared/schemas/ipc'
 import { nextPaneKeys } from '../state/session-panes'
+import {
+  createTerminalInteractionHostProxy,
+  type TerminalInteractionHost
+} from './terminal-interaction-host'
 import { TerminalInstance } from './terminal-instance'
 import { TerminalRegistry } from './terminal-registry'
 
@@ -23,15 +27,26 @@ export function useTerminalRegistry(): TerminalRegistry {
  */
 export function TerminalProvider({
   sessions,
+  host = null,
   children
 }: {
   sessions: readonly SessionSummary[]
+  /** App services used by terminal interactions; read through a stable proxy. */
+  host?: TerminalInteractionHost | null
   children: ReactNode
 }): React.JSX.Element {
+  const hostRef = useRef<TerminalInteractionHost | null>(host)
+  useEffect(() => {
+    hostRef.current = host
+  }, [host])
   const [registry] = useState(
     () =>
       new TerminalRegistry(
-        (options) => new TerminalInstance(options)
+        (options) =>
+          new TerminalInstance({
+            ...options,
+            host: createTerminalInteractionHostProxy(() => hostRef.current)
+          })
       )
   )
   const retained = useRef<Set<string>>(new Set())

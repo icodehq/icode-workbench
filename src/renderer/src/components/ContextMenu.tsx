@@ -24,6 +24,11 @@ export type ContextMenuItem = {
   reason?: string
   danger?: boolean
   separatorBefore?: boolean
+  /**
+   * A hint is a non-focusable note inside the menu, not an action. It keeps
+   * `onSelect` required so existing consumers do not need a union type.
+   */
+  kind?: 'hint'
   /** Stable selector for real-Electron smoke coverage. */
   testId?: string
   onSelect: () => void
@@ -187,35 +192,44 @@ export default function ContextMenu({
       {items.map((item) => (
         <div key={item.id}>
           {item.separatorBefore ? <div className="my-1 h-px bg-line" role="separator" /> : null}
-          <button
-            type="button"
-            role="menuitem"
-            aria-disabled={item.disabled === true}
-            title={item.disabled ? item.reason : undefined}
-            data-testid={item.testId}
-            className={`flex min-h-6 w-full items-center gap-2 rounded-md px-2 py-1 text-left text-[11px] leading-4 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-signal/60 ${
-              item.danger
-                ? 'text-destructive hover:bg-destructive/10 focus-visible:bg-destructive/10 aria-disabled:text-muted-foreground'
-                : 'text-foreground hover:bg-menu-hover focus-visible:bg-menu-hover aria-disabled:text-muted-foreground'
-            } aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:hover:bg-transparent`}
-            onClick={() => {
-              if (item.disabled) return
-              onClose()
-              item.onSelect()
-            }}
-          >
-            <span
-              className={`flex w-3.5 shrink-0 items-center justify-center ${
-                item.danger && item.disabled !== true ? 'text-destructive' : 'text-muted-foreground'
-              }`}
+          {item.kind === 'hint' ? (
+            <div
+              className="px-2 py-1 text-[10px] leading-4 text-muted-foreground"
+              data-testid={item.testId}
             >
-              {item.icon}
-            </span>
-            <span className="min-w-0 flex-1 truncate">{item.label}</span>
-            {item.shortcut ? (
-              <span className="shrink-0 font-mono text-[9px] text-muted-foreground">{item.shortcut}</span>
-            ) : null}
-          </button>
+              {item.label}
+            </div>
+          ) : (
+            <button
+              type="button"
+              role="menuitem"
+              aria-disabled={item.disabled === true}
+              title={item.disabled ? item.reason : undefined}
+              data-testid={item.testId}
+              className={`flex min-h-6 w-full items-center gap-2 rounded-md px-2 py-1 text-left text-[11px] leading-4 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-signal/60 ${
+                item.danger
+                  ? 'text-destructive hover:bg-destructive/10 focus-visible:bg-destructive/10 aria-disabled:text-muted-foreground'
+                  : 'text-foreground hover:bg-menu-hover focus-visible:bg-menu-hover aria-disabled:text-muted-foreground'
+              } aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:hover:bg-transparent`}
+              onClick={() => {
+                if (item.disabled) return
+                onClose()
+                item.onSelect()
+              }}
+            >
+              <span
+                className={`flex w-3.5 shrink-0 items-center justify-center ${
+                  item.danger && item.disabled !== true ? 'text-destructive' : 'text-muted-foreground'
+                }`}
+              >
+                {item.icon}
+              </span>
+              <span className="min-w-0 flex-1 truncate">{item.label}</span>
+              {item.shortcut ? (
+                <span className="shrink-0 font-mono text-[9px] text-muted-foreground">{item.shortcut}</span>
+              ) : null}
+            </button>
+          )}
         </div>
       ))}
     </div>,

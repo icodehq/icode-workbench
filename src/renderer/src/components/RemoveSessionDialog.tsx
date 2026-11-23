@@ -115,7 +115,7 @@ export default function RemoveSessionDialog({
           </button>
           <button
             type="button"
-            className="h-9 rounded-md bg-destructive px-3.5 text-[12px] font-medium text-black hover:opacity-90"
+            className="h-9 rounded-md bg-destructive px-3.5 text-[12px] font-medium text-danger-ink hover:opacity-90"
             onClick={() => onConfirm(willDeleteBranch)}
             data-testid="remove-session-confirm"
           >

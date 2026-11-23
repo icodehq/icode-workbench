@@ -75,6 +75,10 @@ export function createIcodeApi(
           listener(payload as LocaleState)
         )
     },
+    sidebarOrder: {
+      get: () => call(IPC_CHANNELS.sidebarOrderGet),
+      set: (input) => call(IPC_CHANNELS.sidebarOrderSet, input)
+    },
     repos: {
       list: () => call(IPC_CHANNELS.reposList),
       add: (input) => call(IPC_CHANNELS.reposAdd, input),
@@ -119,6 +123,11 @@ export function createIcodeApi(
     clone: {
       start: (input) => call(IPC_CHANNELS.cloneStart, input),
       cancel: (input) => call(IPC_CHANNELS.cloneCancel, input),
+      persist: (input) => call(IPC_CHANNELS.clonePersist, input),
+      sshStatus: (input) => call(IPC_CHANNELS.cloneSshStatus, input),
+      sshGenerate: (input) => call(IPC_CHANNELS.cloneSshGenerate, input),
+      sshTest: (input) => call(IPC_CHANNELS.cloneSshTest, input),
+      sshTrustHost: (input) => call(IPC_CHANNELS.cloneSshTrustHost, input),
       onProgress: (listener) =>
         subscribe(IPC_CHANNELS.cloneProgress, (payload) =>
           listener(
@@ -299,6 +308,7 @@ export function createIcodeApi(
     }
   }
   Object.freeze(api.locale)
+  Object.freeze(api.sidebarOrder)
   Object.freeze(api.repos)
   Object.freeze(api.sessions)
   Object.freeze(api.network)

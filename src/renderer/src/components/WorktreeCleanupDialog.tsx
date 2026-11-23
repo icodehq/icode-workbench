@@ -141,7 +141,7 @@ export default function WorktreeCleanupDialog({
             </p>
             <button
               type="button"
-              className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-destructive px-2.5 py-1.5 text-[12px] font-medium text-black hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+              className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-destructive px-2.5 py-1.5 text-[12px] font-medium text-danger-ink hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
               onClick={() => void onDiscard(prompt.branch)}
               disabled={busy}
               data-testid="discard-confirm"

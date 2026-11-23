@@ -18,7 +18,7 @@ import {
 } from '../harness/harness-detector'
 import { HARNESS_IDS, type HarnessId } from '../../shared/domain/harness'
 import { isProviderHarness } from '../../shared/domain/provider-recipes'
-import type { WslDistroListPayload } from '../../shared/schemas/ipc'
+import { IPC_CHANNELS, type WslDistroListPayload } from '../../shared/schemas/ipc'
 import { discoverWslDistros } from '../wsl/distros'
 import {
   createNetworkProxyRuntime,
@@ -38,6 +38,8 @@ import { GitWorkspaceService } from '../git/git-workspace-service'
 import { BranchService } from '../git/branch-service'
 import { RemoteService } from '../git/remote-service'
 import { CloneService } from '../git/clone-service'
+import { ClonePersistenceService } from '../git/clone-persistence'
+import { CloneSshService } from '../git/clone-ssh'
 import { CommitMessageService } from '../ai/commit-message-service'
 import { MergeStore } from '../persistence/merge-store'
 import { RepoRemovalJobStore } from '../persistence/repo-removal-job-store'
@@ -55,6 +57,11 @@ import { AssistantService } from '../assistant/assistant-service'
 import { AssistantRunner } from '../assistant/assistant-runner'
 import { AssistantActions } from '../assistant/assistant-actions'
 import { AssistantPolicy } from '../assistant/assistant-policy'
+import { presentWindow } from '../window-present'
+import {
+  notificationDestination,
+  notificationTaskId
+} from '../assistant/notification-destination'
 import { AssistantNotifier } from '../assistant/assistant-notifier'
 import { ActivityService } from '../activity/activity-service'
 import type { ActivitySource } from '../../shared/domain/activity'
@@ -131,6 +138,8 @@ export type AppRuntime = {
   remotes: RemoteService
   /** Streaming clone into a new project folder. */
   clone: CloneService
+  /** SSH status, key generation, access test and host-key trust for a clone. */
+  cloneSsh: CloneSshService
   /** Local merge into a target branch, with durable claims and conflicts. */
   merges: MergeService
   /** One-shot AI commit-message drafts from the staged index. */
@@ -848,11 +857,17 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     gitWorktrees,
     sessions
   })
+  const clonePersistence = new ClonePersistenceService({ gitWorktrees })
   const clone = new CloneService({
     gitWorktrees,
     projectFolders,
-    runner: wslRunner
+    runner: wslRunner,
+    // A per-user directory is the Windows ACL boundary; the attempt inside it
+    // is 0700/0600 and lives only while the clone does.
+    credentialRoot: join(app.getPath('userData'), 'clone-auth'),
+    persistence: clonePersistence
   })
+  const cloneSsh = new CloneSshService({ gitWorktrees, runner: wslRunner })
   const commitMessages = new CommitMessageService({
     sessions,
     gitWorkspace,
@@ -1184,11 +1199,26 @@ export async function startAppRuntime(): Promise<AppRuntime> {
       const notification = new Notification({ title, body })
       notification.on('click', () => {
         const window = BrowserWindow.getAllWindows().find((entry) => !entry.isDestroyed())
-        if (window) {
-          window.show()
-          window.focus()
+        if (window) presentWindow(window)
+        // The message card is persisted, so the destination is resolved at
+        // click time against the current task rather than the notify-time need.
+        const message = assistantStore.getMessage(messageId)
+        const taskId = message === null ? null : notificationTaskId(message.card)
+        const task = taskId === null ? null : taskStore.findById(taskId)
+        const destination = notificationDestination(message?.notificationKind ?? null, task)
+        if (destination.kind === 'assistant' || message === null) {
+          assistantService.focus(messageId)
+          return
         }
-        assistantService.focus(messageId)
+        // The user is acting on the task, not reading the card. Acknowledge the
+        // message so the Mira badge clears without emitting a competing focus.
+        assistantService.markNotificationRead(messageId)
+        if (window !== undefined && !window.webContents.isDestroyed()) {
+          window.webContents.send(IPC_CHANNELS.sessionEvent, {
+            type: 'notification-focus',
+            destination
+          })
+        }
       })
       notification.show()
     }
@@ -1469,6 +1499,7 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     branchRefs,
     remotes,
     clone,
+    cloneSsh,
     merges: mergeService,
     commitMessages,
     gitStatusWatcher,

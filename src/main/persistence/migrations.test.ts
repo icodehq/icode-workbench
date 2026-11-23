@@ -65,7 +65,10 @@ describe('migration 20: provider harnesses', () => {
     const { path } = tempPath()
     seedV19(path)
 
-    const db = openDatabase({ path, migrations: MIGRATIONS })
+    const db = openDatabase({
+      path,
+      migrations: MIGRATIONS.filter((migration) => migration.version <= 20)
+    })
     closeAfter(db)
     expect(db.userVersion()).toBe(20)
 
@@ -161,6 +164,34 @@ describe('migration 20: provider harnesses', () => {
 
     expect(() =>
       db.raw.prepare('DELETE FROM providers WHERE id = ?').run(PROVIDER_ID)
+    ).toThrow()
+  })
+})
+
+describe('migration 21: sidebar order', () => {
+  it('adds a single-row order document table', () => {
+    const { path } = tempPath()
+    const v20 = openDatabase({
+      path,
+      migrations: MIGRATIONS.filter((migration) => migration.version <= 20)
+    })
+    v20.close()
+
+    const db = openDatabase({ path, migrations: MIGRATIONS })
+    closeAfter(db)
+    expect(db.userVersion()).toBe(21)
+
+    const document = '{"projects":["repo_1"],"worktrees":{},"sessions":{}}'
+    db.raw
+      .prepare('INSERT INTO sidebar_order (id, document, updated_at) VALUES (1, ?, 5)')
+      .run(document)
+    expect(
+      db.raw.prepare('SELECT document FROM sidebar_order WHERE id = 1').get()
+    ).toEqual({ document })
+    expect(() =>
+      db.raw
+        .prepare('INSERT INTO sidebar_order (id, document, updated_at) VALUES (2, ?, 5)')
+        .run('{}')
     ).toThrow()
   })
 })

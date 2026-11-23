@@ -85,6 +85,7 @@ export type AppNavigation = {
     changeMode: (mode: ProjectMode) => void
     openDirectSession: (sessionId: string) => void
     openTask: (task: TaskRecordPayload) => void
+    openTaskById: (taskId: string) => void
     openTaskSession: (sessionId: string, view?: ViewName) => void
     openTaskComposer: () => void
     requestView: (view: ViewName) => void
@@ -362,7 +363,9 @@ export function useAppNavigation({
     (sessionId: string): void => {
       const session = state.sessions.find((entry) => entry.id === sessionId)
       if (!session) return
-      const owningTask = tasks.tasks.find((task) => task.sessionId === sessionId)
+      const owningTask =
+        tasks.tasks.find((task) => task.sessionId === sessionId) ??
+        tasks.archivedTasks.find((task) => task.sessionId === sessionId)
       if (owningTask) {
         workspace.selectSession(sessionId)
         setSurface('tasks')
@@ -377,7 +380,7 @@ export function useAppNavigation({
       setTaskSession(null)
       setViewRequest(null)
     },
-    [state.sessions, tasks.tasks, workspace]
+    [state.sessions, tasks.archivedTasks, tasks.tasks, workspace]
   )
 
   const openTask = useCallback(
@@ -392,9 +395,21 @@ export function useAppNavigation({
     [workspace]
   )
 
+  const openTaskById = useCallback(
+    (taskId: string): void => {
+      const task =
+        tasks.tasks.find((entry) => entry.id === taskId) ??
+        tasks.archivedTasks.find((entry) => entry.id === taskId)
+      if (task !== undefined) openTask(task)
+    },
+    [openTask, tasks.archivedTasks, tasks.tasks]
+  )
+
   const openTaskSession = useCallback(
     (sessionId: string, view?: ViewName): void => {
-      const owningTask = tasks.tasks.find((task) => task.sessionId === sessionId)
+      const owningTask =
+        tasks.tasks.find((task) => task.sessionId === sessionId) ??
+        tasks.archivedTasks.find((task) => task.sessionId === sessionId)
       if (!owningTask) {
         workspace.selectSession(sessionId)
         setSurface('sessions')
@@ -409,7 +424,7 @@ export function useAppNavigation({
       setViewRequest(null)
       setTaskViewRequest({ tab: view ?? 'terminal', nonce: Date.now() })
     },
-    [tasks.tasks, workspace]
+    [tasks.archivedTasks, tasks.tasks, workspace]
   )
 
   const openTaskComposer = useCallback((): void => {
@@ -475,6 +490,7 @@ export function useAppNavigation({
       changeMode,
       openDirectSession,
       openTask,
+      openTaskById,
       openTaskSession,
       openTaskComposer,
       requestView,
@@ -496,6 +512,7 @@ export function useAppNavigation({
       openAppTab,
       closeAppTab,
       openTask,
+      openTaskById,
       openTaskComposer,
       openTaskSession,
       requestOpenInFiles,
