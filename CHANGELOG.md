@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-11-24
+
 ### Fixed
 
 - **A large monorepo no longer freezes the window when a session starts.** The
@@ -14,8 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sat at the checkout root, so a package-level `node_modules` was walked and
   watched file by file. On a 35,000-file checkout that meant 37,000 native
   watchers and a main process that stopped answering for minutes. Generated
-  directories are now skipped at any depth; the same checkout needs about 500
-  watches and is ready in under a second.
+  directories are now skipped at any depth; with the chokidar fallback that
+  checkout needs about 500 watches instead of 37,000.
 - **WSL checkouts are polled instead of watched through Windows.** A guest
   repository is owned by its distro, so translating its path and watching the
   Windows spelling could still descend into a large checkout from the main
