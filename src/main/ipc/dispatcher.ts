@@ -236,7 +236,7 @@ export type DispatcherServices = {
   filesTrash: (input: { sessionId: string; paths: string[] }) => Promise<unknown>
   filesRestoreTrash: (input: { sessionId: string; opId: string }) => Promise<unknown>
   filesListTrash: (input: { sessionId: string }) => Promise<unknown>
-  filesWatch: (input: { sessionId: string; active: boolean }) => Promise<unknown>
+  filesWatch: (input: { sessionId: string; active: boolean; roots?: string[] }) => Promise<unknown>
   aiCommitMessage: (input: { sessionId: string; requestId: string }) => Promise<unknown>
   aiCancelCommitMessage: (input: { requestId: string }) => Promise<unknown>
   tasksList: (input: {

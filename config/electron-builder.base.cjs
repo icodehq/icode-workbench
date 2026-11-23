@@ -34,10 +34,21 @@ module.exports = {
     output: 'dist'
   },
   files: ['out/**/*', 'package.json'],
-  // Why: the detached host is executed by the Electron binary via
-  // ELECTRON_RUN_AS_NODE, so it and its native PTY must exist outside the asar.
   asar: true,
-  asarUnpack: ['out/host/**', 'node_modules/node-pty/**'],
+  // Why: the detached host and watcher child are executed by the Electron
+  // binary via ELECTRON_RUN_AS_NODE, so they and their native dependencies must
+  // exist outside the asar. Parcel's wrapper JS is unpacked too because the
+  // "smart unpack" heuristic only unpacks module roots that contain binaries.
+  asarUnpack: [
+    'out/host/**',
+    'out/watch/**',
+    'node_modules/node-pty/**',
+    'node_modules/@parcel/**',
+    'node_modules/detect-libc/**',
+    'node_modules/is-glob/**',
+    'node_modules/is-extglob/**',
+    'node_modules/picomatch/**'
+  ],
   // Repair packed node-pty paths/modes before signing and artifacts.
   afterPack: 'config/scripts/native/after-pack.cjs',
   // node-pty is prepared per platform by config/scripts/native; electron-builder

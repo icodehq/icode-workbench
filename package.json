@@ -1,6 +1,6 @@
 {
   "name": "icode",
-  "version": "0.25.0",
+  "version": "0.26.0",
   "private": true,
   "description": "iCode Workbench — the universal agent development environment for every agent and platform",
   "license": "AGPL-3.0-only",
@@ -20,9 +20,9 @@
   },
   "scripts": {
     "postinstall": "node config/scripts/rebuild-native.cjs",
-    "dev": "electron-vite dev",
+    "dev": "node config/scripts/build-watcher.cjs && electron-vite dev",
     "start": "electron .",
-    "build:app": "electron-vite build && node config/scripts/build-host.cjs",
+    "build:app": "electron-vite build && node config/scripts/build-host.cjs && node config/scripts/build-watcher.cjs",
     "typecheck": "tsc -p config/tsconfig.node.json --noEmit && tsc -p config/tsconfig.web.json --noEmit",
     "build": "pnpm typecheck && pnpm build:app",
     "gate:sqlite": "pnpm build:app && node config/scripts/gates.cjs sqlite",
@@ -44,6 +44,7 @@
     "smoke:update:win": "node tests/release/update-e2e-win.cjs",
     "smoke:packaged:mac": "node tests/compat/packaged-smoke-mac.cjs",
     "build:host": "node config/scripts/build-host.cjs",
+    "build:watcher": "node config/scripts/build-watcher.cjs",
     "build:wsl-host": "node config/scripts/wsl/host-artifacts.cjs build",
     "verify:wsl-host": "node config/scripts/wsl/verify-artifacts.cjs artifacts/wsl-host/linux-x64",
     "selftest:wsl-host": "node tests/wsl/selftest-verifier.cjs",
@@ -60,6 +61,7 @@
     "icons:generate": "node config/scripts/generate-icons.cjs",
     "perf:scm": "node config/scripts/gates.cjs perf-scm",
     "perf:resize": "node tests/compat/resize-perf.cjs",
+    "perf:watch": "node tests/compat/watch-perf.cjs",
     "smoke:activity": "node tests/compat/activity-smoke.cjs",
     "smoke:features": "node tests/compat/feature-smoke.cjs",
     "smoke:projects": "node tests/compat/project-onboarding-smoke.cjs",
@@ -67,6 +69,7 @@
     "verify:providers": "vitest run --config config/vitest.config.mts src/main/providers/provider-live.test.ts"
   },
   "dependencies": {
+    "@parcel/watcher": "2.5.6",
     "@xterm/addon-fit": "0.12.0-beta.332",
     "@xterm/addon-search": "0.17.0-beta.330",
     "@xterm/addon-serialize": "0.15.0-beta.330",

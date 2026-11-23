@@ -102,13 +102,16 @@ export function useFilesDecorations(input: {
 export function useFilesWatch(input: {
   sessionId: string
   active: boolean
+  roots: readonly string[]
   rootStateRef: MutableRefObject<'loading' | 'ready' | 'unavailable'>
   reloadExpandedRef: MutableRefObject<
     (quiet?: boolean, discover?: boolean) => Promise<void>
   >
 }) {
-  const { sessionId, active, rootStateRef, reloadExpandedRef } = input
+  const { sessionId, active, roots, rootStateRef, reloadExpandedRef } = input
   const [liveState, setLiveState] = useState<LiveState>('off')
+  const rootsKey = roots.join('\u0000')
+  const sentRootsKey = useRef<string | null>(null)
 
   useEffect(() => {
     if (!active) {
@@ -117,6 +120,8 @@ export function useFilesWatch(input: {
     }
     let cancelled = false
     let pollTimer: number | null = null
+    const retryTimers: number[] = []
+    let retriesScheduled = false
 
     const reloadCleanTab = async (path: string): Promise<void> => {
       const read = await callApi<FileContentPayload>(
@@ -199,10 +204,42 @@ export function useFilesWatch(input: {
       }, 2000)
     }
 
+    /**
+     * A watcher child crash is temporary: keep polling, but give the watch a
+     * few bounded chances to come back without waiting for a visibility change.
+     */
+    const clearRetries = (): void => {
+      while (retryTimers.length > 0) window.clearTimeout(retryTimers.pop())
+      retriesScheduled = false
+    }
+    const scheduleWatchRetries = (): void => {
+      if (cancelled || retriesScheduled) return
+      retriesScheduled = true
+      for (const delay of [5_000, 20_000, 60_000]) {
+        retryTimers.push(
+          window.setTimeout(() => {
+            if (cancelled) return
+            void window.icode.files.watch({ sessionId, active: true }).then((result) => {
+              if (cancelled) return
+              if (!result.ok || !result.value.watching) return
+              clearRetries()
+              setLiveState('watch')
+              if (pollTimer !== null) {
+                window.clearInterval(pollTimer)
+                pollTimer = null
+              }
+              void reconcile()
+            })
+          }, delay)
+        )
+      }
+    }
+
     const unsubscribe = window.icode.files.onChanged((event) => {
       if (event.sessionId !== sessionId) return
       if (event.failed) {
         startPolling()
+        scheduleWatchRetries()
         return
       }
       setLiveState('watch')
@@ -210,12 +247,14 @@ export function useFilesWatch(input: {
     })
 
     void reconcile()
+    sentRootsKey.current = rootsKey
     void window.icode.files
-      .watch({ sessionId, active: true })
+      .watch({ sessionId, active: true, roots: [...roots] })
       .then((result) => {
         if (cancelled) return
         if (!result.ok || !result.value.watching) {
           startPolling()
+          scheduleWatchRetries()
           return
         }
         setLiveState('watch')
@@ -225,11 +264,27 @@ export function useFilesWatch(input: {
     return () => {
       cancelled = true
       unsubscribe()
+      clearRetries()
+      sentRootsKey.current = null
       if (pollTimer !== null) window.clearInterval(pollTimer)
       setLiveState('off')
       void window.icode.files.watch({ sessionId, active: false })
     }
   }, [active, sessionId])
+
+  /*
+   * Expanding or collapsing a folder changes the watch roots without tearing
+   * down the watcher. The root set is debounced so a burst of expansions is
+   * one update; the `ready`/overflow path reconciles once it is bound.
+   */
+  useEffect(() => {
+    if (!active || sentRootsKey.current === rootsKey) return
+    const timer = window.setTimeout(() => {
+      sentRootsKey.current = rootsKey
+      void window.icode.files.watch({ sessionId, active: true, roots: [...roots] })
+    }, 150)
+    return () => window.clearTimeout(timer)
+  }, [active, rootsKey, sessionId])
 
   return { liveState }
 }

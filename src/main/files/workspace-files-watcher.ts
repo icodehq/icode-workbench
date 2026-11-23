@@ -1,58 +1,42 @@
 /**
  * Watches one session worktree while the Files pane is visible.
  *
- * This is deliberately separate from `GitStatusWatcherService`: Source Control
- * and Files are mutually exclusive tabs, so there is no steady-state duplicate
- * watch, and the Phase 8 Git watcher keeps its proven behaviour untouched.
+ * The physical watch lives in the watcher child; this service owns the parts
+ * that must be per session and cheap: the desired-state token, debounce,
+ * coalescing, the revision counter, and the renderer event payload. It never
+ * imports a watcher backend, so a backend failure cannot reach the main thread.
  *
- * A local checkout is watched directly. A WSL worktree on a Windows drive is
- * watched through its translated Windows path, because Linux inotify on DrvFs
- * sees no events (Phase 0 measurement). An ext4 guest worktree has no watcher
- * yet; the renderer receives `unsupported-target` and polls while visible.
+ * Only local targets reach this service: `createWatchTargetResolvers` returns
+ * null for every WSL checkout before any guest call, and the renderer polls.
  */
 
-import { relative } from 'node:path'
-import { watch as chokidarWatch } from 'chokidar'
+import { join, relative } from 'node:path'
 import { canonicalWatchPath } from '../watch-path'
 import {
   FILES_SKIP_DIRECTORIES,
+  FILES_WATCH_MAX_ROOTS,
+  normalizeRelativePath,
   type FilesChangedEvent,
   type FilesWatchOutcome
 } from '../../shared/domain/workspace-files'
+import { shouldIgnoreFilesWatchPath } from '../../shared/domain/watch-ignore'
+import type { SerializedWatchSpec } from '../../shared/watch-protocol'
+import type { WatchClient, WatchEvent } from '../watch/watch-client'
+
+export { shouldIgnoreFilesWatchPath } from '../../shared/domain/watch-ignore'
 
 export type FilesWatchTarget = {
-  /** A path this process can watch: local, or a translated DrvFs drive path. */
+  /** A local path this machine can watch. */
   worktreePath: string
 }
 
-export type FilesWatchEvent = {
-  type: 'add' | 'addDir' | 'change' | 'unlink' | 'unlinkDir' | 'error'
-  path: string
-}
-
-export type FilesWatchHandle = {
-  close(): Promise<void>
-}
-
-export type FilesWatchFactory = (
-  roots: readonly string[],
-  options: {
-    ignored: (path: string) => boolean
-    onEvent: (event: FilesWatchEvent) => void
-    onError: (error: unknown) => void
-    onReady?: () => void
-  }
-) => FilesWatchHandle
-
 export type WorkspaceFilesWatcherOptions = {
-  /** Returns null when the host owning this worktree cannot be watched. */
+  /** Returns null when the checkout cannot be watched on this machine. */
   resolveTarget: (sessionId: string) => Promise<FilesWatchTarget | null>
-  factory?: FilesWatchFactory
+  client: WatchClient
   debounceMs?: number
   maxPaths?: number
 }
-
-const IGNORED_DIRECTORIES = new Set<string>(FILES_SKIP_DIRECTORIES)
 
 function isInside(parent: string, candidate: string): boolean {
   const normalizedParent = parent.replace(/[\\/]+$/u, '')
@@ -63,44 +47,49 @@ function isInside(parent: string, candidate: string): boolean {
   )
 }
 
-/** True when a path must not wake the Files pane. */
-export function shouldIgnoreFilesWatchPath(path: string, worktreePath: string): boolean {
-  const normalized = path.replace(/\\/gu, '/')
-  const worktree = worktreePath.replace(/\\/gu, '/')
-  // Chokidar asks about ancestors while walking to the root. Ignoring one would
-  // skip the whole tree, so ancestors are never ignored.
-  if (!isInside(worktree, normalized)) return false
-  if (normalized === worktree) return false
-
-  const relativePath = normalized.slice(worktree.length).replace(/^\/+/u, '')
-  const segments = relativePath.split('/')
-  const first = segments[0] ?? ''
-  if (IGNORED_DIRECTORIES.has(first)) return true
-  const name = segments[segments.length - 1] ?? ''
-  if (name.endsWith('.swp') || name.endsWith('.tmp')) return true
-  // Both backends stage writes beside the target; those files are an
-  // implementation detail, not user content.
-  if (segments.some((segment) => segment.includes('.icode-write-'))) return true
-  return false
+/**
+ * Turns the renderer's visible folders into absolute watch roots.
+ *
+ * The root is always included. Absolute paths, traversal segments, and folders
+ * the Files pane never lists are dropped rather than trusted; the list is
+ * deduped and capped before it reaches the watcher child.
+ */
+function resolveAbsoluteRoots(
+  worktreePath: string,
+  roots: readonly string[] | undefined
+): string[] {
+  const relativeRoots = new Set<string>([''])
+  for (const raw of roots ?? []) {
+    const normalized = normalizeRelativePath(raw)
+    if (normalized === null) continue
+    if (normalized !== '') {
+      const segments = normalized.split('/')
+      if (segments.some((segment) => (FILES_SKIP_DIRECTORIES as readonly string[]).includes(segment))) {
+        continue
+      }
+    }
+    relativeRoots.add(normalized)
+    if (relativeRoots.size >= FILES_WATCH_MAX_ROOTS) break
+  }
+  return [...relativeRoots]
+    .sort()
+    .map((root) => (root === '' ? worktreePath : join(worktreePath, root)))
 }
 
-export function createChokidarFilesWatchFactory(): FilesWatchFactory {
-  return (roots, options) => {
-    const watcher = chokidarWatch([...roots], {
-      ignoreInitial: true,
-      persistent: true,
-      followSymlinks: false,
-      ignored: options.ignored
-    })
-    watcher.on('all', (event, path) => {
-      options.onEvent({ type: event as FilesWatchEvent['type'], path })
-    })
-    watcher.on('ready', () => options.onReady?.())
-    watcher.on('error', (error) => options.onError(error))
-    return {
-      close: async () => {
-        await watcher.close()
-      }
+function filesSpec(
+  sessionId: string,
+  worktreePath: string,
+  roots: readonly string[]
+): SerializedWatchSpec {
+  return {
+    kind: 'shallow',
+    id: `files:${sessionId}`,
+    roots: [...roots],
+    worktreePath,
+    ignore: {
+      skipDirectories: [...FILES_SKIP_DIRECTORIES],
+      skipSuffixes: ['.swp', '.tmp'],
+      stagingMarker: '.icode-write-'
     }
   }
 }
@@ -112,31 +101,22 @@ type SessionWatch = {
   overflow: boolean
   revision: number
   target: FilesWatchTarget
-}
-
-/** One OS watch shared by every session running in the same checkout. */
-type SharedWatch = {
-  handle: FilesWatchHandle
-  sessions: Set<string>
-}
-
-function watchKey(target: FilesWatchTarget): string {
-  return target.worktreePath
+  subId: string
+  roots: string[]
 }
 
 export class WorkspaceFilesWatcherService {
-  private readonly factory: FilesWatchFactory
+  private readonly client: WatchClient
   private readonly debounceMs: number
   private readonly maxPaths: number
   private readonly sessions = new Map<string, SessionWatch>()
   /** Last requested state; a slow resolve must not resurrect a stopped watch. */
   private readonly desired = new Map<string, number>()
-  private readonly handles = new Map<string, SharedWatch>()
   private readonly listeners = new Set<(event: FilesChangedEvent) => void>()
   private token = 0
 
   constructor(private readonly options: WorkspaceFilesWatcherOptions) {
-    this.factory = options.factory ?? createChokidarFilesWatchFactory()
+    this.client = options.client
     this.debounceMs = Math.max(50, options.debounceMs ?? 200)
     this.maxPaths = Math.max(1, options.maxPaths ?? 500)
   }
@@ -152,14 +132,31 @@ export class WorkspaceFilesWatcherService {
    * `watching: false` is a truthful answer, not an error: the renderer keeps a
    * polling fallback for unsupported targets and failed watches.
    */
-  async setActive(sessionId: string, active: boolean): Promise<FilesWatchOutcome> {
+  async setActive(
+    sessionId: string,
+    active: boolean,
+    roots?: readonly string[]
+  ): Promise<FilesWatchOutcome> {
     if (!active) {
       this.desired.delete(sessionId)
       await this.stop(sessionId)
       return { watching: false, reason: 'cancelled' }
     }
     const existing = this.sessions.get(sessionId)
-    if (existing?.active) return { watching: true }
+    if (existing?.active) {
+      if (roots === undefined) return { watching: true }
+      const nextRoots = resolveAbsoluteRoots(existing.target.worktreePath, roots)
+      const updated = await this.client.updateRoots(existing.subId, nextRoots)
+      if (!updated.ok) {
+        this.failSession(sessionId)
+        return { watching: false, reason: 'watch-failed' }
+      }
+      existing.roots = nextRoots
+      // A directory may have changed while its watch was being bound.
+      existing.overflow = true
+      this.schedule(sessionId, existing)
+      return { watching: true }
+    }
 
     const token = ++this.token
     this.desired.set(sessionId, token)
@@ -176,10 +173,10 @@ export class WorkspaceFilesWatcherService {
       this.desired.delete(sessionId)
       return { watching: false, reason: 'unsupported-target' }
     }
-    // Chokidar and libuv must agree on the spelling of the watched root; a
-    // Windows 8.3 short name makes libuv abort the process. Canonicalize before
-    // any ignore or relative-path logic sees the target.
+    // The child canonicalizes again before binding; doing it here keeps the
+    // relative-path arithmetic and the spec in one spelling.
     target = { worktreePath: canonicalWatchPath(target.worktreePath) }
+    const watchRoots = resolveAbsoluteRoots(target.worktreePath, roots)
 
     await this.stop(sessionId)
     const state: SessionWatch = {
@@ -188,37 +185,31 @@ export class WorkspaceFilesWatcherService {
       pending: new Set(),
       overflow: false,
       revision: 0,
-      target
+      target,
+      subId: `files:${sessionId}`,
+      roots: watchRoots
     }
+    // The state and handlers exist before the subscribe round trip: an initial
+    // event or `ready` must not be dropped while the ack is in flight.
     this.sessions.set(sessionId, state)
-    const key = watchKey(target)
-    let shared = this.handles.get(key)
-    const joinedExisting = shared !== undefined
-    if (!shared) {
-      try {
-        shared = {
-          handle: this.factory([target.worktreePath], {
-            ignored: (path) => shouldIgnoreFilesWatchPath(path, target.worktreePath),
-            onEvent: (event) => this.onTargetEvent(key, event),
-            onError: () => this.failTarget(key),
-            // A write that lands during chokidar's initial scan must not be lost.
-            onReady: () => this.onTargetReady(key)
-          }),
-          sessions: new Set()
-        }
-      } catch {
-        this.sessions.delete(sessionId)
-        this.desired.delete(sessionId)
-        return { watching: false, reason: 'watch-failed' }
+    const result = await this.client.subscribe(
+      filesSpec(sessionId, target.worktreePath, watchRoots),
+      {
+        onEvents: (events) => this.onEvents(sessionId, events),
+        onOverflow: () => this.onOverflow(sessionId),
+        onReady: () => this.onReady(sessionId),
+        onError: () => this.failSession(sessionId)
       }
-      this.handles.set(key, shared)
+    )
+    if (this.desired.get(sessionId) !== token) {
+      this.sessions.delete(sessionId)
+      await this.client.unsubscribe(state.subId)
+      return { watching: false, reason: 'cancelled' }
     }
-    shared.sessions.add(sessionId)
-    if (joinedExisting) {
-      // The shared watch is already past its initial scan; the joining session
-      // still needs one full read to match what is on disk.
-      state.overflow = true
-      this.schedule(sessionId, state)
+    if (!result.ok) {
+      this.sessions.delete(sessionId)
+      this.desired.delete(sessionId)
+      return { watching: false, reason: 'watch-failed' }
     }
     return { watching: true }
   }
@@ -236,32 +227,42 @@ export class WorkspaceFilesWatcherService {
       .map(([sessionId]) => sessionId)
   }
 
-  private onTargetEvent(key: string, event: FilesWatchEvent): void {
-    const shared = this.handles.get(key)
-    if (!shared) return
-    if (event.type === 'error') {
-      this.failTarget(key)
-      return
-    }
-    for (const sessionId of [...shared.sessions]) {
-      const state = this.sessions.get(sessionId)
-      if (!state?.active) continue
-      if (shouldIgnoreFilesWatchPath(event.path, state.target.worktreePath)) continue
-      this.recordChange(state, event.path)
-      this.schedule(sessionId, state)
+  /** Diagnostics for the perf probe; not part of the IPC contract. */
+  stats(): { activeSessions: number; subscriptions: number; roots: number } {
+    let roots = 0
+    for (const state of this.sessions.values()) roots += state.roots.length
+    return {
+      activeSessions: this.activeSessions().length,
+      subscriptions: this.sessions.size,
+      roots
     }
   }
 
-  private onTargetReady(key: string): void {
-    const shared = this.handles.get(key)
-    if (!shared) return
-    for (const sessionId of [...shared.sessions]) {
-      const state = this.sessions.get(sessionId)
-      if (!state?.active) continue
-      // The scan itself may have raced a write; reconcile once after it settles.
-      state.overflow = true
-      this.schedule(sessionId, state)
+  private onEvents(sessionId: string, events: readonly WatchEvent[]): void {
+    const state = this.sessions.get(sessionId)
+    if (!state?.active) return
+    let changed = false
+    for (const event of events) {
+      if (shouldIgnoreFilesWatchPath(event.path, state.target.worktreePath)) continue
+      this.recordChange(state, event.path)
+      changed = true
     }
+    if (changed) this.schedule(sessionId, state)
+  }
+
+  private onOverflow(sessionId: string): void {
+    const state = this.sessions.get(sessionId)
+    if (!state?.active) return
+    state.overflow = true
+    this.schedule(sessionId, state)
+  }
+
+  private onReady(sessionId: string): void {
+    const state = this.sessions.get(sessionId)
+    if (!state?.active) return
+    // The scan itself may have raced a write; reconcile once after it settles.
+    state.overflow = true
+    this.schedule(sessionId, state)
   }
 
   private recordChange(state: SessionWatch, path: string): void {
@@ -302,31 +303,27 @@ export class WorkspaceFilesWatcherService {
     }
   }
 
-  private failTarget(key: string): void {
-    const shared = this.handles.get(key)
-    if (!shared) return
-    for (const sessionId of [...shared.sessions]) {
-      const state = this.sessions.get(sessionId)
-      if (!state) continue
-      if (state.timer !== null) clearTimeout(state.timer)
-      state.timer = null
-      state.revision += 1
-      const event: FilesChangedEvent = {
-        sessionId,
-        revision: state.revision,
-        changedPaths: [],
-        overflow: false,
-        failed: true
-      }
-      for (const listener of this.listeners) {
-        try {
-          listener(event)
-        } catch {
-          // ignore
-        }
-      }
-      void this.stop(sessionId)
+  private failSession(sessionId: string): void {
+    const state = this.sessions.get(sessionId)
+    if (state === undefined) return
+    if (state.timer !== null) clearTimeout(state.timer)
+    state.timer = null
+    state.revision += 1
+    const event: FilesChangedEvent = {
+      sessionId,
+      revision: state.revision,
+      changedPaths: [],
+      overflow: false,
+      failed: true
     }
+    for (const listener of this.listeners) {
+      try {
+        listener(event)
+      } catch {
+        // ignore
+      }
+    }
+    void this.stop(sessionId)
   }
 
   private async stop(sessionId: string): Promise<void> {
@@ -337,17 +334,6 @@ export class WorkspaceFilesWatcherService {
     if (state.timer !== null) clearTimeout(state.timer)
     state.timer = null
     state.pending.clear()
-    const key = watchKey(state.target)
-    const shared = this.handles.get(key)
-    if (!shared) return
-    shared.sessions.delete(sessionId)
-    if (shared.sessions.size > 0) return
-    // Last session out: the physical watch has no remaining consumer.
-    this.handles.delete(key)
-    try {
-      await shared.handle.close()
-    } catch {
-      // The OS watcher may already be gone; stopping is best effort.
-    }
+    await this.client.unsubscribe(state.subId).catch(() => undefined)
   }
 }

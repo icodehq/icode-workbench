@@ -23,6 +23,8 @@ export const FILES_SKIP_DIRECTORIES = [
 
 /** One file tree response is capped so a huge repository cannot stall the UI. */
 export const FILES_MAX_ENTRIES_PER_DIRECTORY = 2000
+/** The Files watcher subscribes to the root plus visible folders; bound the set. */
+export const FILES_WATCH_MAX_ROOTS = 512
 /** A file larger than this is reported as too large instead of loaded. */
 export const FILES_MAX_FILE_BYTES = 2 * 1024 * 1024
 export const FILES_MAX_SEARCH_RESULTS = 200

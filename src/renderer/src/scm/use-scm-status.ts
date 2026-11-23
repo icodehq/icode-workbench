@@ -251,6 +251,36 @@ export function useScmStatus({
   useEffect(() => {
     if (!active) return
     let cancelled = false
+    const retryTimers: number[] = []
+    let retriesScheduled = false
+    const clearRetries = (): void => {
+      while (retryTimers.length > 0) window.clearTimeout(retryTimers.pop())
+      retriesScheduled = false
+    }
+    /**
+     * A failed watcher is a transient child failure, not a reason to stay on
+     * polling forever. Retry a bounded number of times while the pane is open.
+     */
+    const scheduleWatchRetries = (): void => {
+      if (cancelled || retriesScheduled) return
+      retriesScheduled = true
+      for (const delay of [5_000, 20_000, 60_000]) {
+        retryTimers.push(
+          window.setTimeout(() => {
+            if (cancelled) return
+            void window.icode.git
+              .watchStatus({ sessionId, active: true })
+              .then((result) => {
+                if (cancelled) return
+                if (!result.ok || !result.value.watching) return
+                clearRetries()
+                setWatchMode('watch')
+                void loadGit(true)
+              })
+          }, delay)
+        )
+      }
+    }
     const start = async (): Promise<void> => {
       const result = await callApi<{ watching: boolean; reason?: GitWatchUnavailableReason }>(
         window.icode.git.watchStatus({ sessionId, active: true })
@@ -261,12 +291,15 @@ export function useScmStatus({
         }
         return
       }
-      setWatchMode(result.ok && result.value.watching ? 'watch' : 'poll')
+      const watching = result.ok && result.value.watching
+      setWatchMode(watching ? 'watch' : 'poll')
+      if (!watching) scheduleWatchRetries()
     }
     const unsubscribe = window.icode.git.onStatusChange((event) => {
       if (cancelled || event.sessionId !== sessionId) return
       if (event.failed) {
         setWatchMode('poll')
+        scheduleWatchRetries()
         return
       }
       if (document.visibilityState !== 'visible') return
@@ -285,6 +318,7 @@ export function useScmStatus({
     document.addEventListener('visibilitychange', onVisibility)
     return () => {
       cancelled = true
+      clearRetries()
       unsubscribe()
       document.removeEventListener('visibilitychange', onVisibility)
       setWatchMode('probing')

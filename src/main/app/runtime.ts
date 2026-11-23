@@ -51,6 +51,9 @@ import { RepoRemovalJobStore } from '../persistence/repo-removal-job-store'
 import { MergeService } from '../integration/merge-service'
 import { ChainService } from '../integration/chain-service'
 import { GitStatusWatcherService } from '../git/status-watcher'
+import { createWatchTargetResolvers } from '../watch/target-resolution'
+import { WatcherSupervisor } from '../watch/watcher-supervisor'
+import { createDisabledWatchClient, type WatchClient } from '../watch/watch-client'
 import { TaskStore } from '../tasks/task-store'
 import { TaskService } from '../tasks/task-service'
 import { TaskDispatcher } from '../tasks/task-dispatcher'
@@ -885,75 +888,60 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     detectHarness: detectHarnessForTarget,
     wslRunner
   })
-  const translateGuestWatchPath = async (distro: string, guestPath: string): Promise<string | null> => {
-    const result = await wslRunner.run({
-      scope: 'guest',
-      distro,
-      argv: ['wslpath', '-w', guestPath],
-      timeoutMs: 10_000
-    })
-    if (result.status !== 'ok') return null
-    const windowsPath = result.stdout.trim().replace(/\//gu, '\\')
-    // DrvFs paths translate to a drive and can be watched from Windows. A
-    // `\\wsl.localhost\...` path is not reliably watchable (Phase 0/1c); leave
-    // it to polling or the future Host watcher.
-    return /^[A-Za-z]:\\/u.test(windowsPath) ? windowsPath : null
-  }
-
-  /**
-   * Watch where notifications actually work. A local path is watched directly;
-   * a WSL worktree on a Windows drive is watched through its translated Windows
-   * path (Phase 0 measured that Linux inotify on DrvFs sees nothing), and an
-   * ext4 guest worktree falls back to polling until Phase 1c.
+  /*
+   * Watchers exist only for local targets. A guest checkout is owned by the
+   * distro: its DrvFs spelling is not a reliable watch on this side, and the
+   * renderer already polls every two seconds when a watch target is absent.
+   * The resolver gates on the persisted execution target before any guest
+   * call, so a WSL session never spends a `wslpath` or a guest `git rev-parse`
+   * just to be told to poll.
    */
-  const resolveGitWatchTarget = async (sessionId: string) => {
-    const details = await gitWorkspace.watchTargetDetails(sessionId)
-    if (details === null) return null
-    if (details.target.kind === 'local') {
-      return { worktreePath: details.worktreePath, gitDir: details.gitDir }
-    }
-    const [worktreePath, gitDir] = await Promise.all([
-      translateGuestWatchPath(details.target.distro, details.worktreePath),
-      translateGuestWatchPath(details.target.distro, details.gitDir)
-    ])
-    if (worktreePath === null || gitDir === null) return null
-    return { worktreePath, gitDir }
-  }
+  const watchTargetResolvers = createWatchTargetResolvers({
+    worktrees,
+    sessions,
+    repositories: persistence.repositories,
+    gitWorkspace
+  })
+
+  /*
+   * The physical watchers run in a dedicated, non-detached child. The main
+   * process never imports chokidar or parcel, so a crawl or a native watcher
+   * crash cannot stall the window; a failed child leaves both panes on their
+   * polling fallback.
+   */
+  const watcherEntryPath = app.isPackaged
+    ? join(process.resourcesPath, 'app.asar.unpacked', 'out', 'watch', 'index.js')
+    : join(app.getAppPath(), 'out', 'watch', 'index.js')
+  const watcherSupervisor =
+    process.env.ICODE_WATCH_CHILD === '0'
+      ? null
+      : new WatcherSupervisor({
+          entryPath: watcherEntryPath,
+          logPath: join(app.getPath('userData'), 'logs', 'watcher.log')
+        })
+  const watchClient: WatchClient = watcherSupervisor ?? createDisabledWatchClient()
 
   const gitStatusWatcher = new GitStatusWatcherService({
-    resolveTarget: resolveGitWatchTarget
+    resolveTarget: watchTargetResolvers.resolveGitWatchTarget,
+    client: watchClient
   })
-
-  /**
-   * Files watches the checkout itself (not the Git directory). A local path is
-   * watched directly; a WSL worktree on DrvFs uses the same translated Windows
-   * path as the Git watcher; an ext4 guest returns null and the renderer polls.
-   */
-  const resolveFilesWatchTarget = async (sessionId: string) => {
-    const record = worktrees.findBySession(sessionId)
-    /*
-     * A default-checkout session has no worktree row; its files are the
-     * repository's primary checkout, so the watcher follows that path instead.
-     */
-    const checkout = record
-      ? { repoId: record.repoId, path: record.path }
-      : await sessions.resolveSessionCheckout(sessionId).catch(() => null)
-    if (!checkout) return null
-    const repository = persistence.repositories.findById(checkout.repoId)
-    if (!repository) return null
-    if (repository.executionTarget.kind === 'local') {
-      return { worktreePath: checkout.path }
-    }
-    const worktreePath = await translateGuestWatchPath(
-      repository.executionTarget.distro,
-      checkout.path
-    )
-    return worktreePath === null ? null : { worktreePath }
-  }
 
   const filesWatcher = new WorkspaceFilesWatcherService({
-    resolveTarget: resolveFilesWatchTarget
+    resolveTarget: watchTargetResolvers.resolveFilesWatchTarget,
+    client: watchClient
   })
+
+  /*
+   * The watch perf probe reads main-process truth through the inspector. It is
+   * env-gated so the product surface is absent in normal runs.
+   */
+  if (process.env.ICODE_WATCH_PERF === '1') {
+    ;(globalThis as unknown as Record<string, unknown>).__icodeWatchStats = () => ({
+      files: filesWatcher.stats(),
+      git: gitStatusWatcher.stats(),
+      watcherChild: watcherSupervisor?.stats() ?? null
+    })
+  }
 
   /**
    * The Harness list for one execution target.
@@ -1534,6 +1522,7 @@ export async function startAppRuntime(): Promise<AppRuntime> {
       await supervisorService?.stop().catch(() => undefined)
       await gitStatusWatcher.stopAll().catch(() => undefined)
       await filesWatcher.stopAll().catch(() => undefined)
+      await watcherSupervisor?.shutdown().catch(() => undefined)
       await activityServer.stop().catch(() => undefined)
       sessions.dispose()
       // Do not stop the detached host: live sessions must survive app exit.

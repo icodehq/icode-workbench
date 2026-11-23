@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-11-24
+
+### Fixed
+
+- **A large monorepo no longer freezes the window when a session starts.** The
+  Files and Source Control watchers skipped generated directories only when they
+  sat at the checkout root, so a package-level `node_modules` was walked and
+  watched file by file. On a 35,000-file checkout that meant 37,000 native
+  watchers and a main process that stopped answering for minutes. Generated
+  directories are now skipped at any depth; with the chokidar fallback that
+  checkout needs about 500 watches instead of 37,000.
+- **WSL checkouts are polled instead of watched through Windows.** A guest
+  repository is owned by its distro, so translating its path and watching the
+  Windows spelling could still descend into a large checkout from the main
+  process. Files and Source Control now use their existing two-second polling
+  fallback for every WSL target, and no watcher or native module is added to the
+  guest artifacts.
+- **Filesystem watchers run outside the Electron main process.** A dedicated
+  watcher child now owns every physical watch. A crawl, a native watcher crash,
+  or a failed subscription leaves Files and Source Control on their polling
+  fallback and retries live mode a few times, instead of stalling the window.
+  The watcher stops when the app does; it is never a detached process.
+- **Local recursive watches use the operating system's native watcher.** The
+  watcher child prefers `@parcel/watcher` (ReadDirectoryChangesW, FSEvents,
+  inotify per directory) and prunes generated directories natively at any depth.
+  A 35,000-file checkout no longer opens one handle per file; chokidar remains
+  an automatic fallback when the native module cannot load.
+- **The Files pane watches only visible directories.** It subscribes to the
+  checkout root plus expanded folders and the parents of open tabs, and drops a
+  folder's watch when it is collapsed. Windows and Linux use one shallow
+  `fs.watch` per visible folder; macOS uses one recursive native subscription
+  filtered to the visible set, avoiding descriptor pressure.
+
 ## [0.25.0] - 2026-11-23
 
 > **Upgrading from 0.23.1 or 0.24.0:** those builds can be blocked by historical

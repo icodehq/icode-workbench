@@ -22,7 +22,7 @@ const {
   readdirSync,
   statSync
 } = require('node:fs')
-const { execFileSync } = require('node:child_process')
+const { execFileSync, spawnSync } = require('node:child_process')
 const { join, resolve } = require('node:path')
 
 const REPO_ROOT = resolve(__dirname, '..', '..')
@@ -122,7 +122,7 @@ function compareVersions(left, right) {
   return 0
 }
 
-function verifyLinuxGlibc(nativePath) {
+function verifyLinuxGlibc(nativePath, label = 'native module') {
   let output
   try {
     output = execFileSync('objdump', ['-T', nativePath], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 })
@@ -139,9 +139,9 @@ function verifyLinuxGlibc(nativePath) {
   const highest = versions[versions.length - 1]
   check(
     compareVersions(highest, [2, 35]) <= 0,
-    `packaged pty.node requires GLIBC ${highest.join('.')}; the baseline is 2.35`
+    `packaged ${label} requires GLIBC ${highest.join('.')}; the baseline is 2.35`
   )
-  process.stdout.write(`[verify-package] glibc floor ok (max GLIBC_${highest.join('.')})\n`)
+  process.stdout.write(`[verify-package] ${label} glibc floor ok (max GLIBC_${highest.join('.')})\n`)
 }
 
 function main(argv) {
@@ -186,6 +186,58 @@ function main(argv) {
 
   const unpacked = join(resources, 'app.asar.unpacked')
   check(existsSync(join(unpacked, 'out', 'host', 'index.js')), 'unpacked Host bundle is missing')
+
+  // The watcher child is launched without asar support, so both its entry and
+  // the parcel wrapper/native package must be real files.
+  const watchEntry = join(unpacked, 'out', 'watch', 'index.js')
+  check(existsSync(watchEntry), 'unpacked watcher bundle is missing')
+  const parcelDir = join(unpacked, 'node_modules', '@parcel', 'watcher')
+  check(existsSync(join(parcelDir, 'package.json')), 'unpacked @parcel/watcher is missing')
+  const parcelPlatform =
+    options.platform === 'linux'
+      ? `linux-${options.arch}-glibc`
+      : options.platform === 'win'
+        ? `win32-${options.arch}`
+        : `darwin-${options.arch}`
+  const watchNative = join(
+    unpacked,
+    'node_modules',
+    '@parcel',
+    `watcher-${parcelPlatform}`,
+    'watcher.node'
+  )
+  check(existsSync(watchNative), `expected parcel watcher native module is missing: ${watchNative}`)
+  const watchInfo = binaryInfo(watchNative)
+  check(
+    watchInfo.arch === options.arch,
+    `parcel watcher architecture mismatch: ${watchNative} is ${watchInfo.format} ${watchInfo.arch}, expected ${options.arch}`
+  )
+  const foreignParcel =
+    options.platform === 'linux'
+      ? ['watcher-win32-x64', 'watcher-darwin-x64', 'watcher-linux-x64-musl']
+      : options.platform === 'win'
+        ? ['watcher-linux-x64-glibc', 'watcher-darwin-x64']
+        : ['watcher-linux-x64-glibc', 'watcher-win32-x64']
+  for (const foreign of foreignParcel) {
+    check(
+      !existsSync(join(unpacked, 'node_modules', '@parcel', foreign)),
+      `package must not ship a foreign parcel watcher module: ${foreign}`
+    )
+  }
+  // Proves the unpacked JS dependency closure, not only the .node file.
+  const selftest = spawnSync(process.execPath, [watchEntry, '--selftest'], {
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+    encoding: 'utf8',
+    timeout: 20_000
+  })
+  check(
+    selftest.status === 0,
+    `packaged watcher selftest failed: ${(selftest.stderr || selftest.stdout || '').trim()}`
+  )
+  check(
+    /selftest parcel/u.test(selftest.stdout ?? ''),
+    'packaged watcher did not load the parcel backend'
+  )
 
   const ptyDir = join(unpacked, 'node_modules', 'node-pty')
   check(existsSync(ptyDir), 'unpacked node-pty module is missing')
@@ -243,11 +295,19 @@ function main(argv) {
       existsSync(join(wslRoot, 'linux-x64', 'manifest.json')),
       'Windows package is missing the WSL Host artifact tree'
     )
+    // WSL repositories poll; the guest tree must stay free of desktop native deps.
+    check(
+      !existsSync(join(wslRoot, 'linux-x64', 'node_modules', '@parcel')),
+      'WSL Host artifacts must not ship @parcel/watcher'
+    )
   } else {
     check(!existsSync(wslRoot), `${options.platform} package must not ship WSL Host artifacts`)
   }
 
-  if (options.platform === 'linux') verifyLinuxGlibc(nativePath)
+  if (options.platform === 'linux') {
+    verifyLinuxGlibc(nativePath, 'pty.node')
+    verifyLinuxGlibc(watchNative, 'parcel watcher.node')
+  }
 
   process.stdout.write(
     `[verify-package] PASS ${dir} (${options.platform}/${options.arch}, ${info.format})\n`
