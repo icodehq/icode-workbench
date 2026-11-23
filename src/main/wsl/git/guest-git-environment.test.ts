@@ -247,6 +247,51 @@ describe('runGuestGit environment strategy', () => {
     expect(fallback[2]).toContain("'/home/u/r'")
   })
 
+  it('carries the askpass suppressors down both routes', async () => {
+    const direct = runnerFor((guest) => {
+      if (guest[1] === '-lc') return ok(probeBody('/usr/bin', '/usr/bin/git', '/home/u'))
+      return ok(Buffer.from('abc\n'))
+    })
+    await runGuestGit(
+      direct.runner,
+      {
+        distro: 'd',
+        cwd: '/r',
+        args: ['ls-remote', '--', 'https://example.com/o/r.git', 'HEAD'],
+        env: { GIT_ASKPASS: '', SSH_ASKPASS: '' }
+      },
+      { environments: createGuestGitEnvironmentCache(direct.runner) }
+    )
+    expect(direct.calls[1]).toContain('GIT_ASKPASS=')
+    expect(direct.calls[1]).toContain('SSH_ASKPASS=')
+
+    const fallback = runnerFor((guest) => {
+      if (guest[1] === '-lc' && guest[2]?.includes('command -v git')) {
+        return ok(Buffer.alloc(0), 127)
+      }
+      return ok(
+        Buffer.concat([
+          Buffer.from(LOGIN_FENCE_START),
+          Buffer.from('fenced-output'),
+          Buffer.from(LOGIN_FENCE_END),
+          Buffer.from(`${LOGIN_FENCE_STATUS}0`)
+        ])
+      )
+    })
+    await runGuestGit(
+      fallback.runner,
+      {
+        distro: 'd',
+        cwd: '/r',
+        args: ['ls-remote', '--', 'https://example.com/o/r.git', 'HEAD'],
+        env: { GIT_ASKPASS: '', SSH_ASKPASS: '' }
+      },
+      { environments: createGuestGitEnvironmentCache(fallback.runner) }
+    )
+    expect(fallback.calls[1]![2]).toContain('GIT_ASKPASS=')
+    expect(fallback.calls[1]![2]).toContain('SSH_ASKPASS=')
+  })
+
   it('retries in the login shell when direct-git reports "not found"', async () => {
     let directCalls = 0
     const { runner, calls } = runnerFor((guest) => {

@@ -57,7 +57,7 @@ export type GuestGitRequest = {
   stdin?: Buffer | string
   timeoutMs?: number
   signal?: AbortSignal
-  /** Per-call `GIT_*` additions, e.g. `GIT_INDEX_FILE`. */
+  /** Per-call `GIT_*` additions plus the askpass suppressors, e.g. `GIT_INDEX_FILE`. */
   env?: Readonly<Record<string, string>>
 }
 
@@ -104,17 +104,31 @@ export type GuestGitDeps = {
  */
 export const GUEST_GIT_ENV = ['GIT_TERMINAL_PROMPT=0', 'GIT_OPTIONAL_LOCKS=0'] as const
 
-const GIT_ENV_KEY = /^GIT_[A-Z0-9_]+$/
+/**
+ * Keys a per-call override may carry.
+ *
+ * `GIT_*` covers Git's own settings. `SSH_ASKPASS` is the one non-Git key
+ * admitted: the private-clone flow suppresses every askpass prompt for the
+ * attempt, and OpenSSH's helper is not named with a `GIT_` prefix. It is the
+ * same kind of value as `GIT_ASKPASS` — a program Git or ssh may run — and
+ * carries no way to replace PATH or HOME.
+ */
+const GUEST_ENV_KEY = /^(?:GIT_[A-Z0-9_]+|SSH_ASKPASS)$/u
+
+/** True for the exact keys a guest Git per-call override may set. */
+export function isGuestGitEnvKey(key: string): boolean {
+  return GUEST_ENV_KEY.test(key)
+}
 
 /**
  * Per-call environment additions are a narrow capability, not a general env
- * override: only `GIT_*` keys, no NULs, and no way to replace PATH or HOME.
+ * override: only the keys above, no NULs, and no way to replace PATH or HOME.
  */
 function gitEnvAssignments(env: Readonly<Record<string, string>> | undefined): string[] {
   if (env === undefined) return []
   const assignments: string[] = []
   for (const [key, value] of Object.entries(env)) {
-    if (!GIT_ENV_KEY.test(key) || value.includes('\u0000') || value.length > 4096) {
+    if (!isGuestGitEnvKey(key) || value.includes('\u0000') || value.length > 4096) {
       throw new Error('Invalid Git environment override.')
     }
     assignments.push(`${key}=${value}`)

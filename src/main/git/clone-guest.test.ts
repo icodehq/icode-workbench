@@ -45,11 +45,12 @@ describe('runStreamingGuestClone', () => {
       destination: '/home/u/r',
       timeoutMs: 1_000,
       gitOptions: ['-c', 'credential.helper=!sh /home/u/helper.sh'],
-      env: { GIT_ASKPASS: '' }
+      env: { GIT_ASKPASS: '', SSH_ASKPASS: '' }
     })
     expect(argv).toContain('SSH_AUTH_SOCK=/run/user/1000/openssh_agent')
     expect(argv).toContain('GIT_TERMINAL_PROMPT=0')
     expect(argv).toContain('GIT_ASKPASS=')
+    expect(argv).toContain('SSH_ASKPASS=')
     const gitIndex = argv.indexOf('/usr/bin/git')
     expect(gitIndex).toBeGreaterThan(0)
     expect(argv.slice(gitIndex + 1, gitIndex + 3)).toEqual([
@@ -75,13 +76,14 @@ describe('runStreamingGuestClone', () => {
       destination: '/home/u/r',
       timeoutMs: 1_000,
       gitOptions: ['-c', 'credential.helper=!sh /home/u/helper.sh'],
-      env: { GIT_ASKPASS: '' }
+      env: { GIT_ASKPASS: '', SSH_ASKPASS: '' }
     })
     expect(argv[0]).toBe('sh')
     expect(argv[1]).toBe('-lc')
     const command = argv[2] ?? ''
     expect(command).toContain('GIT_TERMINAL_PROMPT=0')
     expect(command).toContain('GIT_ASKPASS=')
+    expect(command).toContain('SSH_ASKPASS=')
     expect(command).toContain('credential.helper=!sh /home/u/helper.sh')
     expect(command).toContain('clone')
   })

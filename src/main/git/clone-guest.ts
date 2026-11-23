@@ -14,6 +14,7 @@ import {
 } from '../wsl/git/guest-git-environment'
 import {
   GUEST_GIT_ENV,
+  isGuestGitEnvKey,
   quoteForShell,
   sharedGuestGitEnvironments
 } from '../wsl/git/guest-git'
@@ -28,22 +29,19 @@ export type StreamingGuestCloneInput = {
   onStderr?: (chunk: Buffer) => void
   /** Global Git options, placed before the `clone` subcommand. */
   gitOptions?: readonly string[]
-  /** Guest-side `GIT_*` additions for this attempt (never secrets). */
+  /** Guest-side `GIT_*` additions and askpass suppressors (never secrets). */
   env?: Readonly<Record<string, string>>
 }
 
 /**
- * `GIT_*` assignments only. The values are built by main, but keeping the same
- * narrow shape as guest Git prevents a future caller from exporting PATH/HOME
- * or a secret-bearing variable through argv.
+ * The same narrow key set the guest Git executor accepts. The values are built
+ * by main, but keeping the shape identical prevents a future caller from
+ * exporting PATH/HOME or a secret-bearing variable through argv.
  */
 function envAssignments(env: Readonly<Record<string, string>> | undefined): string[] {
   if (env === undefined) return []
   return Object.entries(env)
-    .filter(
-      ([key, value]) =>
-        /^GIT_[A-Z0-9_]+$/u.test(key) && !/[\u0000\r\n]/u.test(value)
-    )
+    .filter(([key, value]) => isGuestGitEnvKey(key) && !/[\u0000\r\n]/u.test(value))
     .map(([key, value]) => `${key}=${value}`)
 }
 
