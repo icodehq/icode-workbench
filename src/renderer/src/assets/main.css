@@ -43,6 +43,8 @@
   --color-line: var(--icode-line);
   --color-line-strong: var(--icode-line-strong);
   --color-destructive: var(--icode-danger);
+  /* Ink for text/icons drawn on a filled danger or info surface. */
+  --color-danger-ink: var(--icode-danger-ink);
   /* iCode's wordmark green; the primary action accent is defined below. */
   --color-brand: var(--icode-brand);
   --color-signal: var(--icode-signal);
@@ -50,6 +52,7 @@
   --color-signal-line: var(--icode-signal-line);
   --color-signal-ink: var(--icode-signal-ink);
   --color-info: var(--icode-info);
+  --color-info-ink: var(--icode-info-ink);
   --color-info-weak: var(--icode-info-weak);
   --color-add: var(--icode-add);
   --color-add-weak: var(--icode-add-weak);
@@ -137,6 +140,7 @@
   --icode-signal-ink: #1B1404;
   --icode-info: #58A6FF;
   --icode-info-weak: rgba(88, 166, 255, 0.12);
+  --icode-info-ink: #04101F;
 
   /* iCode brand stays green; the primary action accent is indigo. */
   --icode-brand: #3FB950;
@@ -145,6 +149,7 @@
 
   /* Failure. */
   --icode-danger: #F85149;
+  --icode-danger-ink: #1B0A08;
 
   /* Diff. */
   --icode-add: #3FB950;
@@ -196,17 +201,22 @@
   --icode-raised: #E8E8EA;
   --icode-overlay: #FFFFFF;
 
-  --icode-line: #D6D6D9;
-  --icode-line-strong: #BDBDC1;
-  --icode-terminal-scrollbar: #B0B0B6;
+  --icode-line: #CDCDD2;
+  --icode-line-strong: #ADADB4;
+  --icode-terminal-scrollbar: #8F9096;
   --icode-terminal-bg: #FAFAFA;
 
-  --icode-ink-1: #383A42;
-  --icode-ink-2: #696C77;
-  --icode-ink-3: #666970;
+  /*
+   * Light ink is deliberately near-opaque: the small type this UI uses (9–11px)
+   * needs more than the 4.5:1 floor to stay crisp on a light ground. Ink 2 and
+   * ink 3 clear 7:1 and 5:1 on the panel, not just on the canvas.
+   */
+  --icode-ink-1: #1F2328;
+  --icode-ink-2: #4A4F57;
+  --icode-ink-3: #5E636C;
 
-  --icode-sel: #E4E6EB;
-  --icode-hover: #EDEDEE;
+  --icode-sel: #E0E4EA;
+  --icode-hover: #EBEBED;
   --icode-focus: #2F62D8;
 
   --icode-signal: #8A5A00;
@@ -215,23 +225,31 @@
   --icode-signal-ink: #FFFFFF;
   --icode-info: #2F62D8;
   --icode-info-weak: rgba(47, 98, 216, 0.09);
+  --icode-info-ink: #FFFFFF;
 
-  --icode-brand: #50A14F;
+  --icode-brand: #2A7230;
   --icode-accent: #2F62D8;
   --icode-accent-ink: #FFFFFF;
-  --icode-danger: #E45649;
 
-  --icode-add: #50A14F;
-  --icode-add-weak: rgba(80, 161, 79, 0.11);
-  --icode-remove: #E45649;
-  --icode-remove-weak: rgba(228, 86, 73, 0.09);
+  /*
+   * Failure is text first: `text-destructive` sits in 9–12px error copy, so the
+   * light red is darker than the One Light fill red it replaced. Filled danger
+   * buttons draw white text through `danger-ink` instead of black.
+   */
+  --icode-danger: #B9372A;
+  --icode-danger-ink: #FFFFFF;
+
+  --icode-add: #2A7230;
+  --icode-add-weak: rgba(42, 114, 48, 0.1);
+  --icode-remove: #B9372A;
+  --icode-remove-weak: rgba(185, 55, 42, 0.08);
 
   --icode-state-live: var(--icode-ink-2);
   --icode-state-working: var(--icode-ink-2);
   --icode-state-idle: var(--icode-ink-3);
   --icode-rail-off: #B9B3A8;
 
-  --icode-selection: rgba(47, 98, 216, 0.16);
+  --icode-selection: rgba(47, 98, 216, 0.2);
 
   --icode-shadow-overlay: 0 18px 48px rgba(31, 35, 40, 0.22);
   --icode-focus-ring: rgba(47, 98, 216, 0.24);
@@ -244,11 +262,11 @@
   --icode-menu-hover: rgba(56, 58, 66, 0.06);
 
   --icode-lane-1: #2F62D8;
-  --icode-lane-2: #50A14F;
+  --icode-lane-2: #2A7230;
   --icode-lane-3: #8A5A00;
   --icode-lane-4: #8250DF;
   --icode-lane-5: #1B7C83;
-  --icode-lane-6: #E45649;
+  --icode-lane-6: #B9372A;
 }
 
 /*

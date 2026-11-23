@@ -839,7 +839,7 @@ export default function CodeEditor({
                       <span className="ml-auto flex items-center gap-1">
                         <button
                           type="button"
-                          className="rounded border border-destructive bg-destructive px-1.5 py-0.5 text-[9.5px] text-white hover:opacity-90 disabled:opacity-50"
+                          className="rounded border border-destructive bg-destructive px-1.5 py-0.5 text-[9.5px] text-danger-ink hover:opacity-90 disabled:opacity-50"
                           disabled={applyingQuick}
                           data-testid="quick-diff-revert-confirm"
                           onClick={() => void applyQuickChange('revert')}
