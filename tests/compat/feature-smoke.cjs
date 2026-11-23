@@ -285,7 +285,25 @@ async function quit() {
   port = currentPort + 1
 }
 
+/** Project groups start collapsed; expand them before reading sidebar children. */
+async function expandAllProjects() {
+  await waitFor(
+    `Boolean(document.querySelector('[data-testid^="sidebar-project-toggle-"]')) || Boolean(document.querySelector('[data-testid="empty-workspace"]'))`,
+    'project expansion toggles',
+    20000
+  )
+  await cdp.evaluate(`(() => {
+    for (const toggle of document.querySelectorAll('[data-testid^="sidebar-project-toggle-"][aria-expanded="false"]')) toggle.click()
+  })()`)
+  await waitFor(
+    `document.querySelectorAll('[data-testid^="sidebar-project-toggle-"][aria-expanded="false"]').length === 0`,
+    'projects expanded',
+    5000
+  )
+}
+
 async function openSessionWorkspace() {
+  await expandAllProjects()
   if (await cdp.evaluate(`Boolean(document.querySelector('[data-testid="sessions-surface"]'))`)) return
   await waitForSelector('[data-testid^="project-row-"]', 20000)
   if (repoId === null) {
@@ -345,6 +363,7 @@ async function run() {
       `document.querySelector('[data-testid^="project-row-"]')?.getAttribute('data-testid')?.replace('project-row-', '') ?? null`
     )
     assert(repoId, 'Repository was not registered')
+    await expandAllProjects()
     return { repoId }
   })
 

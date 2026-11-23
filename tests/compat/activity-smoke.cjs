@@ -364,6 +364,23 @@ function hostMeta() {
   }
 }
 
+/** Project groups start collapsed; expand them before reading sidebar children. */
+async function expandAllProjects() {
+  await waitFor(
+    `Boolean(document.querySelector('[data-testid^="sidebar-project-toggle-"]')) || Boolean(document.querySelector('[data-testid="empty-workspace"]'))`,
+    'project expansion toggles',
+    20000
+  )
+  await cdp.evaluate(`(() => {
+    for (const toggle of document.querySelectorAll('[data-testid^="sidebar-project-toggle-"][aria-expanded="false"]')) toggle.click()
+  })()`)
+  await waitFor(
+    `document.querySelectorAll('[data-testid^="sidebar-project-toggle-"][aria-expanded="false"]').length === 0`,
+    'projects expanded',
+    5000
+  )
+}
+
 async function createShellSession(title) {
   const opening = await cdp.evaluate(
     `Boolean(document.querySelector('[data-testid="empty-new-session"]'))`
@@ -537,6 +554,7 @@ async function main() {
     await setInput('[data-testid="add-repo-input"]', REPO_DIR)
     await click('[data-testid="add-repo-submit"]')
     await waitForNotice('Registered')
+    await expandAllProjects()
     first = await createShellSession('Activity A')
     second = await createShellSession('Activity B')
     const initial = await activityUi()

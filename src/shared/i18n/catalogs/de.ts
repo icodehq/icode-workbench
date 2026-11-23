@@ -1913,6 +1913,7 @@ export const de = {
   'sidebar.openSidebar': "Arbeitsbereich-Seitenleiste öffnen",
   'sidebar.closeSidebar': "Arbeitsbereich-Seitenleiste schließen",
   'sidebar.resize': "Arbeitsbereich-Seitenleiste anpassen",
+  'sidebar.resizeSections': "Projekt- und Aufgabenbereiche in der Größe ändern",
   'sidebar.newWork': "Neue Arbeit",
   'rail.assistantUnread': "{name}, {count} ungelesen",
   'topbar.backToProjects': "Zurück zu Projekte",

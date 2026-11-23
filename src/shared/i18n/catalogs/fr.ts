@@ -1913,6 +1913,7 @@ export const fr = {
   'sidebar.openSidebar': "Ouvrir la barre latérale de l’espace de travail",
   'sidebar.closeSidebar': "Fermer la barre latérale de l’espace de travail",
   'sidebar.resize': "Redimensionner la barre latérale de l’espace de travail",
+  'sidebar.resizeSections': "Redimensionner les panneaux Projets et Tâches",
   'sidebar.newWork': "Nouveau travail",
   'rail.assistantUnread': "{name}, {count} non lus",
   'topbar.backToProjects': "Retour aux projets",

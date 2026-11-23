@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import {
   Bell,
   ChevronRight,
@@ -59,14 +59,22 @@ import WorkspaceSidebarDialogs from './WorkspaceSidebarDialogs'
 import { createSidebarMenuItems } from './sidebar-menu-items'
 import { sidebarBrandInset } from './window-chrome'
 import {
+  SIDEBAR_SECTION_SEAM,
+  SIDEBAR_TASKS_MIN,
   SIDEBAR_WIDTH_DEFAULT,
   SIDEBAR_WIDTH_MAX,
   SIDEBAR_WIDTH_MIN,
+  clampSidebarTasksHeight,
   clampSidebarWidth,
+  loadSidebarTasksHeight,
   loadSidebarWidth,
-  saveSidebarWidth
+  saveSidebarTasksHeight,
+  saveSidebarWidth,
+  sidebarTasksMax
 } from '../../state/sidebar-layout'
 import { usePanelResize } from '../../lib/use-panel-resize'
+import { useElementHeight } from '../../lib/use-element-size'
+import { toggleProjectExpanded, useExpandedProjectIds } from '../../state/sidebar-expansion'
 import { taskAttention, taskStatusLabel } from '../task-status'
 import {
   activityDotClass,
@@ -222,12 +230,29 @@ export default function WorkspaceSidebar({
   const widthRef = useRef(width)
   const asideRef = useRef<HTMLElement | null>(null)
   const resizerRef = useRef<HTMLDivElement | null>(null)
+  const [tasksHeight, setTasksHeight] = useState<number | null>(() =>
+    loadSidebarTasksHeight()
+  )
+  const [tasksDragging, setTasksDragging] = useState(false)
+  const tasksDraggingRef = useRef(false)
+  const tasksPaneRef = useRef<HTMLElement | null>(null)
+  const seamRef = useRef<HTMLDivElement | null>(null)
+  const [setProjectsPane, projectsMeasuredHeight] = useElementHeight<HTMLDivElement>()
+  const [setTasksElement, tasksMeasuredHeight] = useElementHeight<HTMLElement>()
+  const setTasksPane = useCallback(
+    (element: HTMLElement | null) => {
+      tasksPaneRef.current = element
+      setTasksElement(element)
+    },
+    [setTasksElement]
+  )
   const [pins, setPins] = useState<SidebarPins>(() => readSidebarPins())
   const [projectsCollapsed, setProjectsCollapsed] = useState(false)
   const [tasksCollapsed, setTasksCollapsed] = useState(false)
   const [tasksNeedsOnly, setTasksNeedsOnly] = useState(false)
   const [tasksHistory, setTasksHistory] = useState(false)
-  const [collapsedRepos, setCollapsedRepos] = useState<Set<string>>(() => new Set())
+  // Every project starts collapsed; the store survives the focus-mode unmount.
+  const expandedRepos = useExpandedProjectIds()
   const [collapsedWorktrees, setCollapsedWorktrees] = useState<Set<string>>(() => new Set())
   const [collapsedDefaultCheckouts, setCollapsedDefaultCheckouts] = useState<Set<string>>(
     () => new Set()
@@ -329,6 +354,76 @@ export default function WorkspaceSidebar({
     },
     onCommit: persistWidth
   })
+
+  const splitMeasured = projectsMeasuredHeight > 0 && tasksMeasuredHeight > 0
+  const splitHeight = splitMeasured
+    ? projectsMeasuredHeight + tasksMeasuredHeight + SIDEBAR_SECTION_SEAM
+    : 0
+  const tasksMaxHeight = splitHeight > 0 ? sidebarTasksMax(splitHeight) : undefined
+  const renderedTasksHeight =
+    tasksHeight === null || splitHeight <= 0
+      ? null
+      : clampSidebarTasksHeight(tasksHeight, splitHeight)
+  const tasksPaneStyle: CSSProperties = tasksCollapsed
+    ? { height: 'auto' }
+    : tasksDragging
+      ? {}
+      : renderedTasksHeight !== null
+        ? {
+            height: `${renderedTasksHeight}px`,
+            minHeight: SIDEBAR_TASKS_MIN,
+            maxHeight:
+              tasksMaxHeight !== undefined ? `${tasksMaxHeight}px` : undefined
+          }
+        : { maxHeight: '38%' }
+
+  const persistTasksHeight = (next: number): void => {
+    setTasksHeight(next)
+    saveSidebarTasksHeight(next)
+  }
+
+  const nudgeTasksHeight = (delta: number): void => {
+    if (splitHeight <= 0) return
+    const current = renderedTasksHeight ?? tasksMeasuredHeight
+    persistTasksHeight(clampSidebarTasksHeight(current + delta, splitHeight))
+  }
+
+  const resetTasksHeight = (): void => {
+    setTasksHeight(null)
+    saveSidebarTasksHeight(null)
+    tasksPaneRef.current?.style.removeProperty('height')
+  }
+
+  const { handleProps: tasksHandleProps } = usePanelResize({
+    kind: 'sidebar',
+    panelRef: tasksPaneRef,
+    clamp: (candidate) =>
+      splitHeight > 0 ? clampSidebarTasksHeight(candidate, splitHeight) : candidate,
+    direction: -1,
+    axis: 'y',
+    disabled: tasksCollapsed,
+    cursor: 'row-resize',
+    onLive: (next) => {
+      if (!tasksDraggingRef.current) {
+        tasksDraggingRef.current = true
+        setTasksDragging(true)
+      }
+      seamRef.current?.setAttribute('aria-valuenow', String(Math.round(next)))
+    },
+    onCommit: (next) => {
+      tasksDraggingRef.current = false
+      setTasksDragging(false)
+      persistTasksHeight(next)
+    }
+  })
+
+  // A collapsed Tasks pane must not keep an imperative drag height around.
+  useEffect(() => {
+    if (!tasksCollapsed) return
+    tasksDraggingRef.current = false
+    setTasksDragging(false)
+    tasksPaneRef.current?.style.removeProperty('height')
+  }, [tasksCollapsed])
 
   const orderedRepos = useMemo(() => {
     const byId = new Map(repos.map((repo) => [repo.id, repo]))
@@ -781,7 +876,7 @@ export default function WorkspaceSidebar({
     const needs = attentionTaskCount(tasks.filter((task) => task.repoId === repo.id))
     const preparation = repositoryPreparationView(repo)
     const sessionCount = directSessionCount.get(repo.id) ?? 0
-    const expanded = !collapsedRepos.has(repo.id)
+    const expanded = expandedRepos.has(repo.id)
     const groups = groupDirectSessions(repoSessions)
     const projectDragTarget: SidebarDragSource = {
       kind: 'project',
@@ -902,14 +997,7 @@ export default function WorkspaceSidebar({
           <button
             type="button"
             className="ml-1 inline-flex h-6 w-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground"
-            onClick={() => {
-              setCollapsedRepos((current) => {
-                const next = new Set(current)
-                if (next.has(repo.id)) next.delete(repo.id)
-                else next.add(repo.id)
-                return next
-              })
-            }}
+            onClick={() => toggleProjectExpanded(repo.id)}
             aria-expanded={expanded}
             aria-label={repo.displayName}
             data-testid={`sidebar-project-toggle-${repo.id}`}
@@ -1207,7 +1295,7 @@ export default function WorkspaceSidebar({
         </button>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
+      <div ref={setProjectsPane} className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
         {pinned.length + pinnedSessions.length + pinnedTasks.length > 0 ? (
           <section aria-label={t('sidebar.pinned')} data-testid="sidebar-pinned">
             <div className="flex h-8 items-center gap-1 px-1 font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
@@ -1356,8 +1444,40 @@ export default function WorkspaceSidebar({
         </section>
       </div>
 
+      <div
+        ref={seamRef}
+        role="separator"
+        aria-orientation="horizontal"
+        aria-label={t('sidebar.resizeSections')}
+        aria-valuemin={SIDEBAR_TASKS_MIN}
+        aria-valuemax={tasksMaxHeight}
+        aria-valuenow={
+          tasksCollapsed ? undefined : Math.round(renderedTasksHeight ?? tasksMeasuredHeight)
+        }
+        aria-disabled={tasksCollapsed || undefined}
+        tabIndex={tasksCollapsed ? -1 : 0}
+        className={`h-[3px] shrink-0 transition-colors focus-visible:outline-none ${
+          tasksCollapsed
+            ? 'cursor-default bg-border/70'
+            : 'cursor-row-resize bg-border/70 hover:bg-accent/60 focus-visible:bg-accent'
+        }`}
+        data-testid="sidebar-sections-resizer"
+        {...tasksHandleProps}
+        onKeyDown={(event) => {
+          if (tasksCollapsed) return
+          if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
+          event.preventDefault()
+          nudgeTasksHeight(event.key === 'ArrowUp' ? 16 : -16)
+        }}
+        onDoubleClick={() => {
+          if (!tasksCollapsed) resetTasksHeight()
+        }}
+      />
+
       <section
-        className="flex max-h-[38%] min-h-0 shrink-0 flex-col border-t border-border px-2 pb-2 pt-1"
+        ref={setTasksPane}
+        className="flex min-h-0 shrink-0 flex-col px-2 pb-2 pt-1"
+        style={tasksPaneStyle}
         aria-label={t('sidebar.tasks')}
         data-testid="sidebar-tasks"
       >

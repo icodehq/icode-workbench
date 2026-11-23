@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-11-23
+
+### Added
+
+- **Resizable Projects and Tasks panes.** A horizontal seam divides the Projects
+  list from the Tasks pane. Drag it to set the Tasks height, double-click to
+  return to content-sized, and the committed height survives a relaunch. Tasks
+  keeps at least 96px and Projects at least 140px; the stored preference is kept
+  intact when the window shrinks. Collapsing Tasks makes the seam inert and
+  preserves the last height for re-expansion.
+
+### Changed
+
+- **Project groups start collapsed.** Launching iCode shows the project list
+  with every project group closed; expand a project with its chevron. Expansion
+  is remembered while the window runs (including terminal focus mode) and resets
+  on relaunch. The Projects section itself, the Default checkout and worktree
+  group defaults, and the Tasks section behave as before.
+
 ## [0.23.1] - 2026-11-23
 
 ### Changed
