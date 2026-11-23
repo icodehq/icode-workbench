@@ -1913,6 +1913,7 @@ export const ptBR = {
   'sidebar.openSidebar': "Abrir barra lateral do espaço de trabalho",
   'sidebar.closeSidebar': "Fechar barra lateral do espaço de trabalho",
   'sidebar.resize': "Redimensionar a barra lateral do espaço de trabalho",
+  'sidebar.resizeSections': "Redimensionar os painéis de projetos e tarefas",
   'sidebar.newWork': "Novo trabalho",
   'rail.assistantUnread': "{name}, {count} não lidas",
   'topbar.backToProjects': "Voltar aos Projetos",

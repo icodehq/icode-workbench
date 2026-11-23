@@ -275,7 +275,48 @@ async function sessionByTitle(title) {
   return list.find((entry) => entry.text.split('\n')[0] === title) ?? null
 }
 
+/**
+ * Project groups start collapsed: the project list is visible, but no project
+ * children render. Assert that launch default before a test expands anything.
+ */
+async function assertProjectsCollapsed() {
+  const state = await cdp.evaluate(`(() => {
+    const sidebar = document.querySelector('[data-testid="workspace-sidebar"]');
+    const toggles = sidebar === null
+      ? []
+      : Array.from(sidebar.querySelectorAll('[data-testid^="sidebar-project-toggle-"]'));
+    return {
+      toggles: toggles.length,
+      collapsed: toggles.every((element) => element.getAttribute('aria-expanded') === 'false'),
+      children: sidebar !== null && Boolean(sidebar.querySelector('[data-testid^="sidebar-default-checkout-"]')),
+      sessions: sidebar !== null && Boolean(sidebar.querySelector('[data-testid^="sidebar-project-group-"] [data-session-id]'))
+    };
+  })()`)
+  assert(state.toggles > 0, 'The sidebar has project rows but no expansion toggles')
+  assert(state.collapsed, 'Project groups did not start collapsed')
+  assert(!state.children, 'Project children rendered before expansion')
+  assert(!state.sessions, 'Project-group session rows rendered before expansion')
+}
+
+/** Expand every collapsed project group so sidebar children are in the DOM. */
+async function expandAllProjects() {
+  await waitFor(
+    `Boolean(document.querySelector('[data-testid^="sidebar-project-toggle-"]')) || Boolean(document.querySelector('[data-testid="empty-workspace"]'))`,
+    'project expansion toggles',
+    20000
+  )
+  await cdp.evaluate(`(() => {
+    for (const toggle of document.querySelectorAll('[data-testid^="sidebar-project-toggle-"][aria-expanded="false"]')) toggle.click()
+  })()`)
+  await waitFor(
+    `document.querySelectorAll('[data-testid^="sidebar-project-toggle-"][aria-expanded="false"]').length === 0`,
+    'projects expanded',
+    5000
+  )
+}
+
 async function openProjectSessions() {
+  await expandAllProjects()
   if (
     await cdp.evaluate(`Boolean(document.querySelector('[data-testid="sessions-surface"]'))`)
   ) {
@@ -575,6 +616,10 @@ async function launch(label, environment, port) {
     'workspace boot',
     30000
   )
+  if (await cdp.evaluate(`Boolean(document.querySelector('[data-testid^="project-row-"]'))`)) {
+    await assertProjectsCollapsed()
+    await expandAllProjects()
+  }
   return port
 }
 
@@ -673,6 +718,7 @@ async function main() {
     )
     assert(repoId, 'Registered repository row is missing')
     await waitForSelector('[data-testid="sidebar-project-rows"]')
+    await assertProjectsCollapsed()
     await screenshot('02a-project-sidebar')
 
     await click(`[data-testid="sidebar-project-menu-${repoId}"]`)

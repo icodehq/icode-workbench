@@ -1913,6 +1913,7 @@ export const ja = {
   'sidebar.openSidebar': "ワークスペースサイドバーを開く",
   'sidebar.closeSidebar': "ワークスペースサイドバーを閉じる",
   'sidebar.resize': "ワークスペースサイドバーのサイズを変更",
+  'sidebar.resizeSections': "プロジェクトとタスクのペインのサイズを変更",
   'sidebar.newWork': "新しい作業",
   'rail.assistantUnread': "{name}、未読 {count} 件",
   'topbar.backToProjects': "プロジェクトに戻る",

@@ -1913,6 +1913,7 @@ export const es = {
   'sidebar.openSidebar': "Abrir barra lateral del espacio de trabajo",
   'sidebar.closeSidebar': "Cerrar barra lateral del espacio de trabajo",
   'sidebar.resize': "Cambiar tamaño de la barra lateral del espacio de trabajo",
+  'sidebar.resizeSections': "Cambiar el tamaño de los paneles de proyectos y tareas",
   'sidebar.newWork': "Nuevo trabajo",
   'rail.assistantUnread': "{name}, {count} sin leer",
   'topbar.backToProjects': "Volver a Proyectos",
