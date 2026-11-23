@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -15,6 +15,31 @@ import {
 } from './executor'
 import type { WslCommandRunner } from '../wsl/exec'
 import { resetGuestGitEnvironments } from '../wsl/git/guest-git'
+import type { ExecutionTarget } from '../../shared/domain/repository'
+
+type FakePersistence = {
+  hasHelper(target: ExecutionTarget, cwd: string, url: string): Promise<boolean>
+  approve(
+    target: ExecutionTarget,
+    cwd: string,
+    url: string,
+    username: string,
+    password: Buffer
+  ): Promise<void>
+  store(
+    target: ExecutionTarget,
+    cwd: string,
+    url: string,
+    username: string,
+    password: Buffer
+  ): Promise<void>
+  switchRemoteToSsh(
+    target: ExecutionTarget,
+    cwd: string,
+    httpsUrl: string,
+    sshUrl: string
+  ): Promise<void>
+}
 
 const local = { kind: 'local' as const }
 const wsl = { kind: 'wsl' as const, distro: 'Ubuntu', distroId: 'distro-1' }
@@ -30,8 +55,20 @@ type FakeStream = (
   cwd: string,
   args: string[],
   handlers: { onStdout?(chunk: Buffer): void; onStderr?(chunk: Buffer): void },
-  options?: { timeoutMs?: number; signal?: AbortSignal }
+  options?: {
+    timeoutMs?: number
+    signal?: AbortSignal
+    env?: Readonly<Record<string, string>>
+  }
 ) => Promise<StreamResult>
+
+type FakeGitResult = (args: string[]) => {
+  stdout: Buffer
+  stderr: Buffer
+  exitCode: number | null
+  timedOut: boolean
+  spawnFailure?: 'wsl_missing'
+}
 
 function setup(options: {
   target?: typeof local | typeof wsl
@@ -39,10 +76,21 @@ function setup(options: {
   unborn?: boolean
   fs?: Partial<HostFileSystem>
   runner?: WslCommandRunner
+  credentialRoot?: string
+  gitResult?: FakeGitResult
+  persistence?: FakePersistence
 } = {}) {
   const target = options.target ?? local
   const removed: string[] = []
   const existing = new Set<string>()
+  const credentialRoot =
+    options.credentialRoot ?? mkdtempSync(join(tmpdir(), 'icode-clone-auth-'))
+  const streamCalls: Array<{
+    cwd: string
+    args: string[]
+    options?: { timeoutMs?: number; signal?: AbortSignal; env?: Readonly<Record<string, string>> }
+  }> = []
+  const gitCalls: string[][] = []
   const fs: HostFileSystem = {
     isDirectory: async () => true,
     exists: async (path) => existing.has(path),
@@ -63,19 +111,32 @@ function setup(options: {
     },
     gitWorktrees: {
       hostFsFor: async () => fs,
-      streamGitFor: async () => options.stream ?? null,
+      streamGitFor: async () => {
+        const stream = options.stream
+        if (stream === undefined) return null
+        return (cwd, args, handlers, streamOptions) => {
+          streamCalls.push({ cwd, args, ...(streamOptions ? { options: streamOptions } : {}) })
+          return stream(cwd, args, handlers, streamOptions)
+        }
+      },
       gitResultFor: async () =>
-        async () => ({
-          stdout: Buffer.alloc(0),
-          stderr: Buffer.alloc(0),
-          exitCode: options.unborn === false ? 0 : 1,
-          timedOut: false
-        })
+        async (_cwd, args) => {
+          gitCalls.push([...args])
+          if (options.gitResult !== undefined) return options.gitResult(args)
+          return {
+            stdout: Buffer.alloc(0),
+            stderr: Buffer.alloc(0),
+            exitCode: options.unborn === false ? 0 : 1,
+            timedOut: false
+          }
+        }
     },
-    runner: options.runner ?? ({} as WslCommandRunner)
+    runner: options.runner ?? ({} as WslCommandRunner),
+    credentialRoot,
+    ...(options.persistence === undefined ? {} : { persistence: options.persistence })
   })
   service.subscribe((event) => events.push(event))
-  return { service, events, removed, existing, target, fs }
+  return { service, events, removed, existing, target, fs, credentialRoot, streamCalls, gitCalls }
 }
 
 function waitFor(predicate: () => boolean, timeoutMs = 3_000): Promise<void> {
@@ -236,10 +297,193 @@ describe('CloneService', () => {
     existing.add('/projects/repo/.git')
     await waitFor(() => events.some((event) => event.type === 'failed'))
     expect(events.find((event) => event.type === 'failed')).toMatchObject({
-      error: { code: 'GIT_AUTH_FAILED', messageKey: 'remote.auth.local' },
+      error: { code: 'GIT_AUTH_REQUIRED', messageKey: 'remote.auth.required.local' },
       cleanup: 'removed'
     })
     expect(removed).toEqual(['/projects/repo'])
+  })
+
+  it('refuses HTTPS credentials for a URL that already carries them', async () => {
+    const { service } = setup()
+    await expect(
+      service.start({
+        requestId: 'clone-1',
+        url: 'https://user:token@gitee.com/o/r.git',
+        target: local,
+        parentPath: '/projects',
+        name: 'repo',
+        auth: { kind: 'https', username: 'alice', password: 'token' }
+      })
+    ).rejects.toMatchObject({
+      appError: { code: 'INVALID_ARGUMENT', messageKey: 'addRepo.clone.auth.httpsOnly' }
+    })
+  })
+
+  it('verifies an HTTPS credential before cloning and removes the helper afterwards', async () => {
+    const stream: FakeStream = async () => ({
+      stdout: Buffer.alloc(0),
+      stderr: Buffer.alloc(0),
+      exitCode: 0,
+      timedOut: false
+    })
+    const { service, events, existing, credentialRoot, streamCalls, gitCalls } = setup({
+      stream,
+      unborn: false
+    })
+    await service.start({
+      requestId: 'clone-auth',
+      url: 'https://gitee.com/o/r.git',
+      target: local,
+      parentPath: '/projects',
+      name: 'repo',
+      auth: { kind: 'https', username: 'alice', password: 'secret-token' }
+    })
+    existing.add('/projects/repo')
+    await waitFor(() => events.some((event) => event.type === 'done'))
+
+    expect(gitCalls.some((args) => args.includes('ls-remote'))).toBe(true)
+    const call = streamCalls[0]
+    expect(call).toBeDefined()
+    const cloneIndex = call!.args.indexOf('clone')
+    expect(cloneIndex).toBeGreaterThan(0)
+    expect(call!.args[0]).toBe('-c')
+    expect(call!.args[1]).toBe('credential.helper=')
+    expect(call!.args[2]).toBe('-c')
+    expect(call!.args[3]).toMatch(/^credential\.helper=!.*helper\.sh/u)
+    expect(call!.args[4]).toBe('-c')
+    expect(call!.args[5]).toBe('credential.useHttpPath=true')
+    expect(call!.options?.env).toEqual({ GIT_ASKPASS: '', SSH_ASKPASS: '' })
+    await waitFor(() => readdirSync(credentialRoot).length === 0)
+    expect(readdirSync(credentialRoot)).toEqual([])
+    expect(events.find((event) => event.type === 'done')).toMatchObject({
+      credential: { used: true, persistence: 'not-applicable' }
+    })
+  })
+
+  function fakePersistence(helper: boolean): {
+    calls: { hasHelper: number; approve: number; store: number; switchRemoteToSsh: number }
+    value: FakePersistence
+  } {
+    const calls = { hasHelper: 0, approve: 0, store: 0, switchRemoteToSsh: 0 }
+    return {
+      calls,
+      value: {
+        hasHelper: async () => {
+          calls.hasHelper += 1
+          return helper
+        },
+        approve: async () => {
+          calls.approve += 1
+        },
+        store: async () => {
+          calls.store += 1
+        },
+        switchRemoteToSsh: async () => {
+          calls.switchRemoteToSsh += 1
+        }
+      }
+    }
+  }
+
+  it('persists automatically with an existing helper', async () => {
+    const stream: FakeStream = async () => ({
+      stdout: Buffer.alloc(0),
+      stderr: Buffer.alloc(0),
+      exitCode: 0,
+      timedOut: false
+    })
+    const persistence = fakePersistence(true)
+    const { service, events, existing } = setup({
+      stream,
+      unborn: false,
+      persistence: persistence.value
+    })
+    await service.start({
+      requestId: 'clone-auth',
+      url: 'https://gitee.com/o/r.git',
+      target: local,
+      parentPath: '/projects',
+      name: 'repo',
+      auth: { kind: 'https', username: 'alice', password: 'secret-token' }
+    })
+    existing.add('/projects/repo')
+    await waitFor(() => events.some((event) => event.type === 'done'))
+    expect(events.find((event) => event.type === 'done')).toMatchObject({
+      credential: { used: true, persistence: 'stored' }
+    })
+    expect(persistence.calls.approve).toBe(1)
+  })
+
+  it('offers store or skip when the environment has no helper', async () => {
+    const stream: FakeStream = async () => ({
+      stdout: Buffer.alloc(0),
+      stderr: Buffer.alloc(0),
+      exitCode: 0,
+      timedOut: false
+    })
+    const persistence = fakePersistence(false)
+    const { service, events, existing } = setup({
+      stream,
+      unborn: false,
+      persistence: persistence.value
+    })
+    await service.start({
+      requestId: 'clone-auth',
+      url: 'https://gitee.com/o/r.git',
+      target: local,
+      parentPath: '/projects',
+      name: 'repo',
+      auth: { kind: 'https', username: 'alice', password: 'secret-token' }
+    })
+    existing.add('/projects/repo')
+    await waitFor(() => events.some((event) => event.type === 'done'))
+    expect(events.find((event) => event.type === 'done')).toMatchObject({
+      credential: { used: true, persistence: 'no-helper' }
+    })
+    await expect(service.persist('clone-auth', 'store')).resolves.toEqual({ status: 'stored' })
+    expect(persistence.calls.store).toBe(1)
+    await expect(service.persist('clone-auth', 'skip')).rejects.toMatchObject({
+      appError: { code: 'INVALID_ARGUMENT' }
+    })
+  })
+
+  it('reports a rejected credential before cloning and removes the helper', async () => {
+    const stream: FakeStream = async () => ({
+      stdout: Buffer.alloc(0),
+      stderr: Buffer.alloc(0),
+      exitCode: 0,
+      timedOut: false
+    })
+    const { service, events, credentialRoot, streamCalls } = setup({
+      stream,
+      unborn: false,
+      gitResult: (args) =>
+        args.includes('ls-remote')
+          ? {
+              stdout: Buffer.alloc(0),
+              stderr: Buffer.from('fatal: Authentication failed'),
+              exitCode: 128,
+              timedOut: false
+            }
+          : { stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), exitCode: 0, timedOut: false }
+    })
+    await service.start({
+      requestId: 'clone-auth',
+      url: 'https://gitee.com/o/r.git',
+      target: local,
+      parentPath: '/projects',
+      name: 'repo',
+      auth: { kind: 'https', username: 'alice', password: 'wrong' }
+    })
+    await waitFor(() => events.some((event) => event.type === 'failed'))
+
+    expect(events.find((event) => event.type === 'failed')).toMatchObject({
+      error: { code: 'GIT_AUTH_REQUIRED' },
+      cleanup: 'not-needed'
+    })
+    expect(streamCalls).toEqual([])
+    await waitFor(() => readdirSync(credentialRoot).length === 0)
+    expect(readdirSync(credentialRoot)).toEqual([])
   })
 
   it('preserves a non-empty directory that was not created by the clone', async () => {
@@ -346,7 +590,8 @@ describe('CloneService', () => {
             ),
         gitResultFor: async () => (cwd, args) => executor.exec({ cwd, args, timeoutMs: 10_000 })
       },
-      runner: {} as WslCommandRunner
+      runner: {} as WslCommandRunner,
+      credentialRoot: mkdtempSync(join(tmpdir(), 'icode-clone-auth-'))
     })
     service.subscribe((event) => events.push(event))
     await service.start({

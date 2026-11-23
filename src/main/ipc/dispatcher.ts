@@ -65,6 +65,11 @@ import { openCodeIntegrationSetEnabledInputSchema } from '../../shared/schemas/o
 import { managedHooksSetEnabledInputSchema } from '../../shared/schemas/managed-hooks'
 import {
   cloneCancelInputSchema,
+  clonePersistInputSchema,
+  cloneSshGenerateInputSchema,
+  cloneSshStatusInputSchema,
+  cloneSshTestInputSchema,
+  cloneSshTrustHostInputSchema,
   cloneStartInputSchema,
   remoteAddInputSchema,
   remoteFetchInputSchema,
@@ -162,6 +167,11 @@ export type DispatcherServices = {
   remotesFetch: (input: { repoId: string; name: string; prune?: boolean }) => Promise<unknown>
   cloneStart: (input: z.infer<typeof cloneStartInputSchema>) => Promise<unknown>
   cloneCancel: (input: { requestId: string }) => Promise<unknown>
+  clonePersist: (input: z.infer<typeof clonePersistInputSchema>) => Promise<unknown>
+  cloneSshStatus: (input: z.infer<typeof cloneSshStatusInputSchema>) => Promise<unknown>
+  cloneSshGenerate: (input: z.infer<typeof cloneSshGenerateInputSchema>) => Promise<unknown>
+  cloneSshTest: (input: z.infer<typeof cloneSshTestInputSchema>) => Promise<unknown>
+  cloneSshTrustHost: (input: z.infer<typeof cloneSshTrustHostInputSchema>) => Promise<unknown>
   mergeStart: (input: z.infer<typeof mergeStartInputSchema>) => Promise<unknown>
   mergeContinue: (input: { sessionId: string }) => Promise<unknown>
   mergeAbort: (input: { sessionId: string }) => Promise<unknown>
@@ -560,6 +570,36 @@ export function createDispatcher(services: DispatcherServices): Dispatcher {
         const input = parse(cloneCancelInputSchema, rawInput)
         if ('code' in input) return { ok: false, error: input }
         return run(() => services.cloneCancel(input))
+      }
+
+      case IPC_CHANNELS.clonePersist: {
+        const input = parse(clonePersistInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.clonePersist(input))
+      }
+
+      case IPC_CHANNELS.cloneSshStatus: {
+        const input = parse(cloneSshStatusInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.cloneSshStatus(input))
+      }
+
+      case IPC_CHANNELS.cloneSshGenerate: {
+        const input = parse(cloneSshGenerateInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.cloneSshGenerate(input))
+      }
+
+      case IPC_CHANNELS.cloneSshTest: {
+        const input = parse(cloneSshTestInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.cloneSshTest(input))
+      }
+
+      case IPC_CHANNELS.cloneSshTrustHost: {
+        const input = parse(cloneSshTrustHostInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.cloneSshTrustHost(input))
       }
 
       case IPC_CHANNELS.mergeStart: {

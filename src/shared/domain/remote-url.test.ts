@@ -3,7 +3,9 @@ import {
   containsRedactionPlaceholder,
   isCloneableRemoteInput,
   parseRemoteUrl,
-  redactRemoteUrlCredentials
+  redactRemoteUrlCredentials,
+  toHttpsRemoteUrl,
+  toSshRemoteUrl
 } from './remote-url'
 
 describe('parseRemoteUrl', () => {
@@ -113,6 +115,23 @@ describe('parseRemoteUrl', () => {
     expect(parseRemoteUrl('https://github.com/tools.git/repo.git')?.path).toBe('tools.git/repo')
   })
 
+  it('records the scheme and non-default port', () => {
+    expect(parseRemoteUrl('https://example.com/team/repo.git')).toMatchObject({
+      scheme: 'https',
+      port: null
+    })
+    expect(parseRemoteUrl('ssh://git@git.example.com:2222/team/repo.git')).toMatchObject({
+      scheme: 'ssh',
+      port: 2222
+    })
+    expect(parseRemoteUrl('git@github.com:owner/repo.git')).toMatchObject({
+      scheme: 'ssh',
+      port: null
+    })
+    expect(parseRemoteUrl('/srv/git/repo.git')).toMatchObject({ scheme: null, port: null })
+    expect(parseRemoteUrl('D:\\repos\\repo')).toMatchObject({ scheme: null, port: null })
+  })
+
   it('rejects empty values, options and unknown helpers', () => {
     expect(parseRemoteUrl('')).toBeNull()
     expect(parseRemoteUrl('   ')).toBeNull()
@@ -150,6 +169,48 @@ describe('containsRedactionPlaceholder', () => {
     expect(containsRedactionPlaceholder('https://***@github.com/o/r')).toBe(true)
     expect(containsRedactionPlaceholder('https://%2A%2A%2A@github.com/o/r')).toBe(true)
     expect(containsRedactionPlaceholder('https://github.com/o/r')).toBe(false)
+  })
+})
+
+describe('toSshRemoteUrl', () => {
+  it('converts HTTPS URLs, preferring the scp-like form for known hosts', () => {
+    expect(toSshRemoteUrl('https://github.com/owner/repo.git')).toBe(
+      'git@github.com:owner/repo.git'
+    )
+    expect(toSshRemoteUrl('https://gitee.com/owner/repo.git')).toBe('git@gitee.com:owner/repo.git')
+    expect(toSshRemoteUrl('https://git.example.com/team/repo.git')).toBe(
+      'ssh://git@git.example.com/team/repo.git'
+    )
+  })
+
+  it('keeps SSH spellings and refuses local or credential-bearing values', () => {
+    expect(toSshRemoteUrl('git@github.com:owner/repo.git')).toBe('git@github.com:owner/repo.git')
+    expect(toSshRemoteUrl('ssh://git@host:2222/team/repo.git')).toBe(
+      'ssh://git@host:2222/team/repo.git'
+    )
+    expect(toSshRemoteUrl('/srv/git/repo.git')).toBeNull()
+    expect(toSshRemoteUrl('https://user:token@github.com/owner/repo.git')).toBeNull()
+    expect(toSshRemoteUrl('https://example.com:8443/team/repo.git')).toBeNull()
+  })
+})
+
+describe('toHttpsRemoteUrl', () => {
+  it('converts SSH spellings and keeps HTTPS unchanged', () => {
+    expect(toHttpsRemoteUrl('git@github.com:owner/repo.git')).toBe(
+      'https://github.com/owner/repo.git'
+    )
+    expect(toHttpsRemoteUrl('ssh://git@git.example.com:2222/team/repo.git')).toBe(
+      'https://git.example.com:2222/team/repo.git'
+    )
+    expect(toHttpsRemoteUrl('https://example.com/team/repo.git')).toBe(
+      'https://example.com/team/repo.git'
+    )
+  })
+
+  it('refuses local and credential-bearing values', () => {
+    expect(toHttpsRemoteUrl('/srv/git/repo.git')).toBeNull()
+    expect(toHttpsRemoteUrl('file:///srv/git/repo.git')).toBeNull()
+    expect(toHttpsRemoteUrl('https://user:token@example.com/team/repo.git')).toBeNull()
   })
 })
 

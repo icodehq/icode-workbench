@@ -43,6 +43,11 @@ function services(overrides: Partial<DispatcherServices> = {}): DispatcherServic
     remotesFetch: vi.fn(async () => ({ status: 'ok', name: 'origin' })),
     cloneStart: vi.fn(async () => ({ requestId: 'clone-1' })),
     cloneCancel: vi.fn(async () => ({ cancelled: true })),
+    clonePersist: vi.fn(async () => ({ status: 'skipped' })),
+    cloneSshStatus: vi.fn(async () => ({ sshAvailable: false })),
+    cloneSshGenerate: vi.fn(async () => ({ status: 'exists' })),
+    cloneSshTest: vi.fn(async () => ({ status: 'ok' })),
+    cloneSshTrustHost: vi.fn(async () => ({ status: 'trusted' })),
     mergeStart: vi.fn(async () => ({ status: 'merged', record: {} })),
     mergeContinue: vi.fn(async () => ({ status: 'merged', record: {} })),
     mergeAbort: vi.fn(async () => ({})),
@@ -716,6 +721,59 @@ describe('remote and clone IPC', () => {
       ok: false,
       error: { code: 'INVALID_ARGUMENT' }
     })
+  })
+
+  it('validates the interactive auth, persistence and SSH payloads', async () => {
+    const service = services()
+    const dispatch = createDispatcher(service)
+    const input = {
+      requestId: 'clone-1',
+      url: 'https://github.com/o/r.git',
+      target: { kind: 'local' as const },
+      parentPath: '/projects',
+      name: 'repo'
+    }
+    const auth = { kind: 'https' as const, username: 'alice', password: 'token' }
+    expect(await dispatch(IPC_CHANNELS.cloneStart, { ...input, auth })).toMatchObject({
+      ok: true
+    })
+    expect(service.cloneStart).toHaveBeenLastCalledWith({ ...input, auth })
+    expect(
+      await dispatch(IPC_CHANNELS.cloneStart, {
+        ...input,
+        auth: { kind: 'https', username: 'alice', password: 'line\nbreak' }
+      })
+    ).toMatchObject({ ok: false, error: { code: 'INVALID_ARGUMENT' } })
+
+    expect(
+      await dispatch(IPC_CHANNELS.clonePersist, { requestId: 'clone-1', mode: 'skip' })
+    ).toMatchObject({ ok: true })
+    expect(
+      await dispatch(IPC_CHANNELS.clonePersist, { requestId: 'clone-1', mode: 'nope' })
+    ).toMatchObject({ ok: false, error: { code: 'INVALID_ARGUMENT' } })
+
+    expect(
+      await dispatch(IPC_CHANNELS.cloneSshGenerate, {
+        target: { kind: 'local' },
+        consent: false
+      })
+    ).toMatchObject({ ok: false, error: { code: 'INVALID_ARGUMENT' } })
+    expect(
+      await dispatch(IPC_CHANNELS.cloneSshTrustHost, {
+        target: { kind: 'local' },
+        host: 'gitee.com',
+        port: 22,
+        fingerprints: ['SHA256:abc123']
+      })
+    ).toMatchObject({ ok: true })
+    expect(
+      await dispatch(IPC_CHANNELS.cloneSshTrustHost, {
+        target: { kind: 'local' },
+        host: 'gitee.com',
+        port: 22,
+        fingerprints: ['not-a-fingerprint']
+      })
+    ).toMatchObject({ ok: false, error: { code: 'INVALID_ARGUMENT' } })
   })
 })
 

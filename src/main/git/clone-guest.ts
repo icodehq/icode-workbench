@@ -26,6 +26,25 @@ export type StreamingGuestCloneInput = {
   timeoutMs: number
   signal?: AbortSignal
   onStderr?: (chunk: Buffer) => void
+  /** Global Git options, placed before the `clone` subcommand. */
+  gitOptions?: readonly string[]
+  /** Guest-side `GIT_*` additions for this attempt (never secrets). */
+  env?: Readonly<Record<string, string>>
+}
+
+/**
+ * `GIT_*` assignments only. The values are built by main, but keeping the same
+ * narrow shape as guest Git prevents a future caller from exporting PATH/HOME
+ * or a secret-bearing variable through argv.
+ */
+function envAssignments(env: Readonly<Record<string, string>> | undefined): string[] {
+  if (env === undefined) return []
+  return Object.entries(env)
+    .filter(
+      ([key, value]) =>
+        /^GIT_[A-Z0-9_]+$/u.test(key) && !/[\u0000\r\n]/u.test(value)
+    )
+    .map(([key, value]) => `${key}=${value}`)
 }
 
 /** Keeps just enough stderr to decide whether the direct route was stale. */
@@ -67,7 +86,12 @@ export async function runStreamingGuestClone(
           `PATH=${probed.environment.path}`,
           `HOME=${probed.environment.home}`,
           ...GUEST_GIT_ENV,
+          ...(probed.environment.sshAuthSock === null
+            ? []
+            : [`SSH_AUTH_SOCK=${probed.environment.sshAuthSock}`]),
+          ...envAssignments(input.env),
           probed.environment.gitPath,
+          ...(input.gitOptions ?? []),
           'clone',
           '--progress',
           '--',
@@ -105,7 +129,18 @@ export async function runStreamingGuestClone(
         'sh',
         '-lc',
         fencedCommand(
-          ['git', 'clone', '--progress', '--', input.url, input.destination]
+          [
+            'env',
+            ...GUEST_GIT_ENV,
+            ...envAssignments(input.env),
+            'git',
+            ...(input.gitOptions ?? []),
+            'clone',
+            '--progress',
+            '--',
+            input.url,
+            input.destination
+          ]
             .map(quoteForShell)
             .join(' ')
         )

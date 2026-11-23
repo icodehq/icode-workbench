@@ -35,6 +35,7 @@ import {
   parseFencedOutput,
   type GuestGitEnvironmentCache
 } from './guest-git-environment'
+import { quotePosixShell } from '../../../shared/domain/shell-quote'
 
 /** Git's own exit codes are part of the contract; only "could not run" is separate. */
 export type GuestGitResult = {
@@ -189,7 +190,12 @@ export async function runGuestGit(
   })
 
   /** One direct attempt: `env PATH HOME GIT_* <git> -C <cwd> <args>`. */
-  const directAttempt = (environment: { path: string; home: string; gitPath: string }) =>
+  const directAttempt = (environment: {
+    path: string
+    home: string
+    gitPath: string
+    sshAuthSock: string | null
+  }) =>
     runner.runBytes({
       scope: 'guest',
       distro: request.distro,
@@ -198,6 +204,7 @@ export async function runGuestGit(
         `PATH=${environment.path}`,
         `HOME=${environment.home}`,
         ...GUEST_GIT_ENV,
+        ...(environment.sshAuthSock === null ? [] : [`SSH_AUTH_SOCK=${environment.sshAuthSock}`]),
         ...gitEnvAssignments(request.env),
         environment.gitPath,
         '-C',
@@ -309,7 +316,7 @@ async function runInLoginShell(
 
 /** POSIX single-quoting: nothing in the word is interpreted by the shell. */
 export function quoteForShell(word: string): string {
-  return `'${word.replace(/'/g, `'\\''`)}'`
+  return quotePosixShell(word)
 }
 
 /** UTF-8 view for the callers that need text; trimming matches the local wrapper. */

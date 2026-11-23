@@ -21,6 +21,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Claude Code the right button is no longer forwarded to the program, so its
   own selection survives the menu. Alt+right-click still passes through.
 
+### Added
+
+- **Authenticated clone.** Cloning a private repository now opens an in-dialog
+  authentication step when Git reports an authentication failure. HTTPS
+  credentials (username plus password or access token) are verified with
+  `git ls-remote` before the clone and delivered through a one-attempt
+  credential helper. The helper answers only the exact host and path, and its
+  files are removed on success, failure, cancel or timeout. On WSL the handoff
+  is a 0600 file plus a fixed helper script inside the distro. SSH is an equal
+  entry point: check the key and agent, generate an ed25519 key with explicit
+  consent, copy the public key, confirm and trust the host fingerprint, test
+  access, then clone. After a successful HTTPS clone iCode offers to save the
+  credential with the environment's existing helper, switch the origin to SSH,
+  or opt in to the plaintext `store` helper with a warning. Background and
+  agent Git operations still never prompt.
+
+### Fixed
+
+- WSL Git now carries the login shell's `SSH_AUTH_SOCK` into the direct spawn,
+  so an agent started from the shell profile is visible to clone and fetch.
+  The login-shell fallback also sets `GIT_TERMINAL_PROMPT=0` like the direct
+  route instead of leaving the outcome to the profile.
+
 ## [0.20.0] - 2026-11-23
 
 ### Added

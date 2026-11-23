@@ -22,6 +22,10 @@ export type ParsedRemoteUrl = {
   /** The value exactly as supplied, trimmed. */
   input: string
   kind: 'url' | 'local-path'
+  /** Lowercase scheme without the trailing colon; null for local paths. */
+  scheme: string | null
+  /** Non-default port from a scheme URL; null for scp-like and local paths. */
+  port: number | null
   provider: RemoteProvider
   /** Lowercase hostname without userinfo; null for local paths. */
   host: string | null
@@ -134,6 +138,8 @@ function parseSchemeUrl(input: string): ParsedRemoteUrl | null {
     // An SSH username (`git@host`) is an identity, not a secret.
     : url.password.length > 0
   const host = url.hostname.length > 0 ? url.hostname.toLowerCase() : null
+  const scheme = url.protocol.slice(0, -1).toLowerCase()
+  const port = url.port.length > 0 ? Number(url.port) : null
   const provider = providerOf(host)
   // A file URL's hostname is usually empty; its path is the repository location.
   const decodedPath =
@@ -147,6 +153,8 @@ function parseSchemeUrl(input: string): ParsedRemoteUrl | null {
   return {
     input,
     kind: 'url',
+    scheme,
+    port: port !== null && Number.isFinite(port) ? port : null,
     provider,
     host,
     path,
@@ -192,6 +200,8 @@ function parseScpLike(input: string): ParsedRemoteUrl | null {
   return {
     input,
     kind: 'url',
+    scheme: 'ssh',
+    port: null,
     provider,
     host,
     path,
@@ -207,6 +217,8 @@ function parseLocalPath(input: string): ParsedRemoteUrl {
   return {
     input,
     kind: 'local-path',
+    scheme: null,
+    port: null,
     provider: 'generic',
     host: null,
     path: input,
@@ -282,4 +294,64 @@ export function isCloneableRemoteInput(value: string): boolean {
     return true
   }
   return parseScpLike(input) !== null
+}
+
+/** Hosts whose canonical SSH spelling is the scp-like `user@host:path` form. */
+const SCP_STYLE_HOSTS = new Set([
+  'github.com',
+  'www.github.com',
+  'gitlab.com',
+  'www.gitlab.com',
+  'gitee.com',
+  'www.gitee.com'
+])
+
+/**
+ * The SSH spelling of a remote, for the Add-project SSH entry point.
+ *
+ * A URL carrying credentials is refused: converting it would either leak the
+ * userinfo into a new string or silently drop it. Generic HTTPS URLs with an
+ * explicit non-HTTPS port are refused too, because the SSH port cannot be
+ * inferred from an HTTP port; the dialog lets the user edit the value instead.
+ */
+export function toSshRemoteUrl(value: string): string | null {
+  const parsed = parseRemoteUrl(value)
+  if (parsed === null || parsed.kind !== 'url' || parsed.isLocalPath) return null
+  if (parsed.host === null || parsed.path === null || parsed.hasCredentials) return null
+  if (parsed.scheme === 'ssh' || parsed.scheme === 'git+ssh') return parsed.input
+  if (parsed.scheme !== 'http' && parsed.scheme !== 'https' && parsed.scheme !== 'git') {
+    return null
+  }
+  if (
+    !SCP_STYLE_HOSTS.has(parsed.host) &&
+    parsed.port !== null &&
+    parsed.port !== 22 &&
+    parsed.port !== 80 &&
+    parsed.port !== 443
+  ) {
+    return null
+  }
+  const path = `${parsed.path}.git`
+  if (SCP_STYLE_HOSTS.has(parsed.host)) return `git@${parsed.host}:${path}`
+  if (parsed.port !== null && parsed.port !== 22) {
+    return `ssh://git@${parsed.host}:${String(parsed.port)}/${path}`
+  }
+  return `ssh://git@${parsed.host}/${path}`
+}
+
+/**
+ * The HTTPS spelling of a remote, so either entry point can start from either
+ * typed scheme. Unknown or ambiguous values return null and stay editable.
+ */
+export function toHttpsRemoteUrl(value: string): string | null {
+  const parsed = parseRemoteUrl(value)
+  if (parsed === null || parsed.kind !== 'url' || parsed.isLocalPath) return null
+  if (parsed.host === null || parsed.path === null || parsed.hasCredentials) return null
+  if (parsed.scheme === 'http' || parsed.scheme === 'https') return parsed.input
+  if (parsed.scheme !== 'ssh' && parsed.scheme !== 'git+ssh' && parsed.scheme !== 'git') {
+    return null
+  }
+  const path = `${parsed.path}.git`
+  const port = parsed.port !== null && parsed.port !== 22 ? `:${String(parsed.port)}` : ''
+  return `https://${parsed.host}${port}/${path}`
 }

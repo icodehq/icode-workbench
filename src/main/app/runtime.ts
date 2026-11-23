@@ -31,6 +31,8 @@ import { GitWorkspaceService } from '../git/git-workspace-service'
 import { BranchService } from '../git/branch-service'
 import { RemoteService } from '../git/remote-service'
 import { CloneService } from '../git/clone-service'
+import { ClonePersistenceService } from '../git/clone-persistence'
+import { CloneSshService } from '../git/clone-ssh'
 import { CommitMessageService } from '../ai/commit-message-service'
 import { MergeStore } from '../persistence/merge-store'
 import { RepoRemovalJobStore } from '../persistence/repo-removal-job-store'
@@ -129,6 +131,8 @@ export type AppRuntime = {
   remotes: RemoteService
   /** Streaming clone into a new project folder. */
   clone: CloneService
+  /** SSH status, key generation, access test and host-key trust for a clone. */
+  cloneSsh: CloneSshService
   /** Local merge into a target branch, with durable claims and conflicts. */
   merges: MergeService
   /** One-shot AI commit-message drafts from the staged index. */
@@ -838,11 +842,17 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     gitWorktrees,
     sessions
   })
+  const clonePersistence = new ClonePersistenceService({ gitWorktrees })
   const clone = new CloneService({
     gitWorktrees,
     projectFolders,
-    runner: wslRunner
+    runner: wslRunner,
+    // A per-user directory is the Windows ACL boundary; the attempt inside it
+    // is 0700/0600 and lives only while the clone does.
+    credentialRoot: join(app.getPath('userData'), 'clone-auth'),
+    persistence: clonePersistence
   })
+  const cloneSsh = new CloneSshService({ gitWorktrees, runner: wslRunner })
   const commitMessages = new CommitMessageService({
     sessions,
     gitWorkspace,
@@ -1304,6 +1314,7 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     branchRefs,
     remotes,
     clone,
+    cloneSsh,
     merges: mergeService,
     commitMessages,
     gitStatusWatcher,

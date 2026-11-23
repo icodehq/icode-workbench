@@ -76,6 +76,11 @@ export const HANDLED_CHANNELS: readonly string[] = [
   IPC_CHANNELS.remotesFetch,
   IPC_CHANNELS.cloneStart,
   IPC_CHANNELS.cloneCancel,
+  IPC_CHANNELS.clonePersist,
+  IPC_CHANNELS.cloneSshStatus,
+  IPC_CHANNELS.cloneSshGenerate,
+  IPC_CHANNELS.cloneSshTest,
+  IPC_CHANNELS.cloneSshTrustHost,
   IPC_CHANNELS.mergeStart,
   IPC_CHANNELS.mergeContinue,
   IPC_CHANNELS.mergeAbort,
@@ -337,9 +342,24 @@ export function createAppDispatcher(
         url: input.url,
         target: input.target as never,
         parentPath: input.parentPath,
-        name: input.name
+        name: input.name,
+        ...(input.auth === undefined ? {} : { auth: input.auth })
       }),
     cloneCancel: async (input) => ({ cancelled: runtime.clone.cancel(input.requestId) }),
+    clonePersist: async (input) =>
+      runtime.clone.persist(input.requestId, input.mode, input.sshUrl),
+    cloneSshStatus: (input) => runtime.cloneSsh.status(input.target as never),
+    cloneSshGenerate: (input) =>
+      runtime.cloneSsh.generate(input.target as never, input.consent),
+    cloneSshTest: (input) =>
+      runtime.cloneSsh.test(input.target as never, input.url),
+    cloneSshTrustHost: (input) =>
+      runtime.cloneSsh.trustHost(
+        input.target as never,
+        input.host,
+        input.port,
+        input.fingerprints
+      ),
     mergeStart: (input) => runtime.merges.start(input),
     mergeContinue: (input) => runtime.merges.continueMerge(input.sessionId),
     mergeAbort: (input) => runtime.merges.abort(input.sessionId),

@@ -35,6 +35,12 @@ export type GuestGitEnvironment = {
   /** Login-shell `$PATH`, so the direct spawn finds the same helpers Git expects. */
   path: string
   home: string
+  /**
+   * The login shell's agent socket, if it exported one. A direct spawn does not
+   * inherit profile variables, so an agent started in `.bashrc` would otherwise
+   * be invisible to clone/fetch and every SSH key would look absent.
+   */
+  sshAuthSock: string | null
 }
 
 const PROBE_TIMEOUT_MS = 10_000
@@ -52,7 +58,7 @@ export const GUEST_GIT_PROBE_SCRIPT = [
   'if [ -n "${XDG_CONFIG_HOME:-}" ] || [ -n "${LD_LIBRARY_PATH:-}" ] || env | grep -q "^GIT_"; then exit 78; fi',
   // No trailing `exit`: the fence writer needs to run after this. A probe that
   // exits here would never emit its end marker.
-  `printf '%s\\0%s\\0%s' "$PATH" "$_ade_git" "$HOME"`
+  `printf '%s\\0%s\\0%s\\0%s' "$PATH" "$_ade_git" "$HOME" "\${SSH_AUTH_SOCK:-}"`
 ].join('\n')
 
 export function parseGuestGitProbe(stdout: Buffer): GuestGitEnvironment | null {
@@ -66,6 +72,8 @@ export function parseGuestGitProbe(stdout: Buffer): GuestGitEnvironment | null {
   const path = fields[0] ?? ''
   const gitPath = fields[1] ?? ''
   const home = fields[2] ?? ''
+  const rawSshAuthSock = fields[3] ?? ''
+  const sshAuthSock = rawSshAuthSock.length === 0 ? null : rawSshAuthSock
   if (
     !path.includes('/') ||
     path.length > 32_768 ||
@@ -74,11 +82,16 @@ export function parseGuestGitProbe(stdout: Buffer): GuestGitEnvironment | null {
     gitPath.includes('\r') ||
     !home.startsWith('/') ||
     home.includes('\n') ||
-    home.includes('\r')
+    home.includes('\r') ||
+    (sshAuthSock !== null &&
+      (!sshAuthSock.startsWith('/') ||
+        sshAuthSock.length > 4_096 ||
+        sshAuthSock.includes('\n') ||
+        sshAuthSock.includes('\r')))
   ) {
     return null
   }
-  return { gitPath, path, home }
+  return { gitPath, path, home, sshAuthSock }
 }
 
 /** Wraps a guest command so a login shell's banner cannot corrupt its output. */

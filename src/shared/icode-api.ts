@@ -37,6 +37,15 @@ import type {
 import type {
   CloneProgressEventPayload,
   cloneCancelInputSchema,
+  clonePersistInputSchema,
+  cloneSshGenerateInputSchema,
+  cloneSshGenerateResultSchema,
+  cloneSshStatusInputSchema,
+  cloneSshStatusResultSchema,
+  cloneSshTestInputSchema,
+  cloneSshTestResultSchema,
+  cloneSshTrustHostInputSchema,
+  cloneSshTrustHostResultSchema,
   cloneStartInputSchema,
   RemoteSummaryPayload,
   remoteAddInputSchema,
@@ -384,6 +393,21 @@ export type IcodeProductApi = {
     cancel: (
       input: z.infer<typeof cloneCancelInputSchema>
     ) => Promise<IpcResult<{ cancelled: boolean }>>
+    persist: (
+      input: z.infer<typeof clonePersistInputSchema>
+    ) => Promise<IpcResult<{ status: 'stored' | 'switched' | 'skipped' }>>
+    sshStatus: (
+      input: z.infer<typeof cloneSshStatusInputSchema>
+    ) => Promise<IpcResult<z.infer<typeof cloneSshStatusResultSchema>>>
+    sshGenerate: (
+      input: z.infer<typeof cloneSshGenerateInputSchema>
+    ) => Promise<IpcResult<z.infer<typeof cloneSshGenerateResultSchema>>>
+    sshTest: (
+      input: z.infer<typeof cloneSshTestInputSchema>
+    ) => Promise<IpcResult<z.infer<typeof cloneSshTestResultSchema>>>
+    sshTrustHost: (
+      input: z.infer<typeof cloneSshTrustHostInputSchema>
+    ) => Promise<IpcResult<z.infer<typeof cloneSshTrustHostResultSchema>>>
     onProgress: (listener: (event: CloneProgressEventPayload) => void) => () => void
   }
   merge: {
