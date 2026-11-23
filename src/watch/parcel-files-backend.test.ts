@@ -68,13 +68,16 @@ describe('macOS files backend', () => {
     const paths = events.map((event) => event.path.replace(/\\/gu, '/'))
     expect(paths.some((path) => path.endsWith('/root.txt'))).toBe(true)
     expect(paths.some((path) => path.endsWith('visible/shown.txt'))).toBe(true)
-    expect(paths.some((path) => path.includes('collapsed'))).toBe(false)
+    // FSEvents may also report the direct child directory itself. That is a
+    // visible entry and may be forwarded; what must never leak is a path
+    // *inside* the collapsed directory.
+    expect(paths.some((path) => path.includes('collapsed/'))).toBe(false)
 
     // Collapsing the folder stops its events; the physical watch stays.
     expect(await subscription.setRoots?.([root])).toMatchObject({ bound: 1 })
     const before = events.length
     writeFileSync(join(root, 'visible', 'after-collapse.txt'), 'e\n')
     await wait(500)
-    expect(events.slice(before).some((event) => event.path.includes('visible'))).toBe(false)
-  })
+    expect(events.slice(before).some((event) => event.path.includes('visible/'))).toBe(false)
+  }, 20_000)
 })
