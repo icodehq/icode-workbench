@@ -1,36 +1,67 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { SerializedWatchSpec } from '../../shared/watch-protocol'
+import type {
+  WatchClient,
+  WatchEvent,
+  WatchSubscribeResult,
+  WatchSubscriptionHandlers
+} from '../watch/watch-client'
 import {
   GitStatusWatcherService,
   shouldIgnoreWatchPath,
-  type WatchEvent,
-  type WatchFactory,
   type WatchTarget
 } from './status-watcher'
 
 const target: WatchTarget = { worktreePath: '/repo', gitDir: '/repo/.git' }
 
-function fakeFactory(): {
-  factory: WatchFactory
-  fire: (event: WatchEvent) => void
-  fail: (error: unknown) => void
-  closes: () => number
+function fakeClient(): {
+  client: WatchClient
+  specs: SerializedWatchSpec[]
+  unsubscribed: string[]
+  setSubscribeResult: (result: WatchSubscribeResult) => void
+  fire: (sessionId: string, event: WatchEvent) => void
+  overflow: (sessionId: string) => void
+  ready: (sessionId: string) => void
+  fail: (sessionId: string) => void
 } {
-  let onEvent: ((event: WatchEvent) => void) | null = null
-  let onError: ((error: unknown) => void) | null = null
-  let closes = 0
+  const handlers = new Map<string, WatchSubscriptionHandlers>()
+  const specs: SerializedWatchSpec[] = []
+  const unsubscribed: string[] = []
+  let subscribeResult: WatchSubscribeResult = { ok: true, backend: 'chokidar' }
   return {
-    factory: (_roots, options) => {
-      onEvent = options.onEvent
-      onError = options.onError
-      return {
-        close: async () => {
-          closes += 1
-        }
-      }
+    client: {
+      async subscribe(spec, next) {
+        specs.push(spec)
+        if (subscribeResult.ok) handlers.set(spec.id, next)
+        return subscribeResult
+      },
+      async updateRoots() {
+        return { ok: true, bound: 0, missing: [] }
+      },
+      async unsubscribe(id) {
+        unsubscribed.push(id)
+        handlers.delete(id)
+      },
+      stats: () => ({
+        running: true,
+        pid: 1,
+        backend: 'chokidar',
+        subscriptions: handlers.size,
+        watches: 0,
+        roots: 0,
+        restarts: 0,
+        fused: false
+      })
     },
-    fire: (event) => onEvent?.(event),
-    fail: (error) => onError?.(error),
-    closes: () => closes
+    specs,
+    unsubscribed,
+    setSubscribeResult: (result) => {
+      subscribeResult = result
+    },
+    fire: (sessionId, event) => handlers.get(`git:${sessionId}`)?.onEvents([event]),
+    overflow: (sessionId) => handlers.get(`git:${sessionId}`)?.onOverflow(),
+    ready: (sessionId) => handlers.get(`git:${sessionId}`)?.onReady(),
+    fail: (sessionId) => handlers.get(`git:${sessionId}`)?.onError(new Error('watch failed'))
   }
 }
 
@@ -65,30 +96,49 @@ describe('shouldIgnoreWatchPath', () => {
 
 describe('GitStatusWatcherService', () => {
   it('returns unsupported-target so the renderer can keep polling', async () => {
+    const fake = fakeClient()
     const service = new GitStatusWatcherService({
       resolveTarget: async () => null,
-      factory: fakeFactory().factory
+      client: fake.client
     })
     await expect(service.setActive('s1', true)).resolves.toEqual({
       watching: false,
       reason: 'unsupported-target'
     })
+    expect(fake.specs).toHaveLength(0)
+  })
+
+  it('sends a recursive spec covering the worktree and Git directory', async () => {
+    const fake = fakeClient()
+    const service = new GitStatusWatcherService({
+      resolveTarget: async () => target,
+      client: fake.client
+    })
+    await service.setActive('s1', true)
+    expect(fake.specs[0]).toMatchObject({
+      kind: 'recursive',
+      id: 'git:s1',
+      roots: ['/repo', '/repo/.git'],
+      worktreePath: '/repo',
+      git: { worktreePath: '/repo', gitDir: '/repo/.git' }
+    })
+    expect(fake.specs[0]?.ignore.skipDirectories).toContain('node_modules')
   })
 
   it('coalesces a burst into one event and reports relative paths', async () => {
     vi.useFakeTimers()
-    const fake = fakeFactory()
+    const fake = fakeClient()
     const service = new GitStatusWatcherService({
       resolveTarget: async () => target,
-      factory: fake.factory,
+      client: fake.client,
       debounceMs: 800
     })
     const events: unknown[] = []
     service.subscribe((event) => events.push(event))
     expect(await service.setActive('s1', true)).toEqual({ watching: true })
 
-    fake.fire({ type: 'change', path: '/repo/src/a.ts' })
-    fake.fire({ type: 'change', path: '/repo/src/b.ts' })
+    fake.fire('s1', { type: 'change', path: '/repo/src/a.ts' })
+    fake.fire('s1', { type: 'change', path: '/repo/src/b.ts' })
     vi.advanceTimersByTime(799)
     expect(events).toHaveLength(0)
     vi.advanceTimersByTime(1)
@@ -105,32 +155,47 @@ describe('GitStatusWatcherService', () => {
 
   it('marks Git-metadata changes without adding a worktree path', async () => {
     vi.useFakeTimers()
-    const fake = fakeFactory()
+    const fake = fakeClient()
     const service = new GitStatusWatcherService({
       resolveTarget: async () => target,
-      factory: fake.factory
+      client: fake.client
     })
     const events: Array<{ metadataChanged: boolean; changedPaths: string[] }> = []
     service.subscribe((event) => events.push(event))
     await service.setActive('s1', true)
-    fake.fire({ type: 'change', path: '/repo/.git/index' })
+    fake.fire('s1', { type: 'change', path: '/repo/.git/index' })
+    vi.advanceTimersByTime(800)
+    expect(events[0]).toMatchObject({ metadataChanged: true, changedPaths: [] })
+  })
+
+  it('treats a ready scan as one metadata read', async () => {
+    vi.useFakeTimers()
+    const fake = fakeClient()
+    const service = new GitStatusWatcherService({
+      resolveTarget: async () => target,
+      client: fake.client
+    })
+    const events: Array<{ metadataChanged: boolean }> = []
+    service.subscribe((event) => events.push(event))
+    await service.setActive('s1', true)
+    fake.ready('s1')
     vi.advanceTimersByTime(800)
     expect(events[0]).toMatchObject({ metadataChanged: true, changedPaths: [] })
   })
 
   it('caps a large burst and sets overflow', async () => {
     vi.useFakeTimers()
-    const fake = fakeFactory()
+    const fake = fakeClient()
     const service = new GitStatusWatcherService({
       resolveTarget: async () => target,
-      factory: fake.factory,
+      client: fake.client,
       maxPaths: 3
     })
     const events: Array<{ changedPaths: string[]; overflow: boolean }> = []
     service.subscribe((event) => events.push(event))
     await service.setActive('s1', true)
     for (let index = 0; index < 6; index += 1) {
-      fake.fire({ type: 'change', path: `/repo/src/${String(index)}.ts` })
+      fake.fire('s1', { type: 'change', path: `/repo/src/${String(index)}.ts` })
     }
     vi.advanceTimersByTime(800)
     expect(events).toHaveLength(1)
@@ -138,34 +203,29 @@ describe('GitStatusWatcherService', () => {
     expect(events[0]?.overflow).toBe(true)
   })
 
-  it('stops the OS watcher when the panel becomes inactive', async () => {
+  it('stops watching when the panel becomes inactive', async () => {
     vi.useFakeTimers()
-    const fake = fakeFactory()
+    const fake = fakeClient()
     const service = new GitStatusWatcherService({
       resolveTarget: async () => target,
-      factory: fake.factory
+      client: fake.client
     })
     const events: unknown[] = []
     service.subscribe((event) => events.push(event))
     await service.setActive('s1', true)
-    fake.fire({ type: 'change', path: '/repo/src/a.ts' })
+    fake.fire('s1', { type: 'change', path: '/repo/src/a.ts' })
     await service.setActive('s1', false)
     vi.advanceTimersByTime(2000)
     expect(events).toHaveLength(0)
-    expect(fake.closes()).toBe(1)
+    expect(fake.unsubscribed).toEqual(['git:s1'])
   })
 
-  it('shares one OS watch between sessions in the same checkout', async () => {
+  it('keeps sessions in one checkout independent', async () => {
     vi.useFakeTimers()
-    let watches = 0
-    const callbacks: Array<(event: WatchEvent) => void> = []
+    const fake = fakeClient()
     const service = new GitStatusWatcherService({
       resolveTarget: async () => target,
-      factory: (_roots, options) => {
-        watches += 1
-        callbacks.push(options.onEvent)
-        return { close: async () => undefined }
-      },
+      client: fake.client,
       debounceMs: 800
     })
     const events: Array<{ sessionId: string; changedPaths: string[] }> = []
@@ -173,27 +233,43 @@ describe('GitStatusWatcherService', () => {
 
     await service.setActive('s1', true)
     await service.setActive('s2', true)
-    expect(watches).toBe(1)
+    expect(fake.specs.map((spec) => spec.id)).toEqual(['git:s1', 'git:s2'])
 
-    callbacks[0]?.({ type: 'change', path: '/repo/src/a.ts' })
+    fake.fire('s1', { type: 'change', path: '/repo/src/a.ts' })
+    fake.fire('s2', { type: 'change', path: '/repo/src/b.ts' })
     vi.advanceTimersByTime(800)
-    expect(events.map((event) => event.sessionId).sort()).toEqual(['s1', 's2'])
-    expect(events.map((event) => event.changedPaths)).toEqual([['src/a.ts'], ['src/a.ts']])
+    expect(events.map((event) => [event.sessionId, event.changedPaths])).toEqual([
+      ['s1', ['src/a.ts']],
+      ['s2', ['src/b.ts']]
+    ])
   })
 
   it('reports a failed watcher so the renderer can fall back', async () => {
     vi.useFakeTimers()
-    const fake = fakeFactory()
+    const fake = fakeClient()
     const service = new GitStatusWatcherService({
       resolveTarget: async () => target,
-      factory: fake.factory
+      client: fake.client
     })
     const events: Array<{ failed?: boolean }> = []
     service.subscribe((event) => events.push(event))
     await service.setActive('s1', true)
-    fake.fail(new Error('watch failed'))
+    fake.fail('s1')
     expect(events[0]?.failed).toBe(true)
     await vi.runAllTimersAsync()
     expect(service.activeSessions()).toEqual([])
+  })
+
+  it('reports watch-failed when the child refuses the subscription', async () => {
+    const fake = fakeClient()
+    fake.setSubscribeResult({ ok: false, reason: 'fused' })
+    const service = new GitStatusWatcherService({
+      resolveTarget: async () => target,
+      client: fake.client
+    })
+    await expect(service.setActive('s1', true)).resolves.toEqual({
+      watching: false,
+      reason: 'watch-failed'
+    })
   })
 })

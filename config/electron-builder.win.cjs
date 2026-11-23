@@ -61,7 +61,12 @@ module.exports = {
       'out/**/*',
       'package.json',
       '!node_modules/node-pty/build/**',
-      '!node_modules/node-pty/bin/**'
+      '!node_modules/node-pty/bin/**',
+      '!node_modules/@parcel/watcher-linux-*/**',
+      '!node_modules/@parcel/watcher-darwin-*/**',
+      '!node_modules/@parcel/watcher-android-*/**',
+      '!node_modules/@parcel/watcher-freebsd-*/**',
+      '!node_modules/@parcel/watcher/build/**'
     ]
   },
   nsis: {

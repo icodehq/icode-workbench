@@ -22,6 +22,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   process. Files and Source Control now use their existing two-second polling
   fallback for every WSL target, and no watcher or native module is added to the
   guest artifacts.
+- **Filesystem watchers run outside the Electron main process.** A dedicated
+  watcher child now owns every physical watch. A crawl, a native watcher crash,
+  or a failed subscription leaves Files and Source Control on their polling
+  fallback and retries live mode a few times, instead of stalling the window.
+  The watcher stops when the app does; it is never a detached process.
+- **Local recursive watches use the operating system's native watcher.** The
+  watcher child prefers `@parcel/watcher` (ReadDirectoryChangesW, FSEvents,
+  inotify per directory) and prunes generated directories natively at any depth.
+  A 35,000-file checkout no longer opens one handle per file; chokidar remains
+  an automatic fallback when the native module cannot load.
 
 ## [0.25.0] - 2026-11-23
 

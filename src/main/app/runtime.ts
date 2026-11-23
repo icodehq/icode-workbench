@@ -52,6 +52,8 @@ import { MergeService } from '../integration/merge-service'
 import { ChainService } from '../integration/chain-service'
 import { GitStatusWatcherService } from '../git/status-watcher'
 import { createWatchTargetResolvers } from '../watch/target-resolution'
+import { WatcherSupervisor } from '../watch/watcher-supervisor'
+import { createDisabledWatchClient, type WatchClient } from '../watch/watch-client'
 import { TaskStore } from '../tasks/task-store'
 import { TaskService } from '../tasks/task-service'
 import { TaskDispatcher } from '../tasks/task-dispatcher'
@@ -901,12 +903,32 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     gitWorkspace
   })
 
+  /*
+   * The physical watchers run in a dedicated, non-detached child. The main
+   * process never imports chokidar or parcel, so a crawl or a native watcher
+   * crash cannot stall the window; a failed child leaves both panes on their
+   * polling fallback.
+   */
+  const watcherEntryPath = app.isPackaged
+    ? join(process.resourcesPath, 'app.asar.unpacked', 'out', 'watch', 'index.js')
+    : join(app.getAppPath(), 'out', 'watch', 'index.js')
+  const watcherSupervisor =
+    process.env.ICODE_WATCH_CHILD === '0'
+      ? null
+      : new WatcherSupervisor({
+          entryPath: watcherEntryPath,
+          logPath: join(app.getPath('userData'), 'logs', 'watcher.log')
+        })
+  const watchClient: WatchClient = watcherSupervisor ?? createDisabledWatchClient()
+
   const gitStatusWatcher = new GitStatusWatcherService({
-    resolveTarget: watchTargetResolvers.resolveGitWatchTarget
+    resolveTarget: watchTargetResolvers.resolveGitWatchTarget,
+    client: watchClient
   })
 
   const filesWatcher = new WorkspaceFilesWatcherService({
-    resolveTarget: watchTargetResolvers.resolveFilesWatchTarget
+    resolveTarget: watchTargetResolvers.resolveFilesWatchTarget,
+    client: watchClient
   })
 
   /**
@@ -1488,6 +1510,7 @@ export async function startAppRuntime(): Promise<AppRuntime> {
       await supervisorService?.stop().catch(() => undefined)
       await gitStatusWatcher.stopAll().catch(() => undefined)
       await filesWatcher.stopAll().catch(() => undefined)
+      await watcherSupervisor?.shutdown().catch(() => undefined)
       await activityServer.stop().catch(() => undefined)
       sessions.dispose()
       // Do not stop the detached host: live sessions must survive app exit.
