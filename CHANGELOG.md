@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.2] - 2026-11-23
+
+### Fixed
+
+- **Private clone into a WSL project.** An authenticated clone no longer fails
+  with "Invalid Git environment override." The one-attempt auth environment
+  sets `SSH_ASKPASS` to suppress askpass prompts, but the guest Git executor
+  admitted only `GIT_*` keys, so the credential preflight threw before
+  `git ls-remote` ran. The guest allowlist now admits that exact key, and the
+  streaming guest clone forwards it on both its direct and login-shell routes.
+
 ## [0.22.1] - 2026-11-23
 
 ### Fixed

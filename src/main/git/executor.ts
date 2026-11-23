@@ -42,8 +42,9 @@ export type GitExecRequest = {
   signal?: AbortSignal
   /**
    * Per-call environment additions, e.g. `GIT_INDEX_FILE` for a snapshot that
-   * must not touch the user's index. The guest executor restricts keys to
-   * `GIT_*`; existing executor defaults always win for PATH/HOME.
+   * must not touch the user's index, or the askpass suppressors for an
+   * authenticated clone. The guest executor restricts keys to `GIT_*` plus
+   * `SSH_ASKPASS`; existing executor defaults always win for PATH/HOME.
    */
   env?: Readonly<Record<string, string>>
 }
