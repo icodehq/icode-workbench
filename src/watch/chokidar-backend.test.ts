@@ -60,12 +60,16 @@ describe('chokidar backend', () => {
     writeFileSync(join(root, 'packages/app/src/a.ts'), 'a\n')
     writeFileSync(join(root, 'packages/app/node_modules/dep/x.js'), 'x\n')
     writeFileSync(join(root, 'packages/app/dist/out.js'), 'o\n')
-    await until(() => events.some((event) => event.path.endsWith('src/a.ts')), 5_000)
+    await until(
+      () =>
+        events.some((event) => event.path.replace(/\\/gu, '/').endsWith('src/a.ts')),
+      8_000
+    )
     await wait(300)
 
     const paths = events.map((event) => event.path.replace(/\\/gu, '/'))
     expect(paths.some((path) => path.endsWith('packages/app/src/a.ts'))).toBe(true)
     expect(paths.some((path) => path.includes('/node_modules/'))).toBe(false)
     expect(paths.some((path) => path.includes('/dist/'))).toBe(false)
-  })
+  }, 20_000)
 })

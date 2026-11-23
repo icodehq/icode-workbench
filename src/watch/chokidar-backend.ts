@@ -15,7 +15,7 @@ import type {
   BackendSubscription,
   WatchBackend
 } from './backends'
-import { canonicalWatchPath } from './canonical'
+import { canonicalWatchSpec } from './canonical'
 import { ignoreSpecPath } from './ignore'
 
 function countWatched(watcher: FSWatcher): number {
@@ -31,13 +31,14 @@ export function createChokidarBackend(): WatchBackend {
   return {
     name: 'chokidar',
     async subscribe(spec: SerializedWatchSpec, emit: BackendEmitter): Promise<BackendSubscription> {
-      const roots = spec.roots.map(canonicalWatchPath)
+      const canonicalSpec = canonicalWatchSpec(spec)
+      const roots = canonicalSpec.roots
       const watcher = chokidarWatch(roots, {
         ignoreInitial: true,
         persistent: true,
         followSymlinks: false,
-        ...(spec.kind === 'shallow' ? { depth: 0 } : {}),
-        ignored: (path: string) => ignoreSpecPath(spec, path)
+        ...(canonicalSpec.kind === 'shallow' ? { depth: 0 } : {}),
+        ignored: (path: string) => ignoreSpecPath(canonicalSpec, path)
       })
       let closed = false
       watcher.on('all', (event, path) => {

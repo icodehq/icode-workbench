@@ -1,3 +1,4 @@
+import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { FilesChangedEvent } from '../../shared/domain/workspace-files'
 import type { SerializedWatchSpec } from '../../shared/watch-protocol'
@@ -116,7 +117,7 @@ describe('workspace files watcher', () => {
     expect(fake.specs[0]).toMatchObject({
       kind: 'shallow',
       id: 'files:ses_x',
-      roots: ['/wt', '/wt/docs', '/wt/src'],
+      roots: ['/wt', join('/wt', 'docs'), join('/wt', 'src')],
       worktreePath: '/wt',
       ignore: {
         skipSuffixes: ['.swp', '.tmp'],
@@ -141,12 +142,12 @@ describe('workspace files watcher', () => {
     await service.setActive('ses_x', true, ['src', 'docs'])
     expect(fake.specs).toHaveLength(1)
     expect(fake.rootUpdates).toEqual([
-      { id: 'files:ses_x', roots: ['/wt', '/wt/docs', '/wt/src'] }
+      { id: 'files:ses_x', roots: ['/wt', join('/wt', 'docs'), join('/wt', 'src')] }
     ])
     await vi.advanceTimersByTimeAsync(60)
     expect(events.at(-1)).toMatchObject({ overflow: true, changedPaths: [] })
     await service.setActive('ses_x', true, ['src'])
-    expect(fake.rootUpdates.at(-1)?.roots).toEqual(['/wt', '/wt/src'])
+    expect(fake.rootUpdates.at(-1)?.roots).toEqual(['/wt', join('/wt', 'src')])
   })
 
   it('drops roots outside the checkout and generated folders', async () => {
@@ -162,7 +163,7 @@ describe('workspace files watcher', () => {
       'src',
       ''
     ])
-    expect(fake.specs[0]?.roots).toEqual(['/wt', '/wt/src'])
+    expect(fake.specs[0]?.roots).toEqual(['/wt', join('/wt', 'src')])
   })
 
   it('reports watch-failed when a root update fails', async () => {

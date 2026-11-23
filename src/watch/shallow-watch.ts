@@ -16,7 +16,7 @@ import { statSync, watch, type FSWatcher } from 'node:fs'
 import { join } from 'node:path'
 import { WATCH_MAX_ROOTS, type SerializedWatchSpec } from '../shared/watch-protocol'
 import type { BackendEmitter, BackendSubscription, WatchBackend } from './backends'
-import { canonicalWatchPath } from './canonical'
+import { canonicalWatchPath, canonicalWatchSpec } from './canonical'
 import { ignoreSpecPath } from './ignore'
 
 const DEFAULT_RETRY_DELAYS_MS = [250, 1_000, 4_000] as const
@@ -248,9 +248,10 @@ export function createShallowBackend(options: ShallowBackendOptions = {}): Watch
   const backend: ShallowBackend = {
     name: 'fswatch',
     async subscribe(spec, emit): Promise<BackendSubscription> {
-      const subscription = new ShallowSubscription(spec, emit)
+      const canonicalSpec = canonicalWatchSpec(spec)
+      const subscription = new ShallowSubscription(canonicalSpec, emit)
       subscriptions.add(subscription)
-      await subscription.setRoots(spec.roots)
+      await subscription.setRoots(canonicalSpec.roots)
       emit.ready()
       return subscription
     }

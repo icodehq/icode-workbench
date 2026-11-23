@@ -18,7 +18,7 @@ import {
 } from '@parcel/watcher'
 import type { SerializedWatchSpec, WatchEventKind } from '../shared/watch-protocol'
 import type { BackendEmitter, BackendSubscription, WatchBackend } from './backends'
-import { canonicalWatchPath } from './canonical'
+import { canonicalWatchSpec } from './canonical'
 import { ignoreSpecPath, parcelIgnoreRegexesForRoot } from './ignore'
 
 type ParcelSubscription = Awaited<ReturnType<typeof parcelSubscribe>>
@@ -41,12 +41,13 @@ export function createParcelBackend(): WatchBackend {
   return {
     name: 'parcel',
     async subscribe(spec: SerializedWatchSpec, emit: BackendEmitter): Promise<BackendSubscription> {
-      const roots = spec.roots.map(canonicalWatchPath)
+      const canonicalSpec = canonicalWatchSpec(spec)
+      const roots = canonicalSpec.roots
       const subscriptions: ParcelSubscription[] = []
       try {
         for (const root of roots) {
           const options: ParcelOptionsWithGlobs = {
-            ignoreGlobs: parcelIgnoreRegexesForRoot(spec, root),
+            ignoreGlobs: parcelIgnoreRegexesForRoot(canonicalSpec, root),
             ...(process.platform === 'win32' ? { backend: 'windows' } : {})
           }
           subscriptions.push(
@@ -60,7 +61,7 @@ export function createParcelBackend(): WatchBackend {
                 }
                 const mapped = []
                 for (const event of events) {
-                  if (ignoreSpecPath(spec, event.path)) continue
+                  if (ignoreSpecPath(canonicalSpec, event.path)) continue
                   mapped.push({ type: mapEventType(event.type), path: event.path })
                 }
                 if (mapped.length > 0) emit.events(mapped)

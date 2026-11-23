@@ -90,7 +90,10 @@ describe('shallow files backend', () => {
     })
     writeFileSync(join(root, 'sub/visible.txt'), 'c\n')
     await until(
-      () => watch.emitted.some((event) => event.path.endsWith('sub/visible.txt')),
+      () =>
+        watch.emitted.some((event) =>
+          event.path.replace(/\\/gu, '/').endsWith('sub/visible.txt')
+        ),
       3_000
     )
   })
