@@ -223,6 +223,8 @@ jobs:
           CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
         run: |
+          if ([string]::IsNullOrEmpty($env:CSC_LINK)) { Remove-Item Env:CSC_LINK -ErrorAction SilentlyContinue }
+          if ([string]::IsNullOrEmpty($env:CSC_KEY_PASSWORD)) { Remove-Item Env:CSC_KEY_PASSWORD -ErrorAction SilentlyContinue }
           pnpm package:win
           if ("$env:CSC_LINK" -ne "") {
             $installers = Get-ChildItem dist/*.exe
@@ -333,7 +335,17 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: node config/scripts/package.cjs mac --${{ matrix.arch }}
+        run: |
+          # An unset secret is still an environment variable set to "". With an
+          # empty CSC_LINK electron-builder treats the project directory as a
+          # certificate path and fails with "not a file". Unset absent secrets
+          # so it takes its unsigned-development path instead.
+          [ -n "$CSC_LINK" ] || unset CSC_LINK
+          [ -n "$CSC_KEY_PASSWORD" ] || unset CSC_KEY_PASSWORD
+          [ -n "$APPLE_ID" ] || unset APPLE_ID
+          [ -n "$APPLE_APP_SPECIFIC_PASSWORD" ] || unset APPLE_APP_SPECIFIC_PASSWORD
+          [ -n "$APPLE_TEAM_ID" ] || unset APPLE_TEAM_ID
+          node config/scripts/package.cjs mac --${{ matrix.arch }}
       - name: Verify packaged payload
         run: node config/scripts/verify-package.cjs --platform mac --arch ${{ matrix.arch }} --dir ${{ matrix.unpacked }}
       - name: Verify update metadata
