@@ -61,6 +61,7 @@
     "icons:generate": "node config/scripts/generate-icons.cjs",
     "perf:scm": "node config/scripts/gates.cjs perf-scm",
     "perf:resize": "node tests/compat/resize-perf.cjs",
+    "perf:watch": "node tests/compat/watch-perf.cjs",
     "smoke:activity": "node tests/compat/activity-smoke.cjs",
     "smoke:features": "node tests/compat/feature-smoke.cjs",
     "smoke:projects": "node tests/compat/project-onboarding-smoke.cjs",

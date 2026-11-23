@@ -67,6 +67,6 @@ Conventions:
 
 R1a was verified with `pnpm typecheck`, `pnpm test`, `pnpm build:app`,
 `pnpm check:brand`, `pnpm gate:pty`, the host start/verify/reattach/stop gates,
-`pnpm smoke:ui`, and `pnpm perf:resize`. The compat probes must run with the
-launching session's `ICODE_HOST_*` variables unset so their host directory and
-socket stay paired.
+`pnpm smoke:ui`, `pnpm perf:resize`, and `pnpm perf:watch`. The compat probes
+must run with the launching session's `ICODE_HOST_*` variables unset so their
+host directory and socket stay paired.

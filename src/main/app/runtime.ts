@@ -931,6 +931,18 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     client: watchClient
   })
 
+  /*
+   * The watch perf probe reads main-process truth through the inspector. It is
+   * env-gated so the product surface is absent in normal runs.
+   */
+  if (process.env.ICODE_WATCH_PERF === '1') {
+    ;(globalThis as unknown as Record<string, unknown>).__icodeWatchStats = () => ({
+      files: filesWatcher.stats(),
+      git: gitStatusWatcher.stats(),
+      watcherChild: watcherSupervisor?.stats() ?? null
+    })
+  }
+
   /**
    * The Harness list for one execution target.
    *
