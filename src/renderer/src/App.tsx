@@ -455,11 +455,19 @@ export default function App(): React.JSX.Element {
     [commands.openFileFromPalette, sendToAgent, state.sessions, workspace]
   )
 
+  /*
+   * Depend on the stable functions, not the hook result objects. Both
+   * `workspace` and `tasks` are new literals every render, and a callback that
+   * changes every render used to make the removal-jobs subscription reload
+   * forever.
+   */
+  const refreshAll = workspace.refreshAll
+  const reloadTasks = tasks.reload
   const refreshEverything = useCallback((): void => {
     setRefreshToken((current) => current + 1)
-    void workspace.refreshAll()
-    void tasks.reload(true)
-  }, [tasks, workspace])
+    void refreshAll()
+    void reloadTasks(true)
+  }, [refreshAll, reloadTasks])
 
   const cleanup = useRemovalJobs({
     notify: workspace.notify,
