@@ -9,6 +9,7 @@ import type { UpdateState } from '../../../shared/schemas/updates'
 export type UpdateBannerAction =
   | { kind: 'download'; labelKey: MessageKey }
   | { kind: 'open-download'; labelKey: MessageKey; url: string }
+  | { kind: 'cancel-download'; labelKey: MessageKey }
   | { kind: 'restart'; labelKey: MessageKey }
   | { kind: 'retry'; labelKey: MessageKey }
 
@@ -69,7 +70,7 @@ export function updateBannerModel(
       tone: 'info',
       titleKey: 'updates.banner.downloading',
       titleParams: {},
-      action: null,
+      action: { kind: 'cancel-download', labelKey: 'common.cancel' },
       showSkip: false,
       showLater: false,
       progressPercent: state.progress?.percent ?? null

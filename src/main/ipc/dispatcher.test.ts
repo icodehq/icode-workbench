@@ -143,6 +143,7 @@ function services(overrides: Partial<DispatcherServices> = {}): DispatcherServic
     updatesGet: vi.fn(async () => ({})),
     updatesCheck: vi.fn(async () => ({})),
     updatesDownload: vi.fn(async () => ({})),
+    updatesCancelDownload: vi.fn(async () => ({})),
     updatesInstall: vi.fn(async () => ({ status: 'blocked' })),
     updatesSkip: vi.fn(async () => ({})),
     updatesSetAutoCheck: vi.fn(async () => ({})),

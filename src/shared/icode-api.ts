@@ -281,6 +281,7 @@ export type IcodeProductApi = {
     get: () => Promise<IpcResult<UpdateState>>
     check: () => Promise<IpcResult<UpdateState>>
     download: () => Promise<IpcResult<UpdateState>>
+    cancelDownload: () => Promise<IpcResult<UpdateState>>
     install: (input: UpdateInstallInput) => Promise<IpcResult<UpdateInstallOutcome>>
     skip: (input: UpdateSkipInput) => Promise<IpcResult<UpdateState>>
     setAutoCheck: (input: UpdateSetAutoCheckInput) => Promise<IpcResult<UpdateState>>

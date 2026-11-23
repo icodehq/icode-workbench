@@ -29,6 +29,9 @@ importers:
       '@xterm/xterm':
         specifier: 6.1.0-beta.336
         version: 6.1.0-beta.336
+      builder-util-runtime:
+        specifier: 9.7.0
+        version: 9.7.0(supports-color@7.2.0)
       chokidar:
         specifier: 4.0.3
         version: 4.0.3

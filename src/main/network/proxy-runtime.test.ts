@@ -89,10 +89,12 @@ async function runtimeFor(
 ) {
   const env = options.env ?? {}
   const { session, calls } = fakeSession(options.resolved)
+  const extra = fakeSession(options.resolved)
   const prefs = options.prefs ?? fakePreferences()
   const runtime = await createNetworkProxyRuntime({
     directory: '/tmp/icode-proxy-test',
     session,
+    extraSessions: [extra.session],
     env,
     platform: options.platform ?? 'linux',
     resolveTimeoutMs: 50,
@@ -100,7 +102,7 @@ async function runtimeFor(
     savePreferences: prefs.save,
     ...(options.probeWsl === undefined ? {} : { probeWsl: options.probeWsl })
   })
-  return { runtime, session, calls, env, prefs }
+  return { runtime, session, calls, extraCalls: extra.calls, env, prefs }
 }
 
 describe('network proxy runtime', () => {
@@ -148,6 +150,14 @@ describe('network proxy runtime', () => {
     })
     expect(env.http_proxy).toBe('http://127.0.0.1:7890')
     expect(runtime.settings()).toEqual(manual)
+  })
+
+  it('applies the same policy to extra sessions such as electron-updater', async () => {
+    const { runtime, calls, extraCalls } = await runtimeFor()
+    await runtime.saveSettings(manual)
+    expect(extraCalls.configs.at(-1)).toEqual(calls.configs.at(-1))
+    expect(extraCalls.reloaded).toBe(1)
+    expect(extraCalls.closed).toBeGreaterThan(0)
   })
 
   it('scrubs proxy variables in off mode', async () => {

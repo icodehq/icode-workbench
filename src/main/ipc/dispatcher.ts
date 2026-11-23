@@ -293,6 +293,7 @@ export type DispatcherServices = {
   updatesGet: () => Promise<unknown>
   updatesCheck: () => Promise<unknown>
   updatesDownload: () => Promise<unknown>
+  updatesCancelDownload: () => Promise<unknown>
   updatesInstall: (input: z.infer<typeof updateInstallInputSchema>) => Promise<unknown>
   updatesSkip: (input: z.infer<typeof updateSkipInputSchema>) => Promise<unknown>
   updatesSetAutoCheck: (input: z.infer<typeof updateSetAutoCheckInputSchema>) => Promise<unknown>
@@ -940,6 +941,9 @@ export function createDispatcher(services: DispatcherServices): Dispatcher {
 
       case IPC_CHANNELS.updatesDownload:
         return run(() => services.updatesDownload())
+
+      case IPC_CHANNELS.updatesCancelDownload:
+        return run(() => services.updatesCancelDownload())
 
       case IPC_CHANNELS.updatesInstall: {
         const input = parse(updateInstallInputSchema, rawInput)

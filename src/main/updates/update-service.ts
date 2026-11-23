@@ -6,6 +6,7 @@ import {
 import type { MessageKey } from '../../shared/i18n'
 import {
   resolveUpdateMode,
+  releasePageUrl,
   type UnsupportedUpdateReason,
   type UpdateMode
 } from '../../shared/domain/update'
@@ -19,6 +20,10 @@ import type {
 import type { AppPreferences } from '../app/preferences'
 import type { ReleaseFeed } from './release-feed'
 import type { UpdateBackend } from './update-backend'
+import {
+  UPDATE_JOURNAL_VERSION,
+  type UpdateJournalEntry
+} from './update-journal'
 
 /**
  * Owns update state for the main process.
@@ -49,7 +54,12 @@ export type UpdateServiceDeps = {
   sessions: {
     listLive: () => Promise<UpdateLiveSession[]>
     /** Sleeps every live session; a non-zero failed count aborts the install. */
-    sleepAllLive: () => Promise<{ slept: number; failed: number }>
+    sleepAllLive: () => Promise<{
+      slept: number
+      failed: number
+      /** Lists the sessions/processes involved; the installer error shows it. */
+      detail?: string | null
+    }>
   }
   windows: {
     prepareForClose: () => Promise<PrepareWindowsResult>
@@ -63,6 +73,10 @@ export type UpdateServiceDeps = {
   shutdownRuntime: () => Promise<void>
   /** A platform-specific reason the downloaded update cannot be installed. */
   preflightInstall?: () => AppError | null
+  /** A durable record of the attempt, for the next launch's version check. */
+  journal?: { begin(entry: UpdateJournalEntry): void }
+  /** A previous attempt whose target version this launch is not running. */
+  interruptedInstall?: UpdateJournalEntry | null
   /** Relaunch after teardown, when the app can no longer recover in place. */
   relaunchAfterFailure: () => void
   now?: () => number
@@ -83,6 +97,7 @@ export type UpdateService = {
   start: () => void
   check: () => Promise<UpdateState>
   download: () => Promise<UpdateState>
+  cancelDownload: () => UpdateState
   install: (input: UpdateInstallInput) => Promise<UpdateInstallOutcome>
   skip: (version: string | null) => UpdateState
   setAutoCheck: (enabled: boolean) => UpdateState
@@ -151,18 +166,34 @@ export function createUpdateService(deps: UpdateServiceDeps): UpdateService {
   const unsupportedReason: UnsupportedUpdateReason | null = resolution.unsupportedReason
 
   const initialPreferences = deps.preferences.load()
+  const interrupted = mode === 'install' ? (deps.interruptedInstall ?? null) : null
+  if (interrupted !== null) {
+    logger.warn(
+      `previous install ${interrupted.fromVersion} -> ${interrupted.toVersion} did not complete; ` +
+        `still running ${deps.currentVersion}`
+    )
+  }
   let state: UpdateState = {
     mode,
-    phase: 'idle',
+    phase: interrupted === null ? 'idle' : 'error',
     currentVersion: deps.currentVersion,
-    availableVersion: null,
-    releaseUrl: null,
+    availableVersion: interrupted?.toVersion ?? null,
+    releaseUrl: interrupted === null ? null : releasePageUrl(interrupted.toVersion),
     downloadUrl: null,
     progress: null,
     autoCheck: initialPreferences.updateAutoCheckEnabled,
     skippedVersion: initialPreferences.skippedUpdateVersion,
     checkedAt: null,
-    error: null,
+    error:
+      interrupted === null
+        ? null
+        : makeAppError('UPDATE_INSTALL_FAILED', 'The last update did not complete.', {
+            detail:
+              `iCode is still on ${deps.currentVersion}; the attempt to install ` +
+              `${interrupted.toVersion} started at ${new Date(interrupted.startedAt).toISOString()} ` +
+              'did not complete. Check the update log and try again.',
+            messageKey: 'updates.error.installFailed'
+          }),
     unsupportedReason
   }
 
@@ -172,6 +203,7 @@ export function createUpdateService(deps: UpdateServiceDeps): UpdateService {
   let checkPromise: Promise<void> | null = null
   let checkIsManual = false
   let downloadPromise: Promise<void> | null = null
+  let downloadCancelRequested = false
   let installPending = false
   let installTimer: ReturnType<typeof setTimeout> | null = null
   let disposed = false
@@ -236,10 +268,12 @@ export function createUpdateService(deps: UpdateServiceDeps): UpdateService {
 
     checkIsManual = manual
     setState({ phase: 'checking', error: null })
+    logger.info(`checking for updates (${manual ? 'manual' : 'automatic'})`)
     checkPromise = (async () => {
       try {
         const result = await deps.feed.check(deps.currentVersion, mode)
         if (result.status === 'up-to-date') {
+          logger.info('update check: up to date')
           setState({
             phase: 'up-to-date',
             availableVersion: null,
@@ -252,6 +286,7 @@ export function createUpdateService(deps: UpdateServiceDeps): UpdateService {
           return
         }
         const skipped = !manual && state.skippedVersion === result.version
+        logger.info(`update check: ${result.version} available${skipped ? ' (skipped)' : ''}`)
         setState({
           phase: skipped ? 'skipped' : 'available',
           availableVersion: result.version,
@@ -269,6 +304,7 @@ export function createUpdateService(deps: UpdateServiceDeps): UpdateService {
           'updates.error.checkFailed'
         )
         if (manual) {
+          logger.error('manual update check failed:', failure.detail ?? failure.message)
           setState({ phase: 'error', progress: null, checkedAt: now(), error: failure })
         } else {
           // Automatic failures stay out of the banner; Settings still shows them.
@@ -298,32 +334,49 @@ export function createUpdateService(deps: UpdateServiceDeps): UpdateService {
       return
     }
 
+    downloadCancelRequested = false
     setState({
       phase: 'downloading',
       progress: { percent: 0, transferred: 0, total: 0, bytesPerSecond: 0 },
       error: null
     })
+    logger.info(`downloading update ${state.availableVersion}`)
     downloadPromise = (async () => {
       try {
         const result = await deps.backend.download((progress: UpdateProgress) => {
           if (state.phase === 'downloading') setState({ progress })
         })
+        logger.info(`update ${result.version} downloaded`)
         setState({
           phase: 'ready',
           availableVersion: result.version,
+          // electron-updater re-checks and may have moved to a newer release
+          // than the one our feed check saw. Keep the release link in step.
+          releaseUrl: releasePageUrl(result.version),
           progress: { percent: 100, transferred: 0, total: 0, bytesPerSecond: 0 },
           error: null
         })
       } catch (error) {
+        if (downloadCancelRequested) {
+          logger.info('update download cancelled')
+          setState({
+            phase: state.availableVersion !== null ? 'available' : 'idle',
+            progress: null,
+            error: null
+          })
+          return
+        }
         const failure = asUpdateError(
           error,
           'UPDATE_DOWNLOAD_FAILED',
           'Could not download the update.',
           'updates.error.downloadFailed'
         )
+        logger.error('update download failed:', failure.detail ?? failure.message)
         setState({ phase: 'error', progress: null, error: failure })
       } finally {
         downloadPromise = null
+        downloadCancelRequested = false
       }
     })()
     await downloadPromise
@@ -337,7 +390,12 @@ export function createUpdateService(deps: UpdateServiceDeps): UpdateService {
   async function performInstall(stopLiveSessions: boolean): Promise<void> {
     let quiesced = false
     let shutdownStarted = false
+    let slept: { slept: number; failed: number; detail?: string | null } | null = null
     try {
+      // Fail before any window or session is touched. electron-updater only
+      // dispatches an event when its downloaded installer is missing, so this
+      // is the last point where the UI can still explain the problem.
+      deps.backend.assertInstallable?.()
       const prepared = await deps.windows.prepareForClose()
       if (prepared === 'cancelled') {
         installPending = false
@@ -359,11 +417,18 @@ export function createUpdateService(deps: UpdateServiceDeps): UpdateService {
       const live = await deps.sessions.listLive()
       if (stopLiveSessions) {
         // Sleep whatever is live now, including sessions that started after the
-        // confirmation prompt.
-        const slept = await deps.sessions.sleepAllLive()
+        // confirmation prompt. A live orphan listed in the prompt is stopped
+        // too, because it has no row to resume.
+        slept = await deps.sessions.sleepAllLive()
         if (slept.failed > 0) {
-          throw installFailed(`${slept.failed} live session(s) could not be slept.`)
+          throw installFailed(
+            slept.detail ??
+              `${slept.failed} live session(s) could not be slept.`
+          )
         }
+        logger.info(
+          `slept ${slept.slept} live session(s) before installing${slept.detail ? `: ${slept.detail}` : ''}`
+        )
       } else {
         if (live.length > 0) {
           throw installFailed('New sessions started while preparing the update. Try again.')
@@ -375,10 +440,25 @@ export function createUpdateService(deps: UpdateServiceDeps): UpdateService {
         }
       }
 
+      logger.info('stopping terminal hosts before installing')
       await deps.stopTerminalHosts()
       shutdownStarted = true
       await deps.shutdownRuntime()
+      // Record the attempt before electron-updater spawns the installer and
+      // quits. The next launch compares this target with app.getVersion() and
+      // reports an interrupted install when they differ.
+      deps.journal?.begin({
+        version: UPDATE_JOURNAL_VERSION,
+        fromVersion: state.currentVersion,
+        toVersion: state.availableVersion ?? state.currentVersion,
+        startedAt: now(),
+        installerPath: deps.backend.installerPath?.() ?? null
+      })
+      // The installer may have been quarantined during teardown. Check once
+      // more; a failure here still has the relaunch path below.
+      deps.backend.assertInstallable?.()
       deps.windows.beginInstall()
+      logger.info('running the update installer')
       deps.backend.quitAndInstall()
       installPending = false
     } catch (error) {
@@ -388,13 +468,27 @@ export function createUpdateService(deps: UpdateServiceDeps): UpdateService {
         'Could not install the update.',
         'updates.error.installFailed'
       )
+      // Teardown can fail after some sessions were already slept. Say so, or a
+      // retry looks like it did nothing while those terminals stay stopped.
+      const reportedFailure: AppError =
+        slept !== null && slept.slept > 0
+          ? {
+              ...failure,
+              detail:
+                `${failure.detail ?? failure.message} ` +
+                `${slept.slept} live session(s) were already stopped before this failure.`
+            }
+          : failure
       if (shutdownStarted) {
-        logger.error('update install failed after shutdown; relaunching:', failure.detail)
+        logger.error(
+          'update install failed after shutdown; relaunching:',
+          reportedFailure.detail
+        )
         deps.relaunchAfterFailure()
         return
       }
       if (quiesced) deps.background.resume()
-      resetAfterFailedInstall(failure)
+      resetAfterFailedInstall(reportedFailure)
     }
   }
 
@@ -420,6 +514,14 @@ export function createUpdateService(deps: UpdateServiceDeps): UpdateService {
       return state
     },
 
+    cancelDownload() {
+      if (state.phase !== 'downloading') return state
+      downloadCancelRequested = true
+      logger.info('cancelling update download')
+      deps.backend.cancel()
+      return state
+    },
+
     async install(input) {
       if (disposed) {
         return { status: 'blocked', error: notReady() }
@@ -435,11 +537,23 @@ export function createUpdateService(deps: UpdateServiceDeps): UpdateService {
       }
       const preflight = deps.preflightInstall?.() ?? null
       if (preflight !== null) return { status: 'blocked', error: preflight }
+      try {
+        deps.backend.assertInstallable?.()
+      } catch (error) {
+        return {
+          status: 'blocked',
+          error: installFailed(error instanceof Error ? error.message : String(error))
+        }
+      }
 
+      // Reserve before awaiting the session list: a double-clicked confirm (or
+      // two windows) must not schedule two teardowns from the same ready state.
+      installPending = true
       let live: UpdateLiveSession[]
       try {
         live = await deps.sessions.listLive()
       } catch (error) {
+        installPending = false
         return {
           status: 'blocked',
           error: asUpdateError(
@@ -450,15 +564,23 @@ export function createUpdateService(deps: UpdateServiceDeps): UpdateService {
           )
         }
       }
+      if (disposed) {
+        installPending = false
+        return { status: 'blocked', error: notReady() }
+      }
 
       const version = state.availableVersion
       if (live.length > 0 && input.stopLiveSessions !== true) {
+        installPending = false
         return { status: 'confirmation-required', version, liveSessions: live }
       }
 
-      installPending = true
       setState({ phase: 'restarting', error: null, progress: null })
       const stopLiveSessions = input.stopLiveSessions === true
+      logger.info(
+        `installing ${version}; ${live.length} live session(s) listed, ` +
+          `stopLiveSessions=${String(stopLiveSessions)}`
+      )
       installTimer = setTimeoutFn(() => {
         installTimer = null
         void performInstall(stopLiveSessions)

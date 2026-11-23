@@ -108,6 +108,30 @@ describe('release feed', () => {
     })
   })
 
+  it('times out a stalled feed request instead of staying in checking forever', async () => {
+    vi.useFakeTimers()
+    const fetch = vi.fn(
+      (_input: string, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(new Error('aborted')))
+        })
+    )
+    const feed = createReleaseFeed({
+      fetch,
+      platform: 'win32',
+      arch: 'x64',
+      timeoutMs: 10
+    })
+    const pending = feed.check('0.17.0', 'install')
+    const assertion = expect(pending).rejects.toMatchObject({
+      code: 'UPDATE_CHECK_FAILED',
+      detail: expect.stringContaining('timed out')
+    })
+    await vi.advanceTimersByTimeAsync(20)
+    await assertion
+    vi.useRealTimers()
+  })
+
   it('uses an explicit feed base for tests and mirrors', async () => {
     const fetch = vi.fn(async (_input: string, _init?: RequestInit) => yamlResponse('0.18.0'))
     const feed = createReleaseFeed({

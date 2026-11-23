@@ -57,6 +57,13 @@ export type WslNetwork = {
 export type NetworkProxyRuntimeDeps = {
   directory: string
   session: ProxySession
+  /**
+   * Extra Electron sessions that must follow the same policy.
+   *
+   * electron-updater uses its own partition (`electron-updater`), so configuring
+   * only the default session left downloads outside the user's manual proxy.
+   */
+  extraSessions?: ProxySession[]
   env?: NodeJS.ProcessEnv
   platform?: NodeJS.Platform
   resolveTimeoutMs?: number
@@ -267,22 +274,27 @@ export async function createNetworkProxyRuntime(
 
   async function applySettings(next: NetworkProxySettings): Promise<void> {
     settingsValue = next
+    const sessions = [deps.session, ...(deps.extraSessions ?? [])]
     // Chromium is configured first: in system mode `resolveProxy` must reflect
     // the system configuration, not a previously applied manual proxy.
-    try {
-      await deps.session.setProxy(chromiumProxyConfig(next))
-    } catch (error) {
-      process.stderr.write(
-        `[icode] could not apply the Chromium proxy: ${
-          error instanceof Error ? error.message : String(error)
-        }\n`
-      )
+    for (const target of sessions) {
+      try {
+        await target.setProxy(chromiumProxyConfig(next))
+      } catch (error) {
+        process.stderr.write(
+          `[icode] could not apply the Chromium proxy: ${
+            error instanceof Error ? error.message : String(error)
+          }\n`
+        )
+      }
     }
     if (next.mode === 'system') {
-      try {
-        await deps.session.forceReloadProxyConfig()
-      } catch {
-        // A PAC reload is advisory; the current configuration remains usable.
+      for (const target of sessions) {
+        try {
+          await target.forceReloadProxyConfig()
+        } catch {
+          // A PAC reload is advisory; the current configuration remains usable.
+        }
       }
     }
     const resolved =
@@ -293,10 +305,12 @@ export async function createNetworkProxyRuntime(
     applyToProcessEnv(hostEnv)
     wslCache.clear()
     warnedWslHosts.clear()
-    try {
-      await deps.session.closeAllConnections()
-    } catch {
-      // Pooled sockets are best-effort; the new configuration is still active.
+    for (const target of sessions) {
+      try {
+        await target.closeAllConnections()
+      } catch {
+        // Pooled sockets are best-effort; the new configuration is still active.
+      }
     }
   }
 

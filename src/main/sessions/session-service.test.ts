@@ -1137,13 +1137,64 @@ describe('worktree isolation', () => {
     expect(view.sessions.every((session) => session.state === 'exited')).toBe(true)
   })
 
-  it('refuses to sleep when a live orphan is unaccounted for', async () => {
+  it('stops a live orphan after the update confirmation', async () => {
     const f = await withRepo()
     f.host.seedSession('orphan-before-update', { status: 'live' })
 
     const result = await f.service.sleepLiveSessions()
-    expect(result).toMatchObject({ slept: 0, liveOrphans: 1 })
-    expect(f.host.calls.kill).toHaveLength(0)
+    expect(result).toMatchObject({
+      slept: 0,
+      failed: 0,
+      liveOrphans: 1,
+      stoppedOrphans: 1
+    })
+    expect(f.host.calls.kill).toHaveLength(1)
+  })
+
+  it('does not let a historical unavailable session block an update', async () => {
+    const f = await withRepo()
+    // A session that was active once, then vanished from a reachable host:
+    // reconciliation persists it as unavailable / history_only.
+    const stale = await f.service.create(createInput(f))
+    f.stores.sessions.recordObservation(stale.id as never, {
+      lastObservedState: 'live',
+      lastObservedExitCode: null,
+      lastObservedError: null,
+      lastObservedIncarnationId: toPtyIncarnationId(stale.incarnationId!),
+      lastObservedAt: 1
+    })
+    f.host.remove(stale.id)
+    await f.service.reconcile()
+    expect(f.stores.sessions.findById(stale.id as never)?.observation.lastObservedState).toBe(
+      'unavailable'
+    )
+
+    const live = await f.service.create(createInput(f))
+    const result = await f.service.sleepLiveSessions()
+    expect(result).toMatchObject({
+      slept: 1,
+      failed: 0,
+      unreachable: 0,
+      liveOrphans: 0
+    })
+    expect(f.host.calls.kill.map((call) => call.sessionId)).toEqual([live.id])
+  })
+
+  it('does not block an update when only historical unavailable sessions remain', async () => {
+    const f = await withRepo()
+    const stale = await f.service.create(createInput(f))
+    f.stores.sessions.recordObservation(stale.id as never, {
+      lastObservedState: 'live',
+      lastObservedExitCode: null,
+      lastObservedError: null,
+      lastObservedIncarnationId: toPtyIncarnationId(stale.incarnationId!),
+      lastObservedAt: 1
+    })
+    f.host.remove(stale.id)
+    await f.service.reconcile()
+
+    const result = await f.service.sleepLiveSessions()
+    expect(result).toMatchObject({ slept: 0, failed: 0, unreachable: 0 })
   })
 
   it('refuses to sleep when a host cannot be queried', async () => {

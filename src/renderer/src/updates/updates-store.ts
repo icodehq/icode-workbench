@@ -94,6 +94,12 @@ export async function downloadUpdate(): Promise<void> {
   else applyError(result.error)
 }
 
+export async function cancelUpdateDownload(): Promise<void> {
+  const result = await window.icode.updates.cancelDownload()
+  if (result.ok) setUpdateState(result.value)
+  else applyError(result.error)
+}
+
 export async function skipUpdateVersion(version: string | null): Promise<void> {
   const result = await window.icode.updates.skip({ version })
   if (result.ok) setUpdateState(result.value)
@@ -106,31 +112,45 @@ export async function setUpdateAutoCheck(enabled: boolean): Promise<void> {
   else applyError(result.error)
 }
 
+let updateInstallInFlight = false
+
 export async function requestUpdateInstall(): Promise<void> {
-  restartPrompt = null
-  emit()
-  const result = await window.icode.updates.install({})
-  if (!result.ok) {
-    applyError(result.error)
-    return
-  }
-  if (result.value.status === 'confirmation-required') {
-    restartPrompt = {
-      version: result.value.version,
-      liveSessions: result.value.liveSessions
-    }
+  if (updateInstallInFlight) return
+  updateInstallInFlight = true
+  try {
+    restartPrompt = null
     emit()
-    return
+    const result = await window.icode.updates.install({})
+    if (!result.ok) {
+      applyError(result.error)
+      return
+    }
+    if (result.value.status === 'confirmation-required') {
+      restartPrompt = {
+        version: result.value.version,
+        liveSessions: result.value.liveSessions
+      }
+      emit()
+      return
+    }
+    if (result.value.status === 'blocked') applyError(result.value.error)
+  } finally {
+    updateInstallInFlight = false
   }
-  if (result.value.status === 'blocked') applyError(result.value.error)
 }
 
 export async function confirmUpdateInstall(): Promise<void> {
-  restartPrompt = null
-  emit()
-  const result = await window.icode.updates.install({ stopLiveSessions: true })
-  if (!result.ok) applyError(result.error)
-  else if (result.value.status === 'blocked') applyError(result.value.error)
+  if (updateInstallInFlight) return
+  updateInstallInFlight = true
+  try {
+    restartPrompt = null
+    emit()
+    const result = await window.icode.updates.install({ stopLiveSessions: true })
+    if (!result.ok) applyError(result.error)
+    else if (result.value.status === 'blocked') applyError(result.value.error)
+  } finally {
+    updateInstallInFlight = false
+  }
 }
 
 export function cancelUpdateInstall(): void {

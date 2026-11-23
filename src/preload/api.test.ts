@@ -176,6 +176,7 @@ describe('preload API surface', () => {
     await api.updates.get()
     await api.updates.check()
     await api.updates.download()
+    await api.updates.cancelDownload()
     await api.updates.install({})
     await api.updates.install({ stopLiveSessions: true })
     await api.updates.skip({ version: '0.18.0' })
@@ -184,6 +185,7 @@ describe('preload API surface', () => {
       IPC_CHANNELS.updatesGet,
       IPC_CHANNELS.updatesCheck,
       IPC_CHANNELS.updatesDownload,
+      IPC_CHANNELS.updatesCancelDownload,
       IPC_CHANNELS.updatesInstall,
       IPC_CHANNELS.updatesInstall,
       IPC_CHANNELS.updatesSkip,

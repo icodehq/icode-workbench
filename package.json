@@ -1,6 +1,6 @@
 {
   "name": "icode",
-  "version": "0.24.0",
+  "version": "0.25.0",
   "private": true,
   "description": "iCode Workbench — the universal agent development environment for every agent and platform",
   "license": "AGPL-3.0-only",
@@ -41,6 +41,7 @@
     "selftest:update-metadata": "node tests/release/selftest-update-metadata.cjs",
     "gate:packaged": "node config/scripts/gates.cjs packaged",
     "smoke:packaged:win": "node tests/compat/packaged-smoke-win.cjs",
+    "smoke:update:win": "node tests/release/update-e2e-win.cjs",
     "smoke:packaged:mac": "node tests/compat/packaged-smoke-mac.cjs",
     "build:host": "node config/scripts/build-host.cjs",
     "build:wsl-host": "node config/scripts/wsl/host-artifacts.cjs build",
@@ -72,6 +73,7 @@
     "@xterm/addon-unicode11": "0.10.0-beta.330",
     "@xterm/headless": "6.1.0-beta.334",
     "@xterm/xterm": "6.1.0-beta.336",
+    "builder-util-runtime": "9.7.0",
     "chokidar": "4.0.3",
     "electron-updater": "6.8.12",
     "jsonc-parser": "3.3.1",

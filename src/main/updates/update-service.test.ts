@@ -16,6 +16,9 @@ type Harness = {
   feed: { check: ReturnType<typeof vi.fn> }
   backend: {
     download: ReturnType<typeof vi.fn>
+    cancel: ReturnType<typeof vi.fn>
+    assertInstallable: ReturnType<typeof vi.fn>
+    installerPath: ReturnType<typeof vi.fn>
     quitAndInstall: ReturnType<typeof vi.fn>
     dispose: ReturnType<typeof vi.fn>
   }
@@ -53,6 +56,9 @@ function harness(
       onProgress({ percent: 50, transferred: 10, total: 20, bytesPerSecond: 5 })
       return { version: '0.18.0' }
     }),
+    cancel: vi.fn(),
+    assertInstallable: vi.fn(),
+    installerPath: vi.fn(() => '/tmp/icode-setup.exe'),
     quitAndInstall: vi.fn(),
     dispose: vi.fn()
   }
@@ -271,6 +277,52 @@ describe('update service', () => {
     expect(h.service.getState().phase).toBe('ready')
   })
 
+  it('returns to available when the user cancels a download', async () => {
+    const h = harness()
+    h.feed.check.mockResolvedValueOnce(available())
+    await h.service.check()
+    let rejectDownload: (error: Error) => void = () => undefined
+    h.backend.download.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectDownload = reject
+        })
+    )
+
+    const pending = h.service.download()
+    await flush()
+    h.service.cancelDownload()
+    expect(h.backend.cancel).toHaveBeenCalledTimes(1)
+    rejectDownload(new Error('cancelled'))
+    await pending
+    expect(h.service.getState()).toMatchObject({
+      phase: 'available',
+      availableVersion: '0.18.0',
+      error: null
+    })
+  })
+
+  it('reports an interrupted install from the journal', () => {
+    const h = harness({
+      overrides: {
+        interruptedInstall: {
+          version: 1,
+          fromVersion: '0.17.0',
+          toVersion: '0.18.0',
+          startedAt: 500,
+          installerPath: '/tmp/iCode-setup.exe'
+        }
+      }
+    })
+    expect(h.service.getState()).toMatchObject({
+      mode: 'install',
+      phase: 'error',
+      availableVersion: '0.18.0',
+      error: { code: 'UPDATE_INSTALL_FAILED' }
+    })
+    expect(h.service.getState().error?.detail).toContain('0.18.0')
+  })
+
   it('keeps automatic check failures out of the banner but records them', async () => {
     vi.useFakeTimers()
     const h = harness()
@@ -321,6 +373,53 @@ describe('update service', () => {
     await expect(h.service.install({})).resolves.toEqual({ status: 'blocked', error })
     expect(h.windows.prepareForClose).not.toHaveBeenCalled()
     expect(h.stopTerminalHosts).not.toHaveBeenCalled()
+  })
+
+  it('blocks install when the downloaded installer is missing', async () => {
+    const h = harness()
+    await ready(h)
+    h.backend.assertInstallable.mockImplementationOnce(() => {
+      throw new Error('installer missing')
+    })
+    await expect(h.service.install({})).resolves.toMatchObject({
+      status: 'blocked',
+      error: { code: 'UPDATE_INSTALL_FAILED', detail: 'installer missing' }
+    })
+    expect(h.windows.prepareForClose).not.toHaveBeenCalled()
+  })
+
+  it('serializes concurrent install requests from one ready state', async () => {
+    vi.useFakeTimers()
+    const h = harness()
+    await ready(h)
+    const [first, second] = await Promise.all([
+      h.service.install({ stopLiveSessions: true }),
+      h.service.install({ stopLiveSessions: true })
+    ])
+    expect([first.status, second.status].sort()).toEqual(['blocked', 'restarting'])
+
+    await vi.advanceTimersByTimeAsync(300)
+    await flush()
+    expect(h.windows.prepareForClose).toHaveBeenCalledTimes(1)
+    expect(h.backend.quitAndInstall).toHaveBeenCalledTimes(1)
+  })
+
+  it('records the install attempt before running the installer', async () => {
+    vi.useFakeTimers()
+    const journal = { begin: vi.fn() }
+    const h = harness({ overrides: { journal } })
+    await ready(h)
+    await h.service.install({})
+    await vi.advanceTimersByTimeAsync(300)
+    await flush()
+    expect(journal.begin).toHaveBeenCalledWith(
+      expect.objectContaining({
+        version: 1,
+        fromVersion: '0.17.0',
+        toVersion: '0.18.0',
+        installerPath: '/tmp/icode-setup.exe'
+      })
+    )
   })
 
   it('asks for confirmation before sleeping live sessions', async () => {
@@ -397,7 +496,11 @@ describe('update service', () => {
     vi.useFakeTimers()
     const h = harness({ live: [{ id: 'ses_1', title: 'Agent one' }] })
     await ready(h)
-    h.sessions.sleepAllLive.mockResolvedValueOnce({ slept: 0, failed: 1 })
+    h.sessions.sleepAllLive.mockResolvedValueOnce({
+      slept: 0,
+      failed: 1,
+      detail: '1 of 1 live session(s) could not be slept: Agent one (ses_1)'
+    })
     await h.service.install({ stopLiveSessions: true })
     await vi.advanceTimersByTimeAsync(300)
     await flush()
@@ -406,7 +509,10 @@ describe('update service', () => {
     expect(h.background.resume).toHaveBeenCalledTimes(1)
     expect(h.service.getState()).toMatchObject({
       phase: 'ready',
-      error: { code: 'UPDATE_INSTALL_FAILED' }
+      error: {
+        code: 'UPDATE_INSTALL_FAILED',
+        detail: expect.stringContaining('Agent one')
+      }
     })
   })
 
