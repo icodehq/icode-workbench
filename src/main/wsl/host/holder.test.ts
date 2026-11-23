@@ -1,7 +1,11 @@
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { WslHolderRecord } from './records'
 import {
   buildHolderArgs,
+  createHolderRecordStore,
   createWslHolder,
   HOLDER_GUEST_SCRIPT,
   holderRecordPath,
@@ -17,6 +21,7 @@ function memoryStore(initial: WslHolderRecord | null = null) {
   let record = initial
   const store: HolderRecordStore & { current: () => WslHolderRecord | null } = {
     read: () => record,
+    list: () => (record === null ? [] : [record]),
     write: (next) => {
       record = next
     },
@@ -311,6 +316,41 @@ describe('holder release', () => {
       queryProcess: async () => evidenceFor({ missing: true })
     })
     expect(await holder.release(DISTRO)).toEqual({ outcome: 'released', previous: 'exited' })
+  })
+
+  it('releases every recorded holder for an update', async () => {
+    const holder = createWslHolder({
+      store: memoryStore(RECORD),
+      queryProcess: async () => evidenceFor({ missing: true })
+    })
+    await expect(holder.releaseAll()).resolves.toEqual({ released: 1, failed: [] })
+  })
+
+  it('reports a holder it could not prove stopped', async () => {
+    const holder = createWslHolder({
+      store: memoryStore(RECORD),
+      queryProcess: async () => evidenceFor({ unavailable: true })
+    })
+    await expect(holder.releaseAll()).resolves.toEqual({
+      released: 0,
+      failed: [RECORD]
+    })
+  })
+})
+
+describe('holder records', () => {
+  it('lists every durable record across app runs', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'icode-holder-records-'))
+    try {
+      const store = createHolderRecordStore(directory)
+      const second: WslHolderRecord = { ...RECORD, distro: 'Debian', distroId: 'other-id' }
+      store.write(RECORD)
+      store.write(second)
+      expect(store.list().map((record) => record.distro)).toEqual([DISTRO, 'Debian'].sort())
+      expect(store.read(DISTRO)).toEqual(RECORD)
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
   })
 })
 

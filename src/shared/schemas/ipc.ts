@@ -160,6 +160,13 @@ export const IPC_CHANNELS = {
   aiCommitMessage: 'icode:ai:commit-message',
   aiCancelCommitMessage: 'icode:ai:cancel-commit-message',
   wslListDistros: 'icode:wsl:list-distros',
+  updatesGet: 'icode:updates:get',
+  updatesCheck: 'icode:updates:check',
+  updatesDownload: 'icode:updates:download',
+  updatesInstall: 'icode:updates:install',
+  updatesSkip: 'icode:updates:skip',
+  updatesSetAutoCheck: 'icode:updates:set-auto-check',
+  updatesEvent: 'icode:updates:event',
   sessionEvent: 'icode:session-event'
 } as const
 

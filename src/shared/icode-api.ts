@@ -134,6 +134,13 @@ import type {
   GitWorkspaceStatus
 } from './domain/git-workspace'
 import type {
+  UpdateInstallInput,
+  UpdateInstallOutcome,
+  UpdateSetAutoCheckInput,
+  UpdateSkipInput,
+  UpdateState
+} from './schemas/updates'
+import type {
   BranchRefSummary,
   DiscardSessionResult,
   IpcResult,
@@ -255,6 +262,15 @@ export type IcodeProductApi = {
     setSettings: (
       input: z.infer<typeof networkSetSettingsInputSchema>
     ) => Promise<IpcResult<NetworkProxySettingsPayload>>
+  }
+  updates: {
+    get: () => Promise<IpcResult<UpdateState>>
+    check: () => Promise<IpcResult<UpdateState>>
+    download: () => Promise<IpcResult<UpdateState>>
+    install: (input: UpdateInstallInput) => Promise<IpcResult<UpdateInstallOutcome>>
+    skip: (input: UpdateSkipInput) => Promise<IpcResult<UpdateState>>
+    setAutoCheck: (input: UpdateSetAutoCheckInput) => Promise<IpcResult<UpdateState>>
+    onChanged: (listener: (state: UpdateState) => void) => () => void
   }
   repos: {
     list: () => Promise<IpcResult<RepositorySummary[]>>

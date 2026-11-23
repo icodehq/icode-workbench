@@ -14,6 +14,7 @@ import AssistantSettingsCard from '../components/AssistantSettingsCard'
 import LanguageSettingsCard from '../components/LanguageSettingsCard'
 import NetworkSettingsCard from '../components/NetworkSettingsCard'
 import ProviderSettingsCard from '../components/ProviderSettingsCard'
+import UpdatesSettingsCard from '../updates/UpdatesSettingsCard'
 import { useT } from '../i18n/use-i18n'
 
 type SettingsPageProps = {
@@ -252,6 +253,8 @@ export default function SettingsPage({
                 <span className="font-mono">{runtime?.platform ?? '—'}</span>
               </Row>
             </SettingsCard>
+
+            <UpdatesSettingsCard platform={runtime?.platform ?? null} />
 
             <SettingsCard title={t('settings.about.title')}>
               <p className="text-[11px] leading-relaxed text-muted-foreground">

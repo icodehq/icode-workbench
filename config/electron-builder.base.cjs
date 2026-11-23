@@ -13,6 +13,22 @@ const identity = require('../src/shared/app-identity.json')
 module.exports = {
   appId: identity.appId,
   productName: identity.name,
+  /**
+   * The update feed is explicit rather than inferred from `repository`.
+   *
+   * electron-builder writes `resources/app-update.yml` (which electron-updater
+   * reads) and, for deb/rpm, `resources/package-type` only when a publish
+   * configuration resolves. `package.cjs` always passes `--publish never`, so
+   * this describes the feed without letting a build upload anything.
+   */
+  publish: [
+    {
+      provider: 'github',
+      owner: identity.releaseOwner,
+      repo: identity.releaseRepo,
+      releaseType: 'release'
+    }
+  ],
   directories: {
     buildResources: 'resources/build',
     output: 'dist'

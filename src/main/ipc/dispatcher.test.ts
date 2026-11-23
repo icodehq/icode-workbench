@@ -133,6 +133,12 @@ function services(overrides: Partial<DispatcherServices> = {}): DispatcherServic
       httpsProxyUrl: '',
       noProxy: ''
     })),
+    updatesGet: vi.fn(async () => ({})),
+    updatesCheck: vi.fn(async () => ({})),
+    updatesDownload: vi.fn(async () => ({})),
+    updatesInstall: vi.fn(async () => ({ status: 'blocked' })),
+    updatesSkip: vi.fn(async () => ({})),
+    updatesSetAutoCheck: vi.fn(async () => ({})),
     schedulesList: vi.fn(async () => []),
     schedulesCreate: vi.fn(async () => ({ id: 'sch_1' })),
     schedulesUpdate: vi.fn(async () => ({ id: 'sch_1' })),

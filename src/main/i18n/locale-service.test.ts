@@ -49,7 +49,9 @@ describe('LocaleService', () => {
       locale: 'zh-CN',
       opencodeIntegrationEnabled: true,
       agentStatusHooksEnabled: true,
-      proxy: DEFAULT_NETWORK_PROXY_SETTINGS
+      proxy: DEFAULT_NETWORK_PROXY_SETTINGS,
+      updateAutoCheckEnabled: true,
+      skippedUpdateVersion: null
     })
   })
 

@@ -7,6 +7,7 @@ import type { IpcResult, RendererSessionEvent } from '../shared/schemas/ipc'
 import type { LocaleState } from '../shared/schemas/locale'
 import type { OpenCodeIntegrationStatePayload } from '../shared/schemas/opencode-integration'
 import type { ManagedHooksStatePayload } from '../shared/schemas/managed-hooks'
+import type { UpdateState } from '../shared/schemas/updates'
 import type { Locale } from '../shared/i18n/locales'
 
 export type InvokeFn = (channel: string, input?: unknown) => Promise<unknown>
@@ -203,6 +204,16 @@ export function createIcodeApi(
       settings: () => call(IPC_CHANNELS.networkSettingsGet),
       setSettings: (input) => call(IPC_CHANNELS.networkSetSettings, input)
     },
+    updates: {
+      get: () => call(IPC_CHANNELS.updatesGet),
+      check: () => call(IPC_CHANNELS.updatesCheck),
+      download: () => call(IPC_CHANNELS.updatesDownload),
+      install: (input) => call(IPC_CHANNELS.updatesInstall, input ?? {}),
+      skip: (input) => call(IPC_CHANNELS.updatesSkip, input),
+      setAutoCheck: (input) => call(IPC_CHANNELS.updatesSetAutoCheck, input),
+      onChanged: (listener) =>
+        subscribe(IPC_CHANNELS.updatesEvent, (payload) => listener(payload as UpdateState))
+    },
     assistant: {
       state: () => call(IPC_CHANNELS.assistantState),
       messages: (input) => call(IPC_CHANNELS.assistantMessagesList, input),
@@ -291,6 +302,7 @@ export function createIcodeApi(
   Object.freeze(api.repos)
   Object.freeze(api.sessions)
   Object.freeze(api.network)
+  Object.freeze(api.updates)
   Object.freeze(api.assistant)
   Object.freeze(api.harness)
   Object.freeze(api.branches)

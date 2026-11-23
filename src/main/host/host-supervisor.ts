@@ -371,6 +371,64 @@ export class HostSupervisor {
     this.client?.close()
     this.client = null
   }
+
+  /**
+   * Stop this profile's detached host so an update can replace the app binary.
+   *
+   * Unlike `disconnect`, this is destructive for terminal sessions and is used
+   * only by the update installer after the session service has slept them. It
+   * never spawns a host: a missing record is a no-op, and a recorded host that
+   * cannot be contacted is an error rather than a reason to start a new one.
+   */
+  async shutdown(): Promise<void> {
+    const connected = this.client
+    this.client = null
+    if (connected !== null && !connected.isClosed) {
+      const pid = this.readMeta()?.pid ?? null
+      await connected.shutdown()
+      if (pid !== null) await waitForHostExit(pid)
+    } else {
+      const meta = this.readMeta()
+      if (meta === null || !isProcessAlive(meta.pid)) return
+
+      if (meta.protocolVersion !== HOST_PROTOCOL_VERSION) {
+        const replaced = await shutdownStaleHost({
+          meta,
+          socketPath: this.socketPath,
+          tokenPath: this.tokenPath,
+          token: this.readToken()
+        })
+        if (!replaced.ok) {
+          throw new HostRequestError('HOST_UNREACHABLE', replaced.message, this.logPath)
+        }
+        return
+      }
+
+      const client = await this.tryConnect()
+      if (client === null) {
+        throw new HostRequestError(
+          'HOST_UNREACHABLE',
+          `The terminal host (pid ${meta.pid}) is running but could not be contacted. Stop that process, then retry the update.`,
+          this.logPath
+        )
+      }
+      await client.shutdown()
+      await waitForHostExit(meta.pid)
+    }
+  }
+}
+
+/** Give the detached process a moment to release its image file. */
+async function waitForHostExit(pid: number): Promise<void> {
+  const deadline = Date.now() + 5_000
+  while (Date.now() < deadline) {
+    if (!isProcessAlive(pid)) return
+    await new Promise<void>((resolve) => setTimeout(resolve, 100))
+  }
+  throw new HostRequestError(
+    'HOST_UNREACHABLE',
+    `The terminal host (pid ${pid}) is still running after shutdown. Stop that process, then retry the update.`
+  )
 }
 
 /**

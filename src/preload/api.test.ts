@@ -65,6 +65,7 @@ describe('preload API surface', () => {
         'supervisor',
         'tasks',
         'terminal',
+        'updates',
         'window',
         // Distro discovery for the repository dialog: named, no channel strings.
         'wsl'
@@ -154,6 +155,35 @@ describe('preload API surface', () => {
       IPC_CHANNELS.networkSettingsGet,
       IPC_CHANNELS.networkSetSettings
     ])
+  })
+
+  it('routes update operations and state pushes', async () => {
+    const { api, invoke, subscribe, unsubscribe, emit } = setup()
+    await api.updates.get()
+    await api.updates.check()
+    await api.updates.download()
+    await api.updates.install({})
+    await api.updates.install({ stopLiveSessions: true })
+    await api.updates.skip({ version: '0.18.0' })
+    await api.updates.setAutoCheck({ enabled: false })
+    expect(invoke.mock.calls.map((call) => call[0])).toEqual([
+      IPC_CHANNELS.updatesGet,
+      IPC_CHANNELS.updatesCheck,
+      IPC_CHANNELS.updatesDownload,
+      IPC_CHANNELS.updatesInstall,
+      IPC_CHANNELS.updatesInstall,
+      IPC_CHANNELS.updatesSkip,
+      IPC_CHANNELS.updatesSetAutoCheck
+    ])
+
+    const listener = vi.fn()
+    const off = api.updates.onChanged(listener)
+    expect(subscribe).toHaveBeenCalledWith(IPC_CHANNELS.updatesEvent, expect.any(Function))
+    const state = { mode: 'install', phase: 'idle' }
+    emit(state)
+    expect(listener).toHaveBeenCalledWith(state)
+    off()
+    expect(unsubscribe).toHaveBeenCalled()
   })
 
   it('routes window controls and maximize events', async () => {

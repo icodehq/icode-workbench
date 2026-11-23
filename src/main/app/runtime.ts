@@ -1,4 +1,11 @@
 import { app, BrowserWindow, Notification, session } from 'electron'
+import { accessSync, constants as fsConstants } from 'node:fs'
+import { beginUpdateInstall, prepareWindowForClose } from '../window-close'
+import { createUpdateService, type UpdateService } from '../updates/update-service'
+import { createReleaseFeed } from '../updates/release-feed'
+import { createUpdateBackend } from '../updates/update-backend'
+import { isActiveSessionState } from '../../shared/domain/session'
+import type { UpdateLiveSession } from '../../shared/schemas/updates'
 import { homedir } from 'node:os'
 import { getAppPersistence, closeAppPersistence } from '../persistence'
 import { HostSupervisor } from '../host/host-supervisor'
@@ -176,6 +183,8 @@ export type AppRuntime = {
   /** Set when persistence could not be opened; operations surface this error. */
   startupError: AppError | null
   ready: Promise<void>
+  /** In-app update checks, downloads and the guarded install sequence. */
+  updates: UpdateService
   shutdown: () => Promise<void>
   hostLogPath: () => string
 }
@@ -370,6 +379,18 @@ export async function startAppRuntime(): Promise<AppRuntime> {
    * `WslHostRelay` is W5's endpoint (which itself revalidates the target and calls
    * W4's `ensure`), so this composition adds no lifecycle of its own.
    */
+  /**
+   * One holder instance for the process: the update installer must be able to
+   * release holders that were spawned by earlier app runs, not just this relay.
+   */
+  const wslHolder = createWslHolder({
+    store: createHolderRecordStore(join(app.getPath('userData'), 'wsl-host-holders')),
+    queryProcess: createWindowsProcessQuery(),
+    execPath: process.execPath,
+    holderEntryPath: supervisor.hostEntryPath,
+    readyDirectory: join(app.getPath('userData'), 'wsl-host-holders', 'spawn')
+  })
+
   let wslRelayInstance: WslHostRelay | null = null
   const buildWslRelay = (manifest: HostArtifactManifest, artifactRoot: string): WslHostRelay =>
     new WslHostRelay({
@@ -382,13 +403,7 @@ export async function startAppRuntime(): Promise<AppRuntime> {
           validateTarget: createTargetValidator({ runner: wslRunner }),
           // The Windows holder is W4's; this process may not be able to spawn one
           // (a Linux controller cannot), which W4 reports honestly.
-          holder: createWslHolder({
-            store: createHolderRecordStore(join(app.getPath('userData'), 'wsl-host-holders')),
-            queryProcess: createWindowsProcessQuery(),
-            execPath: process.execPath,
-            holderEntryPath: supervisor.hostEntryPath,
-            readyDirectory: join(app.getPath('userData'), 'wsl-host-holders', 'spawn')
-          }),
+          holder: wslHolder,
           store: createGuestHostStore(join(app.getPath('userData'), 'wsl-guest-hosts')),
           artifactRoot,
           manifest,
@@ -1266,6 +1281,176 @@ export async function startAppRuntime(): Promise<AppRuntime> {
 
   let shutdownPromise: Promise<void> | null = null
   let taskArchiveTimer: NodeJS.Timeout | null = null
+
+  /**
+   * Test/mirror seam: an explicitly supplied feed base overrides both the
+   * release check and electron-updater's channel. Only http(s) is accepted.
+   * Production leaves the variable unset and reads the public GitHub feed.
+   */
+  const updateFeedBaseUrl = (() => {
+    const raw = process.env.ICODE_UPDATE_FEED_BASE_URL?.trim()
+    if (raw === undefined || raw.length === 0) return null
+    try {
+      const url = new URL(raw)
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') return null
+      return url.toString().replace(/\/+$/u, '')
+    } catch {
+      return null
+    }
+  })()
+  if (updateFeedBaseUrl !== null) {
+    console.warn(`[updates] using override feed: ${updateFeedBaseUrl}`)
+  }
+
+  const updates = createUpdateService({
+    currentVersion: app.getVersion(),
+    packaged: app.isPackaged,
+    platform: process.platform,
+    arch: process.arch,
+    appImage: process.env.APPIMAGE,
+    feed: createReleaseFeed({
+      fetch: (url, init) => network.fetch(url, init),
+      platform: process.platform,
+      arch: process.arch,
+      feedBaseUrl: updateFeedBaseUrl
+    }),
+    backend: createUpdateBackend({ feedBaseUrl: updateFeedBaseUrl }),
+    preferences: {
+      load: () => loadAppPreferences(app.getPath('userData')),
+      update: (patch) => updateAppPreferences(app.getPath('userData'), patch)
+    },
+    sessions: {
+      listLive: async () => {
+        const view = await sessions.list()
+        const hostError = sessions.getLastHostError()
+        if (hostError !== null) {
+          throw makeAppError(
+            'UPDATE_INSTALL_FAILED',
+            'Could not inspect running sessions.',
+            {
+              detail: hostError.message,
+              messageKey: 'updates.error.installFailed'
+            }
+          )
+        }
+        return view.sessions
+          .filter((entry) => isActiveSessionState(entry.state))
+          .map((entry): UpdateLiveSession => ({ id: entry.id, title: entry.title }))
+      },
+      sleepAllLive: async () => {
+        const result = await sessions.sleepLiveSessions()
+        return {
+          slept: result.slept,
+          failed: result.failed + result.unreachable + result.liveOrphans
+        }
+      }
+    },
+    windows: {
+      prepareForClose: async () => {
+        const windows = BrowserWindow.getAllWindows().filter((window) => !window.isDestroyed())
+        if (windows.length === 0) return 'unavailable'
+        for (const window of windows) {
+          const result = await prepareWindowForClose(window)
+          if (result !== 'ready' && result !== 'unavailable') return result
+        }
+        return 'ready'
+      },
+      beginInstall: () => {
+        beginUpdateInstall()
+        for (const window of BrowserWindow.getAllWindows()) {
+          if (!window.isDestroyed()) window.destroy()
+        }
+      }
+    },
+    background: {
+      quiesce: () => {
+        taskDispatcher.stop()
+        taskScheduler.stop()
+        assistantNotifier?.stop()
+      },
+      resume: () => {
+        taskDispatcher.start()
+        taskScheduler.start()
+        void assistantNotifier?.start()
+      }
+    },
+    stopTerminalHosts: async () => {
+      // The detached Host executes the app binary and must exit before the
+      // installer replaces it. WSL holders are Windows iCode.exe wrappers too.
+      await supervisor.shutdown()
+      const guestHosts = await wslHosts.stopAll()
+      if (guestHosts.failed > 0) {
+        console.warn(`[updates] ${guestHosts.failed} WSL guest host(s) did not stop.`)
+      }
+      const holders = await wslHolder.releaseAll()
+      if (holders.failed.length > 0) {
+        throw makeAppError(
+          'WSL_HOST_STOP_FAILED',
+          'The Windows WSL lifetime holder could not be stopped.',
+          { detail: holders.failed.map((record) => record.distro).join(', ') }
+        )
+      }
+    },
+    shutdownRuntime,
+    preflightInstall: () => {
+      // An AppImage in a root-owned or read-only location cannot be replaced by
+      // the updater; fail before any session or host is touched.
+      const appImage = process.env.APPIMAGE
+      if (process.platform !== 'linux' || appImage === undefined) return null
+      try {
+        accessSync(appImage, fsConstants.W_OK)
+        return null
+      } catch {
+        return makeAppError(
+          'UPDATE_INSTALL_FAILED',
+          'The AppImage cannot be updated in place.',
+          {
+            detail: `${appImage} is not writable. Download the new AppImage from the release page.`,
+            messageKey: 'updates.error.installFailed'
+          }
+        )
+      }
+    },
+    relaunchAfterFailure: () => {
+      app.relaunch()
+      app.exit(1)
+    }
+  })
+
+  /**
+   * The single graceful teardown path.
+   *
+   * Normal quit deliberately leaves the detached Host and WSL holders running;
+   * only the update installer calls `stopTerminalHosts` first. The update
+   * service stops its timers here but keeps its downloaded installer usable for
+   * the immediately following `quitAndInstall`.
+   */
+  async function shutdownRuntime(): Promise<void> {
+    if (shutdownPromise) return shutdownPromise
+    shutdownPromise = (async () => {
+      updates.dispose()
+      if (taskArchiveTimer !== null) clearInterval(taskArchiveTimer)
+      taskArchiveTimer = null
+      // Stop scheduling new cleanup stages; the persisted job resumes next boot.
+      removals.stop()
+      // Stop in-flight clones and remove their partial destinations.
+      clone.cancelAll()
+      assistantNotifier?.stop()
+      assistantService.stop()
+      taskScheduler.stop()
+      taskDispatcher.stop()
+      await supervisorService?.stop().catch(() => undefined)
+      await gitStatusWatcher.stopAll().catch(() => undefined)
+      await filesWatcher.stopAll().catch(() => undefined)
+      await activityServer.stop().catch(() => undefined)
+      sessions.dispose()
+      // Do not stop the detached host: live sessions must survive app exit.
+      host.disconnect()
+      closeAppPersistence()
+    })()
+    return shutdownPromise
+  }
+
   const api: AppRuntime = {
     onTaskChange: (listener: () => void) => {
       taskListeners.add(listener)
@@ -1311,31 +1496,9 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     readGuestHome: (distro) => guestHomeCache.read(distro),
     startupError,
     ready: Promise.resolve(),
-    hostLogPath: () => supervisor.logPath,
-    shutdown: () => {
-      if (shutdownPromise) return shutdownPromise
-      shutdownPromise = (async () => {
-        if (taskArchiveTimer !== null) clearInterval(taskArchiveTimer)
-        taskArchiveTimer = null
-        // Stop scheduling new cleanup stages; the persisted job resumes next boot.
-        removals.stop()
-        // Stop in-flight clones and remove their partial destinations.
-        clone.cancelAll()
-        assistantNotifier?.stop()
-        assistantService.stop()
-        taskScheduler.stop()
-        taskDispatcher.stop()
-        await supervisorService?.stop().catch(() => undefined)
-        await gitStatusWatcher.stopAll().catch(() => undefined)
-        await filesWatcher.stopAll().catch(() => undefined)
-        await activityServer.stop().catch(() => undefined)
-        sessions.dispose()
-        // Do not stop the detached host: live sessions must survive app exit.
-        host.disconnect()
-        closeAppPersistence()
-      })()
-      return shutdownPromise
-    }
+    updates,
+    shutdown: shutdownRuntime,
+    hostLogPath: () => supervisor.logPath
   }
 
   /**
@@ -1390,6 +1553,8 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     // A schedule may have come due while the app was closed; the first tick
     // applies the age rule, so a long outage cannot replay every missed run.
     void taskScheduler.tick()
+    // The proxy runtime exists before this block runs, so the feed inherits it.
+    updates.start()
   })()
 
   runtime = api

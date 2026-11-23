@@ -19,7 +19,7 @@
 
 import { execFile, spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AppError } from '../../../shared/domain/errors'
@@ -66,6 +66,8 @@ export function holderRecordPath(directory: string, distro: string): string {
 
 export type HolderRecordStore = {
   read(distro: string): WslHolderRecord | null
+  /** Every durable holder record, for releasing holders across app runs. */
+  list(): WslHolderRecord[]
   write(record: WslHolderRecord): void
   remove(distro: string): void
 }
@@ -82,6 +84,25 @@ export function createHolderRecordStore(directory: string): HolderRecordStore {
       } catch {
         return null
       }
+    },
+    list() {
+      let names: string[]
+      try {
+        names = readdirSync(directory)
+      } catch {
+        return []
+      }
+      const records: WslHolderRecord[] = []
+      for (const name of names) {
+        if (!name.endsWith('.json')) continue
+        try {
+          const parsed = parseWslHolderRecord(readFileSync(join(directory, name), 'utf8'))
+          if (parsed !== null) records.push(parsed)
+        } catch {
+          // A partial or foreign file is not a holder this process may touch.
+        }
+      }
+      return records.sort((left, right) => left.distro.localeCompare(right.distro))
     },
     write(record) {
       mkdirSync(directory, { recursive: true, mode: 0o700 })
@@ -307,10 +328,17 @@ export type HolderReleaseOutcome =
   | { outcome: 'still_running'; record: WslHolderRecord }
   | { outcome: 'unverifiable'; record: WslHolderRecord; reason: string }
 
+export type HolderReleaseAllOutcome = {
+  released: number
+  /** Holders that could not be proven stopped; the update installer aborts. */
+  failed: WslHolderRecord[]
+}
+
 export type WslHolder = {
   ensure(distro: string, distroId: string): Promise<HolderEnsureOutcome>
   state(distro: string): Promise<{ state: WslHolderState; record: WslHolderRecord | null }>
   release(distro: string): Promise<HolderReleaseOutcome>
+  releaseAll(): Promise<HolderReleaseAllOutcome>
 }
 
 export function createWslHolder(deps: HolderDeps): WslHolder {
@@ -447,6 +475,21 @@ export function createWslHolder(deps: HolderDeps): WslHolder {
       }
       // Report the honest outcome: the holder may still be alive.
       return { outcome: 'still_running', record }
+    },
+
+    async releaseAll() {
+      const records = deps.store.list()
+      if (records.length === 0) return { released: 0, failed: [] }
+      const outcomes = await Promise.all(
+        records.map(async (record) => ({ record, result: await this.release(record.distro) }))
+      )
+      let released = 0
+      const failed: WslHolderRecord[] = []
+      for (const { record, result } of outcomes) {
+        if (result.outcome === 'released') released += 1
+        else failed.push(record)
+      }
+      return { released, failed }
     }
   }
 }

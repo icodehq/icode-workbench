@@ -13,6 +13,14 @@ import {
 
 let directory: string
 
+const BASE_PREFERENCES = {
+  opencodeIntegrationEnabled: true,
+  agentStatusHooksEnabled: true,
+  proxy: DEFAULT_NETWORK_PROXY_SETTINGS,
+  updateAutoCheckEnabled: true,
+  skippedUpdateVersion: null
+} as const
+
 beforeEach(() => {
   directory = mkdtempSync(join(tmpdir(), 'icode-preferences-'))
 })
@@ -30,59 +38,73 @@ describe('app preferences', () => {
     expect(
       saveAppPreferences(directory, {
         locale: 'ja',
-        opencodeIntegrationEnabled: true,
-        agentStatusHooksEnabled: true,
-        proxy: DEFAULT_NETWORK_PROXY_SETTINGS
+        ...BASE_PREFERENCES
       })
     ).toBe(true)
     expect(loadAppPreferences(directory)).toEqual({
       locale: 'ja',
-      opencodeIntegrationEnabled: true,
-      agentStatusHooksEnabled: true,
-      proxy: DEFAULT_NETWORK_PROXY_SETTINGS
+      ...BASE_PREFERENCES
     })
     expect(JSON.parse(readFileSync(join(directory, 'preferences.json'), 'utf8'))).toEqual({
       locale: 'ja',
-      opencodeIntegrationEnabled: true,
-      agentStatusHooksEnabled: true,
-      proxy: DEFAULT_NETWORK_PROXY_SETTINGS
+      ...BASE_PREFERENCES
     })
   })
 
   it('ignores unknown fields and rejects invalid records', () => {
     expect(parseAppPreferences({ locale: 'fr', extra: true })).toEqual({
       locale: 'fr',
-      opencodeIntegrationEnabled: true,
-      agentStatusHooksEnabled: true,
-      proxy: DEFAULT_NETWORK_PROXY_SETTINGS
+      ...BASE_PREFERENCES
     })
     expect(parseAppPreferences({ locale: 'system' })).toEqual({
       locale: 'system',
-      opencodeIntegrationEnabled: true,
-      agentStatusHooksEnabled: true,
-      proxy: DEFAULT_NETWORK_PROXY_SETTINGS
+      ...BASE_PREFERENCES
     })
     expect(
       parseAppPreferences({ locale: 'de', opencodeIntegrationEnabled: false })
     ).toEqual({
       locale: 'de',
-      opencodeIntegrationEnabled: false,
-      agentStatusHooksEnabled: true,
-      proxy: DEFAULT_NETWORK_PROXY_SETTINGS
+      ...BASE_PREFERENCES,
+      opencodeIntegrationEnabled: false
     })
     expect(
       parseAppPreferences({ locale: 'de', opencodeIntegrationEnabled: 'yes' })
     ).toEqual({
       locale: 'de',
-      opencodeIntegrationEnabled: true,
-      agentStatusHooksEnabled: true,
-      proxy: DEFAULT_NETWORK_PROXY_SETTINGS
+      ...BASE_PREFERENCES,
+      opencodeIntegrationEnabled: true
     })
     expect(parseAppPreferences({ locale: 'zh-TW' })).toBeNull()
     expect(parseAppPreferences({ locale: 1 })).toBeNull()
     expect(parseAppPreferences([])).toBeNull()
     expect(parseAppPreferences(null)).toBeNull()
     expect(parseAppPreferences('en')).toBeNull()
+  })
+
+  it('defaults the update preferences for legacy and malformed records', () => {
+    expect(
+      parseAppPreferences({
+        locale: 'en',
+        updateAutoCheckEnabled: 'yes',
+        skippedUpdateVersion: 42
+      })
+    ).toEqual({ locale: 'en', ...BASE_PREFERENCES })
+    expect(
+      parseAppPreferences({
+        locale: 'en',
+        updateAutoCheckEnabled: false,
+        skippedUpdateVersion: ' 0.18.0 '
+      })
+    ).toEqual({
+      locale: 'en',
+      ...BASE_PREFERENCES,
+      updateAutoCheckEnabled: false,
+      skippedUpdateVersion: '0.18.0'
+    })
+    expect(parseAppPreferences({ locale: 'en', skippedUpdateVersion: '   ' })).toEqual({
+      locale: 'en',
+      ...BASE_PREFERENCES
+    })
   })
 
   it('parses and normalizes a manual proxy', () => {
@@ -98,8 +120,7 @@ describe('app preferences', () => {
       })
     ).toEqual({
       locale: 'en',
-      opencodeIntegrationEnabled: true,
-      agentStatusHooksEnabled: true,
+      ...BASE_PREFERENCES,
       proxy: {
         mode: 'manual',
         httpProxyUrl: 'http://127.0.0.1:7890',
@@ -121,6 +142,8 @@ describe('app preferences', () => {
     expect(saveAppPreferences(directory, DEFAULT_APP_PREFERENCES)).toBe(true)
     expect(updateAppPreferences(directory, { locale: 'fr' })).toBe(true)
     expect(updateAppPreferences(directory, { opencodeIntegrationEnabled: false })).toBe(true)
+    expect(updateAppPreferences(directory, { updateAutoCheckEnabled: false })).toBe(true)
+    expect(updateAppPreferences(directory, { skippedUpdateVersion: '0.18.0' })).toBe(true)
     expect(
       updateAppPreferences(directory, {
         proxy: {
@@ -133,8 +156,10 @@ describe('app preferences', () => {
     ).toBe(true)
     expect(loadAppPreferences(directory)).toEqual({
       locale: 'fr',
+      ...BASE_PREFERENCES,
       opencodeIntegrationEnabled: false,
-      agentStatusHooksEnabled: true,
+      updateAutoCheckEnabled: false,
+      skippedUpdateVersion: '0.18.0',
       proxy: {
         mode: 'manual',
         httpProxyUrl: 'http://127.0.0.1:7890',
@@ -145,8 +170,10 @@ describe('app preferences', () => {
     expect(updateAppPreferences(directory, { opencodeIntegrationEnabled: true })).toBe(true)
     expect(loadAppPreferences(directory)).toEqual({
       locale: 'fr',
+      ...BASE_PREFERENCES,
       opencodeIntegrationEnabled: true,
-      agentStatusHooksEnabled: true,
+      updateAutoCheckEnabled: false,
+      skippedUpdateVersion: '0.18.0',
       proxy: {
         mode: 'manual',
         httpProxyUrl: 'http://127.0.0.1:7890',
@@ -154,6 +181,8 @@ describe('app preferences', () => {
         noProxy: ''
       }
     })
+    expect(updateAppPreferences(directory, { skippedUpdateVersion: null })).toBe(true)
+    expect(loadAppPreferences(directory).skippedUpdateVersion).toBeNull()
   })
 
   it('falls back to defaults when the file is corrupt', () => {
@@ -168,9 +197,7 @@ describe('app preferences', () => {
     expect(
       saveAppPreferences(join(missingParent, 'child'), {
         locale: 'de',
-        opencodeIntegrationEnabled: true,
-        agentStatusHooksEnabled: true,
-        proxy: DEFAULT_NETWORK_PROXY_SETTINGS
+        ...BASE_PREFERENCES
       })
     ).toBe(false)
   })

@@ -18,13 +18,19 @@ export type AppPreferences = {
   agentStatusHooksEnabled: boolean
   /** System/manual/off HTTP and HTTPS proxy configuration. */
   proxy: NetworkProxySettings
+  /** Automatic update checks; downloads always remain user-initiated. */
+  updateAutoCheckEnabled: boolean
+  /** The last version the user explicitly skipped, or null. */
+  skippedUpdateVersion: string | null
 }
 
 export const DEFAULT_APP_PREFERENCES: AppPreferences = {
   locale: 'system',
   opencodeIntegrationEnabled: true,
   agentStatusHooksEnabled: true,
-  proxy: DEFAULT_NETWORK_PROXY_SETTINGS
+  proxy: DEFAULT_NETWORK_PROXY_SETTINGS,
+  updateAutoCheckEnabled: true,
+  skippedUpdateVersion: null
 }
 
 const PREFERENCES_FILE = 'preferences.json'
@@ -44,7 +50,15 @@ export function parseAppPreferences(value: unknown): AppPreferences | null {
       typeof record.agentStatusHooksEnabled === 'boolean'
         ? record.agentStatusHooksEnabled
         : DEFAULT_APP_PREFERENCES.agentStatusHooksEnabled,
-    proxy: parseNetworkProxySettings(record.proxy)
+    proxy: parseNetworkProxySettings(record.proxy),
+    updateAutoCheckEnabled:
+      typeof record.updateAutoCheckEnabled === 'boolean'
+        ? record.updateAutoCheckEnabled
+        : DEFAULT_APP_PREFERENCES.updateAutoCheckEnabled,
+    skippedUpdateVersion:
+      typeof record.skippedUpdateVersion === 'string' && record.skippedUpdateVersion.trim() !== ''
+        ? record.skippedUpdateVersion.trim()
+        : null
   }
 }
 
@@ -74,7 +88,13 @@ export function updateAppPreferences(
       patch.opencodeIntegrationEnabled ?? current.opencodeIntegrationEnabled,
     agentStatusHooksEnabled:
       patch.agentStatusHooksEnabled ?? current.agentStatusHooksEnabled,
-    proxy: patch.proxy === undefined ? current.proxy : parseNetworkProxySettings(patch.proxy)
+    proxy: patch.proxy === undefined ? current.proxy : parseNetworkProxySettings(patch.proxy),
+    updateAutoCheckEnabled:
+      patch.updateAutoCheckEnabled ?? current.updateAutoCheckEnabled,
+    skippedUpdateVersion:
+      patch.skippedUpdateVersion === undefined
+        ? current.skippedUpdateVersion
+        : patch.skippedUpdateVersion
   })
 }
 

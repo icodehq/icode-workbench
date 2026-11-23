@@ -7,5 +7,7 @@
   "localProfileDirName": "iCode",
   "guestDirName": ".icode",
   "dbFileName": "icode.sqlite",
-  "branchPrefix": "icode/"
+  "branchPrefix": "icode/",
+  "releaseOwner": "icodehq",
+  "releaseRepo": "icode-workbench"
 }

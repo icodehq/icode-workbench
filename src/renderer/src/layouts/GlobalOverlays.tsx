@@ -7,6 +7,7 @@ import NewSessionDialog from '../components/NewSessionDialog'
 import NotificationsDrawer from '../components/NotificationsDrawer'
 import QuickOpen from '../components/QuickOpen'
 import WorktreeCleanupDialog from '../components/WorktreeCleanupDialog'
+import UpdateRestartDialog from '../updates/UpdateRestartDialog'
 
 type Props = {
   /** Always mounted; visibility is controlled by the drawer's `open` prop. */
@@ -54,6 +55,8 @@ export default function GlobalOverlays({
       {branchCleanup !== null ? <BranchCleanupDialog {...branchCleanup} /> : null}
 
       <AppCloseGuard />
+
+      <UpdateRestartDialog />
     </>
   )
 }

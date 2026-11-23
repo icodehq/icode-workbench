@@ -2,7 +2,11 @@ import { EventEmitter } from 'node:events'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { BrowserWindow } from 'electron'
 import { app } from 'electron'
-import { installWindowCloseGuard, respondToWindowClose } from './window-close'
+import {
+  installWindowCloseGuard,
+  prepareWindowForClose,
+  respondToWindowClose
+} from './window-close'
 
 vi.mock('electron', () => ({
   app: { on: vi.fn(), removeListener: vi.fn(), quit: vi.fn() },
@@ -108,5 +112,48 @@ describe('window close guard', () => {
     respondToWindowClose(window as unknown as BrowserWindow, 'close')
     window.emit('closed')
     expect(app.quit).not.toHaveBeenCalled()
+  })
+})
+
+describe('update close preparation', () => {
+  it('saves through the close protocol without closing the window', async () => {
+    const window = new FakeWindow()
+    installWindowCloseGuard(window as unknown as BrowserWindow)
+
+    const prepared = prepareWindowForClose(window as unknown as BrowserWindow)
+    expect(window.webContents.send).toHaveBeenCalledWith('icode:window:before-close')
+    expect(respondToWindowClose(window as unknown as BrowserWindow, 'ack')).toBe(true)
+    expect(respondToWindowClose(window as unknown as BrowserWindow, 'close')).toBe(true)
+
+    await expect(prepared).resolves.toBe('ready')
+    expect(window.close).not.toHaveBeenCalled()
+  })
+
+  it('reports a cancelled save prompt', async () => {
+    const window = new FakeWindow()
+    installWindowCloseGuard(window as unknown as BrowserWindow)
+
+    const prepared = prepareWindowForClose(window as unknown as BrowserWindow)
+    respondToWindowClose(window as unknown as BrowserWindow, 'cancel')
+    await expect(prepared).resolves.toBe('cancelled')
+    expect(window.close).not.toHaveBeenCalled()
+  })
+
+  it('times out a renderer that never answers', async () => {
+    vi.useFakeTimers()
+    const window = new FakeWindow()
+    installWindowCloseGuard(window as unknown as BrowserWindow)
+
+    const prepared = prepareWindowForClose(window as unknown as BrowserWindow, 50)
+    await vi.advanceTimersByTimeAsync(60)
+    await expect(prepared).resolves.toBe('timeout')
+    expect(window.close).not.toHaveBeenCalled()
+  })
+
+  it('returns unavailable when the window has no guard', async () => {
+    const window = new FakeWindow()
+    await expect(
+      prepareWindowForClose(window as unknown as BrowserWindow)
+    ).resolves.toBe('unavailable')
   })
 })
