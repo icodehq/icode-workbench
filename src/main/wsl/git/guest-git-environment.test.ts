@@ -12,10 +12,10 @@ import {
 import { createGuestGitEnvironmentCache } from './guest-git-environment'
 import { resetGuestGitEnvironments, runGuestGit } from './guest-git'
 
-function probeBody(path: string, git: string, home: string): Buffer {
+function probeBody(path: string, git: string, home: string, socket = ''): Buffer {
   return Buffer.concat([
     Buffer.from(`${LOGIN_FENCE_START}`),
-    Buffer.from(`${path}\u0000${git}\u0000${home}`),
+    Buffer.from(`${path}\u0000${git}\u0000${home}\u0000${socket}`),
     Buffer.from(`${LOGIN_FENCE_END}${LOGIN_FENCE_STATUS}0`)
   ])
 }
@@ -43,8 +43,23 @@ describe('probe parsing', () => {
     expect(parseGuestGitProbe(probeBody('/usr/bin:/bin', '/usr/bin/git', '/home/u'))).toEqual({
       gitPath: '/usr/bin/git',
       path: '/usr/bin:/bin',
-      home: '/home/u'
+      home: '/home/u',
+      sshAuthSock: null
     })
+  })
+
+  it('captures the login shell agent socket', () => {
+    expect(
+      parseGuestGitProbe(
+        probeBody('/usr/bin', '/usr/bin/git', '/home/u', '/run/user/1000/openssh_agent')
+      )
+    ).toMatchObject({ sshAuthSock: '/run/user/1000/openssh_agent' })
+  })
+
+  it('rejects a malformed agent socket', () => {
+    expect(
+      parseGuestGitProbe(probeBody('/usr/bin', '/usr/bin/git', '/home/u', 'relative.sock'))
+    ).toBeNull()
   })
 
   it('discards a login banner printed before the fence', () => {

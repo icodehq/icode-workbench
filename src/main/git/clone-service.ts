@@ -16,16 +16,31 @@ import { posix, win32 } from 'node:path'
 import type { AppError } from '../../shared/domain/errors'
 import { makeAppError } from '../../shared/domain/errors'
 import type { ExecutionTarget } from '../../shared/domain/repository'
-import { isCloneableRemoteInput, containsRedactionPlaceholder } from '../../shared/domain/remote-url'
+import {
+  isCloneableRemoteInput,
+  containsRedactionPlaceholder,
+  parseRemoteUrl
+} from '../../shared/domain/remote-url'
 import { isValidCloneName, joinCloneDestination } from '../../shared/domain/clone'
 import { MAX_PATH_LENGTH } from '../../shared/domain/paths'
+import { quotePosixShell } from '../../shared/domain/shell-quote'
 import type { MessageKey } from '../../shared/i18n/messages'
+import type { CloneAuthPayload } from '../../shared/schemas/remotes'
 import type { WslCommandRunner } from '../wsl/exec'
+import { readGuestHome } from '../wsl/host/lifecycle'
 import type { GitWorktreeService } from '../worktrees/git-worktree-service'
 import type { ProjectFolderService } from '../repositories/project-folder-service'
 import { ProjectFolderError } from '../repositories/project-folder-service'
-import { classifyRemoteFailure } from './remote-failure'
+import { classifyCloneFailure, type CloneAuthHint } from './clone-failure'
+import {
+  CloneCredentialError,
+  createGuestCredentialBundle,
+  createLocalCredentialBundle,
+  matchingInsteadOfPrefix,
+  type CloneCredentialBundle
+} from './clone-credentials'
 import { runStreamingGuestClone } from './clone-guest'
+import { ClonePersistenceError, type ClonePersistenceService } from './clone-persistence'
 import {
   createCloneProgressReader,
   type ClonePhase,
@@ -36,16 +51,28 @@ import { GitUnavailableError } from './executor'
 const MAX_ACTIVE_CLONES = 3
 const CLONE_TIMEOUT_MS = 30 * 60 * 1_000
 const READ_TIMEOUT_MS = 10_000
+const AUTH_VERIFY_TIMEOUT_MS = 20_000
 const THROTTLE_MS = 100
 
 export type CloneCleanup = 'removed' | 'failed' | 'not-needed'
+
+export type CloneCredentialOutcome = {
+  used: boolean
+  persistence: 'stored' | 'no-helper' | 'failed' | 'not-applicable'
+}
 
 export type CloneEvent =
   | ({
       type: 'progress'
       requestId: string
     } & CloneProgress)
-  | { type: 'done'; requestId: string; destination: string; unborn: boolean }
+  | {
+      type: 'done'
+      requestId: string
+      destination: string
+      unborn: boolean
+      credential?: CloneCredentialOutcome
+    }
   | {
       type: 'cancelled'
       requestId: string
@@ -66,12 +93,29 @@ export type CloneStartInput = {
   target: ExecutionTarget
   parentPath: string
   name: string
+  auth?: CloneAuthPayload
 }
 
 export type CloneServiceDeps = {
   gitWorktrees: Pick<GitWorktreeService, 'gitResultFor' | 'hostFsFor' | 'streamGitFor'>
   projectFolders: Pick<ProjectFolderService, 'resolveCloneParent' | 'resolveCloneSource'>
   runner: WslCommandRunner
+  /** Per-user directory for one-attempt credential artifacts (userData/clone-auth). */
+  credentialRoot: string
+  /** Test seam; production reads the distro's own home. */
+  readGuestHome?: (distro: string) => Promise<string | null>
+  /** Persists a credential after a successful interactive clone when wired. */
+  persistence?: Pick<
+    ClonePersistenceService,
+    'hasHelper' | 'approve' | 'store' | 'switchRemoteToSsh'
+  >
+}
+
+/** Everything an authenticated attempt needs once the credential package exists. */
+type CloneAuthContext = {
+  hint: CloneAuthHint
+  gitOptions: readonly string[]
+  env: Readonly<Record<string, string>>
 }
 
 type ActiveClone = {
@@ -81,6 +125,9 @@ type ActiveClone = {
   parent: string
   destination: string
   controller: AbortController
+  auth?: CloneAuthPayload
+  authContext: CloneAuthContext | null
+  credentialBundle: CloneCredentialBundle | null
 }
 
 function fail(
@@ -93,6 +140,11 @@ function fail(
     ...(detail ? { detail } : {}),
     ...(messageKey === undefined ? {} : { messageKey })
   })
+}
+
+/** Credential fields are line-oriented on disk; a newline is a protocol risk. */
+function isSingleLineCredential(value: string, max: number): boolean {
+  return value.length > 0 && value.length <= max && !/[\u0000\r\n]/u.test(value)
 }
 
 /** Keeps the dispatcher's appError wrapper convention. */
@@ -117,9 +169,27 @@ function isStrictDescendant(parent: string, destination: string, target: Executi
   )
 }
 
+type CompletedAuth = {
+  target: ExecutionTarget
+  cwd: string
+  url: string
+  username: string
+  password: Buffer
+  timer: NodeJS.Timeout
+}
+
+const COMPLETED_AUTH_TTL_MS = 10 * 60 * 1_000
+const MAX_COMPLETED_AUTH = 8
+
 export class CloneService {
   private readonly active = new Map<string, ActiveClone>()
   private readonly listeners = new Set<(event: CloneEvent) => void>()
+  /**
+   * A successful HTTPS clone with no helper leaves the user one decision:
+   * store, switch to SSH, or skip. The credential is held only in memory, with
+   * a TTL, so the user does not have to paste it again after the clone.
+   */
+  private readonly completedAuth = new Map<string, CompletedAuth>()
 
   constructor(private readonly deps: CloneServiceDeps) {}
 
@@ -165,6 +235,7 @@ export class CloneService {
         )
       )
     }
+    if (input.auth !== undefined) this.validateAuthInput(input.auth, url)
 
     let parent: string
     try {
@@ -222,7 +293,10 @@ export class CloneService {
       target: input.target,
       parent,
       destination,
-      controller: new AbortController()
+      controller: new AbortController(),
+      auth: input.auth,
+      authContext: null,
+      credentialBundle: null
     }
     // Validation awaits, so the limits are re-checked before the entry exists.
     if (this.active.size >= MAX_ACTIVE_CLONES) {
@@ -283,6 +357,364 @@ export class CloneService {
     this.emit({ type: 'progress', requestId, ...progress })
   }
 
+  private validateAuthInput(auth: CloneAuthPayload, url: string): void {
+    const parsed = parseRemoteUrl(url)
+    if (parsed === null || parsed.kind !== 'url' || parsed.isLocalPath) {
+      throw new CloneServiceError(
+        fail(
+          'INVALID_ARGUMENT',
+          'Credentials can only be used with a network Git URL.',
+          undefined,
+          'addRepo.clone.auth.networkOnly'
+        )
+      )
+    }
+    if (auth.kind === 'https') {
+      if (parsed.scheme !== 'https' || parsed.hasCredentials) {
+        throw new CloneServiceError(
+          fail(
+            'INVALID_ARGUMENT',
+            'Credentials can only be used with an HTTPS URL that does not already contain them.',
+            undefined,
+            'addRepo.clone.auth.httpsOnly'
+          )
+        )
+      }
+      if (
+        !isSingleLineCredential(auth.username, 255) ||
+        !isSingleLineCredential(auth.password, 4_096)
+      ) {
+        throw new CloneServiceError(
+          fail(
+            'INVALID_ARGUMENT',
+            'Enter a username and password or access token on one line.',
+            undefined,
+            'addRepo.clone.auth.invalidCredential'
+          )
+        )
+      }
+      return
+    }
+    if (parsed.scheme !== 'ssh' && parsed.scheme !== 'git+ssh') {
+      throw new CloneServiceError(
+        fail(
+          'INVALID_ARGUMENT',
+          'An SSH authentication attempt requires an SSH URL.',
+          undefined,
+          'addRepo.clone.auth.sshOnly'
+        )
+      )
+    }
+  }
+
+  /**
+   * Writes the per-attempt credential handoff and returns the Git options that
+   * mount it. Only HTTPS is supported here; SSH has no secret and is handled by
+   * its own flow.
+   */
+  private async prepareAuth(entry: ActiveClone): Promise<CloneAuthContext | null> {
+    const auth = entry.auth
+    if (auth === undefined) return null
+    if (auth.kind === 'ssh') {
+      // The SSH service already tested the key, agent and host key. The clone
+      // still preflights with the same BatchMode policy, so a key removed
+      // between the test and this call fails before a long transfer.
+      const sshCommand = `${quotePosixShell('ssh')} -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=yes`
+      return {
+        hint: 'ssh',
+        gitOptions: ['-c', `core.sshCommand=${sshCommand}`],
+        env: { GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: '', SSH_ASKPASS: '' }
+      }
+    }
+    await this.assertNoInsteadOfRewrite(entry)
+    const password = Buffer.from(auth.password, 'utf8')
+    try {
+      const bundle =
+        entry.target.kind === 'wsl'
+          ? await createGuestCredentialBundle({
+              runner: this.deps.runner,
+              distro: entry.target.distro,
+              home: await this.guestHome(entry),
+              requestId: entry.requestId,
+              url: entry.url,
+              username: auth.username,
+              password,
+              signal: entry.controller.signal
+            })
+          : await createLocalCredentialBundle({
+              root: this.deps.credentialRoot,
+              url: entry.url,
+              username: auth.username,
+              password
+            })
+      entry.credentialBundle = bundle
+      return { hint: 'https', gitOptions: bundle.gitOptions, env: bundle.env }
+    } finally {
+      password.fill(0)
+    }
+  }
+
+  private async guestHome(entry: ActiveClone): Promise<string> {
+    if (entry.target.kind !== 'wsl') throw new Error('guestHome called for a non-WSL target')
+    const home =
+      this.deps.readGuestHome !== undefined
+        ? await this.deps.readGuestHome(entry.target.distro)
+        : await readGuestHome(this.deps.runner, entry.target.distro)
+    if (home === null) {
+      throw new CloneCredentialError(
+        fail(
+          'WSL_UNAVAILABLE',
+          'The WSL distro did not report a home directory.',
+          entry.target.distro,
+          'errors.WSL_UNAVAILABLE'
+        )
+      )
+    }
+    return home
+  }
+
+  /**
+   * A URL Git would rewrite before transport cannot be bound to the host the
+   * user typed. Refuse the authenticated attempt rather than authenticate
+   * against a different host; an anonymous clone remains available.
+   */
+  private async assertNoInsteadOfRewrite(entry: ActiveClone): Promise<void> {
+    const git = await this.deps.gitWorktrees.gitResultFor(entry.target)
+    const result = await git(
+      entry.parent,
+      ['config', '--get-regexp', '^url\\..*\\.insteadof$'],
+      READ_TIMEOUT_MS,
+      { signal: entry.controller.signal }
+    )
+    if (result.timedOut || result.exitCode !== 0) return
+    const rewrite = matchingInsteadOfPrefix(entry.url, result.stdout.toString('utf8'))
+    if (rewrite === null) return
+    throw new CloneCredentialError(
+      fail(
+        'INVALID_ARGUMENT',
+        "This URL is rewritten by Git's url.*.insteadOf configuration; use the rewritten URL.",
+        rewrite.slice(0, 200),
+        'addRepo.clone.auth.rewrittenUrl'
+      )
+    )
+  }
+
+  /**
+   * Proves the credential against the remote before a long clone. `ls-remote`
+   * asks for one ref and prints none of the repository; its auth failure is the
+   * same Git diagnostic the clone would have produced.
+   */
+  private async preflightAuth(entry: ActiveClone, context: CloneAuthContext): Promise<boolean> {
+    const git = await this.deps.gitWorktrees.gitResultFor(entry.target)
+    const result = await git(
+      entry.parent,
+      [...context.gitOptions, 'ls-remote', '--', entry.url, 'HEAD'],
+      AUTH_VERIFY_TIMEOUT_MS,
+      { env: context.env, signal: entry.controller.signal }
+    )
+
+    if (entry.controller.signal.aborted) {
+      const cleanup = await this.cleanup(entry)
+      this.emit({ type: 'cancelled', requestId: entry.requestId, destination: entry.destination, cleanup })
+      return false
+    }
+    if (result.spawnFailure === 'wsl_missing') {
+      const cleanup = await this.cleanup(entry)
+      this.emit({
+        type: 'failed',
+        requestId: entry.requestId,
+        destination: entry.destination,
+        error: fail('WSL_UNAVAILABLE', 'WSL is not available.', undefined, 'errors.WSL_UNAVAILABLE'),
+        cleanup
+      })
+      return false
+    }
+    if (result.timedOut) {
+      const cleanup = await this.cleanup(entry)
+      this.emit({
+        type: 'failed',
+        requestId: entry.requestId,
+        destination: entry.destination,
+        error: fail(
+          'GIT_REMOTE_FAILED',
+          'Git did not answer while checking credentials.',
+          undefined,
+          'addRepo.clone.auth.checkTimeout'
+        ),
+        cleanup
+      })
+      return false
+    }
+    if (result.exitCode === 0) return true
+
+    const cleanup = await this.cleanup(entry)
+    this.emit({
+      type: 'failed',
+      requestId: entry.requestId,
+      destination: entry.destination,
+      error: classifyCloneFailure({
+        stderr: result.stderr.toString('utf8'),
+        operation: 'clone',
+        target: entry.target,
+        remoteUrl: entry.url,
+        fallback: 'The repository could not be cloned.'
+      }),
+      cleanup
+    })
+    return false
+  }
+
+  /**
+   * Saves the credential where the environment's Git can find it later.
+   *
+   * An existing helper is authoritative and receives an approve silently. No
+   * helper means there is nowhere to save: the record waits for the dialog's
+   * explicit store/SSH/skip choice. Either way the plaintext reference in
+   * `entry.auth` is dropped here.
+   */
+  private async persistenceAfterClone(
+    entry: ActiveClone
+  ): Promise<CloneCredentialOutcome | undefined> {
+    const auth = entry.auth
+    if (auth?.kind !== 'https') return undefined
+    const persistence = this.deps.persistence
+    if (persistence === undefined) return { used: true, persistence: 'not-applicable' }
+    const password = Buffer.from(auth.password, 'utf8')
+    try {
+      let hasHelper = false
+      try {
+        hasHelper = await persistence.hasHelper(entry.target, entry.destination, entry.url)
+      } catch {
+        hasHelper = false
+      }
+      if (hasHelper) {
+        try {
+          await persistence.approve(
+            entry.target,
+            entry.destination,
+            entry.url,
+            auth.username,
+            password
+          )
+          return { used: true, persistence: 'stored' }
+        } catch {
+          return { used: true, persistence: 'failed' }
+        }
+      }
+      this.rememberCompletedAuth(entry, auth.username, password)
+      return { used: true, persistence: 'no-helper' }
+    } finally {
+      password.fill(0)
+      entry.auth = undefined
+    }
+  }
+
+  private rememberCompletedAuth(entry: ActiveClone, username: string, password: Buffer): void {
+    this.clearCompletedAuth(entry.requestId)
+    if (this.completedAuth.size >= MAX_COMPLETED_AUTH) {
+      const oldest = this.completedAuth.keys().next().value
+      if (oldest !== undefined) this.clearCompletedAuth(oldest)
+    }
+    const timer = setTimeout(
+      () => this.clearCompletedAuth(entry.requestId),
+      COMPLETED_AUTH_TTL_MS
+    )
+    timer.unref?.()
+    this.completedAuth.set(entry.requestId, {
+      target: entry.target,
+      cwd: entry.destination,
+      url: entry.url,
+      username,
+      password: Buffer.from(password),
+      timer
+    })
+  }
+
+  private clearCompletedAuth(requestId: string): void {
+    const record = this.completedAuth.get(requestId)
+    if (record === undefined) return
+    clearTimeout(record.timer)
+    record.password.fill(0)
+    this.completedAuth.delete(requestId)
+  }
+
+  /**
+   * Handles the dialog's post-success choice. The renderer names only a
+   * request id and a mode; destination, target and credential come from the
+   * in-memory record, never from the wire.
+   */
+  async persist(
+    requestId: string,
+    mode: 'store' | 'ssh' | 'skip',
+    sshUrl?: string
+  ): Promise<{ status: 'stored' | 'switched' | 'skipped' }> {
+    const record = this.completedAuth.get(requestId)
+    if (record === undefined) {
+      throw new CloneServiceError(
+        fail(
+          'INVALID_ARGUMENT',
+          'The saved credential is no longer available.',
+          undefined,
+          'addRepo.clone.persist.expired'
+        )
+      )
+    }
+    const persistence = this.deps.persistence
+    if (mode !== 'skip' && persistence === undefined) {
+      this.clearCompletedAuth(requestId)
+      throw new CloneServiceError(fail('INTERNAL', 'Credential persistence is unavailable.'))
+    }
+    try {
+      if (mode === 'skip') return { status: 'skipped' }
+      if (mode === 'store') {
+        // A helper may have appeared since the clone; prefer it over adding a
+        // second, plaintext one to the global configuration.
+        const hasHelper = await persistence!.hasHelper(
+          record.target,
+          record.cwd,
+          record.url
+        )
+        if (hasHelper) {
+          await persistence!.approve(
+            record.target,
+            record.cwd,
+            record.url,
+            record.username,
+            record.password
+          )
+        } else {
+          await persistence!.store(
+            record.target,
+            record.cwd,
+            record.url,
+            record.username,
+            record.password
+          )
+        }
+        return { status: 'stored' }
+      }
+      if (sshUrl === undefined) {
+        throw new CloneServiceError(
+          fail(
+            'INVALID_ARGUMENT',
+            'An SSH URL is required to switch this checkout.',
+            undefined,
+            'addRepo.clone.auth.sshOnly'
+          )
+        )
+      }
+      await persistence!.switchRemoteToSsh(record.target, record.cwd, record.url, sshUrl)
+      return { status: 'switched' }
+    } catch (error) {
+      if (error instanceof ClonePersistenceError) {
+        throw new CloneServiceError(error.appError)
+      }
+      throw error
+    } finally {
+      this.clearCompletedAuth(requestId)
+    }
+  }
+
   private async run(entry: ActiveClone): Promise<void> {
     const { requestId, target, url, destination } = entry
     const throttleState = { phase: null as ClonePhase | null, percent: null as number | null, at: 0 }
@@ -299,6 +731,11 @@ export class CloneService {
     })
 
     try {
+      const authContext = await this.prepareAuth(entry)
+      if (authContext !== null) {
+        entry.authContext = authContext
+        if (!(await this.preflightAuth(entry, authContext))) return
+      }
       const result =
         target.kind === 'wsl'
           ? await this.cloneGuest(entry, reader)
@@ -347,7 +784,7 @@ export class CloneService {
           type: 'failed',
           requestId,
           destination,
-          error: classifyRemoteFailure({
+          error: classifyCloneFailure({
             stderr: result.stderr,
             operation: 'clone',
             target,
@@ -372,6 +809,7 @@ export class CloneService {
         return
       }
       const unborn = await this.isUnborn(destination, target)
+      const credentialOutcome = await this.persistenceAfterClone(entry)
       this.emit({
         type: 'progress',
         requestId,
@@ -379,7 +817,13 @@ export class CloneService {
         percent: 100,
         detail: ''
       })
-      this.emit({ type: 'done', requestId, destination, unborn })
+      this.emit({
+        type: 'done',
+        requestId,
+        destination,
+        unborn,
+        ...(credentialOutcome === undefined ? {} : { credential: credentialOutcome })
+      })
     } catch (error) {
       // Cancellation wins over whatever shape the transport reported: a local
       // spawn aborted through its signal rejects with an AbortError rather than
@@ -407,6 +851,8 @@ export class CloneService {
         cleanup
       })
     } finally {
+      // The credential directory exists only for this process lifetime.
+      await entry.credentialBundle?.dispose()
       this.active.delete(requestId)
     }
   }
@@ -425,13 +871,18 @@ export class CloneService {
     if (stream === null) {
       throw new GitUnavailableError('Git streaming is unavailable on this host.')
     }
+    const auth = entry.authContext
     const result = await stream(
       entry.parent,
-      ['clone', '--progress', '--', entry.url, entry.destination],
+      [...(auth?.gitOptions ?? []), 'clone', '--progress', '--', entry.url, entry.destination],
       {
         onStderr: (chunk) => reader.push(chunk)
       },
-      { timeoutMs: CLONE_TIMEOUT_MS, signal: entry.controller.signal }
+      {
+        timeoutMs: CLONE_TIMEOUT_MS,
+        signal: entry.controller.signal,
+        ...(auth === null ? {} : { env: auth.env })
+      }
     )
     return {
       exitCode: result.timedOut ? null : result.exitCode,
@@ -471,7 +922,10 @@ export class CloneService {
           bytes -= chunks[0]!.length
           chunks.shift()
         }
-      }
+      },
+      ...(entry.authContext === null
+        ? {}
+        : { gitOptions: entry.authContext.gitOptions, env: entry.authContext.env })
     })
     return {
       exitCode: result.code,

@@ -122,6 +122,11 @@ export function createIcodeApi(
     clone: {
       start: (input) => call(IPC_CHANNELS.cloneStart, input),
       cancel: (input) => call(IPC_CHANNELS.cloneCancel, input),
+      persist: (input) => call(IPC_CHANNELS.clonePersist, input),
+      sshStatus: (input) => call(IPC_CHANNELS.cloneSshStatus, input),
+      sshGenerate: (input) => call(IPC_CHANNELS.cloneSshGenerate, input),
+      sshTest: (input) => call(IPC_CHANNELS.cloneSshTest, input),
+      sshTrustHost: (input) => call(IPC_CHANNELS.cloneSshTrustHost, input),
       onProgress: (listener) =>
         subscribe(IPC_CHANNELS.cloneProgress, (payload) =>
           listener(
