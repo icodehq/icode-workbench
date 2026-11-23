@@ -1,5 +1,17 @@
+import { existsSync } from 'node:fs'
+import { CancellationToken } from 'builder-util-runtime'
 import { makeAppError, type AppError } from '../../shared/domain/errors'
 import type { UpdateProgress } from '../../shared/schemas/updates'
+import type { UpdateLogger } from './update-log'
+
+/**
+ * electron-updater's private net-session partition.
+ *
+ * It is electron-updater's `NET_SESSION_NAME` (stable across 6.x). The app's
+ * proxy runtime configures this session explicitly; otherwise a manual proxy
+ * applied to `session.defaultSession` would cover checks but not downloads.
+ */
+export const UPDATE_NET_SESSION_PARTITION = 'electron-updater'
 
 /**
  * The electron-updater adapter for the platforms where the app can replace
@@ -21,28 +33,46 @@ type UpdateCheckResultLike = {
   updateInfo?: { version?: string }
 }
 
+type ErrorListener = (error: Error) => void
+
 type AutoUpdaterLike = {
   autoDownload: boolean
   autoInstallOnAppQuit: boolean
   allowPrerelease: boolean
   allowDowngrade: boolean
   autoRunAppAfterInstall: boolean
+  disableWebInstaller?: boolean
+  /** electron-updater's downloaded installer; BaseUpdater exposes this getter. */
+  installerPath?: string | null
   logger: unknown
   setFeedURL(options: unknown): void
   on(event: 'download-progress', listener: (payload: DownloadProgressEvent) => void): void
-  on(event: 'error', listener: (error: Error) => void): void
+  on(event: 'error', listener: ErrorListener): void
   removeListener(
     event: 'download-progress',
     listener: (payload: DownloadProgressEvent) => void
   ): void
-  checkForUpdates(): Promise<UpdateCheckResultLike | null>
-  downloadUpdate(): Promise<unknown>
+  removeListener(event: 'error', listener: ErrorListener): void
+  checkForUpdates(token?: CancellationToken): Promise<UpdateCheckResultLike | null>
+  downloadUpdate(token?: CancellationToken): Promise<unknown>
   quitAndInstall(isSilent?: boolean, isForceRunAfter?: boolean): void
 }
 
 export type UpdateBackend = {
   /** Re-checks the feed (electron-updater is authoritative) and downloads. */
   download(onProgress: (progress: UpdateProgress) => void): Promise<{ version: string }>
+  /** Aborts an in-flight check/download. Safe when nothing is running. */
+  cancel(): void
+  /**
+   * Fails when electron-updater has no downloaded installer to run.
+   *
+   * Called before the window is destroyed: electron-updater's `quitAndInstall`
+   * only dispatches an error event when its helper is missing, and the app
+   * would otherwise quit with nothing to install.
+   */
+  assertInstallable(): void
+  /** The downloaded installer path, for the durable update journal. */
+  installerPath(): string | null
   /** Silent install followed by a relaunch. Only valid after `download`. */
   quitAndInstall(): void
   /** Stops forwarding events; a queued installer remains usable. */
@@ -85,10 +115,28 @@ export type UpdateBackendOptions = {
    * (the GitHub provider). The runtime only supplies an http(s) base URL.
    */
   feedBaseUrl?: string | null
+  logger?: UpdateLogger
+  /** Bound on the updater's metadata check. */
+  checkTimeoutMs?: number
+  /** Cancel the download when no progress arrives for this long. */
+  downloadIdleTimeoutMs?: number
+  /** Test seam for the installer existence check. */
+  fileExists?: (path: string) => boolean
 }
+
+const DEFAULT_CHECK_TIMEOUT_MS = 60_000
+const DEFAULT_DOWNLOAD_IDLE_TIMEOUT_MS = 2 * 60_000
 
 export function createUpdateBackend(options: UpdateBackendOptions = {}): UpdateBackend {
   let updater: AutoUpdaterLike | null = null
+  let activeToken: CancellationToken | null = null
+  const logger: UpdateLogger = options.logger ?? {
+    info: (...args: unknown[]) => console.info('[updates]', ...args),
+    warn: (...args: unknown[]) => console.warn('[updates]', ...args),
+    error: (...args: unknown[]) => console.error('[updates]', ...args),
+    debug: (...args: unknown[]) => console.debug('[updates]', ...args)
+  }
+  const fileExists = options.fileExists ?? existsSync
 
   async function load(): Promise<AutoUpdaterLike> {
     if (updater !== null) return updater
@@ -109,22 +157,20 @@ export function createUpdateBackend(options: UpdateBackendOptions = {}): UpdateB
     instance.allowPrerelease = false
     instance.allowDowngrade = false
     instance.autoRunAppAfterInstall = true
+    // The feed references a full setup.exe; web-installer semantics never
+    // apply and electron-updater otherwise logs a warning on every download.
+    instance.disableWebInstaller = true
     const base = options.feedBaseUrl?.trim()
     if (base !== undefined && base.length > 0) {
       // A trailing slash keeps a base path such as /updates/ when the
       // provider resolves `latest-linux.yml` against it.
       instance.setFeedURL({ provider: 'generic', url: `${base.replace(/\/+$/u, '')}/` })
     }
-    instance.logger = {
-      info: (...args: unknown[]) => console.info('[updates]', ...args),
-      warn: (...args: unknown[]) => console.warn('[updates]', ...args),
-      error: (...args: unknown[]) => console.error('[updates]', ...args),
-      debug: (...args: unknown[]) => console.debug('[updates]', ...args)
-    }
+    instance.logger = logger
     // electron-updater is an EventEmitter: an unhandled 'error' event would
     // throw in the main process even when `download()` rejects normally.
     instance.on('error', (error: Error) => {
-      console.error('[updates] updater error:', error.message)
+      logger.error('updater error:', error.message)
     })
     updater = instance
     return instance
@@ -138,35 +184,103 @@ export function createUpdateBackend(options: UpdateBackendOptions = {}): UpdateB
       } catch (error) {
         throw downloadFailed(error instanceof Error ? error.message : String(error))
       }
+      if (activeToken !== null) {
+        throw downloadFailed('Another update download is already in progress.')
+      }
 
-      const listener = (payload: DownloadProgressEvent): void => onProgress(toProgress(payload))
+      const token = new CancellationToken()
+      activeToken = token
+      const checkTimeoutMs = options.checkTimeoutMs ?? DEFAULT_CHECK_TIMEOUT_MS
+      const idleTimeoutMs = options.downloadIdleTimeoutMs ?? DEFAULT_DOWNLOAD_IDLE_TIMEOUT_MS
+      let timer: ReturnType<typeof setTimeout> | null = null
+      const arm = (ms: number): void => {
+        if (timer !== null) clearTimeout(timer)
+        timer = setTimeout(() => {
+          logger.warn(`update request timed out after ${ms}ms`)
+          token.cancel()
+        }, ms)
+      }
+      const listener = (payload: DownloadProgressEvent): void => {
+        // Progress proves the connection is alive; the idle timer restarts.
+        arm(idleTimeoutMs)
+        onProgress(toProgress(payload))
+      }
       autoUpdater.on('download-progress', listener)
       try {
-        const result = await autoUpdater.checkForUpdates()
+        arm(checkTimeoutMs)
+        const result = await autoUpdater.checkForUpdates(token)
         const version = result?.updateInfo?.version
         if (typeof version !== 'string' || version.length === 0) {
           throw downloadFailed('The updater did not report an available version.')
         }
-        await autoUpdater.downloadUpdate()
+        logger.info(`downloading update ${version}`)
+        arm(idleTimeoutMs)
+        await autoUpdater.downloadUpdate(token)
+        logger.info(`downloaded update ${version}`)
         return { version }
       } catch (error) {
         if (isAppError(error)) throw error
-        throw downloadFailed(error instanceof Error ? error.message : String(error))
+        const detail = token.cancelled
+          ? 'The update request was cancelled or timed out.'
+          : error instanceof Error
+            ? error.message
+            : String(error)
+        throw downloadFailed(detail)
       } finally {
+        if (timer !== null) clearTimeout(timer)
         autoUpdater.removeListener('download-progress', listener)
+        if (activeToken === token) activeToken = null
       }
+    },
+
+    cancel() {
+      activeToken?.cancel()
+    },
+
+    assertInstallable() {
+      if (updater === null) {
+        throw new Error('The update backend has no downloaded update.')
+      }
+      const path = updater.installerPath
+      if (typeof path !== 'string' || path.length === 0) {
+        throw new Error('The updater has no downloaded installer path.')
+      }
+      if (!fileExists(path)) {
+        throw new Error(`The downloaded update installer is missing: ${path}`)
+      }
+      logger.info(`installer ready: ${path}`)
+    },
+
+    installerPath() {
+      const path = updater?.installerPath
+      return typeof path === 'string' && path.length > 0 ? path : null
     },
 
     quitAndInstall() {
       if (updater === null) {
         throw new Error('The update backend has no downloaded update.')
       }
-      updater.quitAndInstall(true, true)
+      let failure: Error | null = null
+      const onError: ErrorListener = (error) => {
+        failure = error
+      }
+      updater.on('error', onError)
+      try {
+        // electron-updater dispatches missing-installer errors synchronously
+        // and then returns without quitting; surface that before we lose the
+        // only window that could explain it.
+        updater.quitAndInstall(true, true)
+      } finally {
+        updater.removeListener('error', onError)
+      }
+      if (failure !== null) throw failure
     },
 
     dispose() {
-      // Nothing to release: the updater's own cache and downloaded installer
-      // must survive until `quitAndInstall` runs.
+      // The updater's own cache and downloaded installer must survive until
+      // `quitAndInstall` runs. Only an in-flight download is cancelled.
+      activeToken?.cancel()
+      activeToken = null
     }
   }
 }

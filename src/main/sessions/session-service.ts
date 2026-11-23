@@ -226,6 +226,40 @@ type FreshCheckoutGrant = {
 }
 
 /**
+ * What an update install needs to know about sessions.
+ *
+ * `unaccounted` is the only blocking state: a session the database recorded as
+ * active but whose own host cannot prove either way. Historical `unavailable`
+ * rows (`history_only` / `host_unreachable_history`) are tombstones, not live
+ * processes, and must never block an update.
+ */
+export type UpdateSessionSnapshot = {
+  live: SessionSummary[]
+  unaccounted: SessionSummary[]
+  liveOrphans: OrphanedHostSession[]
+}
+
+export type UpdateSleepResult = {
+  slept: number
+  failed: number
+  unreachable: number
+  liveOrphans: number
+  stoppedOrphans: number
+  /** Actionable detail for the install error; null on a clean result. */
+  detail: string | null
+}
+
+function describeSessionForUpdate(session: SessionSummary): string {
+  const title = session.title.replace(/\s+/gu, ' ').trim()
+  return `${title} (${session.id})`
+}
+
+function describeOrphanForUpdate(orphan: OrphanedHostSession): string {
+  const label = (orphan.command ?? orphan.cwd).replace(/\s+/gu, ' ').trim()
+  return `${label} (${orphan.sessionId}, pid ${orphan.ptyPid})`
+}
+
+/**
  * Coordinates durable session metadata with the PTY-owning host. The database
  * records observations; the host is the only source of process truth.
  */
@@ -233,6 +267,13 @@ export class SessionService {
   private readonly listeners = new Set<Listener>()
   private readonly currentIncarnations = new Map<string, string>()
   private readonly freshCheckouts = new Map<string, FreshCheckoutGrant>()
+  /**
+   * Which host owns each session the last reconcile saw. An orphan has no
+   * persisted row to resolve its target from, so the update's consent-based
+   * orphan stop reads it here. Entries are harmless if a later reconcile no
+   * longer reports the session: the kill fails and is reported.
+   */
+  private readonly hostSessionTargets = new Map<string, ExecutionTarget>()
   private readonly now: () => number
   private readonly makeSessionId: () => SessionId
   private disposeHostEvents: (() => void) | null = null
@@ -414,6 +455,14 @@ export class SessionService {
       results.forEach((result, index) => {
         const target = targets[index]!
         byHostKey.set(targetKey(target), result)
+        if (result.ok) {
+          // Remember the owner for every host-reported session. The update
+          // flow needs this to stop a live orphan, which by definition has no
+          // persisted row to resolve a target from.
+          for (const entry of result.list.sessions) {
+            this.hostSessionTargets.set(entry.sessionId, target)
+          }
+        }
         if (!result.ok && hostError === null) {
           hostError = errorFromHost(result.error, 'Could not query the terminal host.')
         }
@@ -548,6 +597,32 @@ export class SessionService {
     return {
       sessions: view.sessions.filter((session) => session.repoId === repoId),
       orphans: view.orphans
+    }
+  }
+
+  /**
+   * One reconcile, classified for the update installer.
+   *
+   * Historical `unavailable` rows are deliberately excluded from `unaccounted`:
+   * they are persisted tombstones (`history_only` / `host_unreachable_history`)
+   * and counting them made every update fail for users who once lost a host.
+   */
+  async updateSnapshot(): Promise<UpdateSessionSnapshot> {
+    return this.updateCandidates(await this.list())
+  }
+
+  private updateCandidates(view: SessionListView): UpdateSessionSnapshot {
+    return {
+      live: view.sessions.filter((session) => isActiveSessionState(session.state)),
+      unaccounted: view.sessions.filter(
+        (session) =>
+          session.state === 'unavailable' &&
+          (session.reason === 'host_unreachable' ||
+            session.reason === 'session_not_known')
+      ),
+      liveOrphans: view.orphans.filter(
+        (orphan) => orphan.status === 'starting' || orphan.status === 'live'
+      )
     }
   }
 
@@ -1793,53 +1868,91 @@ export class SessionService {
   /**
    * Sleep every live session before an update replaces the terminal host.
    *
-   * A live host that cannot be queried, or a live orphan the database does not
-   * own, blocks the operation: stopping processes we cannot account for is worse
-   * than deferring the update. Individual sleep failures are retried against a
-   * fresh read once, because a session may exit between the list and the kill.
+   * A session whose own host cannot be queried still blocks the operation:
+   * stopping processes we cannot account for is worse than deferring the
+   * update. Historical `unavailable` rows do not block; they are records, not
+   * processes. A live orphan is stopped only after the user consented to stop
+   * live sessions; it cannot be slept (there is no row to resume), and the
+   * restart dialog lists it by command so the consent is explicit.
    */
-  async sleepLiveSessions(options: { concurrency?: number } = {}): Promise<{
-    slept: number
-    failed: number
-    unreachable: number
-    liveOrphans: number
-  }> {
+  async sleepLiveSessions(options: { concurrency?: number } = {}): Promise<UpdateSleepResult> {
     const view = await this.list()
-    const unreachable = view.sessions.filter((session) => session.state === 'unavailable').length
-    const liveOrphans = view.orphans.filter(
-      (orphan) => orphan.status === 'starting' || orphan.status === 'live'
-    ).length
-    const active = view.sessions.filter((session) => isActiveSessionState(session.state))
-    if (unreachable > 0 || liveOrphans > 0) {
+    const { live, unaccounted, liveOrphans } = this.updateCandidates(view)
+    if (unaccounted.length > 0) {
       // Do not sleep a subset while some processes are unaccounted for.
-      return { slept: 0, failed: active.length, unreachable, liveOrphans }
+      return {
+        slept: 0,
+        failed: unaccounted.length,
+        unreachable: unaccounted.length,
+        liveOrphans: liveOrphans.length,
+        stoppedOrphans: 0,
+        detail:
+          `${unaccounted.length} session(s) may still be running but their host could not be queried: ` +
+          unaccounted.map(describeSessionForUpdate).join('; ')
+      }
     }
 
     let slept = 0
-    const failedIds: string[] = []
+    const failed: SessionSummary[] = []
     const wide = Math.max(1, options.concurrency ?? 4)
-    for (let offset = 0; offset < active.length; offset += wide) {
-      const batch = active.slice(offset, offset + wide)
+    for (let offset = 0; offset < live.length; offset += wide) {
+      const batch = live.slice(offset, offset + wide)
       await Promise.all(
         batch.map(async (session) => {
           try {
             await this.sleep(session.id)
             slept += 1
-          } catch (error) {
+          } catch {
             const current = await this.get(session.id).catch(() => null)
             if (current !== null && isActiveSessionState(current.state)) {
-              failedIds.push(session.id)
+              failed.push(session)
             }
           }
         })
       )
     }
 
+    if (failed.length > 0) {
+      return {
+        slept,
+        failed: failed.length,
+        unreachable: 0,
+        liveOrphans: liveOrphans.length,
+        stoppedOrphans: 0,
+        detail:
+          `${failed.length} of ${live.length} live session(s) could not be slept: ` +
+          failed.map(describeSessionForUpdate).join('; ') +
+          (slept > 0 ? ` (${slept} session(s) were already stopped)` : '')
+      }
+    }
+
+    let stoppedOrphans = 0
+    const orphanFailures: OrphanedHostSession[] = []
+    for (const orphan of liveOrphans) {
+      const target = this.hostSessionTargets.get(orphan.sessionId)
+      if (target === undefined) {
+        orphanFailures.push(orphan)
+        continue
+      }
+      try {
+        await this.deps.host.kill(orphan.sessionId, target)
+        stoppedOrphans += 1
+      } catch {
+        orphanFailures.push(orphan)
+      }
+    }
+
     return {
       slept,
-      failed: failedIds.length,
-      unreachable,
-      liveOrphans
+      failed: orphanFailures.length,
+      unreachable: 0,
+      liveOrphans: liveOrphans.length,
+      stoppedOrphans,
+      detail:
+        orphanFailures.length > 0
+          ? `${orphanFailures.length} unregistered terminal process(es) could not be stopped: ` +
+            orphanFailures.map(describeOrphanForUpdate).join('; ')
+          : null
     }
   }
 

@@ -7,6 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-11-23
+
+> **Upgrading from 0.23.1 or 0.24.0:** those builds can be blocked by historical
+> `unavailable` sessions. If the automatic update fails, remove the stale
+> unavailable sessions or install this release manually once. The fix below
+> applies to every later update.
+
+### Added
+
+- **Packaged update end-to-end check.** `pnpm smoke:update:win` installs an
+  older build, serves the new installer through a local feed, and waits for the
+  relaunched build to report its version. CI runs it on manual dispatch or with
+  the `update-e2e` pull-request label.
+- **Update diagnostics.** Auto-update logs now go to
+  `userData/logs/update.log`, and a durable last-install journal lets the next
+  launch report an interrupted install instead of silently reopening the old
+  version.
+
+### Fixed
+
+- **Historical `unavailable` sessions no longer block updates.** Only a session
+  whose own host cannot prove its state blocks an install; persisted tombstones
+  no longer make `sleepLiveSessions` refuse every update. Unrelated host
+  failures and the previous double-counted failure number are fixed at the same
+  time. A live orphan is listed in the restart confirmation and stopped after
+  the user consents.
+- **The manual proxy now covers update downloads.** electron-updater uses its
+  own net-session partition; the proxy runtime now applies the same policy to
+  it, so a proxy configured only inside iCode no longer breaks downloads.
+- **Update checks and downloads time out and can be cancelled.** A stalled feed
+  request no longer leaves the app in `checking` forever, and a stalled download
+  is aborted after two minutes without progress. The banner and Settings show a
+  Cancel action while downloading.
+- **Installer failures are surfaced.** The backend verifies that the downloaded
+  installer exists before destroying windows, propagates electron-updater's
+  synchronous install error, and records the attempt. Install errors show their
+  session/process detail in the banner tooltip and Settings.
+- **Concurrent install requests cannot run twice.** A double-clicked
+  confirmation or a second window no longer schedules two teardowns from one
+  ready state.
+- **AppImage preflight checks the containing directory.** Replacing an AppImage
+  needs directory write access, not only file write access.
+
+### Changed
+
+- **Prerelease tags publish as GitHub prereleases.** A `v*-beta.*` tag no longer
+  becomes `latest` and breaks stable clients' update checks.
+- **CI accepts signing secrets.** Windows and macOS packaging sign and verify
+  artifacts when `WINDOWS_CSC_*`, `MACOS_CSC_*` and `APPLE_*` secrets are
+  configured; unsigned development builds still work.
+- Removed a state where the update detail was only visible in Settings; the
+  banner tooltip now carries it. "Check now" is disabled while a downloaded
+  update is ready instead of silently doing nothing.
+
 ## [0.24.0] - 2026-11-23
 
 ### Added

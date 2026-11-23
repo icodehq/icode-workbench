@@ -27,6 +27,8 @@ export type ReleaseFeedDeps = {
    * Production leaves it null and reads the public GitHub release.
    */
   feedBaseUrl?: string | null
+  /** Bound on the metadata request, including reading the response body. */
+  timeoutMs?: number
   now?: () => number
 }
 
@@ -52,8 +54,20 @@ function checkFailed(detail: string): AppError {
   })
 }
 
+function isAppError(value: unknown): value is AppError {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as { code?: unknown }).code === 'string' &&
+    typeof (value as { retryable?: unknown }).retryable === 'boolean'
+  )
+}
+
+const DEFAULT_TIMEOUT_MS = 15_000
+
 export function createReleaseFeed(deps: ReleaseFeedDeps): ReleaseFeed {
   const now = deps.now ?? Date.now
+  const timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS
 
   return {
     async check(currentVersion, mode) {
@@ -68,25 +82,36 @@ export function createReleaseFeed(deps: ReleaseFeedDeps): ReleaseFeed {
       }
 
       const url = `${metadataUrl}?noCache=${now()}`
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), timeoutMs)
       let response: Response
+      let text: string
       try {
         response = await deps.fetch(url, {
           // The query string is the cache-buster; `cache` is not consistently
           // honored by Electron's session fetch.
-          headers: { accept: 'application/x-yaml, text/yaml, text/plain, */*' }
+          headers: { accept: 'application/x-yaml, text/yaml, text/plain, */*' },
+          signal: controller.signal
         })
+        if (!response.ok) {
+          throw checkFailed(`The update feed responded with HTTP ${response.status}.`)
+        }
+        try {
+          text = await response.text()
+        } catch (error) {
+          if (controller.signal.aborted) {
+            throw checkFailed(`The update feed timed out after ${timeoutMs}ms.`)
+          }
+          throw checkFailed(error instanceof Error ? error.message : String(error))
+        }
       } catch (error) {
+        if (isAppError(error)) throw error
+        if (controller.signal.aborted) {
+          throw checkFailed(`The update feed timed out after ${timeoutMs}ms.`)
+        }
         throw checkFailed(error instanceof Error ? error.message : String(error))
-      }
-      if (!response.ok) {
-        throw checkFailed(`The update feed responded with HTTP ${response.status}.`)
-      }
-
-      let text: string
-      try {
-        text = await response.text()
-      } catch (error) {
-        throw checkFailed(error instanceof Error ? error.message : String(error))
+      } finally {
+        clearTimeout(timer)
       }
 
       let version: string

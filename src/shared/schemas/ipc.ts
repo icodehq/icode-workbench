@@ -170,6 +170,7 @@ export const IPC_CHANNELS = {
   updatesGet: 'icode:updates:get',
   updatesCheck: 'icode:updates:check',
   updatesDownload: 'icode:updates:download',
+  updatesCancelDownload: 'icode:updates:cancel-download',
   updatesInstall: 'icode:updates:install',
   updatesSkip: 'icode:updates:skip',
   updatesSetAutoCheck: 'icode:updates:set-auto-check',

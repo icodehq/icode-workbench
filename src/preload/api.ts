@@ -217,6 +217,7 @@ export function createIcodeApi(
       get: () => call(IPC_CHANNELS.updatesGet),
       check: () => call(IPC_CHANNELS.updatesCheck),
       download: () => call(IPC_CHANNELS.updatesDownload),
+      cancelDownload: () => call(IPC_CHANNELS.updatesCancelDownload),
       install: (input) => call(IPC_CHANNELS.updatesInstall, input ?? {}),
       skip: (input) => call(IPC_CHANNELS.updatesSkip, input),
       setAutoCheck: (input) => call(IPC_CHANNELS.updatesSetAutoCheck, input),

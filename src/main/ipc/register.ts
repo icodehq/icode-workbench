@@ -139,6 +139,7 @@ export const HANDLED_CHANNELS: readonly string[] = [
   IPC_CHANNELS.updatesGet,
   IPC_CHANNELS.updatesCheck,
   IPC_CHANNELS.updatesDownload,
+  IPC_CHANNELS.updatesCancelDownload,
   IPC_CHANNELS.updatesInstall,
   IPC_CHANNELS.updatesSkip,
   IPC_CHANNELS.updatesSetAutoCheck,
@@ -497,6 +498,7 @@ export function createAppDispatcher(
     updatesGet: () => Promise.resolve(runtime.updates.getState()),
     updatesCheck: () => runtime.updates.check(),
     updatesDownload: () => runtime.updates.download(),
+    updatesCancelDownload: () => Promise.resolve(runtime.updates.cancelDownload()),
     updatesInstall: (input) => runtime.updates.install(input),
     updatesSkip: (input) => Promise.resolve(runtime.updates.skip(input.version)),
     updatesSetAutoCheck: (input) =>

@@ -3,6 +3,7 @@ import type { MessageKey } from '../../../shared/i18n'
 import { useT } from '../i18n/use-i18n'
 import { updateBannerModel } from './update-view'
 import {
+  cancelUpdateDownload,
   checkForUpdates,
   dismissUpdate,
   downloadUpdate,
@@ -48,6 +49,9 @@ export default function UpdateBanner({ platform }: Props): React.JSX.Element | n
       case 'open-download':
         openUpdateDownload(model.action.url)
         return
+      case 'cancel-download':
+        void cancelUpdateDownload()
+        return
       case 'restart':
         void requestUpdateInstall()
         return
@@ -72,7 +76,10 @@ export default function UpdateBanner({ platform }: Props): React.JSX.Element | n
         <Download size={11} className="shrink-0" />
       )}
 
-      <span className="min-w-0 flex-1 truncate" title={errorText ?? undefined}>
+      <span
+        className="min-w-0 flex-1 truncate"
+        title={state.error?.detail ?? errorText ?? undefined}
+      >
         {t(model.titleKey, model.titleParams)}
         {model.tone === 'error' && errorText !== null ? ` — ${errorText}` : ''}
       </span>

@@ -4,6 +4,7 @@ import type { UpdateState } from '../../../shared/schemas/updates'
 import SettingsCard from '../components/SettingsCard'
 import { useT } from '../i18n/use-i18n'
 import {
+  cancelUpdateDownload,
   checkForUpdates,
   downloadUpdate,
   openUpdateDownload,
@@ -74,9 +75,13 @@ export default function UpdatesSettingsCard({ platform }: Props): React.JSX.Elem
     state?.phase === 'checking' ||
     state?.phase === 'downloading' ||
     state?.phase === 'restarting'
-  const canCheck = state !== null && state.mode !== 'unsupported' && !busy
+  // A ready update is a deliberate download result. The main-process check()
+  // treats ready as busy, so offering "Check now" there is a silent no-op.
+  const canCheck =
+    state !== null && state.mode !== 'unsupported' && !busy && state.phase !== 'ready'
   const showDownload =
     state?.phase === 'available' && state.availableVersion !== null && state.mode === 'install'
+  const showCancel = state?.phase === 'downloading'
   const showExternal =
     state?.phase === 'available' &&
     state.availableVersion !== null &&
@@ -141,6 +146,17 @@ export default function UpdatesSettingsCard({ platform }: Props): React.JSX.Elem
               data-testid="settings-updates-download"
             >
               {t('updates.banner.download')}
+            </button>
+          ) : null}
+
+          {showCancel ? (
+            <button
+              type="button"
+              className="inline-flex h-7 items-center rounded-md border border-border px-2 text-[10.5px] hover:bg-muted"
+              onClick={() => void cancelUpdateDownload()}
+              data-testid="settings-updates-cancel"
+            >
+              {t('common.cancel')}
             </button>
           ) : null}
 

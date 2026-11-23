@@ -1,11 +1,16 @@
 import { app, BrowserWindow, Notification, session } from 'electron'
-import { accessSync, constants as fsConstants } from 'node:fs'
+import { accessSync, constants as fsConstants, writeFileSync } from 'node:fs'
 import { beginUpdateInstall, prepareWindowForClose } from '../window-close'
 import { createUpdateService, type UpdateService } from '../updates/update-service'
 import { createReleaseFeed } from '../updates/release-feed'
-import { createUpdateBackend } from '../updates/update-backend'
-import { isActiveSessionState } from '../../shared/domain/session'
+import {
+  createUpdateBackend,
+  UPDATE_NET_SESSION_PARTITION
+} from '../updates/update-backend'
+import { createUpdateJournal, type UpdateJournalEntry } from '../updates/update-journal'
+import { createUpdateLogger } from '../updates/update-log'
 import type { UpdateLiveSession } from '../../shared/schemas/updates'
+import { compareVersions } from '../../shared/domain/update'
 import { homedir } from 'node:os'
 import { getAppPersistence, closeAppPersistence } from '../persistence'
 import { HostSupervisor } from '../host/host-supervisor'
@@ -110,7 +115,7 @@ import {
   pruneProviderRuntime,
   removeProviderRuntime
 } from '../providers/provider-materializer'
-import { join } from 'node:path'
+import { join, dirname } from 'node:path'
 import type { AppError } from '../../shared/domain/errors'
 import { makeAppError } from '../../shared/domain/errors'
 import type { SessionListView } from '../../shared/schemas/ipc'
@@ -214,9 +219,15 @@ export async function startAppRuntime(): Promise<AppRuntime> {
 
   // Before persistence, Git, or the Host: Chromium needs its proxy config, and
   // every later child process inherits the effective proxy environment.
+  // electron-updater checks and downloads in its own partition, so it must be
+  // configured from the same policy or a manual proxy covers only the feed.
+  const updaterSession = session.fromPartition(UPDATE_NET_SESSION_PARTITION, {
+    cache: false
+  })
   const network = await createNetworkProxyRuntime({
     directory: app.getPath('userData'),
-    session: session.defaultSession
+    session: session.defaultSession,
+    extraSessions: [updaterSession]
   })
 
   const persistence = getAppPersistence()
@@ -1328,8 +1339,33 @@ export async function startAppRuntime(): Promise<AppRuntime> {
       return null
     }
   })()
+  const updateLogger = createUpdateLogger(
+    join(app.getPath('userData'), 'logs', 'update.log')
+  )
   if (updateFeedBaseUrl !== null) {
-    console.warn(`[updates] using override feed: ${updateFeedBaseUrl}`)
+    updateLogger.warn(`using override update feed: ${updateFeedBaseUrl}`)
+  }
+
+  /**
+   * A successful install changes app.getVersion(), so a journal entry that no
+   * longer matches proves the previous attempt did not finish. Keep old entries
+   * out of the banner after a week; the file is still on disk for diagnostics.
+   */
+  const updateJournal = createUpdateJournal(join(app.getPath('userData'), 'updates'))
+  const journalEntry = updateJournal.read()
+  let interruptedInstall: UpdateJournalEntry | null = null
+  if (journalEntry !== null) {
+    // Equal means the install landed. Older means the target was superseded
+    // (for example by a manual install); neither is an interrupted update.
+    const comparison = compareVersions(journalEntry.toVersion, app.getVersion())
+    if (comparison !== null && comparison <= 0) {
+      updateLogger.info(`update to ${journalEntry.toVersion} completed`)
+      updateJournal.clear()
+    } else if (Date.now() - journalEntry.startedAt < 7 * 24 * 60 * 60 * 1000) {
+      interruptedInstall = journalEntry
+    } else {
+      updateJournal.clear()
+    }
   }
 
   const updates = createUpdateService({
@@ -1344,34 +1380,54 @@ export async function startAppRuntime(): Promise<AppRuntime> {
       arch: process.arch,
       feedBaseUrl: updateFeedBaseUrl
     }),
-    backend: createUpdateBackend({ feedBaseUrl: updateFeedBaseUrl }),
+    backend: createUpdateBackend({
+      feedBaseUrl: updateFeedBaseUrl,
+      logger: updateLogger
+    }),
+    logger: updateLogger,
+    journal: updateJournal,
+    interruptedInstall,
     preferences: {
       load: () => loadAppPreferences(app.getPath('userData')),
       update: (patch) => updateAppPreferences(app.getPath('userData'), patch)
     },
     sessions: {
       listLive: async () => {
-        const view = await sessions.list()
-        const hostError = sessions.getLastHostError()
-        if (hostError !== null) {
+        const snapshot = await sessions.updateSnapshot()
+        // Historical unavailable rows are not processes and must not block an
+        // update. Only a session that may still be running but whose own host
+        // cannot prove it does.
+        if (snapshot.unaccounted.length > 0) {
           throw makeAppError(
             'UPDATE_INSTALL_FAILED',
             'Could not inspect running sessions.',
             {
-              detail: hostError.message,
+              detail: snapshot.unaccounted
+                .map((entry) => `${entry.title} (${entry.id}): ${entry.reason}`)
+                .join('; '),
               messageKey: 'updates.error.installFailed'
             }
           )
         }
-        return view.sessions
-          .filter((entry) => isActiveSessionState(entry.state))
-          .map((entry): UpdateLiveSession => ({ id: entry.id, title: entry.title }))
+        return [
+          ...snapshot.live.map((entry): UpdateLiveSession => ({
+            id: entry.id,
+            title: entry.title
+          })),
+          // A live orphan has no row to resume. Listing it here makes the
+          // restart dialog's consent explicit before sleepAllLive kills it.
+          ...snapshot.liveOrphans.map((orphan): UpdateLiveSession => ({
+            id: orphan.sessionId,
+            title: `Unregistered terminal: ${orphan.command ?? orphan.cwd} (${orphan.cwd})`
+          }))
+        ]
       },
       sleepAllLive: async () => {
         const result = await sessions.sleepLiveSessions()
         return {
           slept: result.slept,
-          failed: result.failed + result.unreachable + result.liveOrphans
+          failed: result.failed,
+          detail: result.detail
         }
       }
     },
@@ -1424,18 +1480,24 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     shutdownRuntime,
     preflightInstall: () => {
       // An AppImage in a root-owned or read-only location cannot be replaced by
-      // the updater; fail before any session or host is touched.
+      // the updater; fail before any session or host is touched. electron-updater
+      // unlinks the old file and moves the new one into its directory, so both
+      // the file and the directory must be writable.
       const appImage = process.env.APPIMAGE
       if (process.platform !== 'linux' || appImage === undefined) return null
+      const directory = dirname(appImage)
       try {
         accessSync(appImage, fsConstants.W_OK)
+        accessSync(directory, fsConstants.W_OK)
         return null
       } catch {
         return makeAppError(
           'UPDATE_INSTALL_FAILED',
           'The AppImage cannot be updated in place.',
           {
-            detail: `${appImage} is not writable. Download the new AppImage from the release page.`,
+            detail:
+              `${appImage} or its directory ${directory} is not writable. ` +
+              'Download the new AppImage from the release page.',
             messageKey: 'updates.error.installFailed'
           }
         )
@@ -1586,6 +1648,60 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     void taskScheduler.tick()
     // The proxy runtime exists before this block runs, so the feed inherits it.
     updates.start()
+
+    /**
+     * Test-only packaged-update harness.
+     *
+     * Inert unless an E2E run arms it. The target version lets the relaunched
+     * build report success (and quit) instead of starting another update cycle.
+     */
+    if (app.isPackaged && process.env.ICODE_UPDATE_E2E === '1') {
+      const target = process.env.ICODE_UPDATE_E2E_TARGET
+      const resultPath = process.env.ICODE_UPDATE_E2E_RESULT
+      const writeResult = (value: string): void => {
+        if (resultPath === undefined || resultPath.length === 0) return
+        try {
+          writeFileSync(resultPath, value, 'utf8')
+        } catch {
+          // The test's console/log fallback is enough.
+        }
+      }
+      if (target !== undefined && target !== '' && app.getVersion() === target) {
+        updateLogger.info(`E2E: reached ${target}`)
+        writeResult(target)
+        setTimeout(() => app.quit(), 1_000).unref?.()
+      } else {
+        const delay = Number(process.env.ICODE_UPDATE_E2E_DELAY_MS ?? 8_000)
+        const timer = setTimeout(() => {
+          void (async () => {
+            updateLogger.info('E2E: checking for an update')
+            await updates.check()
+            if (updates.getState().phase !== 'available') {
+              writeResult(`error:check:${updates.getState().phase}`)
+              app.exit(2)
+              return
+            }
+            await updates.download()
+            if (updates.getState().phase !== 'ready') {
+              writeResult(`error:download:${updates.getState().phase}`)
+              app.exit(2)
+              return
+            }
+            const outcome = await updates.install({ stopLiveSessions: true })
+            updateLogger.info('E2E: install outcome', outcome)
+            if (outcome.status === 'blocked') {
+              writeResult(`error:install:${outcome.error.detail ?? outcome.error.message}`)
+              app.exit(2)
+            }
+          })().catch((error: unknown) => {
+            updateLogger.error('E2E: update failed', error)
+            writeResult(`error:${error instanceof Error ? error.message : String(error)}`)
+            app.exit(2)
+          })
+        }, Number.isFinite(delay) ? delay : 8_000)
+        timer.unref?.()
+      }
+    }
   })()
 
   runtime = api

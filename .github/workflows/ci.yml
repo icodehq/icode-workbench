@@ -216,7 +216,24 @@ jobs:
           name: wsl-host-linux-x64
           path: artifacts/wsl-host/linux-x64
       - name: Package NSIS
-        run: pnpm package:win
+        # Signing is optional until the repository secrets exist. When they do,
+        # electron-builder signs both the app and the NSIS installer, and
+        # electron-updater verifies publisherName on future updates.
+        env:
+          CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
+        run: |
+          pnpm package:win
+          if ("$env:CSC_LINK" -ne "") {
+            $installers = Get-ChildItem dist/*.exe
+            if ($installers.Count -eq 0) { throw "no installer was produced" }
+            foreach ($installer in $installers) {
+              $status = (Get-AuthenticodeSignature $installer).Status
+              if ($status -ne "Valid") {
+                throw "$($installer.Name) is not validly signed: $status"
+              }
+            }
+          }
       - name: Verify packaged payload
         run: node config/scripts/verify-package.cjs --platform win --arch x64 --dir dist/win-unpacked
       - name: Verify update metadata
@@ -237,6 +254,46 @@ jobs:
             dist/*.exe.blockmap
             dist/latest.yml
           if-no-files-found: error
+
+  update-e2e-windows:
+    name: Update E2E (Windows)
+    # A real NSIS install/update takes several minutes, so this is opt-in:
+    # run the workflow manually, or push to a PR carrying the `update-e2e` label.
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'update-e2e'))
+    runs-on: windows-2022
+    timeout-minutes: 60
+    needs: [package-windows]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-x64
+          path: release-assets/windows
+      - uses: actions/download-artifact@v4
+        with:
+          name: wsl-host-linux-x64
+          path: artifacts/wsl-host/linux-x64
+      - name: Build the old installer
+        shell: pwsh
+        run: |
+          pnpm build:app
+          node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='0.0.1';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n')"
+          node config/scripts/package.cjs win
+          git checkout -- package.json
+      - name: Run packaged update E2E
+        shell: pwsh
+        run: |
+          $old = (Get-ChildItem dist/*.exe | Where-Object { $_.Name -like '*0.0.1*' } | Select-Object -First 1).FullName
+          $new = (Get-ChildItem release-assets/windows/*.exe | Select-Object -First 1).FullName
+          node tests/release/update-e2e-win.cjs --old-installer $old --new-installer $new
 
   package-macos:
     name: Package (macOS ${{ matrix.arch }})
@@ -268,6 +325,14 @@ jobs:
       - name: Build application
         run: pnpm build
       - name: Package dmg and zip
+        # Signing/notarization activate when these secrets are configured.
+        # Without them electron-builder produces an unsigned development build.
+        env:
+          CSC_LINK: ${{ secrets.MACOS_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MACOS_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: node config/scripts/package.cjs mac --${{ matrix.arch }}
       - name: Verify packaged payload
         run: node config/scripts/verify-package.cjs --platform mac --arch ${{ matrix.arch }} --dir ${{ matrix.unpacked }}
@@ -285,6 +350,16 @@ jobs:
           codesign -dv --verbose=4 "${{ matrix.unpacked }}/iCode.app" 2>&1 || true
           codesign -dv --verbose=4 "${{ matrix.unpacked }}/iCode.app/Contents/Resources/app.asar.unpacked/node_modules/node-pty/prebuilds/darwin-${{ matrix.arch }}/spawn-helper" 2>&1 || true
           spctl -a -vv "${{ matrix.unpacked }}/iCode.app" 2>&1 || true
+      - name: Verify signature when configured
+        env:
+          CSC_LINK: ${{ secrets.MACOS_CSC_LINK }}
+        run: |
+          if [ -n "$CSC_LINK" ]; then
+            codesign --verify --deep --strict --verbose=2 "${{ matrix.unpacked }}/iCode.app"
+            spctl -a -vv --type execute "${{ matrix.unpacked }}/iCode.app"
+          else
+            echo "No signing certificate configured; skipping signature verification."
+          fi
       - name: Packaged smoke
         run: node tests/compat/packaged-smoke-mac.cjs --app ${{ matrix.unpacked }}/iCode.app
       - uses: actions/upload-artifact@v4

@@ -27,6 +27,10 @@ jobs:
     uses: ./.github/workflows/ci.yml
     permissions:
       contents: read
+    # Signing secrets (WINDOWS_CSC_*, MACOS_CSC_*, APPLE_*) reach the package
+    # jobs through the reusable workflow; without `inherit` release builds
+    # would silently publish unsigned artifacts.
+    secrets: inherit
     with:
       ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
 
@@ -184,12 +188,28 @@ jobs:
             done < <(find release-assets/metadata -type f -name '*.yml' -print0 | sort -z)
           fi
 
+          prerelease=false
+          case "$TAG" in
+            *-*) prerelease=true ;;
+          esac
+
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release edit "$TAG" --title "iCode $TAG" --notes-file release-notes.md
+            if [ "$prerelease" = "true" ]; then
+              gh release edit "$TAG" --title "iCode $TAG" --notes-file release-notes.md --prerelease
+            else
+              gh release edit "$TAG" --title "iCode $TAG" --notes-file release-notes.md
+            fi
           else
             # Create as a draft so a failed upload never exposes a partial release.
-            gh release create "$TAG" --verify-tag --draft \
-              --title "iCode $TAG" --notes-file release-notes.md
+            # A prerelease tag must not become GitHub's `latest`, or stable
+            # clients would read a version the feed intentionally rejects.
+            if [ "$prerelease" = "true" ]; then
+              gh release create "$TAG" --verify-tag --draft --prerelease \
+                --title "iCode $TAG" --notes-file release-notes.md
+            else
+              gh release create "$TAG" --verify-tag --draft \
+                --title "iCode $TAG" --notes-file release-notes.md
+            fi
           fi
           gh release upload "$TAG" --clobber "${assets[@]}"
           if [ "$(gh release view "$TAG" --json isDraft -q .isDraft)" = "true" ]; then

@@ -104,7 +104,7 @@ describe('update banner model', () => {
     expect(model).toMatchObject({
       titleKey: 'updates.banner.downloading',
       progressPercent: 42.4,
-      action: null,
+      action: { kind: 'cancel-download', labelKey: 'common.cancel' },
       showSkip: false,
       showLater: false
     })
