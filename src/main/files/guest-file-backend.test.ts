@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createGuestFileBackend } from './guest-file-backend'
+import { FileAccessError } from './local-file-backend'
 import type { WslByteResult, WslCommandRunner } from '../wsl/exec'
 import type { FileSearchOptions } from '../../shared/domain/workspace-files'
 
@@ -40,6 +41,53 @@ const OPTIONS: FileSearchOptions = {
   exclude: [],
   limit: 10
 }
+
+describe('guest files: batched listings', () => {
+  it('lists several directories in one guest process', async () => {
+    const calls: string[][] = []
+    const runner = fakeRunner((argv) => {
+      calls.push([...argv])
+      const token = argv[5]!
+      const directories = argv.slice(6)
+      const sections = directories.map((directory, index) => {
+        if (directory === 'missing') return `\u0000@@${token}:${index}:NOTFOUND\u0000`
+        if (directory === 'file') return `\u0000@@${token}:${index}:NOTDIR\u0000`
+        const entries =
+          directory === ''
+            ? 'd\t0\t1700000001\tsrc\u0000f\t3\t1700000000.5\tREADME.md\u0000'
+            : 'f\t5\t1700000002\ta.ts\u0000'
+        return `\u0000@@${token}:${index}:OK\u0000${entries}\u0000`
+      })
+      return bytes(sections.join(''))
+    })
+    const backend = createGuestFileBackend(runner, 'Ubuntu', '/wt')
+
+    const result = await backend.listMany!(['', 'src', 'missing', 'file'])
+    expect(calls).toHaveLength(1)
+    const root = result.get('')
+    if (root === undefined || root instanceof FileAccessError) throw new Error('root listing missing')
+    expect(root.entries.map((entry) => `${entry.kind}:${entry.path}`)).toEqual([
+      'directory:src',
+      'file:README.md'
+    ])
+    const src = result.get('src')
+    if (src === undefined || src instanceof FileAccessError) throw new Error('src listing missing')
+    expect(src.entries.map((entry) => entry.path)).toEqual(['src/a.ts'])
+    expect(result.get('missing')).toMatchObject({ reason: 'not-found' })
+    expect(result.get('file')).toMatchObject({ reason: 'not-a-directory' })
+  })
+
+  it('reports every path as missing when the checkout cannot be entered', async () => {
+    const backend = createGuestFileBackend(
+      fakeRunner(() => bytes('', 4)),
+      'Ubuntu',
+      '/wt'
+    )
+    const result = await backend.listMany!(['a', 'b'])
+    expect(result.get('a')).toBeInstanceOf(FileAccessError)
+    expect(result.get('b')).toMatchObject({ reason: 'not-found' })
+  })
+})
 
 describe('guest files: search', () => {
   it('parses matches, applies include/exclude and reports scanned files', async () => {

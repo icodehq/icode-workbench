@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **WSL responsiveness.** Source Control, Files and checkout resolution no
+  longer spawn one `wsl.exe` per guest request. A status refresh runs status and
+  both numstat diffs in one guest script, simultaneous directory listings share
+  one `find`, and checkout existence probes are cached for five seconds and
+  single-flighted between Git and Files. Remote project availability is reused
+  for ten seconds. The measured steady-state poll drops from about three
+  spawns per second to under one; local targets are unchanged.
+
 ## [0.23.0] - 2026-11-23
 
 ### Added

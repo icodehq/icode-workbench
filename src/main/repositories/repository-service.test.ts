@@ -815,9 +815,51 @@ describe('remote project availability', () => {
 
     // A definite answer is applied and persisted.
     f.service.useHostFs(async () => ({ isDirectory: async () => false }))
-    await f.service.refreshTargetAvailability()
+    await f.service.refreshTargetAvailability({ force: true })
     const missing = f.service.listRepositories()
     expect(missing[0]?.repository.availability).toBe('missing')
     expect(f.stores.repositories.findById(missing[0]!.repository.id)?.availability).toBe('missing')
+  })
+
+  it('reuses a remote availability answer inside its window', async () => {
+    const f = harness()
+    const repoId = newRepoId()
+    f.stores.repositories.insert({
+      id: repoId,
+      path: '/home/u/projects/atlas' as never,
+      displayName: 'atlas',
+      addedAt: 1,
+      lastOpenedAt: 1,
+      currentBranch: 'main',
+      availability: 'present',
+      gitCommonDir: null,
+      executionTarget: {
+        kind: 'wsl',
+        distro: 'Ubuntu-26.04',
+        distroId: 'a5489bf0-2b9e-49bf-940e-0c19a6caef73'
+      }
+    })
+    f.stores.repositories.insertWorkspace({
+      id: newWorkspaceId(),
+      repoId,
+      path: '/home/u/projects/atlas' as never,
+      kind: 'primary-checkout',
+      createdAt: 1
+    })
+
+    let probes = 0
+    f.service.useHostFs(async () => ({
+      isDirectory: async () => {
+        probes += 1
+        return true
+      }
+    }))
+    await f.service.refreshTargetAvailability()
+    await f.service.refreshTargetAvailability()
+    expect(probes).toBe(1)
+
+    // An explicit refresh still asks the host again.
+    await f.service.refreshTargetAvailability({ force: true })
+    expect(probes).toBe(2)
   })
 })
