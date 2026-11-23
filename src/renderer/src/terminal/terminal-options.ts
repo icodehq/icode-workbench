@@ -52,6 +52,13 @@ export function terminalOptionsFor(
     fontSize: fontSizeFor(profile, settings),
     lineHeight: settings.lineHeight,
     scrollback: scrollbackFor(profile, settings),
+    /*
+     * xterm defaults this to true on macOS, where its native contextmenu
+     * handler runs before the pane's handler and would replace the user's
+     * selection with a word. The pane's right-click policy reads the live
+     * selection synchronously, so it must stay under the user's control.
+     */
+    rightClickSelectsWord: false,
     ...terminalThemeOptions()
   }
 }

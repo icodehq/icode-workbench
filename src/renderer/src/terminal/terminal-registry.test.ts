@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { TerminalInstanceLike } from './terminal-instance'
-import type { TerminalLinkRequest } from './terminal-interaction-host'
+import type { TerminalLinkRequest, TerminalNotice } from './terminal-interaction-host'
 import { TerminalRegistry, type TerminalFactory } from './terminal-registry'
 import type { TerminalStatus } from './session-terminal'
 
@@ -40,12 +40,16 @@ class FakeInstance implements TerminalInstanceLike {
   isDisposed(): boolean {
     return this.disposed
   }
+  isMouseTrackingActive(): boolean {
+    return false
+  }
   subscribe(): () => void {
     return () => undefined
   }
   getStatus(): TerminalStatus {
     return STATUS
   }
+  notify(_notice: TerminalNotice): void {}
   hasSelection(): boolean {
     return false
   }
@@ -53,6 +57,9 @@ class FakeInstance implements TerminalInstanceLike {
     return ''
   }
   async copySelection(): Promise<boolean> {
+    return false
+  }
+  async copyScreenContent(): Promise<boolean> {
     return false
   }
   selectAll(): void {}

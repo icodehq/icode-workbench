@@ -22,6 +22,7 @@ import {
 } from '../terminal/terminal-settings'
 import type { TerminalFindDirection } from '../terminal/terminal-interaction-host'
 import type { TerminalInstanceLike } from '../terminal/terminal-instance'
+import { terminalRightClickIntent } from '../terminal/interaction/right-click-policy'
 import { useTerminalRegistry } from '../terminal/terminal-provider'
 import { useSessionPaneActions } from './sessions/SessionPaneActions'
 import TerminalContextMenu, { type TerminalMenuActions } from './terminal/TerminalContextMenu'
@@ -45,6 +46,14 @@ const INITIAL_STATUS: TerminalStatus = {
   incarnationId: null,
   exitCode: null,
   error: null
+}
+
+/** Menu state is a snapshot: xterm has no mouse-mode change event. */
+type TerminalMenuPoint = {
+  x: number
+  y: number
+  hasSelection: boolean
+  mouseTracking: boolean
 }
 
 const NO_SUBSCRIBE = (): (() => void) => () => undefined
@@ -234,15 +243,10 @@ function RegistryTerminalPane({
   const status = useSyncExternalStore(subscribe, getSnapshot)
   const paneActions = useSessionPaneActions()
   const terminalSettings = useTerminalSettings()
-  const [hasSelection, setHasSelection] = useState(false)
+  const t = useT()
   const [findOpen, setFindOpen] = useState(false)
-  const [menuPoint, setMenuPoint] = useState<{ x: number; y: number } | null>(null)
+  const [menu, setMenu] = useState<TerminalMenuPoint | null>(null)
   const [linkRequest, setLinkRequest] = useState<TerminalLinkRequest | null>(null)
-
-  useEffect(() => {
-    if (instance === null) return
-    return instance.onInteractionState((state) => setHasSelection(state.hasSelection))
-  }, [instance])
 
   useEffect(() => {
     if (instance === null) return
@@ -271,9 +275,27 @@ function RegistryTerminalPane({
     setFindOpen(false)
     instance?.focus()
   }, [instance])
+  const copySelectionWithNotice = useCallback(async (): Promise<boolean> => {
+    if (instance === null) return false
+    const ok = await instance.copySelection()
+    instance.notify({
+      tone: ok ? 'success' : 'error',
+      message: t(ok ? 'terminal.copiedSelection' : 'terminal.copyFailed')
+    })
+    return ok
+  }, [instance, t])
   const copy = useCallback(() => {
-    void instance?.copySelection()
-  }, [instance])
+    void copySelectionWithNotice()
+  }, [copySelectionWithNotice])
+  const copyScreenContent = useCallback(() => {
+    if (instance === null) return
+    void instance.copyScreenContent().then((ok) => {
+      instance.notify({
+        tone: ok ? 'success' : 'error',
+        message: t(ok ? 'terminal.copiedScreen' : 'terminal.copyFailed')
+      })
+    })
+  }, [instance, t])
   const paste = useCallback(() => {
     void navigator.clipboard
       .readText()
@@ -295,6 +317,7 @@ function RegistryTerminalPane({
   const menuActions = useMemo<TerminalMenuActions>(
     () => ({
       copy,
+      copyScreenContent,
       paste,
       selectAll,
       find: () => setFindOpen(true),
@@ -306,7 +329,41 @@ function RegistryTerminalPane({
       reset: () => instance?.reset(),
       close: () => paneActions?.close()
     }),
-    [copy, copyContext, copySessionId, instance, paneActions, paste, selectAll]
+    [copy, copyScreenContent, copyContext, copySessionId, instance, paneActions, paste, selectAll]
+  )
+
+  const handleContextMenu = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      event.preventDefault()
+      const target = instance
+      if (target === null) return
+      const x = event.clientX
+      const y = event.clientY
+      const mouseTracking = target.isMouseTrackingActive()
+      const hasSelection = target.hasSelection()
+      const intent = terminalRightClickIntent({
+        button: event.button,
+        altKey: event.altKey,
+        ctrlKey: event.ctrlKey,
+        mouseTracking,
+        hasSelection,
+        rightClickPaste: terminalSettings.rightClickPaste
+      })
+      if (intent === 'passthrough') return
+      if (intent === 'copy') {
+        void copySelectionWithNotice().then((ok) => {
+          if (ok) return
+          setMenu({ x, y, hasSelection: target.hasSelection(), mouseTracking })
+        })
+        return
+      }
+      if (intent === 'paste') {
+        paste()
+        return
+      }
+      setMenu({ x, y, hasSelection, mouseTracking })
+    },
+    [copySelectionWithNotice, instance, paste, terminalSettings.rightClickPaste]
   )
 
   return (
@@ -318,15 +375,7 @@ function RegistryTerminalPane({
       containerRef={containerRef}
       onActivate={() => instance?.focus()}
       onRetry={() => instance?.retry()}
-      onContextMenu={(event) => {
-        event.preventDefault()
-        if (terminalSettings.rightClickPaste && !event.ctrlKey) {
-          if (instance?.hasSelection() === true) copy()
-          else paste()
-          return
-        }
-        setMenuPoint({ x: event.clientX, y: event.clientY })
-      }}
+      onContextMenu={handleContextMenu}
     >
       <TerminalFindBar
         open={findOpen}
@@ -338,15 +387,16 @@ function RegistryTerminalPane({
       />
       <TerminalLinkPopover request={linkRequest} onClose={() => setLinkRequest(null)} />
       <TerminalContextMenu
-        open={menuPoint !== null}
-        x={menuPoint?.x ?? 0}
-        y={menuPoint?.y ?? 0}
-        hasSelection={hasSelection}
+        open={menu !== null}
+        x={menu?.x ?? 0}
+        y={menu?.y ?? 0}
+        hasSelection={menu?.hasSelection ?? false}
+        mouseTracking={menu?.mouseTracking ?? false}
         canSplit={paneActions?.canSplit ?? false}
         canClose={paneActions?.canClose ?? false}
         canZoom={paneActions?.canZoom ?? false}
         onClose={() => {
-          setMenuPoint(null)
+          setMenu(null)
           instance?.focus()
         }}
         actions={menuActions}

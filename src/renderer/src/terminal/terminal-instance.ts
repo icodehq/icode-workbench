@@ -16,6 +16,18 @@ import {
 } from './terminal-settings'
 import { trimTerminalSelection } from './interaction/selection-text'
 import { createOsc52Handler } from './interaction/osc52'
+import {
+  createTerminalMouseReportSuppressor,
+  installTerminalRightButtonSuppression,
+  type MouseReportSuppressor,
+  type TerminalRightButtonSuppression
+} from './interaction/mouse-report-suppressor'
+import { shouldWithholdRightButton } from './interaction/right-click-policy'
+import {
+  TERMINAL_CLIPBOARD_MAX_CHARS,
+  capClipboardText,
+  readScreenText
+} from './interaction/screen-text'
 import type {
   TerminalFindDirection,
   TerminalFindOptions,
@@ -23,6 +35,7 @@ import type {
   TerminalInteractionState,
   TerminalLinkRequest,
   TerminalMetadata,
+  TerminalNotice,
   TerminalTranscriptOptions
 } from './terminal-interaction-host'
 import { installTerminalLinks, type TerminalLinks } from './links/terminal-links'
@@ -61,12 +74,15 @@ export type TerminalInstanceLike = {
   dispose(): void
   isAttached(): boolean
   isDisposed(): boolean
+  isMouseTrackingActive(): boolean
   subscribe(listener: () => void): () => void
   getStatus(): TerminalStatus
+  notify(notice: TerminalNotice): void
 
   hasSelection(): boolean
   getSelectionText(): string
   copySelection(): Promise<boolean>
+  copyScreenContent(): Promise<boolean>
   selectAll(): void
   clearSelection(): void
   /** Feeds text through xterm so bracketed-paste mode is honored. */
@@ -118,6 +134,8 @@ export class TerminalInstance implements TerminalInstanceLike {
   private readonly linkRequestListeners = new Set<(request: TerminalLinkRequest) => void>()
   private readonly keyRouter: { dispose(): void }
   private readonly osc52Disposable: { dispose(): void }
+  private readonly mouseReportSuppressor: MouseReportSuppressor
+  private readonly rightButtonSuppression: TerminalRightButtonSuppression
   private readonly links: TerminalLinks | null
   private readonly themeObserver: MutationObserver
   private readonly inputDisposable: { dispose(): void }
@@ -156,6 +174,25 @@ export class TerminalInstance implements TerminalInstanceLike {
     this.term.loadAddon(this.searchAddon)
     this.term.open(this.wrapper)
 
+    /*
+     * Link clicks and the right-click menu both withhold pointer reports from
+     * a mouse-aware program. They share one depth-counted suppressor so the
+     * second owner never saves the already-true option.
+     */
+    this.mouseReportSuppressor = createTerminalMouseReportSuppressor(this.term)
+    this.rightButtonSuppression = installTerminalRightButtonSuppression(
+      this.term,
+      this.mouseReportSuppressor,
+      {
+        shouldSuppress: (event) =>
+          shouldWithholdRightButton({
+            mouseTracking: this.term.modes.mouseTrackingMode !== 'none',
+            ctrlKey: event.ctrlKey,
+            altKey: event.altKey
+          })
+      }
+    )
+
     this.inputDisposable = this.term.onData((data) => {
       void this.controller.write(data)
     })
@@ -189,6 +226,7 @@ export class TerminalInstance implements TerminalInstanceLike {
             host: this.host,
             isMac: isMacPlatform(),
             getSettings: () => this.settings,
+            mouseReportSuppressor: this.mouseReportSuppressor,
             onRequest: (request) => {
               for (const listener of this.linkRequestListeners) listener(request)
             }
@@ -323,6 +361,10 @@ export class TerminalInstance implements TerminalInstanceLike {
     return this.disposed
   }
 
+  isMouseTrackingActive(): boolean {
+    return !this.disposed && this.term.modes.mouseTrackingMode !== 'none'
+  }
+
   setActive(active: boolean): void {
     if (this.disposed) return
     this.active = active
@@ -352,6 +394,10 @@ export class TerminalInstance implements TerminalInstanceLike {
     return this.status
   }
 
+  notify(notice: TerminalNotice): void {
+    this.host?.notify(notice)
+  }
+
   hasSelection(): boolean {
     return !this.disposed && this.term.hasSelection()
   }
@@ -367,6 +413,16 @@ export class TerminalInstance implements TerminalInstanceLike {
     const text = this.settings.selectionTrim ? trimTerminalSelection(selected) : selected
     if (text.length === 0) return false
     return this.writeClipboard(text)
+  }
+
+  /** Copy only the visible viewport, independent of the TUI's own selection. */
+  async copyScreenContent(): Promise<boolean> {
+    if (this.disposed) return false
+    const screen = readScreenText(this.term.buffer.active, this.term.rows)
+    const text = this.settings.selectionTrim ? trimTerminalSelection(screen) : screen
+    const capped = capClipboardText(text)
+    if (capped.length === 0) return false
+    return this.writeClipboard(capped)
   }
 
   selectAll(): void {
@@ -422,7 +478,7 @@ export class TerminalInstance implements TerminalInstanceLike {
 
   getTranscript(options?: TerminalTranscriptOptions): string {
     if (this.disposed) return ''
-    const maxChars = options?.maxChars ?? 36_000
+    const maxChars = options?.maxChars ?? TERMINAL_CLIPBOARD_MAX_CHARS
     const buffer = this.term.buffer.active
     const lines: string[] = []
     for (let row = 0; row < buffer.length; row += 1) {
@@ -459,6 +515,8 @@ export class TerminalInstance implements TerminalInstanceLike {
     this.findRequestListeners.clear()
     this.linkRequestListeners.clear()
     this.links?.dispose()
+    this.rightButtonSuppression.dispose()
+    this.mouseReportSuppressor.restore()
     if (this.copyOnSelectTimer !== null) {
       clearTimeout(this.copyOnSelectTimer)
       this.copyOnSelectTimer = null

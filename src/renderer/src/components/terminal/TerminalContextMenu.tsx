@@ -5,6 +5,7 @@ import type { SplitSide } from '../../state/session-split'
 
 export type TerminalMenuActions = {
   copy: () => void
+  copyScreenContent: () => void
   paste: () => void
   selectAll: () => void
   find: () => void
@@ -22,6 +23,8 @@ type Props = {
   x: number
   y: number
   hasSelection: boolean
+  /** The terminal's program owns pointer reports; the TUI has its own selection. */
+  mouseTracking: boolean
   canSplit: boolean
   canClose: boolean
   canZoom: boolean
@@ -38,6 +41,7 @@ export default function TerminalContextMenu({
   x,
   y,
   hasSelection,
+  mouseTracking,
   canSplit,
   canClose,
   canZoom,
@@ -57,6 +61,23 @@ export default function TerminalContextMenu({
       reason: t('terminal.menu.copyEmpty'),
       onSelect: actions.copy,
       testId: 'terminal-menu-copy'
+    },
+    ...(mouseTracking && !hasSelection
+      ? [
+          {
+            id: 'copy-hint',
+            kind: 'hint' as const,
+            label: t('terminal.menu.tuiSelectionHint'),
+            onSelect: () => undefined,
+            testId: 'terminal-menu-copy-hint'
+          }
+        ]
+      : []),
+    {
+      id: 'copy-screen',
+      label: t('terminal.menu.copyScreen'),
+      onSelect: actions.copyScreenContent,
+      testId: 'terminal-menu-copy-screen'
     },
     {
       id: 'paste',

@@ -1,4 +1,8 @@
 import type { IDisposable, Terminal } from '@xterm/xterm'
+import {
+  createTerminalMouseReportSuppressor,
+  type MouseReportSuppressor
+} from '../interaction/mouse-report-suppressor'
 
 /**
  * Distinguishes a link click from a text selection or a modified click.
@@ -54,6 +58,11 @@ type TerminalLinkGestureOptions = {
    * mouseup or blur.
    */
   shouldSuppressMouseReport?: (event: MouseEvent) => boolean
+  /**
+   * Shared with the right-click suppression so both gestures use one
+   * depth-counted save slot. A private suppressor is created when omitted.
+   */
+  mouseReportSuppressor?: MouseReportSuppressor
 }
 
 export function installTerminalLinkPointerGesture(
@@ -63,16 +72,18 @@ export function installTerminalLinkPointerGesture(
   const element = term.element
   const doc = element?.ownerDocument
   const win = doc?.defaultView ?? null
+  const suppressor =
+    options.mouseReportSuppressor ?? createTerminalMouseReportSuppressor(term)
   let pending: PendingGesture | null = null
-  let savedMouseEventsRequireAlt: boolean | undefined | null = null
+  let suppressedByGesture = false
 
   const clear = (): void => {
     pending = null
   }
-  const restoreMouseReports = (): void => {
-    if (savedMouseEventsRequireAlt === null) return
-    term.options.mouseEventsRequireAlt = savedMouseEventsRequireAlt
-    savedMouseEventsRequireAlt = null
+  const releaseSuppression = (): void => {
+    if (!suppressedByGesture) return
+    suppressedByGesture = false
+    suppressor.release()
   }
 
   const onMouseDown = (event: MouseEvent): void => {
@@ -89,13 +100,14 @@ export function installTerminalLinkPointerGesture(
     // A modified click on a link in a mouse-aware TUI must not also become a
     // PTY mouse report (for example a Ctrl-click in tmux or vim).
     if (
+      !suppressedByGesture &&
       term.modes.mouseTrackingMode !== 'none' &&
       !event.altKey &&
       !pending.hadSelection &&
       options.shouldSuppressMouseReport?.(event) === true
     ) {
-      savedMouseEventsRequireAlt = term.options.mouseEventsRequireAlt
-      term.options.mouseEventsRequireAlt = true
+      suppressedByGesture = true
+      suppressor.suppress()
     }
   }
   const onMouseMove = (event: MouseEvent): void => {
@@ -107,12 +119,12 @@ export function installTerminalLinkPointerGesture(
   const onMouseUp = (): void => {
     queueMicrotask(() => {
       clear()
-      restoreMouseReports()
+      releaseSuppression()
     })
   }
   const onBlur = (): void => {
     clear()
-    restoreMouseReports()
+    releaseSuppression()
   }
 
   element?.addEventListener('mousedown', onMouseDown, true)
@@ -134,7 +146,7 @@ export function installTerminalLinkPointerGesture(
     },
     dispose: () => {
       clear()
-      restoreMouseReports()
+      releaseSuppression()
       element?.removeEventListener('mousedown', onMouseDown, true)
       doc?.removeEventListener('mousemove', onMouseMove)
       doc?.removeEventListener('mouseup', onMouseUp)

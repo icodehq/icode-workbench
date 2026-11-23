@@ -31,6 +31,9 @@ administrator mode, cloud pairing, and theme imports.
 | T-LINK-06 | Links | Reject drags, prior/current selections, shift/alt clicks, and non-primary clicks | Done | `link-gesture.test.ts` |
 | T-LINK-07 | Links | A plain click on a link in a mouse-aware TUI opens the action popover and does not also become a PTY mouse report | Done | UI smoke (VT200 mouse tracking) |
 | T-LINK-08 | Links | Preview/standalone panes install no link handling (no interaction host) | Done | code path |
+| T-CLIP-01 | Clipboard | Plain right-click copies an xterm selection and otherwise opens the pane menu; Ctrl+right-click always opens the menu | Done | `right-click-policy.test.ts`, UI smoke |
+| T-CLIP-02 | Clipboard | A mouse-aware TUI never receives the right button; its selection survives the menu and Alt+right-click passes through | Done | UI smoke (VT200/SGR) |
+| T-CLIP-03 | Clipboard | Copy Screen Content copies the visible viewport without requiring a selection | Done | `screen-text.test.ts`, UI smoke |
 | T-SET-01 | Settings | Terminal settings card for font, cursor, scrolling, clipboard, links, find, and quick commands | Planned (R1b) | — |
 | T-CMD-01 | Commands | Terminal quick commands from the pane menu (insert and run) | Planned (R1b) | — |
 | T-PASTE-01 | Clipboard | PRIMARY selection, middle-click, multiline confirmation, image/file paste, copy-context cap, OSC 52 replay gate | Planned (R1b) | — |

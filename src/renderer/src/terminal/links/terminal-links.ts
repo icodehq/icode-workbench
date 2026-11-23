@@ -15,6 +15,7 @@ import {
 } from './link-gesture'
 import { createUrlLinkProvider } from './url-link-provider'
 import { classifyExternalUrl } from './url-routing'
+import type { MouseReportSuppressor } from '../interaction/mouse-report-suppressor'
 
 type TerminalLinksOptions = {
   term: Terminal
@@ -22,6 +23,7 @@ type TerminalLinksOptions = {
   isMac: boolean
   getSettings: () => TerminalSettings
   onRequest: (request: TerminalLinkRequest) => void
+  mouseReportSuppressor?: MouseReportSuppressor
 }
 
 export type TerminalLinks = IDisposable & {
@@ -49,6 +51,7 @@ export function installTerminalLinks(options: TerminalLinksOptions): TerminalLin
     )
   }
   const gesture = installTerminalLinkPointerGesture(options.term, {
+    mouseReportSuppressor: options.mouseReportSuppressor,
     shouldSuppressMouseReport: (event) => {
       // Shift extends a selection, and a plain click is a no-op when the user
       // opted into modifier-only links; neither is a TUI click we should eat.

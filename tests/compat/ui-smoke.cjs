@@ -151,7 +151,10 @@ async function click(selector) {
   assert(clicked, `Could not click ${selector}`)
 }
 
-async function rightClick(selector, x = null, y = null) {
+async function rightClick(selector, x = null, y = null, options = {}) {
+  const ctrlKey = options.ctrlKey === true
+  const shiftKey = options.shiftKey === true
+  const altKey = options.altKey === true
   const clicked = await cdp.evaluate(`(() => {
     const element = document.querySelector(${JSON.stringify(selector)});
     if (!element) return false;
@@ -163,11 +166,14 @@ async function rightClick(selector, x = null, y = null) {
       cancelable: true,
       view: window,
       button: 2,
+      ctrlKey: ${ctrlKey},
+      shiftKey: ${shiftKey},
+      altKey: ${altKey},
       clientX,
       clientY
     }));
     return true;
-  })()`)
+  })()`, { userGesture: true })
   assert(clicked, `Could not right-click ${selector}`)
 }
 
@@ -400,7 +406,7 @@ async function waitForTerminalLine(sessionId, predicate, description, timeoutMs 
     await sleep(150)
   }
   throw new Error(
-    `Timed out waiting for ${description} in the terminal (last rows: ${JSON.stringify(last.slice(0, 14))})`
+    `Timed out waiting for ${description} in the terminal (last rows: ${JSON.stringify(last.slice(-14))})`
   )
 }
 
@@ -447,6 +453,53 @@ async function clickPoint(position) {
     buttons: 0,
     clickCount: 1
   })
+}
+
+/**
+ * Real right-button input, so xterm's mousedown/mouseup reporting is exercised
+ * (the synthetic contextmenu helper cannot test PTY suppression).
+ */
+async function rightClickPoint(position, modifiers = 0) {
+  await cdp.send('Input.dispatchMouseEvent', {
+    type: 'mousePressed',
+    x: position.x,
+    y: position.y,
+    button: 'right',
+    buttons: 2,
+    clickCount: 1,
+    modifiers
+  })
+  await cdp.send('Input.dispatchMouseEvent', {
+    type: 'mouseReleased',
+    x: position.x,
+    y: position.y,
+    button: 'right',
+    buttons: 0,
+    clickCount: 1,
+    modifiers
+  })
+}
+
+/** Real left click on a selector, for clipboard calls that need user activation. */
+async function clickSelectorWithMouse(selector) {
+  const point = await cdp.evaluate(`(() => {
+    const element = document.querySelector(${JSON.stringify(selector)});
+    if (!element) return null;
+    const rect = element.getBoundingClientRect();
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  })()`)
+  assert(point, `Could not locate ${selector}`)
+  await clickPoint(point)
+}
+
+/** Reads the clipboard when Electron grants it; null means the probe was denied. */
+async function readClipboardText() {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const text = await cdp.evaluate(`navigator.clipboard.readText().catch(() => null)`)
+    if (typeof text === 'string' && text.length > 0) return text
+    await sleep(100)
+  }
+  return null
 }
 
 function requireElectron() {
@@ -921,10 +974,54 @@ async function main() {
       `document.querySelector('[data-testid="terminal-menu-copy"]')?.getAttribute('aria-disabled')`
     )
     assert(copyDisabled === 'true', 'Copy should be disabled without a selection')
+
+    // Copy Screen Content is the always-available fallback.
+    await clickSelectorWithMouse('[data-testid="terminal-menu-copy-screen"]')
+    await waitFor(
+      `!document.querySelector('[data-testid="terminal-context-menu"]')`,
+      'terminal menu closed after Copy Screen Content'
+    )
+    await waitFor(
+      `(document.querySelector('[data-testid="notice"]')?.textContent ?? '').includes('screen content')`,
+      'Copy Screen Content notice',
+      5000
+    )
+    const screenClipboard = await readClipboardText()
+    assert(
+      screenClipboard === null || screenClipboard.includes('FIRST_READY'),
+      `Copy Screen Content clipboard: ${JSON.stringify(screenClipboard)}`
+    )
+
+    // Select All gives xterm a selection; a plain right-click must copy
+    // instead of opening the menu.
+    await rightClick(terminal, 40, 40)
+    await waitForSelector('[data-testid="terminal-context-menu"]')
     await click('[data-testid="terminal-menu-select-all"]')
     await sleep(150)
+    const copyPoint = await pointForTerminalText(firstSession.id, 'FIRST_READY')
+    assert(copyPoint, 'Could not locate the line to copy')
+    await rightClickPoint(copyPoint)
+    await rightClick(terminal, copyPoint.x, copyPoint.y)
+    await waitFor(
+      `(document.querySelector('[data-testid="notice"]')?.textContent ?? '').includes('selection')`,
+      'right-click copy notice',
+      5000
+    )
+    const menuAfterCopy = await cdp.evaluate(
+      `Boolean(document.querySelector('[data-testid="terminal-context-menu"]'))`
+    )
+    assert(
+      menuAfterCopy === false,
+      'A plain right-click with a selection opened the menu instead of copying'
+    )
+    const selectionClipboard = await readClipboardText()
+    assert(
+      selectionClipboard === null || selectionClipboard.includes('FIRST_READY'),
+      `Right-click copy clipboard: ${JSON.stringify(selectionClipboard)}`
+    )
 
-    await rightClick(terminal, 40, 40)
+    // Ctrl+right-click always opens the menu.
+    await rightClick(terminal, 40, 40, { ctrlKey: true })
     await waitForSelector('[data-testid="terminal-context-menu"]')
     const copyEnabled = await cdp.evaluate(
       `document.querySelector('[data-testid="terminal-menu-copy"]')?.getAttribute('aria-disabled')`
@@ -1069,6 +1166,101 @@ async function main() {
       'the shell prompt after the mouse-aware click'
     )
     return { url, verdict: 'no-pty-mouse-report' }
+  })
+
+  await step('right-click in a mouse-aware TUI stays with iCode', async () => {
+    const terminal = `[data-testid="terminal-${firstSession.id}"]`
+    const rightCommand =
+      "printf '\\033[?1000h\\033[?1006h'; " +
+      'echo TUI_RIGHT_TARGET; ' +
+      'if IFS= read -t 5 -r -n 1 ch; then ' +
+      "if [ \"$ch\" = $'\\033' ]; then echo TUI_GOT_RIGHT; else echo TUI_NO_RIGHT; fi; " +
+      'else echo TUI_NO_RIGHT; fi; ' +
+      'if IFS= read -t 0.5 -r -n 64 rest; then :; fi; ' +
+      "printf '\\033[?1000l\\033[?1006l'; echo TUI_RIGHT_DONE"
+    await typeInSession(firstSession.id, rightCommand)
+    await waitForTerminalLine(
+      firstSession.id,
+      (line) => line.includes('TUI_RIGHT_TARGET'),
+      'the TUI right-click target'
+    )
+    const point = await pointForTerminalText(firstSession.id, 'TUI_RIGHT_TARGET')
+    assert(point, 'Could not locate the TUI right-click target')
+    await rightClickPoint(point)
+    await rightClick(terminal, point.x, point.y)
+    await waitForSelector('[data-testid="terminal-context-menu"]')
+    const hint = await cdp.evaluate(
+      `document.querySelector('[data-testid="terminal-menu-copy-hint"]')?.textContent ?? ''`
+    )
+    assert(hint.length > 0, 'TUI right-click menu is missing the selection hint')
+    const copyDisabled = await cdp.evaluate(
+      `document.querySelector('[data-testid="terminal-menu-copy"]')?.getAttribute('aria-disabled')`
+    )
+    assert(copyDisabled === 'true', 'Copy should be disabled without an xterm selection')
+    const copyScreen = await cdp.evaluate(
+      `Boolean(document.querySelector('[data-testid="terminal-menu-copy-screen"]'))`
+    )
+    assert(copyScreen, 'TUI right-click menu is missing Copy Screen Content')
+    await pressEscape()
+    await waitFor(
+      `!document.querySelector('[data-testid="terminal-context-menu"]')`,
+      'TUI right-click menu closed'
+    )
+    await focusTerminal(firstSession.id)
+    await pressEnter()
+    const rightVerdict = await waitForTerminalLine(
+      firstSession.id,
+      (line) => line.trim() === 'TUI_NO_RIGHT' || line.trim() === 'TUI_GOT_RIGHT',
+      'the TUI right-click verdict'
+    )
+    assert(
+      rightVerdict.some((line) => line.trim() === 'TUI_NO_RIGHT'),
+      `The TUI received the right click: ${JSON.stringify(rightVerdict.slice(-8))}`
+    )
+    await waitForTerminalLine(
+      firstSession.id,
+      (line) => line.trim() === 'TUI_RIGHT_DONE',
+      'the TUI right-click cleanup'
+    )
+
+    // The shared suppression option must be restored: a left click still reaches the TUI.
+    const leftCommand =
+      "printf '\\033[?1000h\\033[?1006h'; " +
+      'echo TUI_LEFT_TARGET; ' +
+      'if IFS= read -t 5 -r -n 1 ch; then ' +
+      "if [ \"$ch\" = $'\\033' ]; then echo TUI_LEFT_GOT; else echo TUI_LEFT_NONE; fi; " +
+      'else echo TUI_LEFT_NONE; fi; ' +
+      'if IFS= read -t 0.5 -r -n 64 rest; then :; fi; ' +
+      "printf '\\033[?1000l\\033[?1006l'; echo TUI_LEFT_DONE"
+    await typeInSession(firstSession.id, leftCommand)
+    await waitForTerminalLine(
+      firstSession.id,
+      (line) => line.includes('TUI_LEFT_TARGET'),
+      'the TUI left-click target'
+    )
+    const leftPoint = await pointForTerminalText(firstSession.id, 'TUI_LEFT_TARGET')
+    assert(leftPoint, 'Could not locate the TUI left-click target')
+    await clickPoint(leftPoint)
+    // Let the report end the read before Enter can be mistaken for it.
+    await sleep(200)
+    await focusTerminal(firstSession.id)
+    await pressEnter()
+    await screenshot('04e-tui-left-click-verdict')
+    const leftVerdict = await waitForTerminalLine(
+      firstSession.id,
+      (line) => line.trim().endsWith('TUI_LEFT_GOT') || line.trim().endsWith('TUI_LEFT_NONE'),
+      'the TUI left-click verdict'
+    )
+    assert(
+      leftVerdict.some((line) => line.trim().endsWith('TUI_LEFT_GOT')),
+      'TUI mouse reporting stayed suppressed after the right click'
+    )
+    await waitForTerminalLine(
+      firstSession.id,
+      (line) => line.trim() === 'TUI_LEFT_DONE',
+      'the TUI left-click cleanup'
+    )
+    return { right: 'no-pty-right-report', left: 'pty-report-restored' }
   })
 
   await step('resize the terminal through the visible UI and typed API', async () => {

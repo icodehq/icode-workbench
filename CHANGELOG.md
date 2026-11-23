@@ -5,7 +5,21 @@ All notable changes to iCode are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.21.0] - 2026-11-23
+
+### Added
+
+- **Copy Screen Content.** The terminal menu can copy the visible screen even
+  when the program owns the selection, and terminal copy actions now report
+  success or failure.
+
+### Fixed
+
+- **Terminal right-click with a program-owned selection.** A plain right-click
+  now copies an existing terminal selection and otherwise opens the pane menu;
+  Ctrl+right-click always opens the menu. In mouse-aware TUI programs such as
+  Claude Code the right button is no longer forwarded to the program, so its
+  own selection survives the menu. Alt+right-click still passes through.
 
 ## [0.20.0] - 2026-11-23
 
