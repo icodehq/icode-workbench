@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.1] - 2026-11-23
+
 ### Changed
 
 - **WSL responsiveness.** Source Control, Files and checkout resolution no
