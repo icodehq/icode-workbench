@@ -27,9 +27,21 @@ import { compileTextMatcher } from '../../shared/domain/text-search'
  * a guest checkout with the local implementation would answer about a different
  * machine and report every file as missing.
  */
+export type FileListingEntries = { entries: FileEntry[]; truncated: boolean }
+
 export type FileBackend = {
   /** Entries of one directory inside the checkout. */
-  list(relativePath: string): Promise<{ entries: FileEntry[]; truncated: boolean }>
+  list(relativePath: string): Promise<FileListingEntries>
+  /**
+   * Lists several directories in one host request.
+   *
+   * Only a backend whose every call costs a process implements this (WSL);
+   * absent, callers keep the per-directory path. A directory that cannot be
+   * read is reported per path, never by failing the whole batch.
+   */
+  listMany?(
+    relativePaths: readonly string[]
+  ): Promise<ReadonlyMap<string, FileListingEntries | FileAccessError>>
   read(relativePath: string): Promise<FileContent>
   stat(relativePath: string): Promise<FileStat>
   /**

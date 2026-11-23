@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto'
 import {
   FILES_MAX_ENTRIES_PER_DIRECTORY,
   FILES_MAX_FILE_BYTES,
@@ -10,7 +11,11 @@ import {
 import { isSearchPathIncluded } from '../../shared/domain/glob'
 import { compileTextMatcher } from '../../shared/domain/text-search'
 import type { WslCommandRunner } from '../wsl/exec'
-import { FileAccessError, type FileBackend } from './local-file-backend'
+import {
+  FileAccessError,
+  type FileBackend,
+  type FileListingEntries
+} from './local-file-backend'
 
 /**
  * File access for a checkout that lives inside a distro.
@@ -34,6 +39,35 @@ if [ ! -d "$dir" ]; then
   echo "NOTFOUND"; exit 4
 fi
 find "$dir" -mindepth 1 -maxdepth 1 -printf '%y\\t%s\\t%T@\\t%f\\0' 2>/dev/null | head -c 4000000
+exit 0
+`
+
+/**
+ * Lists every requested directory in one guest process.
+ *
+ * Each section starts with a NUL-framed header carrying a per-call random
+ * token, its index in `"$@"`, and the directory's outcome. The random token
+ * makes a collision with a file name in the NUL-separated payload
+ * negligible; the index, not the path text, maps a section back to its request.
+ */
+const LIST_MANY_SCRIPT = `
+root=$1
+tok=$2
+shift 2
+cd "$root" 2>/dev/null || exit 4
+i=0
+for rel in "$@"; do
+  dir=\${rel:-.}
+  if [ ! -d "$dir" ]; then
+    if [ -e "$dir" ]; then st=NOTDIR; else st=NOTFOUND; fi
+    printf '\\000@@%s:%s:%s\\000' "$tok" "$i" "$st"
+  else
+    printf '\\000@@%s:%s:OK\\000' "$tok" "$i"
+    find "$dir" -mindepth 1 -maxdepth 1 -printf '%y\\t%s\\t%T@\\t%f\\0' 2>/dev/null | head -c 4000000
+    printf '\\000'
+  fi
+  i=$((i+1))
+done
 exit 0
 `
 
@@ -274,6 +308,49 @@ function takeTextHeaders(text: string, keys: readonly string[]): Record<string, 
   return result
 }
 
+/** Parses the NUL-separated `find` records for one directory. */
+function parseListingEntries(text: string, relative: string): FileListingEntries {
+  const entries: FileEntry[] = []
+  let truncated = false
+  for (const record of text.split('\u0000')) {
+    if (record === '') continue
+    if (entries.length >= FILES_MAX_ENTRIES_PER_DIRECTORY) {
+      truncated = true
+      break
+    }
+    const firstTab = record.indexOf('\t')
+    const secondTab = record.indexOf('\t', firstTab + 1)
+    const thirdTab = record.indexOf('\t', secondTab + 1)
+    if (firstTab === -1 || secondTab === -1 || thirdTab === -1) continue
+    const type = record.slice(0, firstTab)
+    const size = Number.parseInt(record.slice(firstTab + 1, secondTab), 10)
+    const modifiedSeconds = Number.parseFloat(record.slice(secondTab + 1, thirdTab))
+    const modifiedAt = Number.isFinite(modifiedSeconds)
+      ? Math.round(modifiedSeconds * 1000)
+      : null
+    const name = record.slice(thirdTab + 1)
+    if (!name || name === '.' || name === '..') continue
+    const path = relative === '' ? name : `${relative}/${name}`
+    if (type === 'd') {
+      entries.push({ name, path, kind: 'directory', size: null, modifiedAt })
+    } else if (type === 'f') {
+      entries.push({
+        name,
+        path,
+        kind: 'file',
+        size: Number.isFinite(size) ? size : null,
+        modifiedAt
+      })
+    }
+  }
+  entries.sort(
+    (left, right) =>
+      Number(right.kind === 'directory') - Number(left.kind === 'directory') ||
+      left.name.localeCompare(right.name)
+  )
+  return { entries, truncated }
+}
+
 /**
  * `worktreePath` is the guest directory every request is relative to.
  *
@@ -321,45 +398,69 @@ export function createGuestFileBackend(
       if (result.code !== 0) {
         throw new FileAccessError('unreadable', 'That directory could not be read inside the distro.')
       }
-      const entries: FileEntry[] = []
-      let truncated = false
-      for (const record of text.split('\u0000')) {
-        if (record === '') continue
-        if (entries.length >= FILES_MAX_ENTRIES_PER_DIRECTORY) {
-          truncated = true
-          break
-        }
-        const firstTab = record.indexOf('\t')
-        const secondTab = record.indexOf('\t', firstTab + 1)
-        const thirdTab = record.indexOf('\t', secondTab + 1)
-        if (firstTab === -1 || secondTab === -1 || thirdTab === -1) continue
-        const type = record.slice(0, firstTab)
-        const size = Number.parseInt(record.slice(firstTab + 1, secondTab), 10)
-        const modifiedSeconds = Number.parseFloat(record.slice(secondTab + 1, thirdTab))
-        const modifiedAt = Number.isFinite(modifiedSeconds)
-          ? Math.round(modifiedSeconds * 1000)
-          : null
-        const name = record.slice(thirdTab + 1)
-        if (!name || name === '.' || name === '..') continue
-        const path = relative === '' ? name : `${relative}/${name}`
-        if (type === 'd') {
-          entries.push({ name, path, kind: 'directory', size: null, modifiedAt })
-        } else if (type === 'f') {
-          entries.push({
-            name,
-            path,
-            kind: 'file',
-            size: Number.isFinite(size) ? size : null,
-            modifiedAt
-          })
-        }
+      return parseListingEntries(text, relative)
+    },
+
+    async listMany(relatives) {
+      if (relatives.length === 0) return new Map()
+      // A fresh token per call keeps a section header from colliding with a
+      // file name in the NUL-separated payload.
+      const token = randomBytes(8).toString('hex')
+      const result = await run(LIST_MANY_SCRIPT, [worktreePath, token, ...relatives])
+      if (result.code === 4) {
+        return new Map(
+          relatives.map((relative) => [
+            relative,
+            new FileAccessError('not-found', 'That directory does not exist in the distro.')
+          ])
+        )
       }
-      entries.sort(
-        (left, right) =>
-          Number(right.kind === 'directory') - Number(left.kind === 'directory') ||
-          left.name.localeCompare(right.name)
-      )
-      return { entries, truncated }
+      if (result.code !== 0) {
+        return new Map(
+          relatives.map((relative) => [
+            relative,
+            new FileAccessError('unreadable', 'That directory could not be read inside the distro.')
+          ])
+        )
+      }
+      const text = decode(result.stdout)
+      const marker = `\u0000@@${token}:`
+      const results = new Map<string, FileListingEntries | FileAccessError>()
+      let cursor = 0
+      while (cursor < text.length) {
+        const start = text.indexOf(marker, cursor)
+        if (start === -1) break
+        const headerStart = start + marker.length
+        const firstColon = text.indexOf(':', headerStart)
+        if (firstColon === -1) break
+        const rawIndex = text.slice(headerStart, firstColon)
+        const statusEnd = text.indexOf('\u0000', firstColon + 1)
+        if (statusEnd === -1) break
+        const status = text.slice(firstColon + 1, statusEnd)
+        const next = text.indexOf(marker, statusEnd + 1)
+        const bodyEnd = next === -1 ? text.length : next
+        cursor = next === -1 ? text.length : next
+        const index = Number.parseInt(rawIndex, 10)
+        if (!Number.isInteger(index) || index < 0 || index >= relatives.length) continue
+        const relative = relatives[index]!
+        if (status === 'NOTFOUND') {
+          results.set(
+            relative,
+            new FileAccessError('not-found', 'That directory does not exist in the distro.')
+          )
+          continue
+        }
+        if (status === 'NOTDIR') {
+          results.set(
+            relative,
+            new FileAccessError('not-a-directory', 'That path is not a directory.')
+          )
+          continue
+        }
+        if (status !== 'OK') continue
+        results.set(relative, parseListingEntries(text.slice(statusEnd + 1, bodyEnd), relative))
+      }
+      return results
     },
 
     async read(relative) {

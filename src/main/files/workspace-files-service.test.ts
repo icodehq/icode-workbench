@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createLocalFileBackend, FileAccessError } from './local-file-backend'
 import { WorkspaceFilesService, type WorkspaceFilesDeps } from './workspace-files-service'
 import type { ExecutionTarget } from '../../shared/domain/repository'
@@ -755,5 +755,50 @@ describe('workspace files: app-managed trash', () => {
     const listed = await svc.listTrash('ses_x')
     if (listed.status === 'ok') expect(listed.items).toEqual([])
     expect(existsSync(root)).toBe(true)
+  })
+})
+
+describe('workspace files: batched listings', () => {
+  it('shares one host request across simultaneous listings', async () => {
+    const list = vi.fn(async () => ({ entries: [], truncated: false }))
+    const listMany = vi.fn(async (paths: readonly string[]) =>
+      new Map(paths.map((path) => [path, { entries: [], truncated: false }]))
+    )
+    const backend = { list, listMany } as unknown as ReturnType<typeof createLocalFileBackend>
+    const svc = service({ target: WSL, backend })
+
+    const results = await Promise.all([
+      svc.list('ses_x', ''),
+      svc.list('ses_x', 'src'),
+      svc.list('ses_x', 'docs')
+    ])
+    expect(results.every((result) => result.status === 'ok')).toBe(true)
+    expect(listMany).toHaveBeenCalledTimes(1)
+    expect(listMany.mock.calls[0]?.[0]).toEqual(['', 'src', 'docs'])
+    expect(list).not.toHaveBeenCalled()
+  })
+
+  it('keeps one unreadable directory from failing the batch', async () => {
+    const list = vi.fn(async () => ({ entries: [], truncated: false }))
+    const listMany = vi.fn(async (paths: readonly string[]) =>
+      new Map(
+        paths.map((path) => [
+          path,
+          path === 'gone'
+            ? new FileAccessError('not-found', 'gone')
+            : { entries: [], truncated: false }
+        ])
+      )
+    )
+    const backend = { list, listMany } as unknown as ReturnType<typeof createLocalFileBackend>
+    const svc = service({ target: WSL, backend })
+
+    const [open, gone] = await Promise.all([
+      svc.list('ses_x', 'src'),
+      svc.list('ses_x', 'gone')
+    ])
+    expect(open.status).toBe('ok')
+    expect(gone).toMatchObject({ status: 'unavailable', reason: 'not-found' })
+    expect(listMany).toHaveBeenCalledTimes(1)
   })
 })

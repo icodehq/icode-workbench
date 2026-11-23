@@ -44,6 +44,14 @@ export type RepositoryServiceDeps = {
    */
   hostFsFor?: (target: ExecutionTarget) => Promise<{ isDirectory(path: string): Promise<boolean> }>
   /**
+   * How long one remote availability answer is reused.
+   *
+   * `repos.list` is called on boot, on the sidebar refresh and on repository
+   * events; without a window, every WSL project paid its own `wsl.exe` `test -d`
+   * on each list. A missing project is still discoverable within this interval.
+   */
+  availabilityTtlMs?: number
+  /**
    * Required, not optional: a missing validator would silently accept any WSL
    * target, which is exactly the failure this boundary exists to prevent. Local
    * targets pass through without any OS call.
@@ -88,9 +96,13 @@ export class RepositoryService {
   /** Last known state per remote project, refreshed on demand. */
   private readonly targetAvailability = new Map<RepoId, RepositoryAvailability>()
   private hostFs: RepositoryServiceDeps['hostFsFor']
+  private readonly availabilityTtlMs: number
+  private availabilityCheckedAt: number | null = null
+  private availabilityRefresh: Promise<void> | null = null
 
   constructor(private readonly deps: RepositoryServiceDeps) {
     this.hostFs = deps.hostFsFor
+    this.availabilityTtlMs = Math.max(0, deps.availabilityTtlMs ?? 10_000)
   }
 
   /**
@@ -331,28 +343,43 @@ export class RepositoryService {
    * needs it. A distro that does not answer leaves the stored value untouched
    * and is reported as `unknown` for this read — never written as `missing`.
    */
-  async refreshTargetAvailability(): Promise<void> {
+  async refreshTargetAvailability(options: { force?: boolean } = {}): Promise<void> {
     const hostFsFor = this.hostFs
     if (!hostFsFor) return
-    const remote = this.deps.repositories.list().filter((repository) => repository.executionTarget.kind !== 'local')
-    await Promise.all(
-      remote.map(async (repository) => {
-        try {
-          const fs = await hostFsFor(repository.executionTarget)
-          const exists = await fs.isDirectory(repository.path)
-          const next: RepositoryAvailability = exists ? 'present' : 'missing'
-          this.targetAvailability.set(repository.id, next)
-          if (next !== repository.availability) {
-            this.deps.database.transaction(() => {
-              this.deps.repositories.updateAvailability(repository.id, next)
-            })
+    const now = this.deps.now()
+    if (
+      options.force !== true &&
+      this.availabilityCheckedAt !== null &&
+      now - this.availabilityCheckedAt < this.availabilityTtlMs
+    ) {
+      return
+    }
+    if (this.availabilityRefresh !== null) return this.availabilityRefresh
+    this.availabilityRefresh = (async () => {
+      const remote = this.deps.repositories.list().filter((repository) => repository.executionTarget.kind !== 'local')
+      await Promise.all(
+        remote.map(async (repository) => {
+          try {
+            const fs = await hostFsFor(repository.executionTarget)
+            const exists = await fs.isDirectory(repository.path)
+            const next: RepositoryAvailability = exists ? 'present' : 'missing'
+            this.targetAvailability.set(repository.id, next)
+            if (next !== repository.availability) {
+              this.deps.database.transaction(() => {
+                this.deps.repositories.updateAvailability(repository.id, next)
+              })
+            }
+          } catch {
+            // No answer is not "missing": keep the stored value and mark unknown.
+            this.targetAvailability.set(repository.id, 'unknown')
           }
-        } catch {
-          // No answer is not "missing": keep the stored value and mark unknown.
-          this.targetAvailability.set(repository.id, 'unknown')
-        }
-      })
-    )
+        })
+      )
+      this.availabilityCheckedAt = this.deps.now()
+    })().finally(() => {
+      this.availabilityRefresh = null
+    })
+    return this.availabilityRefresh
   }
 
   listRepositories(options: { refreshPaths?: boolean } = {}): RepositoryWithWorkspace[] {

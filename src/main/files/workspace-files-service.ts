@@ -19,13 +19,23 @@ import {
 } from '../../shared/domain/workspace-files'
 import { replaceLiteralAll } from '../../shared/domain/text-search'
 import { makeAppError } from '../../shared/domain/errors'
-import { createLocalFileBackend, FileAccessError, type FileBackend } from './local-file-backend'
+import {
+  createLocalFileBackend,
+  FileAccessError,
+  type FileBackend,
+  type FileListingEntries
+} from './local-file-backend'
 import { createGuestFileBackend } from './guest-file-backend'
 import { FilesTrashState } from './files-trash-state'
 import type { GitWorktreeService } from '../worktrees/git-worktree-service'
 import { SessionServiceError } from '../sessions/session-errors'
 import type { SessionService } from '../sessions/session-service'
 import type { RepoId } from '../../shared/domain/ids'
+import type { ExecutionTarget } from '../../shared/domain/repository'
+import {
+  createHostDirectoryProbe,
+  type HostDirectoryProbe
+} from '../git/host-directory-probe'
 
 export type WorkspaceFilesDeps = {
   sessions: SessionService
@@ -35,6 +45,8 @@ export type WorkspaceFilesDeps = {
   runner: import('../wsl/exec').WslCommandRunner
   /** Controller-side metadata for the app-managed session trash. */
   trashStateFile?: string
+  /** How long simultaneous listings wait to share one host request. */
+  listBatchDelayMs?: number
   /** Test seam: forces a backend without a real distro. */
   backendFor?: (worktreePath: string, target: import('../../shared/domain/repository').ExecutionTarget) => FileBackend
 }
@@ -116,6 +128,18 @@ export function incrementCopyName(name: string, isDirectory: boolean, attempt: n
   return `${base}${suffix}${extension}`
 }
 
+type PendingList = {
+  promise: Promise<FileListingEntries>
+  resolve: (listing: FileListingEntries) => void
+  reject: (error: unknown) => void
+}
+
+type ListBatch = {
+  backend: FileBackend
+  requests: Map<string, PendingList>
+  timer: ReturnType<typeof setTimeout> | null
+}
+
 /**
  * File browsing, editing and search, scoped to one session's checkout.
  *
@@ -128,9 +152,16 @@ export class WorkspaceFilesService {
   private readonly backends = new Map<string, FileBackend>()
   private readonly searchControllers = new Map<string, AbortController>()
   private readonly trashState: FilesTrashState
+  private readonly directoryProbe: HostDirectoryProbe
+  private readonly listBatches = new Map<string, ListBatch>()
+  private readonly listBatchDelayMs: number
 
   constructor(private readonly deps: WorkspaceFilesDeps) {
     this.trashState = new FilesTrashState(deps.trashStateFile ?? null)
+    this.listBatchDelayMs = Math.max(0, deps.listBatchDelayMs ?? 5)
+    this.directoryProbe = createHostDirectoryProbe({
+      hostFsFor: (target: ExecutionTarget) => this.deps.gitWorktrees.hostFsFor(target)
+    })
   }
 
   async list(sessionId: string, path: string): Promise<FilesOutcome<FileListing>> {
@@ -139,10 +170,100 @@ export class WorkspaceFilesService {
     const relative = normalizeRelativePath(path)
     if (relative === null) return outsideWorktree()
     try {
-      const listing = await resolved.backend.list(relative)
+      const listing = await this.listThroughBatch(
+        resolved.backend,
+        resolved.worktreePath,
+        resolved.target,
+        relative
+      )
       return { status: 'ok', path: relative, entries: listing.entries, truncated: listing.truncated }
     } catch (error) {
       return this.mapError(error)
+    }
+  }
+
+  /**
+   * Collects listings that arrive together into one host request.
+   *
+   * The Files tree loads root and expanded directories with `Promise.all`, so
+   * on a WSL checkout the pane used to pay one `wsl.exe` per directory. The
+   * short window keeps a lone listing nearly immediate while letting a tree
+   * reconciliation share a single guest process. Local backends have no
+   * `listMany` and keep their direct call.
+   */
+  private listThroughBatch(
+    backend: FileBackend,
+    worktreePath: string,
+    target: ExecutionTarget,
+    relative: string
+  ): Promise<FileListingEntries> {
+    if (backend.listMany === undefined) return backend.list(relative)
+    const key = this.backendKey(worktreePath, target)
+    let batch = this.listBatches.get(key)
+    if (batch === undefined) {
+      batch = { backend, requests: new Map(), timer: null }
+      this.listBatches.set(key, batch)
+    }
+    const existing = batch.requests.get(relative)
+    if (existing !== undefined) return existing.promise
+    let resolve!: (listing: FileListingEntries) => void
+    let reject!: (error: unknown) => void
+    const promise = new Promise<FileListingEntries>((resolvePromise, rejectPromise) => {
+      resolve = resolvePromise
+      reject = rejectPromise
+    })
+    batch.requests.set(relative, { promise, resolve, reject })
+    if (batch.timer === null) {
+      batch.timer = setTimeout(() => {
+        void this.flushListBatch(key)
+      }, this.listBatchDelayMs)
+      batch.timer.unref?.()
+    }
+    return promise
+  }
+
+  private async flushListBatch(key: string): Promise<void> {
+    const batch = this.listBatches.get(key)
+    if (batch === undefined) return
+    this.listBatches.delete(key)
+    if (batch.timer !== null) clearTimeout(batch.timer)
+    const paths = [...batch.requests.keys()]
+    const settle = (relative: string, result: FileListingEntries | FileAccessError): void => {
+      const request = batch.requests.get(relative)
+      if (request === undefined) return
+      if (result instanceof FileAccessError) request.reject(result)
+      else request.resolve(result)
+    }
+    const listMany = batch.backend.listMany
+    if (listMany === undefined) {
+      for (const relative of paths) {
+        void batch.backend.list(relative).then(
+          (listing) => settle(relative, listing),
+          (error: unknown) => batch.requests.get(relative)?.reject(error)
+        )
+      }
+      return
+    }
+    let results: ReadonlyMap<string, FileListingEntries | FileAccessError> | null = null
+    try {
+      results = await listMany.call(batch.backend, paths)
+    } catch {
+      // A backend that cannot batch at all must not turn every path into an
+      // error; re-ask each one through the proven single path.
+      results = null
+    }
+    for (const relative of paths) {
+      const result = results?.get(relative)
+      if (result !== undefined) {
+        settle(relative, result)
+        continue
+      }
+      // A backend that skipped a path (truncated response) must not hang the
+      // caller; ask for that one alone.
+      void batch.backend.list(relative).then(
+        (listing) => settle(relative, listing),
+        (error: unknown) => batch.requests.get(relative)?.reject(error)
+      )
     }
   }
 
@@ -933,8 +1054,7 @@ export class WorkspaceFilesService {
     // never tested against the controller's filesystem.
     let exists: boolean
     try {
-      const fs = await this.deps.gitWorktrees.hostFsFor(target)
-      exists = await fs.isDirectory(checkoutPath)
+      exists = await this.directoryProbe.isDirectory(target, checkoutPath)
     } catch {
       return {
         status: 'unavailable',

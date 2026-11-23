@@ -39,6 +39,10 @@ import {
   detailOf,
 } from './git-helpers'
 import { authFailureDetail } from './remote-failure'
+import {
+  createHostDirectoryProbe,
+  type HostDirectoryProbe
+} from './host-directory-probe'
 
 /**
  * Git answers with the same shape as files for anything about the checkout
@@ -103,8 +107,15 @@ export class GitWorkspaceService {
   readonly queue = new GitOperationQueue()
   /** One live status read per session; a newer read supersedes the older one. */
   readonly statusReads = new Map<string, AbortController>()
+  private readonly directoryProbe: HostDirectoryProbe
 
-  constructor(readonly deps: GitWorkspaceDeps) {}
+  constructor(readonly deps: GitWorkspaceDeps) {
+    // Status polling asks "is the checkout still there?" every couple of
+    // seconds; each guest answer used to cost its own `wsl.exe`.
+    this.directoryProbe = createHostDirectoryProbe({
+      hostFsFor: (target: ExecutionTarget) => this.deps.gitWorktrees.hostFsFor(target)
+    })
+  }
   async status(sessionId: string, options: { signal?: AbortSignal } = {}): Promise<GitOutcome<{ snapshot: GitWorkspaceStatus }>> {
     return statusOps.status(this, sessionId, options)
   }
@@ -757,8 +768,10 @@ export class GitWorkspaceService {
     const checkoutPath = record?.path ?? defaultCheckoutPath ?? repository.path
     let exists: boolean
     try {
-      const fs = await this.deps.gitWorktrees.hostFsFor(repository.executionTarget)
-      exists = await fs.isDirectory(checkoutPath)
+      exists = await this.directoryProbe.isDirectory(
+        repository.executionTarget,
+        checkoutPath
+      )
     } catch {
       return {
         status: 'unavailable',
