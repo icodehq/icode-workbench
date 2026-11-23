@@ -21,6 +21,8 @@ import NoticeToast from './components/shell/NoticeToast'
 import SidebarStatus from './components/shell/SidebarStatus'
 import AppLayout from './layouts/AppLayout'
 import GlobalOverlays from './layouts/GlobalOverlays'
+import UpdateBanner from './updates/UpdateBanner'
+import { bootstrapUpdates } from './updates/updates-store'
 import AppRoutes from './router/AppRoutes'
 import { useAppNavigation } from './router/use-app-navigation'
 import { useGlobalShortcuts } from './router/use-global-shortcuts'
@@ -177,6 +179,11 @@ export default function App(): React.JSX.Element {
     },
     [commands, tasks.reload, workspace]
   )
+
+  // One bridge for the whole shell: the initial snapshot plus main's pushes.
+  useEffect(() => {
+    bootstrapUpdates()
+  }, [])
 
   // Tabs belong to live sessions only. Keeping a removed session's dirty text
   // would make the close guard ask about a session the user can no longer see.
@@ -803,6 +810,7 @@ export default function App(): React.JSX.Element {
           onClose={(tab) => commands.closeAppTab(tab)}
         />
       }
+      banner={<UpdateBanner platform={workspace.runtime?.platform ?? null} />}
       windowChrome={<WindowChrome platform={workspace.runtime?.platform ?? null} />}
       overlays={
         <GlobalOverlays

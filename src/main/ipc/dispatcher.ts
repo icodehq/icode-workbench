@@ -94,6 +94,11 @@ import {
   sidebarOrderPayloadSchema,
   type SidebarOrderPayload
 } from '../../shared/schemas/sidebar-order'
+import {
+  updateInstallInputSchema,
+  updateSetAutoCheckInputSchema,
+  updateSkipInputSchema
+} from '../../shared/schemas/updates'
 import type { IpcResult } from '../../shared/schemas/ipc'
 import {
   providerCreateInputSchema,
@@ -285,6 +290,12 @@ export type DispatcherServices = {
   assistantSetSettings: (input: { settings: unknown }) => Promise<unknown>
   networkSettingsGet: () => Promise<unknown>
   networkSetSettings: (input: { settings: unknown }) => Promise<unknown>
+  updatesGet: () => Promise<unknown>
+  updatesCheck: () => Promise<unknown>
+  updatesDownload: () => Promise<unknown>
+  updatesInstall: (input: z.infer<typeof updateInstallInputSchema>) => Promise<unknown>
+  updatesSkip: (input: z.infer<typeof updateSkipInputSchema>) => Promise<unknown>
+  updatesSetAutoCheck: (input: z.infer<typeof updateSetAutoCheckInputSchema>) => Promise<unknown>
   schedulesList: (input: { repoId?: string }) => Promise<unknown>
   schedulesCreate: (input: {
     repoId: string
@@ -919,6 +930,33 @@ export function createDispatcher(services: DispatcherServices): Dispatcher {
         const input = parse(networkSetSettingsInputSchema, rawInput)
         if ('code' in input) return { ok: false, error: input }
         return run(() => services.networkSetSettings(input))
+      }
+
+      case IPC_CHANNELS.updatesGet:
+        return run(() => services.updatesGet())
+
+      case IPC_CHANNELS.updatesCheck:
+        return run(() => services.updatesCheck())
+
+      case IPC_CHANNELS.updatesDownload:
+        return run(() => services.updatesDownload())
+
+      case IPC_CHANNELS.updatesInstall: {
+        const input = parse(updateInstallInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.updatesInstall(input))
+      }
+
+      case IPC_CHANNELS.updatesSkip: {
+        const input = parse(updateSkipInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.updatesSkip(input))
+      }
+
+      case IPC_CHANNELS.updatesSetAutoCheck: {
+        const input = parse(updateSetAutoCheckInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.updatesSetAutoCheck(input))
       }
 
       case IPC_CHANNELS.schedulesList: {

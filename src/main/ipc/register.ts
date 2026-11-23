@@ -136,6 +136,12 @@ export const HANDLED_CHANNELS: readonly string[] = [
   IPC_CHANNELS.assistantSetSettings,
   IPC_CHANNELS.networkSettingsGet,
   IPC_CHANNELS.networkSetSettings,
+  IPC_CHANNELS.updatesGet,
+  IPC_CHANNELS.updatesCheck,
+  IPC_CHANNELS.updatesDownload,
+  IPC_CHANNELS.updatesInstall,
+  IPC_CHANNELS.updatesSkip,
+  IPC_CHANNELS.updatesSetAutoCheck,
   IPC_CHANNELS.schedulesList,
   IPC_CHANNELS.schedulesCreate,
   IPC_CHANNELS.schedulesUpdate,
@@ -488,6 +494,13 @@ export function createAppDispatcher(
     networkSettingsGet: () => Promise.resolve(runtime.network.settings()),
     networkSetSettings: (input) =>
       runtime.network.saveSettings(input.settings as never),
+    updatesGet: () => Promise.resolve(runtime.updates.getState()),
+    updatesCheck: () => runtime.updates.check(),
+    updatesDownload: () => runtime.updates.download(),
+    updatesInstall: (input) => runtime.updates.install(input),
+    updatesSkip: (input) => Promise.resolve(runtime.updates.skip(input.version)),
+    updatesSetAutoCheck: (input) =>
+      Promise.resolve(runtime.updates.setAutoCheck(input.enabled)),
     schedulesList: (input) => Promise.resolve(runtime.schedules.list(input.repoId as never)),
     schedulesCreate: (input) => Promise.resolve(outcomeOrThrow(runtime.schedules.create(input as never))),
     schedulesUpdate: (input) =>
@@ -743,6 +756,9 @@ export function registerAppIpc(
   const unsubscribeManagedHooks = runtime.managedHooks.subscribe((state) => {
     broadcast(IPC_CHANNELS.managedHooksEvent, state)
   })
+  const unsubscribeUpdates = runtime.updates.subscribe((state) => {
+    broadcast(IPC_CHANNELS.updatesEvent, state)
+  })
 
   /**
    * Clone failures are normalized at the process boundary, like every other
@@ -760,6 +776,7 @@ export function registerAppIpc(
   return () => {
     unsubscribeOpenCode()
     unsubscribeManagedHooks()
+    unsubscribeUpdates()
     unsubscribeClone()
     unsubscribeAssistant()
     unsubscribeFilesChanged()

@@ -17,11 +17,20 @@ import { getMainLocale } from './i18n/main-i18n'
  * down under the window.
  */
 
+export type PrepareCloseResult = 'ready' | 'cancelled' | 'timeout' | 'unavailable'
+
+type PreparingClose = {
+  promise: Promise<PrepareCloseResult>
+  resolve: (result: PrepareCloseResult) => void
+  timer: NodeJS.Timeout
+}
+
 type CloseGuard = {
   allowClose: boolean
   pending: boolean
   quitRequested: boolean
   timer: NodeJS.Timeout | null
+  preparing: PreparingClose | null
   getLocale: () => Locale
   onBeforeQuit: () => void
 }
@@ -48,6 +57,7 @@ export function installWindowCloseGuard(
     pending: false,
     quitRequested: false,
     timer: null,
+    preparing: null,
     // An explicit locale pins the dialog (tests); the app follows the live
     // setting so a language change also reaches the native fallback prompt.
     getLocale: () => options.locale ?? getMainLocale(),
@@ -76,9 +86,75 @@ export function installWindowCloseGuard(
 
   window.on('closed', () => {
     if (guard.timer !== null) clearTimeout(guard.timer)
+    if (guard.preparing !== null) {
+      clearTimeout(guard.preparing.timer)
+      guard.preparing.resolve('unavailable')
+      guard.preparing = null
+    }
     app.removeListener('before-quit', guard.onBeforeQuit)
     guards.delete(window)
   })
+}
+
+/**
+ * Ask a window to save before an update teardown, without closing it.
+ *
+ * The renderer answers through the same `windowBeforeClose` protocol used by a
+ * normal close, so Files gets its Save All/Discard/Cancel prompt. The window
+ * stays open; the caller destroys it only after every other teardown step
+ * succeeds.
+ */
+export function prepareWindowForClose(
+  window: BrowserWindow,
+  timeoutMs: number = 10 * 60 * 1000
+): Promise<PrepareCloseResult> {
+  const guard = guards.get(window)
+  if (guard === undefined || window.webContents.isDestroyed()) {
+    return Promise.resolve('unavailable')
+  }
+  if (guard.preparing !== null) return guard.preparing.promise
+  // A native close prompt or another close is already in flight. The update
+  // restarts later rather than racing that prompt.
+  if (guard.pending) return Promise.resolve('timeout')
+
+  let resolvePromise: (result: PrepareCloseResult) => void = () => undefined
+  const promise = new Promise<PrepareCloseResult>((resolve) => {
+    resolvePromise = resolve
+  })
+  const timer = setTimeout(() => {
+    if (guard.preparing?.promise !== promise) return
+    guard.preparing = null
+    guard.pending = false
+    resolvePromise('timeout')
+  }, timeoutMs)
+  timer.unref?.()
+
+  guard.preparing = { promise, resolve: resolvePromise, timer }
+  guard.pending = true
+  window.webContents.send(IPC_CHANNELS.windowBeforeClose)
+  return promise
+}
+
+/**
+ * Let every guarded window close without another prompt.
+ *
+ * Called only after `prepareWindowForClose` has resolved for each window and
+ * the runtime has already been shut down.
+ */
+export function beginUpdateInstall(): void {
+  for (const window of BrowserWindow.getAllWindows()) {
+    const guard = guards.get(window)
+    if (guard === undefined) continue
+    if (guard.timer !== null) clearTimeout(guard.timer)
+    guard.timer = null
+    if (guard.preparing !== null) {
+      clearTimeout(guard.preparing.timer)
+      guard.preparing.resolve('ready')
+      guard.preparing = null
+    }
+    guard.pending = false
+    guard.allowClose = true
+  }
 }
 
 /** Called by the trusted renderer after its save prompt resolves. */
@@ -88,6 +164,22 @@ export function respondToWindowClose(
 ): boolean {
   const guard = guards.get(window)
   if (guard === undefined || !guard.pending) return false
+  if (guard.preparing !== null) {
+    if (action === 'ack') return true
+    const preparing = guard.preparing
+    clearTimeout(preparing.timer)
+    guard.preparing = null
+    guard.pending = false
+    if (action === 'close') {
+      preparing.resolve('ready')
+    } else {
+      // Cancelling the save prompt also cancels a pending app quit, matching
+      // the normal close-guard behavior.
+      guard.quitRequested = false
+      preparing.resolve('cancelled')
+    }
+    return true
+  }
   if (action === 'ack') {
     // The renderer is showing its own prompt. Give it a long safety window;
     // the short 5 s fallback is only for a renderer that never answers.

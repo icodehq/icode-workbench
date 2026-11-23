@@ -134,7 +134,8 @@ function harness(options: HarnessOptions = {}) {
   const holder: WslHolder = {
     ensure: async () => options.holderEnsure ?? LIVE_HOLDER,
     state: async () => ({ state: 'live', record: null }),
-    release: async () => options.holderRelease ?? { outcome: 'released', previous: 'live' }
+    release: async () => options.holderRelease ?? { outcome: 'released', previous: 'live' },
+    releaseAll: async () => ({ released: 0, failed: [] })
   }
 
   let aliveIndex = 0
@@ -481,7 +482,7 @@ describe('guest home', () => {
     const lifecycle = new WslHostLifecycle({
       runner,
       validateTarget: async (t) => t,
-      holder: { ensure: async () => LIVE_HOLDER, state: async () => ({ state: 'live', record: null }), release: async () => ({ outcome: 'released', previous: 'exited' }) },
+      holder: { ensure: async () => LIVE_HOLDER, state: async () => ({ state: 'live', record: null }), release: async () => ({ outcome: 'released', previous: 'exited' }), releaseAll: async () => ({ released: 0, failed: [] }) },
       store: memoryStore(null),
       artifactRoot: '/a',
       manifest: MANIFEST,

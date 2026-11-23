@@ -382,3 +382,17 @@ describe('stale host replacement', () => {
     expect(outcome.ok).toBe(false)
   })
 })
+
+describe('update teardown', () => {
+  it('is a no-op when no host is recorded', async () => {
+    const supervisor = new HostSupervisor(profile('no-host'))
+    await expect(supervisor.shutdown()).resolves.toBeUndefined()
+  })
+
+  it('refuses to report success when a recorded host is alive but unreachable', async () => {
+    const dir = profile('unreachable-host')
+    writeMeta(dir, process.pid, join(dir, 'terminal-host.sock'))
+    const supervisor = new HostSupervisor(dir)
+    await expect(supervisor.shutdown()).rejects.toMatchObject({ code: 'HOST_UNREACHABLE' })
+  })
+})

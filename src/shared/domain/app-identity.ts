@@ -17,6 +17,9 @@ export type AppIdentity = {
   guestDirName: string
   dbFileName: string
   branchPrefix: string
+  /** GitHub owner and repository that host releases and update metadata. */
+  releaseOwner: string
+  releaseRepo: string
 }
 
 export const APP_IDENTITY = identity satisfies AppIdentity
@@ -29,3 +32,5 @@ export const APP_LOCAL_PROFILE_DIR_NAME = identity.localProfileDirName
 export const APP_GUEST_DIR_NAME = identity.guestDirName
 export const APP_DB_FILE_NAME = identity.dbFileName
 export const APP_BRANCH_PREFIX = identity.branchPrefix
+export const APP_RELEASE_OWNER = identity.releaseOwner
+export const APP_RELEASE_REPO = identity.releaseRepo

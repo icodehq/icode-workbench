@@ -26,6 +26,7 @@ const { execFileSync } = require('node:child_process')
 const { join, resolve } = require('node:path')
 
 const REPO_ROOT = resolve(__dirname, '..', '..')
+const identity = require('../../src/shared/app-identity.json')
 const PLATFORMS = new Set(['linux', 'win', 'mac'])
 const ARCHES = new Set(['x64', 'arm64'])
 
@@ -163,6 +164,25 @@ function main(argv) {
   check(statSync(asar).size > 0, `app.asar is empty in ${dir}`)
   const header = readAsarHeader(asar)
   check(asarHas(header, ['out', 'main', 'index.js']), 'app.asar does not contain out/main/index.js')
+  check(
+    asarHas(header, ['node_modules', 'electron-updater', 'package.json']),
+    'app.asar does not contain the electron-updater dependency'
+  )
+
+  // electron-builder writes this from the explicit GitHub publish config. Its
+  // absence means the packaged app would find no update feed at runtime.
+  const updateConfig = join(resources, 'app-update.yml')
+  check(existsSync(updateConfig), `update feed config is missing: ${updateConfig}`)
+  const updateConfigText = readFileSync(updateConfig, 'utf8')
+  check(/provider:\s*github/u.test(updateConfigText), 'app-update.yml must use the GitHub provider')
+  check(
+    updateConfigText.includes(`owner: ${identity.releaseOwner}`),
+    `app-update.yml owner must be ${identity.releaseOwner}`
+  )
+  check(
+    updateConfigText.includes(`repo: ${identity.releaseRepo}`),
+    `app-update.yml repo must be ${identity.releaseRepo}`
+  )
 
   const unpacked = join(resources, 'app.asar.unpacked')
   check(existsSync(join(unpacked, 'out', 'host', 'index.js')), 'unpacked Host bundle is missing')

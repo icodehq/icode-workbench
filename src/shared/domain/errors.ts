@@ -88,7 +88,14 @@ export const APP_ERROR_CODES = [
   'WSL_LEGACY_REGISTRATION_UNRESOLVED',
   // The repository is tombstoned by a durable removal job and cannot accept new
   // sessions, tasks, merges, or a duplicate registration.
-  'REPOSITORY_REMOVING'
+  'REPOSITORY_REMOVING',
+  // In-app updates. Check and download failures are commonly transient; an
+  // unsupported build or an update that is not ready is not.
+  'UPDATE_CHECK_FAILED',
+  'UPDATE_DOWNLOAD_FAILED',
+  'UPDATE_INSTALL_FAILED',
+  'UPDATE_NOT_SUPPORTED',
+  'UPDATE_NOT_READY'
 ] as const
 
 export type AppErrorCode = (typeof APP_ERROR_CODES)[number]
@@ -144,6 +151,9 @@ const RETRYABLE_CODES: ReadonlySet<AppErrorCode> = new Set<AppErrorCode>([
   'WSL_HOST_DEPLOY_FAILED',
   'WSL_HOST_START_FAILED',
   'WSL_HOST_STOP_FAILED',
+  'UPDATE_CHECK_FAILED',
+  'UPDATE_DOWNLOAD_FAILED',
+  'UPDATE_INSTALL_FAILED',
   'INTERNAL'
 ])
 

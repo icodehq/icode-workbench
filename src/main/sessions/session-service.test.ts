@@ -1123,6 +1123,39 @@ describe('worktree isolation', () => {
     expect(args).toContain('--settings')
   })
 
+  it('sleeps every live session before an update', async () => {
+    const f = await withRepo()
+    const first = await f.service.create(createInput(f))
+    const second = await f.service.create(createInput(f, { harness: 'shell' }))
+
+    const result = await f.service.sleepLiveSessions()
+    expect(result).toMatchObject({ slept: 2, failed: 0, unreachable: 0, liveOrphans: 0 })
+    expect(f.host.calls.kill.map((call) => call.sessionId).sort()).toEqual(
+      [first.id, second.id].sort()
+    )
+    const view = await f.service.list()
+    expect(view.sessions.every((session) => session.state === 'exited')).toBe(true)
+  })
+
+  it('refuses to sleep when a live orphan is unaccounted for', async () => {
+    const f = await withRepo()
+    f.host.seedSession('orphan-before-update', { status: 'live' })
+
+    const result = await f.service.sleepLiveSessions()
+    expect(result).toMatchObject({ slept: 0, liveOrphans: 1 })
+    expect(f.host.calls.kill).toHaveLength(0)
+  })
+
+  it('refuses to sleep when a host cannot be queried', async () => {
+    const f = await withRepo()
+    await f.service.create(createInput(f))
+    f.host.failForTarget = 'local'
+
+    const result = await f.service.sleepLiveSessions()
+    expect(result).toMatchObject({ slept: 0, unreachable: 1 })
+    expect(f.host.calls.kill).toHaveLength(0)
+  })
+
   it.each([
     ['codex', ['resume', '--last']],
     ['opencode', ['--continue']],

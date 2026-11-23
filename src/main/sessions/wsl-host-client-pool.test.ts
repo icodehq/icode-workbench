@@ -101,4 +101,17 @@ describe('WSL host pool', () => {
       pool.disconnect()
     }).not.toThrow()
   })
+
+  it('stopAll is a no-op when nothing connected', async () => {
+    const pool = createWslHostClientPool({ relay: { start: async () => ({ status: 'not_wsl' }) } })
+    await expect(pool.stopAll()).resolves.toEqual({ stopped: 0, failed: 0 })
+  })
+
+  it('stopAll ignores a distro that never connected', async () => {
+    const pool = createWslHostClientPool({
+      relay: { start: async () => ({ status: 'rejected', error: makeAppError('WSL_UNAVAILABLE', 'off') }) }
+    })
+    await pool.client(WSL).catch(() => {})
+    await expect(pool.stopAll()).resolves.toEqual({ stopped: 0, failed: 0 })
+  })
 })

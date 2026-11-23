@@ -45,7 +45,13 @@ export class WslHostConnectError extends Error {
 
 type Entry =
   | { state: 'connecting'; pending: Promise<HostClient> }
-  | { state: 'ready'; client: HostClient; close: () => Promise<void> }
+  | {
+      state: 'ready'
+      client: HostClient
+      close: () => Promise<void>
+      /** Stops the guest Host itself; `close` only ends the relay endpoint. */
+      stop: () => Promise<void>
+    }
   | { state: 'failed'; failure: WslHostConnectFailure; at: number }
 
 /** How long a failed distro is remembered, so a dead distro is not retried per call. */
@@ -56,6 +62,13 @@ export type WslHostClientPool = {
   onEvent(listener: (event: HostEvent) => void): () => void
   /** Closes the relay endpoints. Never stops a Host. */
   disconnect(): void
+  /**
+   * Stops cached guest Hosts before an app update replaces the Windows build.
+   *
+   * Guest Hosts live inside the distro and cannot lock Windows files, so
+   * failures are reported rather than treated as fatal by the caller.
+   */
+  stopAll(): Promise<{ stopped: number; failed: number }>
 }
 
 export type WslHostClientPoolDeps = {
@@ -103,7 +116,9 @@ export function createWslHostClientPool(deps: WslHostClientPoolDeps): WslHostCli
     for (const listener of listeners) listener(event)
   }
 
-  const connect = async (target: Extract<ExecutionTarget, { kind: 'wsl' }>): Promise<HostClient> => {
+  const connect = async (
+    target: Extract<ExecutionTarget, { kind: 'wsl' }>
+  ): Promise<{ client: HostClient; stop: () => Promise<void> }> => {
     const outcome = await deps.relay.start(target)
     if (outcome.status !== 'ready') {
       throw new WslHostConnectError(connectFailure(outcome))
@@ -113,7 +128,7 @@ export function createWslHostClientPool(deps: WslHostClientPoolDeps): WslHostCli
       port: outcome.endpoint.port,
       token: outcome.endpoint.token
     })
-    return client
+    return { client, stop: outcome.stop }
   }
 
   return {
@@ -140,7 +155,7 @@ export function createWslHostClientPool(deps: WslHostClientPoolDeps): WslHostCli
 
       const pending = (async () => {
         try {
-          const client = await connect(target)
+          const { client, stop } = await connect(target)
           unsubscribes.set(
             key,
             client.onEvent((event) => broadcast(event))
@@ -150,7 +165,8 @@ export function createWslHostClientPool(deps: WslHostClientPoolDeps): WslHostCli
             client,
             close: async () => {
               client.close()
-            }
+            },
+            stop
           })
           return client
         } catch (error) {
@@ -187,6 +203,39 @@ export function createWslHostClientPool(deps: WslHostClientPoolDeps): WslHostCli
       }
       entries.clear()
       unsubscribes.clear()
+    },
+
+    async stopAll() {
+      let stopped = 0
+      let failed = 0
+      for (const [key, entry] of [...entries]) {
+        unsubscribes.get(key)?.()
+        unsubscribes.delete(key)
+        let current: Entry | undefined = entry
+        if (current.state === 'connecting') {
+          try {
+            await current.pending
+          } catch {
+            // The connection failed; there is no Host endpoint to stop.
+          }
+          current = entries.get(key)
+        }
+        if (current?.state !== 'ready') continue
+        try {
+          await current.stop()
+          stopped += 1
+        } catch {
+          failed += 1
+        }
+        try {
+          current.client.close()
+        } catch {
+          // The relay may already have closed the client.
+        }
+      }
+      entries.clear()
+      unsubscribes.clear()
+      return { stopped, failed }
     }
   }
 }

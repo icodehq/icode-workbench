@@ -56,6 +56,14 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm check:brand
       - run: pnpm test
+      - name: Update metadata selftest
+        run: |
+          # A backfill builds an older tag whose checkout predates this tooling.
+          if [ -f tests/release/selftest-update-metadata.cjs ]; then
+            pnpm selftest:update-metadata
+          else
+            echo "Legacy tag predates update metadata."
+          fi
       - run: pnpm build
 
   unit-windows:
@@ -144,6 +152,13 @@ jobs:
         run: pnpm package:linux
       - name: Verify packaged payload
         run: node config/scripts/verify-package.cjs --platform linux --arch x64 --dir dist/linux-unpacked
+      - name: Verify update metadata
+        run: |
+          if [ -f config/scripts/verify-release-metadata.cjs ]; then
+            node config/scripts/verify-release-metadata.cjs --platform linux --arch x64
+          else
+            echo "Legacy tag predates in-app updates."
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: linux-x64
@@ -151,6 +166,7 @@ jobs:
             dist/*.AppImage
             dist/*.deb
             dist/*.rpm
+            dist/latest-linux.yml
           if-no-files-found: error
 
   wsl-artifacts:
@@ -203,6 +219,14 @@ jobs:
         run: pnpm package:win
       - name: Verify packaged payload
         run: node config/scripts/verify-package.cjs --platform win --arch x64 --dir dist/win-unpacked
+      - name: Verify update metadata
+        shell: bash
+        run: |
+          if [ -f config/scripts/verify-release-metadata.cjs ]; then
+            node config/scripts/verify-release-metadata.cjs --platform win --arch x64
+          else
+            echo "Legacy tag predates in-app updates."
+          fi
       - name: Packaged smoke
         run: node tests/compat/packaged-smoke-win.cjs
       - uses: actions/upload-artifact@v4
@@ -211,6 +235,7 @@ jobs:
           path: |
             dist/*.exe
             dist/*.exe.blockmap
+            dist/latest.yml
           if-no-files-found: error
 
   package-macos:
@@ -246,6 +271,13 @@ jobs:
         run: node config/scripts/package.cjs mac --${{ matrix.arch }}
       - name: Verify packaged payload
         run: node config/scripts/verify-package.cjs --platform mac --arch ${{ matrix.arch }} --dir ${{ matrix.unpacked }}
+      - name: Verify update metadata
+        run: |
+          if [ -f config/scripts/verify-release-metadata.cjs ]; then
+            node config/scripts/verify-release-metadata.cjs --platform mac --arch ${{ matrix.arch }}
+          else
+            echo "Legacy tag predates in-app updates."
+          fi
       - name: Inspect packaged app
         run: |
           ls -leO@ "${{ matrix.unpacked }}/iCode.app/Contents/MacOS" || true

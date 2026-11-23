@@ -1790,6 +1790,59 @@ export class SessionService {
     return summary
   }
 
+  /**
+   * Sleep every live session before an update replaces the terminal host.
+   *
+   * A live host that cannot be queried, or a live orphan the database does not
+   * own, blocks the operation: stopping processes we cannot account for is worse
+   * than deferring the update. Individual sleep failures are retried against a
+   * fresh read once, because a session may exit between the list and the kill.
+   */
+  async sleepLiveSessions(options: { concurrency?: number } = {}): Promise<{
+    slept: number
+    failed: number
+    unreachable: number
+    liveOrphans: number
+  }> {
+    const view = await this.list()
+    const unreachable = view.sessions.filter((session) => session.state === 'unavailable').length
+    const liveOrphans = view.orphans.filter(
+      (orphan) => orphan.status === 'starting' || orphan.status === 'live'
+    ).length
+    const active = view.sessions.filter((session) => isActiveSessionState(session.state))
+    if (unreachable > 0 || liveOrphans > 0) {
+      // Do not sleep a subset while some processes are unaccounted for.
+      return { slept: 0, failed: active.length, unreachable, liveOrphans }
+    }
+
+    let slept = 0
+    const failedIds: string[] = []
+    const wide = Math.max(1, options.concurrency ?? 4)
+    for (let offset = 0; offset < active.length; offset += wide) {
+      const batch = active.slice(offset, offset + wide)
+      await Promise.all(
+        batch.map(async (session) => {
+          try {
+            await this.sleep(session.id)
+            slept += 1
+          } catch (error) {
+            const current = await this.get(session.id).catch(() => null)
+            if (current !== null && isActiveSessionState(current.state)) {
+              failedIds.push(session.id)
+            }
+          }
+        })
+      )
+    }
+
+    return {
+      slept,
+      failed: failedIds.length,
+      unreachable,
+      liveOrphans
+    }
+  }
+
   /** Wake a slept session with the harness resume command for its worktree. */
   async wake(sessionId: string): Promise<SessionSummary> {
     const row = this.requireRow(sessionId)

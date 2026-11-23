@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-11-23
+
+### Added
+
+- **In-app updates.** iCode checks the GitHub release feed shortly after launch
+  and every six hours (disable it in **Settings → Updates**). Windows NSIS and
+  packaged AppImage builds download on request and install after a restart.
+  Unsigned macOS builds and deb/rpm installs link to the arch-matched download
+  or release page instead. Restarting asks before ending live sessions, sleeps
+  them first, and stops the detached terminal host and WSL holders so the
+  installer can replace the app. The first build with this feature must still be
+  installed manually once.
+
 ## [0.22.3] - 2026-11-23
 
 ### Fixed
