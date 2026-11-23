@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Renderer busy-loop.** The removal-jobs subscription re-ran its load effect
+  on every render because the shell's `onChanged` callback was recreated each
+  time, so each state update scheduled another IPC read and pinned a CPU core.
+  The hook now keeps its callbacks in latest-value refs, and the shell builds
+  its refresh callback from stable members, so an idle window stops spinning
+  and clicks no longer queue behind the loop.
+
 ## [0.22.2] - 2026-11-23
 
 ### Fixed

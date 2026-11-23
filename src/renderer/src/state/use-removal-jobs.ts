@@ -31,6 +31,16 @@ export function useRemovalJobs({ notify, onChanged }: Options): RemovalJobsState
   const [loading, setLoading] = useState(true)
   const notified = useRef(new Set<string>())
   const lastSignature = useRef<string | null>(null)
+  /*
+   * The shell builds these callbacks from values it recreates every render.
+   * Keeping them out of the dependency list keeps `reload` stable, so the
+   * effect below subscribes once instead of on every render — the difference
+   * between an idle window and one that re-reads this list forever.
+   */
+  const notifyRef = useRef(notify)
+  const onChangedRef = useRef(onChanged)
+  notifyRef.current = notify
+  onChangedRef.current = onChanged
 
   const reload = useCallback(async (): Promise<void> => {
     const result = await callApi(window.icode.repos.listRemovalJobs())
@@ -49,7 +59,7 @@ export function useRemovalJobs({ notify, onChanged }: Options): RemovalJobsState
       )
       .join('|')
     if (lastSignature.current !== null && lastSignature.current !== signature) {
-      onChanged?.()
+      onChangedRef.current?.()
     }
     lastSignature.current = signature
 
@@ -59,7 +69,7 @@ export function useRemovalJobs({ notify, onChanged }: Options): RemovalJobsState
         const key = `snap:${job.id}`
         if (notified.current.has(key)) continue
         notified.current.add(key)
-        notify({
+        notifyRef.current({
           tone: 'info',
           message: tp('workspace.notice.recoverySnapshots', job.snapshotCount),
           detail: t('removal.snapshotsSavedDetail'),
@@ -71,9 +81,9 @@ export function useRemovalJobs({ notify, onChanged }: Options): RemovalJobsState
                   window.icode.repos.discardRemovalSnapshots({ jobId: job.id })
                 )
                 if (!discarded.ok) {
-                  notify(errorNotice(discarded.error))
+                  notifyRef.current(errorNotice(discarded.error))
                 } else {
-                  notify({
+                  notifyRef.current({
                     tone: 'success',
                     message: tp(
                       'workspace.notice.snapshotsDiscarded',
@@ -90,7 +100,7 @@ export function useRemovalJobs({ notify, onChanged }: Options): RemovalJobsState
         const key = `attention:${job.id}`
         if (notified.current.has(key)) continue
         notified.current.add(key)
-        notify({
+        notifyRef.current({
           tone: 'error',
           message: t('removal.needsAttention'),
           ...(localized !== null
@@ -103,7 +113,7 @@ export function useRemovalJobs({ notify, onChanged }: Options): RemovalJobsState
                 const retried = await callApi(
                   window.icode.repos.retryRemoval({ jobId: job.id })
                 )
-                if (!retried.ok) notify(errorNotice(retried.error))
+                if (!retried.ok) notifyRef.current(errorNotice(retried.error))
                 await reload()
               })()
             }
@@ -111,7 +121,7 @@ export function useRemovalJobs({ notify, onChanged }: Options): RemovalJobsState
         })
       }
     }
-  }, [notify, onChanged, t, tp])
+  }, [t, tp])
 
   useEffect(() => {
     void reload()
@@ -124,28 +134,28 @@ export function useRemovalJobs({ notify, onChanged }: Options): RemovalJobsState
     async (jobId: string): Promise<void> => {
       const result = await callApi(window.icode.repos.retryRemoval({ jobId }))
       if (!result.ok) {
-        notify(errorNotice(result.error))
+        notifyRef.current(errorNotice(result.error))
         return
       }
       await reload()
     },
-    [notify, reload]
+    [reload]
   )
 
   const discard = useCallback(
     async (jobId: string): Promise<void> => {
       const result = await callApi(window.icode.repos.discardRemovalSnapshots({ jobId }))
       if (!result.ok) {
-        notify(errorNotice(result.error))
+        notifyRef.current(errorNotice(result.error))
         return
       }
-      notify({
+      notifyRef.current({
         tone: 'success',
         message: tp('workspace.notice.snapshotsDiscarded', result.value.discarded)
       })
       await reload()
     },
-    [notify, reload, tp]
+    [reload, tp]
   )
 
   return { jobs, loading, retry, discard }
