@@ -52,6 +52,15 @@ describe('shouldIgnoreWatchPath', () => {
     expect(shouldIgnoreWatchPath('/repo/.git/MERGE_HEAD', target)).toBe(false)
     expect(shouldIgnoreWatchPath('/outside/a.ts', target)).toBe(false)
   })
+
+  it('ignores generated directories below a package directory', () => {
+    // `client/node_modules` is one level below the checkout root in a monorepo;
+    // it must not be watched file by file.
+    expect(shouldIgnoreWatchPath('/repo/client/node_modules/pkg/index.js', target)).toBe(true)
+    expect(shouldIgnoreWatchPath('/repo/client/node_modules', target)).toBe(true)
+    expect(shouldIgnoreWatchPath('/repo/packages/app/.next/cache/x', target)).toBe(true)
+    expect(shouldIgnoreWatchPath('/repo/client/src/index.ts', target)).toBe(false)
+  })
 })
 
 describe('GitStatusWatcherService', () => {

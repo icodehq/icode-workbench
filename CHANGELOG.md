@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A large monorepo no longer freezes the window when a session starts.** The
+  Files and Source Control watchers skipped generated directories only when they
+  sat at the checkout root, so a package-level `node_modules` was walked and
+  watched file by file. On a 35,000-file checkout that meant 37,000 native
+  watchers and a main process that stopped answering for minutes. Generated
+  directories are now skipped at any depth; the same checkout needs about 500
+  watches and is ready in under a second.
+- **WSL checkouts are polled instead of watched through Windows.** A guest
+  repository is owned by its distro, so translating its path and watching the
+  Windows spelling could still descend into a large checkout from the main
+  process. Files and Source Control now use their existing two-second polling
+  fallback for every WSL target, and no watcher or native module is added to the
+  guest artifacts.
+
 ## [0.25.0] - 2026-11-23
 
 > **Upgrading from 0.23.1 or 0.24.0:** those builds can be blocked by historical

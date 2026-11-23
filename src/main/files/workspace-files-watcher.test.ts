@@ -49,6 +49,18 @@ describe('workspace files watcher', () => {
     expect(shouldIgnoreFilesWatchPath('/', '/wt')).toBe(false)
   })
 
+  it('ignores dependency folders below a package directory', () => {
+    // A monorepo keeps `client/node_modules` one level down. Ignoring only the
+    // first segment watched every dependency file in the checkout.
+    expect(shouldIgnoreFilesWatchPath('/wt/client/node_modules', '/wt')).toBe(true)
+    expect(shouldIgnoreFilesWatchPath('/wt/client/node_modules/pkg/index.js', '/wt')).toBe(
+      true
+    )
+    expect(shouldIgnoreFilesWatchPath('/wt/packages/app/dist/bundle.js', '/wt')).toBe(true)
+    expect(shouldIgnoreFilesWatchPath('/wt/client/src/index.ts', '/wt')).toBe(false)
+    expect(shouldIgnoreFilesWatchPath('/wt/client/src/node_modules.ts', '/wt')).toBe(false)
+  })
+
   it('coalesces a burst and normalises relative paths', async () => {
     vi.useFakeTimers()
     const watch = controller()
@@ -64,6 +76,7 @@ describe('workspace files watcher', () => {
     watch.emit({ type: 'add', path: '/wt/src/a.ts' })
     watch.emit({ type: 'change', path: '/wt/src/a.ts' })
     watch.emit({ type: 'change', path: '/wt/node_modules/dep.js' })
+    watch.emit({ type: 'change', path: '/wt/client/node_modules/dep.js' })
     watch.emit({ type: 'change', path: '/wt/.git/index' })
     await vi.advanceTimersByTimeAsync(60)
 

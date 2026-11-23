@@ -74,8 +74,14 @@ export function shouldIgnoreFilesWatchPath(path: string, worktreePath: string): 
 
   const relativePath = normalized.slice(worktree.length).replace(/^\/+/u, '')
   const segments = relativePath.split('/')
-  const first = segments[0] ?? ''
-  if (IGNORED_DIRECTORIES.has(first)) return true
+  /*
+   * A dependency directory can sit below a package directory
+   * (`client/node_modules` in a monorepo), not only at the checkout root.
+   * Checking only the first segment made chokidar walk and watch every
+   * dependency file; a 35k-file checkout then created 37k native watchers and
+   * stalled the main process long enough for Windows to report AppHang.
+   */
+  if (segments.some((segment) => IGNORED_DIRECTORIES.has(segment))) return true
   const name = segments[segments.length - 1] ?? ''
   if (name.endsWith('.swp') || name.endsWith('.tmp')) return true
   // Both backends stage writes beside the target; those files are an

@@ -77,8 +77,13 @@ export function shouldIgnoreWatchPath(path: string, target: WatchTarget): boolea
   if (isInside(`${worktree}/.git`, normalized)) return true
   if (isInside(worktree, normalized)) {
     const relativePath = normalized.slice(worktree.length).replace(/^\/+/u, '')
-    const first = relativePath.split('/')[0] ?? ''
-    if (IGNORED_DIRECTORIES.has(first)) return true
+    /*
+     * Skip generated directories at any depth, not only the checkout root.
+     * A monorepo keeps `client/node_modules` below a package directory, and
+     * missing it made chokidar walk (and watch) every dependency file.
+     */
+    const segments = relativePath.split('/')
+    if (segments.some((segment) => IGNORED_DIRECTORIES.has(segment))) return true
     if (relativePath.endsWith('.swp') || relativePath.endsWith('.tmp')) return true
     return false
   }
