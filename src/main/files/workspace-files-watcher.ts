@@ -10,16 +10,16 @@
  * null for every WSL checkout before any guest call, and the renderer polls.
  */
 
-import { relative } from 'node:path'
+import { join, relative } from 'node:path'
 import { canonicalWatchPath } from '../watch-path'
 import {
-  FILES_WATCH_SKIP_DIRECTORIES,
-  shouldIgnoreFilesWatchPath
-} from '../../shared/domain/watch-ignore'
-import type {
-  FilesChangedEvent,
-  FilesWatchOutcome
+  FILES_SKIP_DIRECTORIES,
+  FILES_WATCH_MAX_ROOTS,
+  normalizeRelativePath,
+  type FilesChangedEvent,
+  type FilesWatchOutcome
 } from '../../shared/domain/workspace-files'
+import { shouldIgnoreFilesWatchPath } from '../../shared/domain/watch-ignore'
 import type { SerializedWatchSpec } from '../../shared/watch-protocol'
 import type { WatchClient, WatchEvent } from '../watch/watch-client'
 
@@ -47,14 +47,47 @@ function isInside(parent: string, candidate: string): boolean {
   )
 }
 
-function filesSpec(sessionId: string, worktreePath: string): SerializedWatchSpec {
+/**
+ * Turns the renderer's visible folders into absolute watch roots.
+ *
+ * The root is always included. Absolute paths, traversal segments, and folders
+ * the Files pane never lists are dropped rather than trusted; the list is
+ * deduped and capped before it reaches the watcher child.
+ */
+function resolveAbsoluteRoots(
+  worktreePath: string,
+  roots: readonly string[] | undefined
+): string[] {
+  const relativeRoots = new Set<string>([''])
+  for (const raw of roots ?? []) {
+    const normalized = normalizeRelativePath(raw)
+    if (normalized === null) continue
+    if (normalized !== '') {
+      const segments = normalized.split('/')
+      if (segments.some((segment) => (FILES_SKIP_DIRECTORIES as readonly string[]).includes(segment))) {
+        continue
+      }
+    }
+    relativeRoots.add(normalized)
+    if (relativeRoots.size >= FILES_WATCH_MAX_ROOTS) break
+  }
+  return [...relativeRoots]
+    .sort()
+    .map((root) => (root === '' ? worktreePath : join(worktreePath, root)))
+}
+
+function filesSpec(
+  sessionId: string,
+  worktreePath: string,
+  roots: readonly string[]
+): SerializedWatchSpec {
   return {
-    kind: 'recursive',
+    kind: 'shallow',
     id: `files:${sessionId}`,
-    roots: [worktreePath],
+    roots: [...roots],
     worktreePath,
     ignore: {
-      skipDirectories: [...FILES_WATCH_SKIP_DIRECTORIES],
+      skipDirectories: [...FILES_SKIP_DIRECTORIES],
       skipSuffixes: ['.swp', '.tmp'],
       stagingMarker: '.icode-write-'
     }
@@ -69,6 +102,7 @@ type SessionWatch = {
   revision: number
   target: FilesWatchTarget
   subId: string
+  roots: string[]
 }
 
 export class WorkspaceFilesWatcherService {
@@ -98,14 +132,31 @@ export class WorkspaceFilesWatcherService {
    * `watching: false` is a truthful answer, not an error: the renderer keeps a
    * polling fallback for unsupported targets and failed watches.
    */
-  async setActive(sessionId: string, active: boolean): Promise<FilesWatchOutcome> {
+  async setActive(
+    sessionId: string,
+    active: boolean,
+    roots?: readonly string[]
+  ): Promise<FilesWatchOutcome> {
     if (!active) {
       this.desired.delete(sessionId)
       await this.stop(sessionId)
       return { watching: false, reason: 'cancelled' }
     }
     const existing = this.sessions.get(sessionId)
-    if (existing?.active) return { watching: true }
+    if (existing?.active) {
+      if (roots === undefined) return { watching: true }
+      const nextRoots = resolveAbsoluteRoots(existing.target.worktreePath, roots)
+      const updated = await this.client.updateRoots(existing.subId, nextRoots)
+      if (!updated.ok) {
+        this.failSession(sessionId)
+        return { watching: false, reason: 'watch-failed' }
+      }
+      existing.roots = nextRoots
+      // A directory may have changed while its watch was being bound.
+      existing.overflow = true
+      this.schedule(sessionId, existing)
+      return { watching: true }
+    }
 
     const token = ++this.token
     this.desired.set(sessionId, token)
@@ -125,6 +176,7 @@ export class WorkspaceFilesWatcherService {
     // The child canonicalizes again before binding; doing it here keeps the
     // relative-path arithmetic and the spec in one spelling.
     target = { worktreePath: canonicalWatchPath(target.worktreePath) }
+    const watchRoots = resolveAbsoluteRoots(target.worktreePath, roots)
 
     await this.stop(sessionId)
     const state: SessionWatch = {
@@ -134,17 +186,21 @@ export class WorkspaceFilesWatcherService {
       overflow: false,
       revision: 0,
       target,
-      subId: `files:${sessionId}`
+      subId: `files:${sessionId}`,
+      roots: watchRoots
     }
     // The state and handlers exist before the subscribe round trip: an initial
     // event or `ready` must not be dropped while the ack is in flight.
     this.sessions.set(sessionId, state)
-    const result = await this.client.subscribe(filesSpec(sessionId, target.worktreePath), {
-      onEvents: (events) => this.onEvents(sessionId, events),
-      onOverflow: () => this.onOverflow(sessionId),
-      onReady: () => this.onReady(sessionId),
-      onError: () => this.failSession(sessionId)
-    })
+    const result = await this.client.subscribe(
+      filesSpec(sessionId, target.worktreePath, watchRoots),
+      {
+        onEvents: (events) => this.onEvents(sessionId, events),
+        onOverflow: () => this.onOverflow(sessionId),
+        onReady: () => this.onReady(sessionId),
+        onError: () => this.failSession(sessionId)
+      }
+    )
     if (this.desired.get(sessionId) !== token) {
       this.sessions.delete(sessionId)
       await this.client.unsubscribe(state.subId)
@@ -169,6 +225,17 @@ export class WorkspaceFilesWatcherService {
     return [...this.sessions.entries()]
       .filter(([, state]) => state.active)
       .map(([sessionId]) => sessionId)
+  }
+
+  /** Diagnostics for the perf probe; not part of the IPC contract. */
+  stats(): { activeSessions: number; subscriptions: number; roots: number } {
+    let roots = 0
+    for (const state of this.sessions.values()) roots += state.roots.length
+    return {
+      activeSessions: this.activeSessions().length,
+      subscriptions: this.sessions.size,
+      roots
+    }
   }
 
   private onEvents(sessionId: string, events: readonly WatchEvent[]): void {

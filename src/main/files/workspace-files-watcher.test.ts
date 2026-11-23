@@ -16,6 +16,8 @@ function fakeClient(): {
   client: WatchClient
   specs: SerializedWatchSpec[]
   unsubscribed: string[]
+  rootUpdates: Array<{ id: string; roots: string[] }>
+  setRootsResult: (result: { ok: true; bound: number; missing: string[] } | { ok: false; reason: string }) => void
   setSubscribeResult: (result: WatchSubscribeResult) => void
   emit: (sessionId: string, events: WatchEvent[]) => void
   overflow: (sessionId: string) => void
@@ -25,7 +27,13 @@ function fakeClient(): {
   const handlers = new Map<string, WatchSubscriptionHandlers>()
   const specs: SerializedWatchSpec[] = []
   const unsubscribed: string[] = []
-  let subscribeResult: WatchSubscribeResult = { ok: true, backend: 'chokidar' }
+  const rootUpdates: Array<{ id: string; roots: string[] }> = []
+  let subscribeResult: WatchSubscribeResult = { ok: true, backend: 'fswatch' }
+  let rootsResult: { ok: true; bound: number; missing: string[] } | { ok: false; reason: string } = {
+    ok: true,
+    bound: 1,
+    missing: []
+  }
   return {
     client: {
       async subscribe(spec, next) {
@@ -33,8 +41,9 @@ function fakeClient(): {
         if (subscribeResult.ok) handlers.set(spec.id, next)
         return subscribeResult
       },
-      async updateRoots() {
-        return { ok: true, bound: 0, missing: [] }
+      async updateRoots(id, roots) {
+        rootUpdates.push({ id, roots: [...roots] })
+        return rootsResult
       },
       async unsubscribe(id) {
         unsubscribed.push(id)
@@ -43,7 +52,7 @@ function fakeClient(): {
       stats: () => ({
         running: true,
         pid: 1,
-        backend: 'chokidar',
+        backend: 'fswatch',
         subscriptions: handlers.size,
         watches: 0,
         roots: 0,
@@ -53,6 +62,10 @@ function fakeClient(): {
     },
     specs,
     unsubscribed,
+    rootUpdates,
+    setRootsResult: (result) => {
+      rootsResult = result
+    },
     setSubscribeResult: (result) => {
       subscribeResult = result
     },
@@ -91,19 +104,19 @@ describe('workspace files watcher', () => {
     expect(shouldIgnoreFilesWatchPath('/wt/client/src/node_modules.ts', '/wt')).toBe(false)
   })
 
-  it('sends a serializable recursive spec for the checkout', async () => {
+  it('sends a shallow spec for the visible folders', async () => {
     const fake = fakeClient()
     const service = new WorkspaceFilesWatcherService({
       resolveTarget: async () => ({ worktreePath: '/wt' }),
       client: fake.client
     })
-    await service.setActive('ses_x', true)
+    await service.setActive('ses_x', true, ['src', 'docs'])
 
     expect(fake.specs).toHaveLength(1)
     expect(fake.specs[0]).toMatchObject({
-      kind: 'recursive',
+      kind: 'shallow',
       id: 'files:ses_x',
-      roots: ['/wt'],
+      roots: ['/wt', '/wt/docs', '/wt/src'],
       worktreePath: '/wt',
       ignore: {
         skipSuffixes: ['.swp', '.tmp'],
@@ -111,6 +124,60 @@ describe('workspace files watcher', () => {
       }
     })
     expect(fake.specs[0]?.ignore.skipDirectories).toContain('node_modules')
+  })
+
+  it('updates roots in place and forces one reconcile', async () => {
+    vi.useFakeTimers()
+    const fake = fakeClient()
+    const service = new WorkspaceFilesWatcherService({
+      resolveTarget: async () => ({ worktreePath: '/wt' }),
+      client: fake.client,
+      debounceMs: 50
+    })
+    const events: FilesChangedEvent[] = []
+    service.subscribe((event) => events.push(event))
+
+    await service.setActive('ses_x', true, ['src'])
+    await service.setActive('ses_x', true, ['src', 'docs'])
+    expect(fake.specs).toHaveLength(1)
+    expect(fake.rootUpdates).toEqual([
+      { id: 'files:ses_x', roots: ['/wt', '/wt/docs', '/wt/src'] }
+    ])
+    await vi.advanceTimersByTimeAsync(60)
+    expect(events.at(-1)).toMatchObject({ overflow: true, changedPaths: [] })
+    await service.setActive('ses_x', true, ['src'])
+    expect(fake.rootUpdates.at(-1)?.roots).toEqual(['/wt', '/wt/src'])
+  })
+
+  it('drops roots outside the checkout and generated folders', async () => {
+    const fake = fakeClient()
+    const service = new WorkspaceFilesWatcherService({
+      resolveTarget: async () => ({ worktreePath: '/wt' }),
+      client: fake.client
+    })
+    await service.setActive('ses_x', true, [
+      '/etc',
+      '..',
+      'node_modules/pkg',
+      'src',
+      ''
+    ])
+    expect(fake.specs[0]?.roots).toEqual(['/wt', '/wt/src'])
+  })
+
+  it('reports watch-failed when a root update fails', async () => {
+    const fake = fakeClient()
+    const service = new WorkspaceFilesWatcherService({
+      resolveTarget: async () => ({ worktreePath: '/wt' }),
+      client: fake.client
+    })
+    await service.setActive('ses_x', true)
+    fake.setRootsResult({ ok: false, reason: 'fused' })
+    await expect(service.setActive('ses_x', true, ['src'])).resolves.toEqual({
+      watching: false,
+      reason: 'watch-failed'
+    })
+    expect(service.activeSessions()).toEqual([])
   })
 
   it('coalesces a burst and normalises relative paths', async () => {

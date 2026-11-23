@@ -26,6 +26,7 @@ import { useFilesOperations } from '../files/use-files-operations'
 import { useFilesTabs } from '../files/use-files-tabs'
 import { useFilesTree } from '../files/use-files-tree'
 import { useFilesViewport } from '../files/use-files-viewport'
+import { deriveWatchRoots } from '../files/watch-roots'
 import { visibleTreeChildren } from '../files/visible-tree'
 import { FILES_LIST_WIDTH_DEFAULT, useFilesSettings } from '../files/files-settings'
 import { isGitMetadata } from '../files/search-utils'
@@ -485,9 +486,18 @@ export default function FilesPanel({
     onOpenRequestHandled()
   }, [onOpenRequestHandled, openPath, openRequest])
 
+  // The watcher follows what the pane can show: the root, expanded folders,
+  // and the parents of open tabs. Collapsing a folder shrinks the set.
+  const tabPathsKey = tabs.map((tab) => tab.path).join('\u0000')
+  const watchRoots = useMemo(
+    () => deriveWatchRoots({ expanded: tree.expanded, tabPaths: tabs.map((tab) => tab.path) }),
+    [tabPathsKey, tree.expanded]
+  )
+
   const { liveState } = useFilesWatch({
     sessionId,
     active,
+    roots: watchRoots,
     rootStateRef,
     reloadExpandedRef
   })

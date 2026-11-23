@@ -102,13 +102,16 @@ export function useFilesDecorations(input: {
 export function useFilesWatch(input: {
   sessionId: string
   active: boolean
+  roots: readonly string[]
   rootStateRef: MutableRefObject<'loading' | 'ready' | 'unavailable'>
   reloadExpandedRef: MutableRefObject<
     (quiet?: boolean, discover?: boolean) => Promise<void>
   >
 }) {
-  const { sessionId, active, rootStateRef, reloadExpandedRef } = input
+  const { sessionId, active, roots, rootStateRef, reloadExpandedRef } = input
   const [liveState, setLiveState] = useState<LiveState>('off')
+  const rootsKey = roots.join('\u0000')
+  const sentRootsKey = useRef<string | null>(null)
 
   useEffect(() => {
     if (!active) {
@@ -244,8 +247,9 @@ export function useFilesWatch(input: {
     })
 
     void reconcile()
+    sentRootsKey.current = rootsKey
     void window.icode.files
-      .watch({ sessionId, active: true })
+      .watch({ sessionId, active: true, roots: [...roots] })
       .then((result) => {
         if (cancelled) return
         if (!result.ok || !result.value.watching) {
@@ -261,11 +265,26 @@ export function useFilesWatch(input: {
       cancelled = true
       unsubscribe()
       clearRetries()
+      sentRootsKey.current = null
       if (pollTimer !== null) window.clearInterval(pollTimer)
       setLiveState('off')
       void window.icode.files.watch({ sessionId, active: false })
     }
   }, [active, sessionId])
+
+  /*
+   * Expanding or collapsing a folder changes the watch roots without tearing
+   * down the watcher. The root set is debounced so a burst of expansions is
+   * one update; the `ready`/overflow path reconciles once it is bound.
+   */
+  useEffect(() => {
+    if (!active || sentRootsKey.current === rootsKey) return
+    const timer = window.setTimeout(() => {
+      sentRootsKey.current = rootsKey
+      void window.icode.files.watch({ sessionId, active: true, roots: [...roots] })
+    }, 150)
+    return () => window.clearTimeout(timer)
+  }, [active, rootsKey, sessionId])
 
   return { liveState }
 }

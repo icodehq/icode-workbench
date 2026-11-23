@@ -5,6 +5,7 @@ import {
   startRefSchema,
   worktreeRelativePathSchema
 } from './primitives'
+import { FILES_WATCH_MAX_ROOTS } from '../domain/workspace-files'
 import { harnessIdSchema } from './domain'
 import { changeFileSchema } from './changes'
 import { MERGE_STATES } from '../domain/merge'
@@ -46,7 +47,13 @@ export const filesStatInputSchema = z.strictObject({
 
 export const filesWatchInputSchema = z.strictObject({
   sessionId: sessionIdSchema,
-  active: z.boolean()
+  active: z.boolean(),
+  /**
+   * Worktree-relative folders currently visible in the Files pane. Omitted
+   * means "the checkout root only"; main validates containment and always adds
+   * the root. The renderer derives these from its expanded tree and open tabs.
+   */
+  roots: z.array(relativePathSchema).max(FILES_WATCH_MAX_ROOTS).optional()
 })
 
 const searchPathListSchema = z.array(z.string().min(1).max(400)).max(100).default([])

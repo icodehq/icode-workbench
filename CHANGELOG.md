@@ -32,6 +32,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   inotify per directory) and prunes generated directories natively at any depth.
   A 35,000-file checkout no longer opens one handle per file; chokidar remains
   an automatic fallback when the native module cannot load.
+- **The Files pane watches only visible directories.** It subscribes to the
+  checkout root plus expanded folders and the parents of open tabs, and drops a
+  folder's watch when it is collapsed. Windows and Linux use one shallow
+  `fs.watch` per visible folder; macOS uses one recursive native subscription
+  filtered to the visible set, avoiding descriptor pressure.
 
 ## [0.25.0] - 2026-11-23
 

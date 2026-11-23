@@ -27,7 +27,7 @@ import type {
   BackendSubscription,
   WatchBackend
 } from './backends'
-import { selectWatchBackend } from './backends'
+import { selectFilesBackend, selectWatchBackend } from './backends'
 
 const writeStdout = process.stdout.write.bind(process.stdout)
 const NO_PARENT_FRAME_MS = 120_000
@@ -56,6 +56,7 @@ for (const method of ['log', 'info', 'warn', 'error', 'debug'] as const) {
 type Subscription = {
   spec: SerializedWatchSpec
   backend: BackendSubscription
+  backendName: WatchBackend['name']
   buffer: BackendEvent[]
   overflowed: boolean
   flushScheduled: boolean
@@ -162,6 +163,7 @@ async function handleSubscribe(rid: number, id: string, spec: SerializedWatchSpe
       close: async () => undefined,
       stats: () => ({ watches: 0, roots: 0 })
     },
+    backendName: backend.name,
     buffer: [],
     overflowed: false,
     flushScheduled: false,
@@ -170,7 +172,10 @@ async function handleSubscribe(rid: number, id: string, spec: SerializedWatchSpe
   }
   subscriptions.set(id, placeholder)
   try {
-    const backendSubscription = await backend.subscribe(spec, {
+    // Files watches only visible directories; recursive Source Control watches
+    // share the app-wide backend.
+    const selected = spec.kind === 'shallow' ? await selectFilesBackend() : backend
+    const backendSubscription = await selected.subscribe(spec, {
       events: (events) => {
         const sub = subscriptions.get(id)
         if (sub) emitEvents(sub, events)
@@ -188,6 +193,9 @@ async function handleSubscribe(rid: number, id: string, spec: SerializedWatchSpe
       error: (error) => {
         const sub = subscriptions.get(id)
         if (sub) emitError(sub, error)
+      },
+      rootError: (root, code) => {
+        send({ t: 'werr', sub: id, root, code })
       }
     })
     if (shuttingDown || placeholder.closed) {
@@ -195,7 +203,8 @@ async function handleSubscribe(rid: number, id: string, spec: SerializedWatchSpe
       return
     }
     placeholder.backend = backendSubscription
-    send({ t: 'ok', rid, backend: backend.name })
+    placeholder.backendName = selected.name
+    send({ t: 'ok', rid, backend: selected.name })
   } catch (error) {
     if (subscriptions.get(id) === placeholder) subscriptions.delete(id)
     placeholder.closed = true

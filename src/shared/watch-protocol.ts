@@ -13,7 +13,7 @@ export const WATCH_MAX_FRAME_BYTES = 1024 * 1024
 export const WATCH_MAX_EVENTS_PER_FRAME = 512
 export const WATCH_MAX_ROOTS = 512
 
-export type WatchBackendName = 'parcel' | 'chokidar'
+export type WatchBackendName = 'parcel' | 'chokidar' | 'fswatch'
 
 export const WATCH_EVENT_KINDS = ['add', 'addDir', 'change', 'unlink', 'unlinkDir'] as const
 export type WatchEventKind = (typeof WATCH_EVENT_KINDS)[number]
@@ -82,7 +82,7 @@ function isStringArray(value: unknown): value is string[] {
 }
 
 function isBackend(value: unknown): value is WatchBackendName {
-  return value === 'parcel' || value === 'chokidar'
+  return value === 'parcel' || value === 'chokidar' || value === 'fswatch'
 }
 
 function isEventKind(value: unknown): value is WatchEventKind {

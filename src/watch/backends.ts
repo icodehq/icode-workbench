@@ -4,6 +4,7 @@ import type {
   WatchEventKind
 } from '../shared/watch-protocol'
 import { createChokidarBackend } from './chokidar-backend'
+import { createShallowBackend } from './shallow-watch'
 
 export type BackendEvent = { type: WatchEventKind; path: string }
 
@@ -12,6 +13,8 @@ export type BackendEmitter = {
   overflow(): void
   ready(): void
   error(error: unknown): void
+  /** A shallow root could not be bound; non-fatal while sibling roots work. */
+  rootError?(root: string, code: string): void
 }
 
 export type BackendRootsResult = { bound: number; missing: string[] }
@@ -54,4 +57,19 @@ export async function selectWatchBackend(
     )
     return createChokidarBackend()
   }
+}
+
+/**
+ * The backend for a Files subscription.
+ *
+ * Windows and Linux watch each visible directory shallowly with `fs.watch`:
+ * the renderer already keeps the set small, and one descriptor per visible
+ * folder is bounded. macOS has tighter descriptor limits, so it uses one
+ * recursive native subscription and filters delivered events to the visible
+ * roots in the child (Termio's FSEvents model).
+ */
+export async function selectFilesBackend(): Promise<WatchBackend> {
+  if (process.platform !== 'darwin') return createShallowBackend()
+  const { createParcelFilesBackend } = await import('./parcel-files-backend')
+  return createParcelFilesBackend(await selectWatchBackend())
 }

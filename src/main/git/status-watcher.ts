@@ -164,6 +164,14 @@ export class GitStatusWatcherService {
       .map(([sessionId]) => sessionId)
   }
 
+  /** Diagnostics for the perf probe; not part of the IPC contract. */
+  stats(): { activeSessions: number; subscriptions: number } {
+    return {
+      activeSessions: this.activeSessions().length,
+      subscriptions: this.sessions.size
+    }
+  }
+
   private onEvents(sessionId: string, events: readonly WatchEvent[]): void {
     const state = this.sessions.get(sessionId)
     if (!state?.active) return

@@ -425,7 +425,8 @@ export function createAppDispatcher(
     filesTrash: (input) => runtime.files.trashMany(input.sessionId, input.paths),
     filesRestoreTrash: (input) => runtime.files.restoreTrash(input.sessionId, input.opId),
     filesListTrash: (input) => runtime.files.listTrash(input.sessionId),
-    filesWatch: (input) => runtime.filesWatcher.setActive(input.sessionId, input.active),
+    filesWatch: (input) =>
+      runtime.filesWatcher.setActive(input.sessionId, input.active, input.roots),
     gitInvoke: (input) => invokeGitCommand(runtime, input),
     tasksList: (input) => Promise.resolve(runtime.tasks.list(input as never)),
     tasksCreate: (input) => Promise.resolve(outcomeOrThrow(runtime.tasks.create(input as never))),
