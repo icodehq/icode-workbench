@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-11-24
+
 ### Changed
 
 - Clicking a project row in the left sidebar now expands or collapses its
