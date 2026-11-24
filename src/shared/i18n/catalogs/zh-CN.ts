@@ -1913,6 +1913,8 @@ export const zhCN = {
   'sidebar.tasksFilter': "只显示需要你处理的任务",
   'sidebar.collapseTasks': "折叠任务",
   'sidebar.expandTasks': "展开任务",
+  'sidebar.collapseProject': "折叠 {name}",
+  'sidebar.expandProject': "展开 {name}",
   'sidebar.openSidebar': "打开工作区侧边栏",
   'sidebar.closeSidebar': "关闭工作区侧边栏",
   'sidebar.resize': "调整工作区侧边栏大小",

@@ -1914,6 +1914,8 @@ export const ja = {
   'sidebar.tasksFilter': "対応が必要なタスクのみ表示",
   'sidebar.collapseTasks': "タスクを折りたたむ",
   'sidebar.expandTasks': "タスクを展開",
+  'sidebar.collapseProject': "{name} を折りたたむ",
+  'sidebar.expandProject': "{name} を展開",
   'sidebar.openSidebar': "ワークスペースサイドバーを開く",
   'sidebar.closeSidebar': "ワークスペースサイドバーを閉じる",
   'sidebar.resize': "ワークスペースサイドバーのサイズを変更",

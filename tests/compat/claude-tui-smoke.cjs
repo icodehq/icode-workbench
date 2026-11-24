@@ -246,6 +246,9 @@ async function openProjectSessions() {
   assert(repoId, 'Could not identify the registered repository')
   await click(`[data-testid="project-row-${repoId}"]`)
   await waitForSelector('[data-testid="sessions-surface"]', 20000)
+  // Opening a project from its row toggles its expanded group; restore the
+  // expanded invariant so later steps can click sidebar session rows.
+  await expandAllProjects()
 }
 
 async function setInput(selector, value) {
@@ -821,9 +824,11 @@ async function main() {
 
   await step('detect the real Claude Code Harness', CRITERIA.harness, async () => {
     await click('[data-testid="empty-new-session"]')
+    // Only available Harnesses are listed up front, and how many a machine
+    // has is environment-dependent. Wait for the one this smoke needs.
     await waitFor(
-      `document.querySelectorAll('[data-harness-state]').length === 4`,
-      'Harness detections',
+      `document.querySelector('[data-testid="harness-option-claude"]')?.getAttribute('data-harness-state') === 'available'`,
+      'Claude Harness detection',
       30000
     )
     const states = await cdp.evaluate(

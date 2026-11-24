@@ -20,7 +20,7 @@ const {
 } = require('node:fs')
 const { tmpdir } = require('node:os')
 const { join, resolve } = require('node:path')
-const { connect } = require('./ui-cdp.cjs')
+const { connect, allocatePort } = require('./ui-cdp.cjs')
 
 const APP_DIR = resolve(__dirname, '..', '..')
 const ELECTRON = require('electron')
@@ -43,7 +43,6 @@ const RUN = {
 
 let appProcess = null
 let cdp = null
-let nextPort = 9900 + (process.pid % 200)
 
 function sleep(ms) {
   return new Promise((done) => setTimeout(done, ms))
@@ -323,7 +322,7 @@ async function main() {
   makeRepo(REPO1)
   makeRepo(REPO2)
 
-  let port = nextPort++
+  let port = await allocatePort()
   await launch('initial', { ICODE_HOST_DIR: HOST_DIR, ICODE_HOST_SOCKET: SOCKET }, port)
 
   const repo1 = await step('register the first project', () => registerRepository(REPO1))
@@ -376,7 +375,7 @@ async function main() {
 
   await quitApp()
 
-  port = nextPort++
+  port = await allocatePort()
   await launch(
     'unreachable',
     {
@@ -413,7 +412,7 @@ async function main() {
 
   await quitApp()
 
-  port = nextPort++
+  port = await allocatePort()
   await launch('resumed', { ICODE_HOST_DIR: HOST_DIR, ICODE_HOST_SOCKET: SOCKET }, port)
   // The only remaining session row is tombstoned, so the UI has no session
   // authority to derive `reachable` from; `unknown` is the truthful state here.

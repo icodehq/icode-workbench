@@ -1914,6 +1914,8 @@ export const fr = {
   'sidebar.tasksFilter': "Afficher uniquement les tâches qui vous attendent",
   'sidebar.collapseTasks': "Réduire les tâches",
   'sidebar.expandTasks': "Développer les tâches",
+  'sidebar.collapseProject': "Réduire {name}",
+  'sidebar.expandProject': "Développer {name}",
   'sidebar.openSidebar': "Ouvrir la barre latérale de l’espace de travail",
   'sidebar.closeSidebar': "Fermer la barre latérale de l’espace de travail",
   'sidebar.resize': "Redimensionner la barre latérale de l’espace de travail",
