@@ -6,18 +6,23 @@ import {
   fileTabs,
   isDirty,
   parsePersistedOpenFiles,
+  sessionTabs,
+  tabKey,
   type OpenFilesPersistence
 } from './open-files'
 
-function memoryPersistence(initial: unknown = null) {
-  let value = initial
+function memoryPersistence(initial: Record<string, unknown> = {}) {
+  const values = new Map(Object.entries(initial))
   const persistence: OpenFilesPersistence = {
-    load: async () => value,
-    save: async (next) => {
-      value = next
+    load: async (key) => values.get(key) ?? null,
+    save: async (key, next) => {
+      values.set(key, next)
+    },
+    remove: async (key) => {
+      values.delete(key)
     }
   }
-  return { persistence, read: () => value }
+  return { persistence, read: (key: string) => values.get(key) }
 }
 
 describe('open files store', () => {
@@ -74,7 +79,7 @@ describe('open files store', () => {
     store.updateText('ses_a', 'a.ts', 'a changed\n')
     store.updateText('ses_b', 'b.ts', 'b changed\n')
     expect(store.dirtySummary()).toEqual({ files: 2, sessions: 2 })
-    expect(store.allDirtyTabs().map((tab) => `${tab.sessionId}:${tab.path}`)).toEqual([
+    expect(store.allDirtyTabs().map((tab) => `${tab.scopeKey}:${tab.path}`)).toEqual([
       'ses_a:a.ts',
       'ses_b:b.ts'
     ])
@@ -193,7 +198,7 @@ describe('open files store', () => {
     expect(store.get('ses_a').tabs[0]).toMatchObject({ preview: true, path: 'a.ts' })
 
     const second = store.open('ses_a', 'b.ts', { preview: true })
-    expect(second.replacedKey).toBe('a.ts')
+    expect(second.replacedKey).toBe('file:a.ts')
     expect(fileTabs(store.get('ses_a')).map((tab) => tab.path)).toEqual(['b.ts'])
     expect(store.get('ses_a').tabs[0]).toMatchObject({ preview: true })
 
@@ -215,9 +220,9 @@ describe('open files store', () => {
     expect(store.get('ses_a').mode).toBe('editor')
 
     store.closeTab('ses_a', 'b.ts')
-    expect(store.get('ses_a').activeKey).toBe('c.ts')
+    expect(store.get('ses_a').activeKey).toBe('file:c.ts')
     store.closeTab('ses_a', 'c.ts')
-    expect(store.get('ses_a').activeKey).toBe('a.ts')
+    expect(store.get('ses_a').activeKey).toBe('file:a.ts')
     store.closeTab('ses_a', 'a.ts')
     expect(store.get('ses_a')).toMatchObject({
       tabs: [],
@@ -228,7 +233,7 @@ describe('open files store', () => {
 
     store.open('ses_a', 'd.ts')
     store.setMode('ses_a', 'terminal')
-    expect(store.get('ses_a')).toMatchObject({ mode: 'terminal', activeKey: 'd.ts' })
+    expect(store.get('ses_a')).toMatchObject({ mode: 'terminal', activeKey: 'file:d.ts' })
   })
 
   it('keeps diff tabs in the shared list without making them dirty or persistent', async () => {
@@ -317,8 +322,99 @@ describe('open files store', () => {
     })
     expect(parsed.get('ses_a')).toMatchObject({
       mode: 'terminal',
-      activeKey: 'a.ts'
+      activeKey: 'file:a.ts'
     })
     expect(parsed.get('ses_a')?.tabs[0]).toMatchObject({ preview: false, kind: 'file' })
+  })
+
+  it('reconciles session tabs, hides without stopping, and reopens', () => {
+    const store = new OpenFilesStore()
+    store.syncSessions('default:repo_1', ['ses_a', 'ses_b'])
+    expect(sessionTabs(store.get('default:repo_1')).map((tab) => tab.sessionId)).toEqual([
+      'ses_a',
+      'ses_b'
+    ])
+
+    store.hideSession('default:repo_1', 'ses_a')
+    expect(sessionTabs(store.get('default:repo_1')).map((tab) => tab.sessionId)).toEqual([
+      'ses_b'
+    ])
+    expect(store.get('default:repo_1').hiddenSessionIds).toEqual(['ses_a'])
+
+    store.showSession('default:repo_1', 'ses_a')
+    expect(sessionTabs(store.get('default:repo_1')).map((tab) => tab.sessionId)).toEqual([
+      'ses_b',
+      'ses_a'
+    ])
+    expect(store.get('default:repo_1').activeKey).toBe('session:ses_a')
+
+    store.removeSession('default:repo_1', 'ses_b')
+    expect(sessionTabs(store.get('default:repo_1')).map((tab) => tab.sessionId)).toEqual([
+      'ses_a'
+    ])
+  })
+
+  it('keeps session and file tabs in one order', () => {
+    const store = new OpenFilesStore()
+    store.syncSessions('default:repo_1', ['ses_a'])
+    store.open('default:repo_1', 'a.ts')
+    store.syncSessions('default:repo_1', ['ses_a', 'ses_b'])
+    expect(store.get('default:repo_1').tabs.map(tabKey)).toEqual([
+      'session:ses_a',
+      'file:a.ts',
+      'session:ses_b'
+    ])
+  })
+
+  it('migrates legacy session-keyed hot-exit state onto one workspace', async () => {
+    const legacyTab = (path: string, text: string, savedText = text) => ({
+      kind: 'file' as const,
+      preview: false,
+      path,
+      text,
+      savedText,
+      original: null,
+      etag: null,
+      disk: 'current' as const,
+      load: 'ready' as const,
+      failure: null
+    })
+    const memory = memoryPersistence({
+      'icode.files.tabs.v1': {
+        version: 1,
+        sessions: {
+          ses_a: {
+            tabs: [legacyTab('a.ts', 'saved')],
+            activePath: 'a.ts',
+            mode: 'editor'
+          },
+          ses_b: {
+            tabs: [legacyTab('b.ts', 'b'), legacyTab('a.ts', 'dirty', 'saved')],
+            activePath: 'b.ts',
+            mode: 'editor'
+          }
+        }
+      }
+    })
+    const store = new OpenFilesStore(memory.persistence, 0)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    await store.migrateLegacy({
+      sessions: [
+        { id: 'ses_a', repoId: 'repo_1', worktree: null },
+        { id: 'ses_b', repoId: 'repo_1', worktree: null }
+      ],
+      taskSessionIds: new Set(),
+      activeSessionId: 'ses_b'
+    })
+
+    const state = store.get('default:repo_1')
+    expect(fileTabs(state).map((tab) => [tab.path, tab.text])).toEqual([
+      ['a.ts', 'dirty'],
+      ['b.ts', 'b']
+    ])
+    expect(state.activeKey).toBe('file:b.ts')
+    expect(store.get('ses_a').tabs).toEqual([])
+    expect(memory.read('icode.files.tabs.v2')).toBeTruthy()
   })
 })

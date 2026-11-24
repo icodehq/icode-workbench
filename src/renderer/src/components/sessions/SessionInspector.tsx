@@ -22,6 +22,8 @@ type Pane = 'changes' | 'files' | 'search'
 
 type Props = {
   session: SessionSummary
+  /** Worktree scope for the Files tree; defaults to the session. */
+  scopeKey?: string
   refreshToken: number
   requestedPane: { pane: Pane; nonce: number } | null
   /** History requested from the tree menu or the center editor. */
@@ -59,6 +61,7 @@ type Props = {
  */
 export default function SessionInspector({
   session,
+  scopeKey = session.id,
   refreshToken,
   requestedPane,
   historyRequest = null,
@@ -140,7 +143,7 @@ export default function SessionInspector({
   }
 
   const selectPane = (next: Pane): void => {
-    paneMemory.current.set(session.id, next)
+    paneMemory.current.set(scopeKey, next)
     setPane(next)
     setVisited((current) => {
       if (current.has(next)) return current
@@ -153,7 +156,7 @@ export default function SessionInspector({
   // Termio gives each session its own inspector pane back; do the same. Open
   // files are already per session in the open-files store.
   useEffect(() => {
-    const remembered = paneMemory.current.get(session.id) ?? 'files'
+    const remembered = paneMemory.current.get(scopeKey) ?? 'files'
     setPane(remembered)
     setVisited((current) => {
       if (current.has(remembered)) return current
@@ -161,7 +164,7 @@ export default function SessionInspector({
       updated.add(remembered)
       return updated
     })
-  }, [session.id])
+  }, [scopeKey])
 
   useEffect(() => {
     if (!requestedPane) return
@@ -292,6 +295,7 @@ export default function SessionInspector({
             {visited.has('files') ? (
               <FilesPanel
                 sessionId={session.id}
+                scopeKey={scopeKey}
                 refreshToken={refreshToken + filesReloadToken}
                 active={!collapsed && pane === 'files'}
                 notify={notify}
@@ -310,7 +314,7 @@ export default function SessionInspector({
           >
             {visited.has('search') ? (
               <FilesSearchPanel
-                key={session.id}
+                key={scopeKey}
                 sessionId={session.id}
                 active={!collapsed && pane === 'search'}
                 notify={notify}
@@ -328,6 +332,7 @@ export default function SessionInspector({
             {visited.has('changes') ? (
               <ChangesPanel
                 sessionId={session.id}
+                scopeKey={scopeKey}
                 sessionState={session.state}
                 repoId={session.repoId}
                 harness={session.harness}

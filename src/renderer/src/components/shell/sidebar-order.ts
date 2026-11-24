@@ -26,59 +26,14 @@ export const PROJECTS_GROUP_KEY = 'projects'
  * Checkout groups are keyed by the checkout they belong to, not by a session:
  * the default checkout is stable per repository, and a worktree is stable by
  * path even when its branch changes.
+ *
+ * The implementation lives in the workspace module so the center tab list can
+ * use the same identity without importing a component.
  */
-export function sessionGroupKey(repoId: string, worktreePath: string | null): string {
-  return worktreePath === null ? `default:${repoId}` : `worktree:${worktreePath}`
-}
+export { sessionGroupKey } from '../../workspace/workspace-key'
 
-/**
- * Applies a remembered order to the rows that currently exist. Remembered ids
- * that disappeared are skipped, and rows the order does not mention keep their
- * natural relative position after the remembered ones.
- */
-export function orderByStoredIds<T>(
-  items: readonly T[],
-  order: readonly string[],
-  key: (item: T) => string
-): T[] {
-  const byId = new Map(items.map((item) => [key(item), item]))
-  const seen = new Set<string>()
-  const result: T[] = []
-  for (const id of order) {
-    if (seen.has(id)) continue
-    const item = byId.get(id)
-    if (item === undefined) continue
-    seen.add(id)
-    result.push(item)
-  }
-  for (const item of items) {
-    const id = key(item)
-    if (seen.has(id)) continue
-    seen.add(id)
-    result.push(item)
-  }
-  return result
-}
-
-export function orderRowIds(available: readonly string[], order: readonly string[]): string[] {
-  return orderByStoredIds(available, order, (id) => id)
-}
-
-/** Moves `sourceId` into the target's slot, before or after it. */
-export function moveRowId(
-  ids: readonly string[],
-  sourceId: string,
-  targetId: string,
-  after: boolean
-): string[] {
-  const from = ids.indexOf(sourceId)
-  const to = ids.indexOf(targetId)
-  if (from < 0 || to < 0 || from === to) return [...ids]
-  const next = ids.filter((id) => id !== sourceId)
-  const targetIndex = next.indexOf(targetId)
-  next.splice(after ? targetIndex + 1 : targetIndex, 0, sourceId)
-  return next
-}
+/** Shared row ordering, re-exported for the sidebar's existing consumers. */
+export { moveRowId, orderByStoredIds, orderRowIds } from '../../lib/row-order'
 
 /**
  * Drops ids that no longer exist and groups that no longer have rows. The

@@ -1,5 +1,7 @@
 import type { SessionSummary } from '../../../shared/schemas/ipc'
-import { sessionGroupKey } from '../components/shell/sidebar-order'
+import { workspaceKeyForSession } from './workspace-key'
+
+export { workspaceKeyForSession }
 
 /**
  * The shared center-tab interface.
@@ -26,13 +28,6 @@ export type WorkspaceTab = {
  */
 export function scopeKeyForSession(session: Pick<SessionSummary, 'id'>): string {
   return session.id
-}
-
-/** The final workspace key: the default checkout or one worktree. */
-export function workspaceKeyForSession(
-  session: Pick<SessionSummary, 'repoId' | 'worktree'>
-): string {
-  return sessionGroupKey(session.repoId, session.worktree?.path ?? null)
 }
 
 /** A preview tab is only replaceable while nothing in it would be lost. */

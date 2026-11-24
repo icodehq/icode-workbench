@@ -45,6 +45,10 @@ export type ConflictPrompt = {
  */
 export function useSessionEditor(input: {
   sessionId: string
+  /** Store/persistence scope; defaults to the session for TaskWorkbench. */
+  scopeKey?: string
+  /** Session used for Files/Git IPC; defaults to the session. */
+  ownerSessionId?: string
   refreshToken: number
   notify: (notice: Notice) => void
   sessionFiles: FilesSessionState
@@ -69,6 +73,8 @@ export function useSessionEditor(input: {
 }) {
   const {
     sessionId,
+    scopeKey = sessionId,
+    ownerSessionId = sessionId,
     refreshToken,
     notify,
     sessionFiles,
@@ -102,9 +108,9 @@ export function useSessionEditor(input: {
   const reloadFromDisk = useCallback(
     async (path: string, quiet = false): Promise<boolean> => {
       const result = await callApi<FileContentPayload>(
-        window.icode.files.read({ sessionId, path })
+        window.icode.files.read({ sessionId: ownerSessionId, path })
       )
-      if (openFilesStore.find(sessionId, path) === null) return false
+      if (openFilesStore.find(scopeKey, path) === null) return false
       if (!result.ok) {
         if (!quiet) notify(errorNotice(result.error))
         return false
@@ -112,24 +118,24 @@ export function useSessionEditor(input: {
       const value = result.value
       if (value.status === 'unavailable') {
         if (value.reason === 'not-found') {
-          openFilesStore.markDiskDeleted(sessionId, path)
+          openFilesStore.markDiskDeleted(scopeKey, path)
           return false
         }
         if (!quiet) notify({ tone: 'error', message: unavailableText(value) })
         return false
       }
       if (value.binary) {
-        openFilesStore.setFailure(sessionId, path, translate('files.binary'))
+        openFilesStore.setFailure(scopeKey, path, translate('files.binary'))
         return false
       }
       if (value.tooLarge) {
-        openFilesStore.setFailure(sessionId, path, translate('files.tooLarge'))
+        openFilesStore.setFailure(scopeKey, path, translate('files.tooLarge'))
         return false
       }
-      openFilesStore.setContent(sessionId, path, { text: value.text, etag: value.etag })
+      openFilesStore.setContent(scopeKey, path, { text: value.text, etag: value.etag })
       return true
     },
-    [notify, sessionId]
+    [notify, scopeKey, ownerSessionId]
   )
 
   /*
@@ -150,7 +156,11 @@ export function useSessionEditor(input: {
   }, [enabled, refreshToken])
 
   const openFile = useCallback(
-    async (path: string, line = 1, options?: { preview?: boolean }): Promise<void> => {
+    async (
+      path: string,
+      line = 1,
+      options?: { preview?: boolean; load?: boolean }
+    ): Promise<void> => {
       setFileNote('')
       setEditorMode('tab')
       if (isGitMetadata(path)) {
@@ -162,48 +172,48 @@ export function useSessionEditor(input: {
       if (revealPath !== undefined) {
         void revealPath(path).then(() => {
           if (revealSequence.current !== sequence) return
-          if (openFilesStore.find(sessionId, path) === null) return
+          if (openFilesStore.find(scopeKey, path) === null) return
           setSelection?.({ selected: new Set([path]), anchor: path, focused: path })
         })
       }
-      const opened = openFilesStore.open(sessionId, path, {
+      const opened = openFilesStore.open(scopeKey, path, {
         preview: options?.preview === true
       })
-      if (!opened.created) {
+      if (!opened.created && options?.load !== true) {
         if (opened.tab.load === 'ready' || opened.tab.load === 'loading') return
         // A failed tab is retried by opening it again.
       }
-      openFilesStore.setLoading(sessionId, path)
+      openFilesStore.setLoading(scopeKey, path)
       const result = await callApi<FileContentPayload>(
-        window.icode.files.read({ sessionId, path })
+        window.icode.files.read({ sessionId: ownerSessionId, path })
       )
-      if (openFilesStore.find(sessionId, path) === null) return
+      if (openFilesStore.find(scopeKey, path) === null) return
       if (!result.ok) {
-        openFilesStore.setFailure(sessionId, path, result.error.message)
+        openFilesStore.setFailure(scopeKey, path, result.error.message)
         return
       }
       const value = result.value
       if (value.status === 'unavailable') {
-        openFilesStore.setFailure(sessionId, path, unavailableText(value))
+        openFilesStore.setFailure(scopeKey, path, unavailableText(value))
         return
       }
       if (value.binary) {
-        openFilesStore.setFailure(sessionId, path, translate('files.binary'))
+        openFilesStore.setFailure(scopeKey, path, translate('files.binary'))
         return
       }
       if (value.tooLarge) {
-        openFilesStore.setFailure(sessionId, path, translate('files.tooLarge'))
+        openFilesStore.setFailure(scopeKey, path, translate('files.tooLarge'))
         return
       }
-      if (!openFilesStore.canStore(sessionId, path, value.text.length)) {
-        openFilesStore.setFailure(sessionId, path, translate('files.budget'))
+      if (!openFilesStore.canStore(scopeKey, path, value.text.length)) {
+        openFilesStore.setFailure(scopeKey, path, translate('files.budget'))
         return
       }
-      openFilesStore.setContent(sessionId, path, { text: value.text, etag: value.etag })
+      openFilesStore.setContent(scopeKey, path, { text: value.text, etag: value.etag })
       void callApi<GitFileAtRevisionPayload>(
-        window.icode.git.fileAtRevision({ sessionId, rev: 'HEAD', path })
+        window.icode.git.fileAtRevision({ sessionId: ownerSessionId, rev: 'HEAD', path })
       ).then((baseline) => {
-        if (openFilesStore.find(sessionId, path) === null) return
+        if (openFilesStore.find(scopeKey, path) === null) return
         const original =
           baseline.ok &&
           baseline.value.status === 'ok' &&
@@ -211,10 +221,10 @@ export function useSessionEditor(input: {
           !baseline.value.tooLarge
             ? baseline.value.text
             : null
-        openFilesStore.setOriginal(sessionId, path, original)
+        openFilesStore.setOriginal(scopeKey, path, original)
       })
     },
-    [revealPath, sessionId, setSelection]
+    [revealPath, scopeKey, ownerSessionId, setSelection]
   )
 
   const loadTab = useCallback(
@@ -223,9 +233,10 @@ export function useSessionEditor(input: {
   )
 
   const activateTab = (key: string): void => {
-    openFilesStore.setActiveKey(sessionId, key)
-    if (openFilesStore.find(sessionId, key) !== null) {
-      setSelection?.({ selected: new Set([key]), anchor: key, focused: key })
+    openFilesStore.setActiveKey(scopeKey, key)
+    const tab = openFilesStore.findTab(scopeKey, key)
+    if (tab !== null && tab.kind === 'file') {
+      setSelection?.({ selected: new Set([tab.path]), anchor: tab.path, focused: tab.path })
       setEditorMode('tab')
     }
     setGotoLine(null)
@@ -245,11 +256,11 @@ export function useSessionEditor(input: {
     expectedEtag: string | null | undefined = undefined,
     announce = true
   ): Promise<boolean> => {
-    const tab = openFilesStore.find(sessionId, path)
+    const tab = openFilesStore.find(scopeKey, path)
     if (tab === null || tab.load !== 'ready') return false
     const result = await callApi<FilesWritePayload>(
       window.icode.files.write({
-        sessionId,
+        sessionId: ownerSessionId,
         path,
         text: tab.text,
         expectedEtag: expectedEtag === undefined ? tab.etag : expectedEtag
@@ -273,8 +284,8 @@ export function useSessionEditor(input: {
       if (announce) notify({ tone: 'error', message: unavailableText(result.value) })
       return false
     }
-    openFilesStore.markSaved(sessionId, path, result.value.etag)
-    clearWorktreeFileIndex(sessionId)
+    openFilesStore.markSaved(scopeKey, path, result.value.etag)
+    clearWorktreeFileIndex(scopeKey)
     if (loadDirectory !== undefined) {
       void loadDirectory(parentPathOf(path), true, 0, false)
     }
@@ -288,12 +299,12 @@ export function useSessionEditor(input: {
   }
 
   const saveAllTabs = async (): Promise<void> => {
-    const dirty = openFilesStore.dirtyTabs(sessionId)
+    const dirty = openFilesStore.dirtyTabs(scopeKey)
     if (dirty.length === 0) return
     for (const tab of dirty) {
       const ok = await saveTabAt(tab.path, undefined, false)
       if (!ok) {
-        openFilesStore.setActive(sessionId, tab.path)
+        openFilesStore.setActive(scopeKey, tab.path)
         selectOnly?.(tab.path)
         setEditorMode('tab')
         return
@@ -308,7 +319,7 @@ export function useSessionEditor(input: {
    */
   const keepMine = async (path: string): Promise<void> => {
     const stat = await callApi<FilesStatPayload>(
-      window.icode.files.stat({ sessionId, path })
+      window.icode.files.stat({ sessionId: ownerSessionId, path })
     )
     if (!stat.ok) {
       notify(errorNotice(stat.error))
@@ -319,7 +330,7 @@ export function useSessionEditor(input: {
       return
     }
     if (stat.value.etag === null) return
-    openFilesStore.adoptDiskVersion(sessionId, path, stat.value.etag)
+    openFilesStore.adoptDiskVersion(scopeKey, path, stat.value.etag)
   }
 
   /**
@@ -327,17 +338,14 @@ export function useSessionEditor(input: {
    * read-only projection and closes immediately.
    */
   const requestClose = (keyOrPath: string): void => {
-    const tab = openFilesStore.find(sessionId, keyOrPath)
-    if (tab === null) {
-      openFilesStore.closeTab(sessionId, keyOrPath)
-      setGotoLine(null)
+    // Tab-bar callers pass a namespaced key (`file:…`), while the save/discard
+    // prompts work in raw paths.
+    const tab = openFilesStore.findTab(scopeKey, keyOrPath)
+    if (tab !== null && tab.kind === 'file' && isDirty(tab)) {
+      setUnsaved({ kind: 'single', path: tab.path })
       return
     }
-    if (isDirty(tab)) {
-      setUnsaved({ kind: 'single', path: keyOrPath })
-      return
-    }
-    openFilesStore.closeTab(sessionId, keyOrPath)
+    openFilesStore.closeTab(scopeKey, keyOrPath)
     setGotoLine(null)
   }
 
@@ -345,11 +353,11 @@ export function useSessionEditor(input: {
 
   /** Keeps a preview tab open (double click, typing, or a diff action). */
   const pin = (keyOrPath: string): void => {
-    openFilesStore.pin(sessionId, keyOrPath)
+    openFilesStore.pin(scopeKey, keyOrPath)
   }
 
   const setMode = (mode: CenterMode): void => {
-    openFilesStore.setMode(sessionId, mode)
+    openFilesStore.setMode(scopeKey, mode)
   }
 
   /** The editor applied a goto-line request; clear it so it cannot replay. */
@@ -358,19 +366,19 @@ export function useSessionEditor(input: {
   }
 
   const requestCloseAll = (): void => {
-    if (openFilesStore.get(sessionId).tabs.length === 0) return
-    if (openFilesStore.dirtyCount(sessionId) > 0) {
+    if (openFilesStore.get(scopeKey).tabs.length === 0) return
+    if (openFilesStore.dirtyCount(scopeKey) > 0) {
       setUnsaved({ kind: 'all' })
       return
     }
-    openFilesStore.closeAll(sessionId)
+    openFilesStore.closeAll(scopeKey)
     setGotoLine(null)
     setEditorMode('tab')
   }
 
   const closeAfterSaveIfNeeded = (path: string): void => {
     if (closeAfterSave !== path) return
-    openFilesStore.closeTab(sessionId, path)
+    openFilesStore.closeTab(scopeKey, path)
     setCloseAfterSave(null)
     setGotoLine(null)
   }
@@ -387,19 +395,19 @@ export function useSessionEditor(input: {
       return
     }
     setUnsaved(null)
-    const dirty = openFilesStore.dirtyTabs(sessionId)
+    const dirty = openFilesStore.dirtyTabs(scopeKey)
     for (const tab of dirty) {
       const ok = await saveTabAt(tab.path, undefined, false)
       if (!ok) {
         setDialogBusy(false)
-        openFilesStore.setActive(sessionId, tab.path)
+        openFilesStore.setActive(scopeKey, tab.path)
         selectOnly?.(tab.path)
         setEditorMode('tab')
         return
       }
     }
     setDialogBusy(false)
-    openFilesStore.closeAll(sessionId)
+    openFilesStore.closeAll(scopeKey)
     setGotoLine(null)
     setEditorMode('tab')
     notify({ tone: 'success', message: translatePlural('files.notice.savedMany', dirty.length) })
@@ -408,9 +416,9 @@ export function useSessionEditor(input: {
   const confirmUnsavedDiscard = (): void => {
     if (unsaved === null) return
     if (unsaved.kind === 'single') {
-      openFilesStore.closeTab(sessionId, unsaved.path)
+      openFilesStore.closeTab(scopeKey, unsaved.path)
     } else {
-      openFilesStore.closeAll(sessionId)
+      openFilesStore.closeAll(scopeKey)
     }
     setGotoLine(null)
     setEditorMode('tab')

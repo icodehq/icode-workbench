@@ -11,15 +11,22 @@ what it can display.
 
 ## Renderer ownership
 
-The center tab work moved the editor out of the inspector, so the main process's
-one-subscription-per-session contract is mirrored by one host in the renderer:
+The center tab work moved the editor out of the inspector, and the worktree tab
+surface made tabs and buffers worktree-scoped. The main process's
+one-subscription-per-session contract is mirrored by one host per active
+workspace in the renderer:
 
-- `SessionFilesWatchHost` (one per session workspace) is the only caller of
-  `window.icode.files.watch`. The inspector tree registers its expanded folders
-  and visibility through `files/session-watch-registry.ts`; open file tabs
-  contribute their parent folders. The host runs while the tree is visible **or**
-  any file tab is open, so an editor keeps reconciling while the inspector shows
-  Search/Changes or is collapsed.
+- `WorktreeFilesWatchHost` (one per active worktree surface) is the only caller
+  of `window.icode.files.watch` for direct sessions. The inspector tree
+  registers its expanded folders and visibility through
+  `files/session-watch-registry.ts`; open file tabs contribute their parent
+  folders. The host runs while the tree is visible **or** any file tab is open,
+  so an editor keeps reconciling while the inspector shows Search/Changes or is
+  collapsed.
+- Tabs, buffers and the tree position use the workspace key. The subscription
+  still needs an owner session for IPC; when the owner changes the host stops
+  the old subscription and subscribes the new owner. A generation guard keeps
+  stale watcher events from reconciling the new owner's view.
 - The host owns root updates, the polling fallback, retries, and file-tab
   reconciliation. The tree only reloads its expanded folders when the host calls
   back; no second renderer consumer may call `files.watch`.
@@ -29,7 +36,7 @@ one-subscription-per-session contract is mirrored by one host in the renderer:
   second status/watcher loop. A hidden Changes pane still stops the SCM watcher,
   and a visible diff keeps working through its own polling fallback.
 - `TaskWorkbench` keeps its own `ChangesPanel`/Files composition; it is a
-  different surface and never shares the session registries.
+  different surface and never shares the direct worktree registries.
 
 ## Process model
 

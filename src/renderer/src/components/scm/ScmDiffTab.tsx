@@ -29,13 +29,17 @@ import type { DiffViewState } from '../UnifiedDiffView'
  */
 export default function ScmDiffTab({
   sessionId,
+  scopeKey = sessionId,
   tab,
   active,
   refreshToken,
   sessionState,
   drafts
 }: {
+  /** Owner session for Git IPC and the SCM controller. */
   sessionId: string
+  /** Worktree tab/store identity; defaults to the session for task surfaces. */
+  scopeKey?: string
   tab: DiffTab
   active: boolean
   refreshToken: number
@@ -45,7 +49,7 @@ export default function ScmDiffTab({
   const t = useT()
   useScmControllerVersion()
   const controller = getScmController(sessionId)
-  const draft = useWorkbenchDraft(drafts, sessionId)
+  const draft = useWorkbenchDraft(drafts, scopeKey)
   const [settings, setSettings] = useState<ScmSettings>(() => loadScmSettings())
   useEffect(() => subscribeScmSettings(setSettings), [])
 
@@ -78,7 +82,7 @@ export default function ScmDiffTab({
   }
 
   const pin = (): void => {
-    openFilesStore.pin(sessionId, tab.key)
+    openFilesStore.pin(scopeKey, tab.key)
   }
 
   if (tab.request.kind === 'committed') {
@@ -125,7 +129,7 @@ export default function ScmDiffTab({
   const updateComments = (
     updater: (current: LineComment[]) => LineComment[]
   ): void => {
-    drafts.update(sessionId, (current) => ({
+    drafts.update(scopeKey, (current) => ({
       ...current,
       comments: updater(current.comments)
     }))

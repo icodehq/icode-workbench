@@ -200,6 +200,17 @@ async function rightClick(selector, x = 320, y = 320) {
   assert(clicked, `Could not right-click ${selector}`)
 }
 
+/** Session actions live on the sidebar row now that the header is gone. */
+async function sessionAction(action) {
+  const activeId = await cdp.evaluate(
+    `document.querySelector('[data-session-id][data-active="true"]')?.getAttribute('data-session-id') ?? null`
+  )
+  assert(activeId, 'No active session row for the session action')
+  await rightClick(`[data-testid="session-item-${activeId}"]`)
+  await waitForSelector('[data-testid="sidebar-session-menu"]', 10000)
+  await click(`[data-testid="sidebar-session-${activeId}-${action}"]`)
+}
+
 async function focusElement(selector) {
   const focused = await cdp.evaluate(`(() => {
     const element = document.querySelector(${JSON.stringify(selector)});
@@ -382,9 +393,7 @@ async function run() {
       'live session',
       25000
     )
-    await click('[data-testid="session-menu"]')
-    await waitForSelector('[data-testid="session-menu-popover"]', 10000)
-    await click('[data-testid="session-details-open"]')
+    await sessionAction('details')
     await waitForSelector('[data-testid="session-details-drawer"]', 10000)
     await sleep(400)
     const text = await cdp.evaluate(`document.querySelector('[data-testid="session-details-drawer"]').innerText`)
@@ -1145,10 +1154,10 @@ async function run() {
 
     // The terminal tab keeps the dirty buffer and hides the editor, and coming
     // back restores it unchanged.
-    await click('[data-testid="center-tab-terminal"]')
+    await click('[data-tab-kind="session"]')
     await waitFor(
-      `getComputedStyle(document.querySelector('[data-testid="center-terminal"]')).display !== 'none' && getComputedStyle(document.querySelector('[data-testid="center-editor"]')).display === 'none'`,
-      'terminal tab shows the terminal',
+      `!document.querySelector('[data-testid="center-editor"]') && Boolean(document.querySelector('[data-testid^="terminal-pane-"]'))`,
+      'session tab shows the terminal',
       10000
     )
     await click('[data-testid="center-tab-README.md"]')
@@ -1210,9 +1219,7 @@ async function run() {
     )
 
     // Removing the session names the unsaved Files text before it can be lost.
-    await click('[data-testid="session-menu"]')
-    await waitForSelector('[data-testid="remove-session"]', 10000)
-    await click('[data-testid="remove-session"]')
+    await sessionAction('remove')
     await waitForSelector('[data-testid="remove-session-dialog"]', 10000)
     assert(
       await cdp.evaluate(
@@ -1899,6 +1906,19 @@ run().catch(async (error) => {
   RUN.failures.push(error instanceof Error ? error.message : String(error))
   RUN.finishedAt = new Date().toISOString()
   RUN.status = 'failed'
+  try {
+    await screenshot('99-failure')
+    const state = await cdp.evaluate(`JSON.stringify({
+      panes: document.querySelectorAll('[data-testid="workspace-pane"]').length,
+      editor: Boolean(document.querySelector('[data-testid="center-editor"]')),
+      monaco: Boolean(document.querySelector('[data-testid="monaco-editor"]')),
+      tabs: Array.from(document.querySelectorAll('[data-testid^="center-tab-"]')).map((el) => el.dataset.testid),
+      body: (document.body.innerText || '').slice(0, 1200)
+    })`)
+    log(`failure state: ${state}`)
+  } catch (failure) {
+    log(`failure diagnostics unavailable: ${String(failure)}`)
+  }
   try {
     await quit()
   } catch {}

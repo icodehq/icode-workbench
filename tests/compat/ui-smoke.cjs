@@ -193,21 +193,14 @@ async function pressF11() {
   })
 }
 
-async function openSessionMenu() {
-  if (
-    await cdp.evaluate(
-      `Boolean(document.querySelector('[data-testid="session-menu-popover"]'))`
-    )
-  ) {
-    return
-  }
-  await click('[data-testid="session-menu"]')
-  await waitForSelector('[data-testid="session-menu-popover"]', 10_000)
-}
-
-async function sessionAction(testId) {
-  await openSessionMenu()
-  await click(`[data-testid="${testId}"]`)
+async function sessionAction(action) {
+  const activeId = await cdp.evaluate(
+    `document.querySelector('[data-session-id][data-active="true"]')?.getAttribute('data-session-id') ?? null`
+  )
+  assert(activeId, 'No active session row for the session action')
+  await rightClick(`[data-testid="session-item-${activeId}"]`)
+  await waitForSelector('[data-testid="sidebar-session-menu"]', 10_000)
+  await click(`[data-testid="sidebar-session-${activeId}-${action}"]`)
 }
 
 async function setInput(selector, value) {
@@ -1392,7 +1385,7 @@ async function main() {
     assert(
       focused &&
         focused.width > withoutList.width + 40 &&
-        focused.height > normal.height + 70,
+        focused.height > normal.height + 30,
       `Focus mode did not expand the terminal (${JSON.stringify({ normal, withoutList, focused })})`
     )
     await screenshot('04b-terminal-expanded')
@@ -1414,7 +1407,7 @@ async function main() {
     return { normal, withoutList, focused }
   })
 
-  await step('keep the one-line session header inside the viewport', async () => {
+  await step('keep the worktree bar and terminal measurable at compact sizes', async () => {
     const measure = async (width, height) => {
       await cdp.send('Emulation.setDeviceMetricsOverride', {
         width,
@@ -1424,20 +1417,20 @@ async function main() {
       })
       await sleep(500)
       return cdp.evaluate(`(() => {
-        const header = document.querySelector('[data-testid="session-header"]');
+        const bar = document.querySelector('[data-testid="session-tabs"]');
         const terminal = document.querySelector('[data-testid^="terminal-"]');
-        if (!header || !terminal) return null;
-        const headerRect = header.getBoundingClientRect();
-        const buttons = [...header.querySelectorAll('button')];
+        if (!bar || !terminal) return null;
+        const barRect = bar.getBoundingClientRect();
+        const buttons = [...bar.querySelectorAll('button')];
         const clipped = buttons.filter((button) => {
           const rect = button.getBoundingClientRect();
-          return rect.left < headerRect.left - 1 || rect.right > headerRect.right + 1 ||
-            rect.top < headerRect.top - 1 || rect.bottom > headerRect.bottom + 1;
+          return rect.left < barRect.left - 1 || rect.right > barRect.right + 1 ||
+            rect.top < barRect.top - 1 || rect.bottom > barRect.bottom + 1;
         });
         return {
           viewport: { width: window.innerWidth, height: window.innerHeight },
-          headerHeight: Math.round(headerRect.height),
-          headerWidth: Math.round(headerRect.width),
+          barHeight: Math.round(barRect.height),
+          barWidth: Math.round(barRect.width),
           terminal: {
             width: Math.round(terminal.getBoundingClientRect().width),
             height: Math.round(terminal.getBoundingClientRect().height)
@@ -1449,14 +1442,11 @@ async function main() {
     }
 
     const normal = await measure(1180, 760)
-    assert(normal, 'The session header was not measurable at 1180x760')
-    assert(
-      normal.headerHeight <= 52,
-      `The session header is not compact (${normal.headerHeight}px)`
-    )
+    assert(normal, 'The worktree bar was not measurable at 1180x760')
+    assert(normal.barHeight <= 40, `The worktree bar is not compact (${normal.barHeight}px)`)
     assert(
       normal.clippedButtons.length === 0,
-      `Header controls overflow at 1180x760: ${JSON.stringify(normal.clippedButtons)}`
+      `Worktree bar controls overflow at 1180x760: ${JSON.stringify(normal.clippedButtons)}`
     )
     assert(
       normal.terminal.height >= 560,
@@ -1465,14 +1455,11 @@ async function main() {
     await screenshot('04c-compact-header')
 
     const narrow = await measure(760, 480)
-    assert(narrow, 'The session header was not measurable at 760x480')
-    assert(
-      narrow.headerHeight <= 52,
-      `The session header grew at the minimum width (${narrow.headerHeight}px)`
-    )
+    assert(narrow, 'The worktree bar was not measurable at 760x480')
+    assert(narrow.barHeight <= 40, `The worktree bar grew at the minimum width (${narrow.barHeight}px)`)
     assert(
       narrow.clippedButtons.length === 0,
-      `Header controls overflow at 760x480: ${JSON.stringify(narrow.clippedButtons)}`
+      `Worktree bar controls overflow at 760x480: ${JSON.stringify(narrow.clippedButtons)}`
     )
 
     await cdp.send('Emulation.clearDeviceMetricsOverride')
@@ -1488,6 +1475,22 @@ async function main() {
     await waitForSelector('[data-testid="new-session-open"]', 10000)
     await click('[data-testid="new-session-open"]')
     await waitForSelector('[data-testid="new-session-repo"]')
+    const listedFirst = await cdp.evaluate(
+      `window.icode.sessions.list({ repoId: ${JSON.stringify(repoId)} })`
+    )
+    const firstSummary =
+      listedFirst && listedFirst.ok
+        ? listedFirst.value.sessions.find((entry) => entry.id === firstSession.id) ?? null
+        : null
+    const sharedWorktree = firstSummary && firstSummary.worktree ? firstSummary.worktree.id : null
+    assert(sharedWorktree, 'The first session did not own a worktree')
+    await cdp.evaluate(`(() => {
+      const select = document.querySelector('[data-testid="new-session-worktree"]');
+      if (!select) return false;
+      select.value = ${JSON.stringify(sharedWorktree)};
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      return select.value;
+    })()`)
     await click('[data-testid="harness-option-shell"]')
     await setInput('[data-testid="session-title-input"]', secondTitle)
     await click('[data-testid="create-session-submit"]')
@@ -1575,11 +1578,15 @@ async function main() {
 
     await click('[data-testid="session-split-toggle"]')
     await waitForSelector('[data-testid="session-split-divider"]', 10000)
-    assert(
-      await cdp.evaluate(
-        `document.querySelectorAll('[data-testid="session-header"]').length === 2`
-      ),
-      'Split view did not show both sessions'
+    await waitForSelector(
+      `[data-testid="workspace-pick-tab-session:${secondSession.id}"]`,
+      10000
+    )
+    await click(`[data-testid="workspace-pick-tab-session:${secondSession.id}"]`)
+    await waitFor(
+      `document.querySelectorAll('[data-testid="workspace-pane"][data-active-tab^="session:"]').length === 2`,
+      'split view to show both sessions',
+      10000
     )
     await screenshot('06b-session-split')
     await click('[data-testid="session-split-toggle"]')
@@ -1633,6 +1640,21 @@ async function main() {
   })
 
   await step('reorder worktrees with a sidebar drag', async () => {
+    // Tab scoping keeps the two shell sessions in one worktree. Create a third
+    // session in a fresh checkout so this drag has two worktree rows to order.
+    await click('[data-testid="sidebar-new-menu"]')
+    await waitForSelector('[data-testid="new-session-open"]', 10000)
+    await click('[data-testid="new-session-open"]')
+    await waitForSelector('[data-testid="new-session-repo"]')
+    await click('[data-testid="harness-option-shell"]')
+    await setInput('[data-testid="session-title-input"]', 'Smoke worktree two')
+    await click('[data-testid="create-session-submit"]')
+    await waitFor(
+      `new Set(Array.from(document.querySelectorAll('[data-session-id]')).map((el) => el.dataset.sessionId)).size === 3`,
+      'third session in a new worktree',
+      20000
+    )
+
     /*
      * The drag is dispatched in one task, so the reorder cannot depend on a
      * React render landing between dragstart and drop. The order is persisted
@@ -1685,6 +1707,26 @@ async function main() {
       `JSON.stringify(${groupsExpression}) === ${JSON.stringify(JSON.stringify(before))}`,
       'sidebar worktree order restored',
       5000
+    )
+
+    // Drop the extra worktree so later steps keep their two-session shape.
+    const listedThird = await cdp.evaluate(
+      `window.icode.sessions.list({ repoId: ${JSON.stringify(repoId)} })`
+    )
+    const thirdSummary =
+      listedThird && listedThird.ok
+        ? listedThird.value.sessions.find((entry) => entry.title === 'Smoke worktree two') ?? null
+        : null
+    assert(thirdSummary, 'The extra worktree session was not created')
+    const removedThird = await cdp.evaluate(
+      `window.icode.sessions.remove({ sessionId: ${JSON.stringify(thirdSummary.id)}, stopIfLive: true })`
+    )
+    assert(removedThird && removedThird.ok, 'The extra worktree session could not be removed')
+    await click('[data-testid="sidebar-refresh"]')
+    await waitFor(
+      `new Set(Array.from(document.querySelectorAll('[data-session-id]')).map((el) => el.dataset.sessionId)).size === 2`,
+      'extra worktree session removed',
+      15000
     )
     return { before, after: expected }
   })
@@ -1770,7 +1812,7 @@ async function main() {
   await step('restart a session and bind the terminal to the new incarnation', async () => {
     const before = await sessionByTitle(firstTitle)
     assert(before, 'First session disappeared before restart')
-    await sessionAction('restart-session')
+    await sessionAction('restart')
     const immediate = await activeState()
     assert(immediate && immediate.text.includes('Restarting'), 'Restart did not show a pending state')
     await waitForState('live', 20000)

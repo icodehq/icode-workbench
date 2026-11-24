@@ -47,8 +47,10 @@ export type CodeEditorProps = {
   original?: string | null
   /** Replaces the buffer after a quick-diff revert changed the file on disk. */
   onQuickDiffChanged?: (text: string) => void
-  /** Session whose worktree supplies blame and quick-diff actions. */
+  /** Owner session for blame, reads and quick-diff IPC. */
   sessionId?: string
+  /** Worktree identity for the cached Monaco model; defaults to the session. */
+  scopeKey?: string
   /**
    * `monaco` uses the bundled standalone editor; `plain` keeps the native
    * textarea. The task workbench stays on `plain` until Monaco acceptance is
@@ -130,6 +132,7 @@ export default function CodeEditor({
   original = null,
   onQuickDiffChanged,
   sessionId,
+  scopeKey = sessionId,
   engine = 'plain',
   active = true
 }: CodeEditorProps): React.JSX.Element {
@@ -180,7 +183,7 @@ export default function CodeEditor({
     }
     let cancelled = false
     setMonacoState('loading')
-    const key = modelKey(sessionId, path)
+    const key = modelKey(scopeKey, path)
     void import('../editor/monaco')
       .then(({ getMonaco, languageForPath }) => {
         if (cancelled || container.current === null) return
@@ -271,7 +274,7 @@ export default function CodeEditor({
       current?.editor.dispose()
       // The model is owned by the cache, not the editor instance.
     }
-  }, [engine, path, sessionId])
+  }, [engine, path, scopeKey])
 
   // Parent-driven value changes (reload, save) update the model without
   // re-running the editor lifecycle or losing the caret.

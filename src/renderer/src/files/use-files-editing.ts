@@ -27,6 +27,8 @@ export type InlineEdit =
 
 export function useFilesEditing(input: {
   sessionId: string
+  /** Worktree tab identity; defaults to the session for task panes. */
+  scopeKey?: string
   notify: (notice: Notice) => void
   t: ReturnType<typeof useT>
   setTree: Dispatch<SetStateAction<TreeState>>
@@ -46,6 +48,7 @@ export function useFilesEditing(input: {
 }) {
   const {
     sessionId,
+    scopeKey = sessionId,
     notify,
     t,
     setTree,
@@ -149,7 +152,7 @@ export function useFilesEditing(input: {
         setEditError(unavailableText(result.value))
         return
       }
-      openFilesStore.renamePath(sessionId, edit.path, to)
+      openFilesStore.renamePath(scopeKey, edit.path, to)
       selectOnly(to)
       cancelEdit()
       pushUndoEntry({ kind: 'rename', from: edit.path, to, at: Date.now() })
@@ -158,7 +161,7 @@ export function useFilesEditing(input: {
         message: t('files.notice.renamed', { path: to }),
         action: { label: translate('files.undo'), run: () => void undoLast() }
       })
-      clearWorktreeFileIndex(sessionId)
+      clearWorktreeFileIndex(scopeKey)
       await reloadExpanded()
       window.requestAnimationFrame(() => {
         const index = rowsRef.current.findIndex((row) => row.entry.path === to)
@@ -197,7 +200,7 @@ export function useFilesEditing(input: {
       message: `Created ${path}`,
       action: { label: translate('files.undo'), run: () => void undoLast() }
     })
-    clearWorktreeFileIndex(sessionId)
+    clearWorktreeFileIndex(scopeKey)
     await reloadExpanded()
     if (kind === 'file') {
       await openPath(path, 1)
