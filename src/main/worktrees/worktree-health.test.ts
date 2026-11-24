@@ -5,6 +5,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -193,6 +194,30 @@ describe('worktree health probe', () => {
     rmSync(f.adminDir, { recursive: true, force: true })
     f.clock.value += 61_000
     await expect(f.health.probe(f.record)).resolves.toMatchObject({ kind: 'unregistered' })
+  })
+
+  it('accepts a checkout addressed through a symlinked temporary root', async () => {
+    const f = await makeFixture()
+    // macOS reaches the same temp tree as `/var/...` and `/private/var/...`;
+    // Git writes the canonical spelling into the worktree metadata.
+    const alias = join(f.root, 'alias')
+    symlinkSync(f.root, alias, 'dir')
+    const repository: RepositoryRecord = {
+      ...f.repository,
+      path: f.repoPath.replace(f.root, alias) as CanonicalRepositoryPath,
+      gitCommonDir: join(f.repoPath.replace(f.root, alias), '.git')
+    }
+    const record: WorktreeRecord = { ...f.record, path: f.wtPath.replace(f.root, alias) }
+    const health = new WorktreeHealthService({
+      worktrees: {
+        updateStateById: () => undefined,
+        findBranch: () => null
+      },
+      repositories: { findById: () => repository },
+      gitWorktrees: f.service,
+      now: () => f.clock.value
+    })
+    await expect(health.probe(record)).resolves.toEqual({ kind: 'healthy' })
   })
 })
 

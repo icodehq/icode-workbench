@@ -1,5 +1,5 @@
 import { mkdir, readFile, readdir, rm, rmdir, stat, writeFile } from 'node:fs/promises'
-import type { Stats } from 'node:fs'
+import { realpathSync, type Stats } from 'node:fs'
 import { posix, win32 } from 'node:path'
 import { makeAppError, type AppError } from '../../shared/domain/errors'
 import type { RepositoryRecord } from '../../shared/domain/repository'
@@ -256,7 +256,13 @@ export class WorktreeHealthService {
     if (adminState === null) {
       return { kind: 'unknown', detail: 'The worktree registration could not be read.' }
     }
-    if (!isPathInside(worktreesRoot, adminDir)) {
+    /**
+     * Compare resolved locations, not spellings. macOS exposes `/var` as a
+     * symlink to `/private/var`, so a repository path through `tmpdir()` and
+     * the canonical path Git writes into the worktree metadata differ even
+     * though they denote the same admin directory.
+     */
+    if (!isPathInside(resolveExistingAncestor(worktreesRoot), resolveExistingAncestor(adminDir))) {
       return this.unregistered(record, {
         gitFile: true,
         adminDir,
@@ -742,6 +748,27 @@ function joinFor(base: string, ...parts: string[]): string {
 function resolveAgainst(base: string, value: string): string {
   const api = isWindowsStylePath(base) || isWindowsStylePath(value) ? win32 : posix
   return api.resolve(base, value)
+}
+
+/**
+ * Canonical spelling of an existing path, or of its nearest existing ancestor
+ * when the leaf is gone. This is what makes containment checks agree with Git
+ * on systems where `/var` and `/private/var` are the same directory.
+ */
+function resolveExistingAncestor(value: string): string {
+  const api = pathApi(value)
+  const suffix: string[] = []
+  let current = value
+  for (;;) {
+    try {
+      return api.join(realpathSync.native(current), ...[...suffix].reverse())
+    } catch {
+      const parent = api.dirname(current)
+      if (parent === current) return value
+      suffix.push(api.basename(current))
+      current = parent
+    }
+  }
 }
 
 function parseWorktreeGitFile(text: string): string | null {
