@@ -21,6 +21,9 @@ export type ProjectMenuEntryId =
 
 export type WorktreeMenuEntryId = 'new-session' | 'copy-path' | 'toggle' | 'recover'
 
+/** The actions shared by the default checkout and every worktree row. */
+export type DefaultCheckoutMenuEntryId = 'new-session' | 'copy-path' | 'toggle'
+
 export type NewMenuEntryId = 'new-session' | 'queue-task' | 'add-project' | 'schedules'
 
 export type SidebarPreparation = {
@@ -71,23 +74,45 @@ export function projectMenuEntries(input: {
   return entries
 }
 
+/**
+ * Both checkout row types share one plan so a change to the row actions cannot
+ * land on one of them and miss the other. Recovery is the only worktree-only
+ * entry, and `worktreeMenuEntries` adds it.
+ */
+function checkoutEntries(input: {
+  canStart: boolean
+  unavailableReason: string
+}): SidebarMenuEntry<DefaultCheckoutMenuEntryId>[] {
+  // A checkout Git cannot hand to a PTY must not offer a session.
+  return [
+    {
+      id: 'new-session',
+      separatorBefore: false,
+      disabled: !input.canStart,
+      ...(input.canStart ? {} : { reason: input.unavailableReason })
+    },
+    { id: 'copy-path', separatorBefore: false, disabled: false },
+    { id: 'toggle', separatorBefore: true, disabled: false }
+  ]
+}
+
+export function defaultCheckoutMenuEntries(input: {
+  canStart: boolean
+  unavailableReason: string
+}): SidebarMenuEntry<DefaultCheckoutMenuEntryId>[] {
+  return checkoutEntries(input)
+}
+
 export function worktreeMenuEntries(input: {
   status: WorktreeSummary['status'] | null
   hasSession: boolean
   unavailableReason: string
 }): SidebarMenuEntry<WorktreeMenuEntryId>[] {
-  // A checkout Git cannot hand to a PTY must not offer a session.
-  const canAdd = input.status === 'ready-to-start' || input.status === 'active'
-  const entries: SidebarMenuEntry<WorktreeMenuEntryId>[] = [
-    {
-      id: 'new-session',
-      separatorBefore: false,
-      disabled: !canAdd,
-      ...(canAdd ? {} : { reason: input.unavailableReason })
-    },
-    { id: 'copy-path', separatorBefore: false, disabled: false },
-    { id: 'toggle', separatorBefore: true, disabled: false }
-  ]
+  const canStart = input.status === 'ready-to-start' || input.status === 'active'
+  const entries: SidebarMenuEntry<WorktreeMenuEntryId>[] = checkoutEntries({
+    canStart,
+    unavailableReason: input.unavailableReason
+  })
   if (input.status === 'missing' && input.hasSession) {
     entries.push({ id: 'recover', separatorBefore: true, disabled: false })
   }

@@ -28,9 +28,11 @@ import type { TaskAction } from '../TaskWorkbench'
 import type { SidebarPins } from './sidebar-pins'
 import type { WorktreeSessionGroup } from './sidebar-model'
 import {
+  defaultCheckoutMenuEntries,
   newMenuEntries,
   projectMenuEntries,
   worktreeMenuEntries,
+  type DefaultCheckoutMenuEntryId,
   type NewMenuEntryId,
   type ProjectMenuEntryId,
   type WorktreeMenuEntryId
@@ -49,6 +51,7 @@ export type SidebarMenuContext = {
   hostUnreachable: boolean
   hostUnreachableReason: string
   collapsedWorktrees: ReadonlySet<string>
+  collapsedDefaultCheckouts: ReadonlySet<string>
   preparationFor: (
     repo: RepositorySummary
   ) => { kind: 'preparing' | 'failed'; label: string } | null
@@ -72,6 +75,7 @@ export type SidebarMenuContext = {
   toggleTaskPin: (taskId: string) => void
   toggleSessionPin: (sessionId: string) => void
   toggleWorktreeCollapsed: (worktreeId: string) => void
+  toggleDefaultCheckoutCollapsed: (repoId: string) => void
   setSettingsRepo: (repo: RepositorySummary) => void
   setMaintenanceRepo: (repo: RepositorySummary) => void
   setRemoveRepo: (repo: RepositorySummary) => void
@@ -96,6 +100,65 @@ function withPlan<Id extends string>(
 export function createSidebarMenuItems(context: SidebarMenuContext) {
   const { t, pins } = context
 
+  /** One clipboard behavior for every row that offers Copy path. */
+  const copyPathItem = (input: { path: string; testId: string }): ContextMenuItem => ({
+    id: 'copy-path',
+    label: t('projects.menu.copyPath'),
+    icon: <Copy size={12} />,
+    testId: input.testId,
+    onSelect: () => {
+      const clipboard = navigator.clipboard
+      if (clipboard === undefined) {
+        context.notify({
+          tone: 'error',
+          message: t('projects.notice.clipboardUnavailable')
+        })
+        return
+      }
+      void clipboard.writeText(input.path).then(
+        () => context.notify({ tone: 'success', message: t('projects.notice.pathCopied') }),
+        () =>
+          context.notify({
+            tone: 'error',
+            message: t('projects.notice.clipboardUnavailable')
+          })
+      )
+    }
+  })
+
+  const defaultCheckout = (repo: RepositorySummary): ContextMenuItem[] => {
+    const collapsed = context.collapsedDefaultCheckouts.has(repo.id)
+    const canStart = !context.hostUnreachable && repo.availability !== 'missing'
+    const unavailableReason = context.hostUnreachable
+      ? context.hostUnreachableReason
+      : t('newSession.checkoutUnavailable')
+    const build: Record<DefaultCheckoutMenuEntryId, () => ContextMenuItem> = {
+      'new-session': () => ({
+        id: 'new-session',
+        label: t('sidebar.newSessionInDefaultCheckout'),
+        icon: <TerminalSquare size={12} />,
+        testId: `sidebar-default-checkout-${repo.id}-new-session`,
+        onSelect: () => context.onNewSessionInDefaultCheckout(repo.id)
+      }),
+      'copy-path': () =>
+        copyPathItem({
+          path: repo.path,
+          testId: `sidebar-default-checkout-${repo.id}-copy-path`
+        }),
+      toggle: () => ({
+        id: 'toggle',
+        label: collapsed ? t('sidebar.expandCheckout') : t('sidebar.collapseCheckout'),
+        icon: <ChevronRight size={12} className={collapsed ? '' : 'rotate-90'} />,
+        testId: `sidebar-default-checkout-${repo.id}-toggle`,
+        onSelect: () => context.toggleDefaultCheckoutCollapsed(repo.id)
+      })
+    }
+    return withPlan(
+      defaultCheckoutMenuEntries({ canStart, unavailableReason }),
+      build
+    )
+  }
+
   const worktree = (request: {
     repo: RepositorySummary
     group: WorktreeSessionGroup
@@ -107,25 +170,16 @@ export function createSidebarMenuItems(context: SidebarMenuContext) {
     const build: Record<WorktreeMenuEntryId, () => ContextMenuItem> = {
       'new-session': () => ({
         id: 'new-session',
-        label: t('sessions.newSession'),
+        label: t('sidebar.newSessionHere'),
         icon: <TerminalSquare size={12} />,
         testId: `sidebar-worktree-${group.worktreeId}-new-session`,
         onSelect: () => context.onNewSessionInWorktree(repo.id, group.worktreeId)
       }),
-      'copy-path': () => ({
-        id: 'copy-path',
-        label: t('projects.menu.copyPath'),
-        icon: <Copy size={12} />,
-        testId: `sidebar-worktree-${group.worktreeId}-copy-path`,
-        onSelect: () => {
-          const write = navigator.clipboard?.writeText(group.path)
-          if (write === undefined) return
-          void write.then(
-            () => context.notify({ tone: 'success', message: t('projects.menu.copyPath') }),
-            () => undefined
-          )
-        }
-      }),
+      'copy-path': () =>
+        copyPathItem({
+          path: group.path,
+          testId: `sidebar-worktree-${group.worktreeId}-copy-path`
+        }),
       toggle: () => ({
         id: 'toggle',
         label: collapsed ? t('sidebar.expandWorktree') : t('sidebar.collapseWorktree'),
@@ -192,31 +246,11 @@ export function createSidebarMenuItems(context: SidebarMenuContext) {
         testId: `pin-project-${repo.id}`,
         onSelect: () => context.toggleProjectPin(repo.id)
       }),
-      'copy-path': () => ({
-        id: 'copy-path',
-        label: t('projects.menu.copyPath'),
-        icon: <Copy size={12} />,
-        testId: `sidebar-project-${repo.id}-copy-path`,
-        onSelect: () => {
-          const clipboard = navigator.clipboard
-          if (clipboard === undefined) {
-            context.notify({
-              tone: 'error',
-              message: t('projects.notice.clipboardUnavailable')
-            })
-            return
-          }
-          void clipboard.writeText(repo.path).then(
-            () =>
-              context.notify({ tone: 'success', message: t('projects.notice.pathCopied') }),
-            () =>
-              context.notify({
-                tone: 'error',
-                message: t('projects.notice.clipboardUnavailable')
-              })
-          )
-        }
-      }),
+      'copy-path': () =>
+        copyPathItem({
+          path: repo.path,
+          testId: `sidebar-project-${repo.id}-copy-path`
+        }),
       'repository-settings': () => ({
         id: 'repository-settings',
         label: t('projects.menu.repositorySettings'),
@@ -402,5 +436,17 @@ export function createSidebarMenuItems(context: SidebarMenuContext) {
     )
   }
 
-  return { worktree, project, newWork, task, session }
+  /**
+   * One entry point for both checkout row types: `group === null` is the
+   * repository's shared primary checkout row.
+   */
+  const checkout = (request: {
+    repo: RepositorySummary
+    group: WorktreeSessionGroup | null
+  }): ContextMenuItem[] =>
+    request.group === null
+      ? defaultCheckout(request.repo)
+      : worktree({ repo: request.repo, group: request.group })
+
+  return { checkout, project, newWork, task, session }
 }

@@ -142,14 +142,6 @@ type ProjectMenuRequest = {
   opener?: HTMLElement | null
 }
 
-type WorktreeMenuRequest = {
-  repo: RepositorySummary
-  group: WorktreeSessionGroup
-  x: number
-  y: number
-  returnFocus: HTMLElement | null
-}
-
 /**
  * A menu requested from a row. Pointer opens carry cursor coordinates; the
  * keyboard opens against the row's rectangle so the menu has a stable anchor.
@@ -159,6 +151,12 @@ type RowMenuRequest = {
   x?: number
   y?: number
   returnFocus: HTMLElement | null
+}
+
+type CheckoutMenuRequest = RowMenuRequest & {
+  repo: RepositorySummary
+  /** null is the repository's shared primary checkout row. */
+  group: WorktreeSessionGroup | null
 }
 
 type TaskMenuRequest = RowMenuRequest & { task: TaskRecordPayload }
@@ -261,7 +259,7 @@ export default function WorkspaceSidebar({
   const [settingsRepo, setSettingsRepo] = useState<RepositorySummary | null>(null)
   const [removeRepo, setRemoveRepo] = useState<RepositorySummary | null>(null)
   const [projectMenu, setProjectMenu] = useState<ProjectMenuRequest | null>(null)
-  const [worktreeMenu, setWorktreeMenu] = useState<WorktreeMenuRequest | null>(null)
+  const [checkoutMenu, setCheckoutMenu] = useState<CheckoutMenuRequest | null>(null)
   const [taskMenu, setTaskMenu] = useState<TaskMenuRequest | null>(null)
   const [sessionMenu, setSessionMenu] = useState<SessionMenuRequest | null>(null)
   const [detailsSession, setDetailsSession] = useState<SessionSummary | null>(null)
@@ -658,6 +656,7 @@ export default function WorkspaceSidebar({
     hostUnreachable,
     hostUnreachableReason: t('topbar.hostUnreachable'),
     collapsedWorktrees,
+    collapsedDefaultCheckouts,
     preparationFor: (repo) => repositoryPreparationView(repo),
     pendingFor: (session) => pending[session.id] ?? null,
     notify: onNotify,
@@ -679,6 +678,7 @@ export default function WorkspaceSidebar({
     toggleTaskPin,
     toggleSessionPin,
     toggleWorktreeCollapsed,
+    toggleDefaultCheckoutCollapsed,
     setSettingsRepo,
     setMaintenanceRepo,
     setRemoveRepo,
@@ -691,6 +691,12 @@ export default function WorkspaceSidebar({
     repo: RepositorySummary,
     request: Omit<ProjectMenuRequest, 'repo'>
   ): void => setProjectMenu({ repo, ...request })
+
+  const requestCheckoutMenu = (
+    repo: RepositorySummary,
+    group: WorktreeSessionGroup | null,
+    request: RowMenuRequest
+  ): void => setCheckoutMenu({ repo, group, ...request })
 
   const requestTaskMenu = (task: TaskRecordPayload, request: RowMenuRequest): void =>
     setTaskMenu({ task, ...request })
@@ -912,6 +918,8 @@ export default function WorkspaceSidebar({
     const defaultCollapsed = collapsedDefaultCheckouts.has(repo.id)
     const canAddDefault = !hostUnreachable && repo.availability !== 'missing'
     const menuOpen = projectMenu?.repo.id === repo.id
+    const defaultMenuOpen =
+      checkoutMenu?.repo.id === repo.id && checkoutMenu.group === null
     if (compact) {
       return (
         <div
@@ -1077,7 +1085,25 @@ export default function WorkspaceSidebar({
             data-testid={`sidebar-sessions-${repo.id}`}
           >
             <div data-testid={`sidebar-default-checkout-${repo.id}`}>
-              <div className="group/dc flex h-7 items-center gap-1 px-1 font-mono text-[12px] text-muted-foreground">
+              <div
+                className={`group/dc flex h-7 items-center gap-1 px-1 font-mono text-[12px] text-muted-foreground ${
+                  defaultMenuOpen ? 'bg-hover text-foreground' : ''
+                }`}
+                data-menu-open={defaultMenuOpen ? 'true' : undefined}
+                onContextMenu={(event) => {
+                  event.preventDefault()
+                  requestCheckoutMenu(repo, null, {
+                    x: event.clientX,
+                    y: event.clientY,
+                    // Focus returns to the row's disclosure, whichever part of
+                    // the row opened the menu.
+                    returnFocus:
+                      event.currentTarget.querySelector<HTMLElement>(
+                        `[data-testid="sidebar-default-checkout-toggle-${repo.id}"]`
+                      ) ?? event.currentTarget
+                  })
+                }}
+              >
                 <button
                   type="button"
                   className="flex h-full min-w-0 flex-1 items-center gap-1 text-left hover:text-foreground focus-visible:text-foreground"
@@ -1086,6 +1112,14 @@ export default function WorkspaceSidebar({
                   title={repo.path}
                   data-testid={`sidebar-default-checkout-toggle-${repo.id}`}
                   onClick={() => toggleDefaultCheckoutCollapsed(repo.id)}
+                  onKeyDown={(event) =>
+                    openRowMenuFromKey(event, (anchor) =>
+                      requestCheckoutMenu(repo, null, {
+                        anchor,
+                        returnFocus: event.currentTarget
+                      })
+                    )
+                  }
                 >
                   <ChevronRight
                     size={8}
@@ -1100,7 +1134,7 @@ export default function WorkspaceSidebar({
                 </button>
                 <button
                   type="button"
-                  className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded opacity-0 hover:bg-muted hover:text-foreground focus-visible:opacity-100 disabled:cursor-not-allowed disabled:opacity-30 group-hover/dc:opacity-100 group-hover/dc:disabled:opacity-30"
+                  className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded opacity-0 hover:bg-muted hover:text-foreground focus-visible:opacity-100 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-30 group-hover/dc:opacity-100 group-hover/dc:disabled:opacity-30"
                   aria-label={t('sidebar.newSessionInDefaultCheckout')}
                   title={
                     canAddDefault
@@ -1127,6 +1161,9 @@ export default function WorkspaceSidebar({
               // A checkout Git cannot hand to a PTY must not offer a session.
               const canAdd = status === 'ready-to-start' || status === 'active'
               const collapsed = collapsedWorktrees.has(group.worktreeId)
+              const menuOpen =
+                checkoutMenu?.repo.id === repo.id &&
+                checkoutMenu.group?.worktreeId === group.worktreeId
               const groupKey = sessionGroupKey(repo.id, group.path)
               const orderedGroupSessions = orderByStoredIds(
                 group.sessions,
@@ -1142,15 +1179,16 @@ export default function WorkspaceSidebar({
               return (
                 <div key={group.worktreeId} data-testid={`sidebar-worktree-${group.worktreeId}`}>
                   <div
-                    className={`group/wt flex h-7 items-center gap-1 px-1 font-mono text-[12px] text-muted-foreground ${rowDropClass(dragTarget)} ${rowDraggingClass(dragTarget)}`}
+                    className={`group/wt flex h-7 items-center gap-1 px-1 font-mono text-[12px] text-muted-foreground ${
+                      menuOpen ? 'bg-hover text-foreground' : ''
+                    } ${rowDropClass(dragTarget)} ${rowDraggingClass(dragTarget)}`}
+                    data-menu-open={menuOpen ? 'true' : undefined}
                     onDragOver={(event) => rowDragOver(event, dragTarget)}
                     onDragLeave={(event) => rowDragLeave(event, dragTarget)}
                     onDrop={(event) => rowDrop(event, dragTarget, applyWorktreeDrop)}
                     onContextMenu={(event) => {
                       event.preventDefault()
-                      setWorktreeMenu({
-                        repo,
-                        group,
+                      requestCheckoutMenu(repo, group, {
                         x: event.clientX,
                         y: event.clientY,
                         // Focus returns to the row's disclosure, whichever
@@ -1175,6 +1213,14 @@ export default function WorkspaceSidebar({
                       onDragLeave={(event) => rowDragLeave(event, dragTarget)}
                       onDrop={(event) => rowDrop(event, dragTarget, applyWorktreeDrop)}
                       onClick={() => toggleWorktreeCollapsed(group.worktreeId)}
+                      onKeyDown={(event) =>
+                        openRowMenuFromKey(event, (anchor) =>
+                          requestCheckoutMenu(repo, group, {
+                            anchor,
+                            returnFocus: event.currentTarget
+                          })
+                        )
+                      }
                     >
                       <ChevronRight
                         size={8}
@@ -1188,7 +1234,7 @@ export default function WorkspaceSidebar({
                     </button>
                     <button
                       type="button"
-                      className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded opacity-0 hover:bg-muted hover:text-foreground focus-visible:opacity-100 disabled:cursor-not-allowed disabled:opacity-30 group-hover/wt:opacity-100 group-hover/wt:disabled:opacity-30"
+                      className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded opacity-0 hover:bg-muted hover:text-foreground focus-visible:opacity-100 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-30 group-hover/wt:opacity-100 group-hover/wt:disabled:opacity-30"
                       aria-label={t('sidebar.newSessionHere')}
                       title={
                         canAdd
@@ -1671,18 +1717,26 @@ export default function WorkspaceSidebar({
                 onClose: () => setProjectMenu(null)
               }
         }
-        worktreeMenu={
-          worktreeMenu === null
+        checkoutMenu={
+          checkoutMenu === null
             ? null
             : {
-                items: menuItems.worktree(worktreeMenu),
-                ariaLabel: t('sidebar.worktreeMenu'),
-                testId: 'sidebar-worktree-menu',
+                items: menuItems.checkout(checkoutMenu),
+                ariaLabel:
+                  checkoutMenu.group === null
+                    ? t('sidebar.defaultCheckoutMenu')
+                    : t('sidebar.worktreeMenu'),
+                testId:
+                  checkoutMenu.group === null
+                    ? 'sidebar-default-checkout-menu'
+                    : 'sidebar-worktree-menu',
                 width: 208,
-                x: worktreeMenu.x,
-                y: worktreeMenu.y,
-                returnFocus: worktreeMenu.returnFocus,
-                onClose: () => setWorktreeMenu(null)
+                x: checkoutMenu.x,
+                y: checkoutMenu.y,
+                anchor: checkoutMenu.anchor,
+                align: 'start',
+                returnFocus: checkoutMenu.returnFocus,
+                onClose: () => setCheckoutMenu(null)
               }
         }
         taskMenu={

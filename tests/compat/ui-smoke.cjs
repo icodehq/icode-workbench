@@ -1673,6 +1673,72 @@ async function main() {
     return { before, after: expected }
   })
 
+  await step('right-click both checkout row types opens their actions', async () => {
+    /*
+     * The gesture must work on the row, not only on its branch label: dispatch
+     * on the add-session button and the row padding, the areas that used to
+     * swallow it. A synthetic contextmenu bubbles to the row's handler.
+     */
+    const defaultAction = `[data-testid="sidebar-default-checkout-new-session-${repoId}"]`
+    await rightClick(defaultAction)
+    await waitForSelector('[data-testid="sidebar-default-checkout-menu"]', 5000)
+    assert(
+      await cdp.evaluate(
+        `Boolean(document.querySelector('[data-testid="sidebar-default-checkout-${repoId}-new-session"]'))`
+      ),
+      'The default checkout menu is missing New session'
+    )
+    await pressEscape()
+    await waitFor(
+      `!document.querySelector('[data-testid="sidebar-default-checkout-menu"]')`,
+      'default checkout menu closed',
+      5000
+    )
+
+    // The Menu key opens the same menu without a pointer.
+    await cdp.evaluate(`(() => {
+      const toggle = document.querySelector('[data-testid="sidebar-default-checkout-toggle-${repoId}"]');
+      if (!toggle) return false;
+      toggle.focus();
+      toggle.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'ContextMenu',
+        code: 'ContextMenu',
+        bubbles: true,
+        cancelable: true
+      }));
+      return true;
+    })()`)
+    await waitForSelector('[data-testid="sidebar-default-checkout-menu"]', 5000)
+    await pressEscape()
+    await waitFor(
+      `!document.querySelector('[data-testid="sidebar-default-checkout-menu"]')`,
+      'default checkout menu closed by keyboard',
+      5000
+    )
+
+    const worktreeAction = await cdp.evaluate(`(() => {
+      const root = document.querySelector('[data-testid="sidebar-sessions-${repoId}"]');
+      const action = root?.querySelector('[data-testid^="sidebar-worktree-new-session-"]');
+      return action?.getAttribute('data-testid') ?? null;
+    })()`)
+    assert(worktreeAction, 'No worktree add-session button in the sidebar')
+    await rightClick(`[data-testid="${worktreeAction}"]`)
+    await waitForSelector('[data-testid="sidebar-worktree-menu"]', 5000)
+    assert(
+      await cdp.evaluate(
+        `Boolean(document.querySelector('[data-testid^="sidebar-worktree-"][data-testid$="-new-session"]'))`
+      ),
+      'The worktree menu is missing New session'
+    )
+    await screenshot('06e-checkout-row-menus')
+    await pressEscape()
+    await waitFor(
+      `!document.querySelector('[data-testid="sidebar-worktree-menu"]')`,
+      'worktree menu closed',
+      5000
+    )
+  })
+
   await step('exit a live shell and keep its session record', async () => {
     await click(`[data-testid="session-item-${firstSession.id}"]`)
     await typeInSession(firstSession.id, 'exit')
