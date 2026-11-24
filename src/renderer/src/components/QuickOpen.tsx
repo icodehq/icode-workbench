@@ -8,6 +8,8 @@ import { useT, useTp } from '../i18n/use-i18n'
 export type QuickOpenProps = {
   open: boolean
   sessionId: string
+  /** Worktree identity for the cached index; defaults to the session. */
+  scopeKey?: string
   notify: (notice: Notice) => void
   onClose: () => void
   /** Opens the chosen file; the optional line is 1 by default. */
@@ -40,6 +42,7 @@ export function splitLineSuffix(query: string): { path: string; line: number | n
 export default function QuickOpen({
   open,
   sessionId,
+  scopeKey = sessionId,
   notify,
   onClose,
   onOpen
@@ -59,12 +62,12 @@ export default function QuickOpen({
     setQuery('')
     setNote('')
     setActive(0)
-  }, [sessionId])
+  }, [sessionId, scopeKey])
 
   useEffect(() => {
     if (!open || indexed) return
     let cancelled = false
-    void getWorktreeFileIndex(sessionId, notify).then((result) => {
+    void getWorktreeFileIndex(sessionId, notify, scopeKey).then((result) => {
       if (cancelled) return
       setFiles(result.files)
       setNote(result.note ?? '')
@@ -73,7 +76,7 @@ export default function QuickOpen({
     return () => {
       cancelled = true
     }
-  }, [indexed, notify, open, sessionId])
+  }, [indexed, notify, open, scopeKey, sessionId])
 
   useEffect(() => {
     if (open) input.current?.focus()

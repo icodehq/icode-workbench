@@ -61,8 +61,10 @@ type Props = {
   /** Hands line notes to the Agent's own terminal. */
   onSendToAgent: (text: string) => Promise<AgentSendResult>
   canSendToAgent: boolean
-  /** Notes and the commit message belong to the session. */
+  /** Notes and the commit message belong to the session or worktree. */
   drafts: WorkbenchDraftStore
+  /** Draft identity; direct surfaces pass the worktree key. */
+  scopeKey?: string
   /** Called after a Git operation changed the worktree. */
   onChanged: () => void
   /** A task's shared chain branch, preselected as the merge target. */
@@ -112,6 +114,7 @@ export default function ChangesPanel({
   onSendToAgent,
   canSendToAgent,
   drafts,
+  scopeKey = sessionId,
   onChanged,
   mergeTargetHint = null,
   lockMergeTarget = false,
@@ -124,7 +127,7 @@ export default function ChangesPanel({
 }: Props): React.JSX.Element {
   const t = useT()
   const tp = useTp()
-  const draft = useWorkbenchDraft(drafts, sessionId)
+  const draft = useWorkbenchDraft(drafts, scopeKey)
   const comments = draft.comments
   const controller = useScmController({
     sessionId,
@@ -135,6 +138,7 @@ export default function ChangesPanel({
     refreshToken,
     notify,
     drafts,
+    draftKey: scopeKey,
     onChanged,
     mergeTargetHint,
     lockMergeTarget,

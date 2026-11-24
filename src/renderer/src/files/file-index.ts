@@ -36,9 +36,11 @@ export function shouldSkipIndexEntry(name: string, path: string): boolean {
  */
 export async function getWorktreeFileIndex(
   sessionId: string,
-  notify: (notice: Notice) => void
+  notify: (notice: Notice) => void,
+  /** Worktree identity for the cache; defaults to the session for task panes. */
+  scopeKey = sessionId
 ): Promise<IndexResult> {
-  const hit = cache.get(sessionId)
+  const hit = cache.get(scopeKey)
   if (hit !== undefined && Date.now() - hit.at < CACHE_MS) return hit.result
 
   const files: string[] = []
@@ -79,12 +81,12 @@ export async function getWorktreeFileIndex(
 
   await walk('')
   const result = { files, note }
-  cache.set(sessionId, { at: Date.now(), result })
+  cache.set(scopeKey, { at: Date.now(), result })
   return result
 }
 
 /** A mutation can invalidate a path that the palette would otherwise offer. */
-export function clearWorktreeFileIndex(sessionId?: string): void {
-  if (sessionId === undefined) cache.clear()
-  else cache.delete(sessionId)
+export function clearWorktreeFileIndex(scopeKey?: string): void {
+  if (scopeKey === undefined) cache.clear()
+  else cache.delete(scopeKey)
 }

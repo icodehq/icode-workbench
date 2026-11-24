@@ -1,50 +1,91 @@
 # Workbench tabs
 
-The session center is the one ordered tab list for reading and editing. This
-note fixes the interface the Orca workspace-tabs work builds on; the current
-implementation is session-scoped, and the workspace layer lifts the scope
-without introducing a second order.
+The center is one ordered tab list per **worktree** (or the repository's
+default checkout). Agent sessions, raw terminals, files and diffs share that
+list. The right inspector follows the same worktree, so every session in it
+sees the same open files, buffers, review drafts and Source Control state.
 
-## Kinds and scope
+`TaskWorkbench` is the exception: a task owns a session-scoped Files/Changes
+composition and does not share the direct worktree tab list.
+
+## Identity
 
 ```ts
-type WorkspaceTabKind = 'file' | 'diff' // later: | 'agent-session' | 'terminal'
-type WorkspaceTab = {
-  key: string        // file: path; diff: `diff:<area>:<path>` / `diff:committed:<baseOid>:<path>`
-  kind: WorkspaceTabKind
-  preview: boolean
-  sessionId: string  // IPC owner today; resolved per workspace later
-}
+// workspace/workspace-key.ts
+sessionGroupKey(repoId, worktreePath) // worktree:<path> | default:<repoId>
+workspaceKeyForSession(session)       // direct sessions
+sessionTabKey(sessionId)              // session:<id>
+fileTabKey(path)                      // file:<path>
+diffTabKey(request)                   // diff:<area>:<path> | diff:committed:<oid>:<path>
 ```
 
-`src/renderer/src/workspace/workspace-tabs.ts` owns `scopeKeyForSession` (today
-`session.id`) and `workspaceKeyForSession` (`sessionGroupKey(repoId,
-worktree.path)`, the final key). One list, one `activeKey`, one mode per scope.
-File and diff tabs are implemented in `files/open-files.ts`; the workspace
-session adds agent-session/terminal kinds to the same list.
+A tab list and its split layout are stored under the workspace key. A direct
+session's buffers live there even when another session in the same worktree is
+focused. Task sessions keep their session id as the scope.
+
+IPC, watchers, Source Control and file writes still need one concrete session:
+the **owner**. `workspace/workspace-owner.ts` resolves it as the active session
+in the workspace first, then any other session there. Owner changes resubscribe
+the watcher and SCM controller; they do not change the tab list or buffers.
+
+## Kinds
+
+```ts
+type CenterTab = FileTab | DiffTab | SessionTab
+type SessionTab = { kind: 'session'; key: `session:${string}`; sessionId: string }
+```
+
+Agent sessions and raw terminals are both session tabs; the harness decides how
+the tab is labelled. Session tabs are persisted by session id, not by tab key.
+
+## Closing
+
+- Closing a **session tab hides it**. The PTY keeps running and the sidebar row
+  reopens the tab. Hidden ids are transient, so all direct sessions in a
+  worktree return as tabs after a restart.
+- Closing a **file or diff tab** closes it. A dirty file asks to save, discard
+  or cancel through the pane that owns its editor.
+- **Close all** closes files and diffs only; sessions stay in the list.
+- Removing a session explicitly removes its tab and hidden marker.
 
 ## Preview and pin
 
-- A single click opens an **italic preview** tab. The next single click replaces
-  the current preview when it has no unsaved text.
-- Double-clicking a file row or tab, typing, saving, or a hunk/conflict action
-  pins the tab.
+- A single click opens an **italic preview**. The next single click replaces the
+  focused pane's clean preview.
+- Double-clicking, typing, saving, or a hunk/conflict action pins the tab.
 - Hot-exit restores file tabs as permanent; preview state is never restored.
-- Diff tabs are projections of the working tree or a committed range. They are
-  transient (never persisted) and follow the same preview/pin rules.
+- Diff tabs are transient and never persisted.
 
-## Center surface
+## Split panes
 
-`SessionCenterTabs` renders `[Terminal]` plus the open tabs. The terminal stays
-mounted and hidden while an editor is showing, so the PTY and scrollback
-survive; the editor buffer lives in the open-files store, so switching back
-never drops unsaved text. The Files and Changes inspectors are list-only;
-clicking a file or change routes to the center through `SessionsSurface`.
+`state/workspace-split.ts` owns one persisted tree per workspace
+(`icode.workspace-split.v2.<workspaceKey>`). A leaf is
+`{ paneId, activeTabKey }`; `focusedPaneId` selects the pane that receives new
+tabs. A tab is displayed in at most one pane: activating a displayed tab focuses
+that pane, otherwise it replaces the focused pane's tab.
+
+Splitting creates an **empty pane** whose picker lists undisplayed tabs plus
+New agent/New terminal. Closing a pane's last tab collapses that pane in a split
+and shows the picker in a single pane. Zoom is transient.
+
+Panes may show a session, a file, a diff, or the picker. Every direct session
+that is not displayed in a pane stays mounted in a hidden host, including
+sessions in other worktrees, so its PTY attachment and xterm state survive
+switching.
 
 ## Persistence and ownership
 
-File buffers, order, mode and preview flags live in `open-files.ts`; the
-IndexedDB hot-exit payload stores file tabs only. Diff tabs are not persisted.
-The Files watcher has one owner per session (`SessionFilesWatchHost`); the SCM
-controller has one owner per session (the Changes pane) and diff tabs consume it
-through a registry. See `docs/watch-architecture.md`.
+- `files/open-files.ts` is the single tab store: order, active key, preview
+  flags, buffers, hidden session ids and dirty buffers. Hot-exit v2 keeps direct
+  buffers under workspace keys; v1 session-scoped payloads are migrated once
+  after sessions load.
+- The explorer position (`icode.files.tree.v1.<scope>`), file clipboard,
+  Monaco model cache, file index cache and review drafts use the workspace key
+  for direct sessions and the session id for tasks.
+- `WorktreeFilesWatchHost` is the one files-watch owner for the active
+  workspace. `TaskWorkbench` keeps its own composition.
+- The SCM controller is registered per owner session; diff tabs consume it
+  through `scm/controller-registry.ts` and key notes/commit messages by the
+  workspace draft key.
+- The app-close guard resolves each dirty scope to a live owner session before
+  saving.

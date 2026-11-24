@@ -14,6 +14,7 @@ import { translate } from '../../i18n/i18n-store'
 /** The stable test id for a center tab. File tabs keep the path; diffs name their scope. */
 export function centerTabTestId(tab: CenterTab): string {
   if (isFileTab(tab)) return `center-tab-${tab.path}`
+  if (tab.kind === 'session') return `center-tab-session-${tab.sessionId}`
   return tab.request.kind === 'committed'
     ? `center-tab-diff-committed-${tab.request.file.path}`
     : `center-tab-diff-${tab.request.entry.area}-${tab.request.entry.entry.path}`
@@ -100,17 +101,28 @@ export default function CenterTabStrip({
         {tabs.map((tab, index) => {
           const key = tabKey(tab)
           const active = !terminalActive && key === activeKey
-          const label = isFileTab(tab) ? basenameOf(tab.path) : diffTabLabel(tab)
+          const diff = tab.kind === 'diff' ? tab : null
+          const label = isFileTab(tab)
+            ? basenameOf(tab.path)
+            : diff !== null
+              ? diffTabLabel(diff)
+              : tab.kind === 'session'
+                ? tab.sessionId
+                : ''
           const path = isFileTab(tab)
             ? tab.path
-            : tab.request.kind === 'committed'
-              ? tab.request.file.path
-              : tab.request.entry.entry.path
+            : diff !== null
+              ? diff.request.kind === 'committed'
+                ? diff.request.file.path
+                : diff.request.entry.entry.path
+              : ''
           const title = isFileTab(tab) && tab.preview
             ? t('files.tabs.previewHint')
             : isFileTab(tab)
               ? tab.path
-              : `${diffTabScope(tab)} · ${path}`
+              : diff !== null
+                ? `${diffTabScope(diff)} · ${path}`
+                : label
           return (
             <div
               key={key}

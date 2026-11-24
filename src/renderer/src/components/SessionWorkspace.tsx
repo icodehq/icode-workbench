@@ -99,6 +99,10 @@ type Props = {
   focused?: boolean
   /** Focus mode drops the session header so only the terminal remains. */
   hideHeader?: boolean
+  /** Renders only the terminal/state content; the worktree pane owns the chrome. */
+  contentOnly?: boolean
+  /** Hidden worktree hosts keep a terminal mounted without marking it active. */
+  terminalActive?: boolean
   /** Split panes render a drag affordance at the start of their header. */
   dragHandle?: ReactNode
   /** Another session runs in this session's worktree, so removal only detaches. */
@@ -259,13 +263,17 @@ export function StatePanel({
   const t = useT()
   const live = session.state === 'live' || session.state === 'starting'
   const unreachable = hostUnavailable(session)
-  const body = live
-    ? t('session.statePanel.attachingBody')
-    : session.state === 'exited'
-      ? t('session.statePanel.stoppedBody')
-      : session.state === 'unavailable'
-        ? t('session.statePanel.unavailableBody')
-        : t('session.problem.body')
+  // An unreachable Host is the reason the panel is here; name it in the visible
+  // copy instead of leaving that only in the collapsed technical details.
+  const body = unreachable
+    ? authorityNote(session)
+    : live
+      ? t('session.statePanel.attachingBody')
+      : session.state === 'exited'
+        ? t('session.statePanel.stoppedBody')
+        : session.state === 'unavailable'
+          ? t('session.statePanel.unavailableBody')
+          : t('session.problem.body')
   return (
     <div className="absolute inset-0 z-10 flex items-center justify-center bg-background p-6">
       <div className="w-full max-w-md rounded-lg border border-border bg-card p-5">
@@ -365,6 +373,8 @@ export default function SessionWorkspace({
   drafts,
   focused = true,
   hideHeader = false,
+  contentOnly = false,
+  terminalActive = true,
   dragHandle,
   worktreeShared = false
 }: Props): React.JSX.Element {
@@ -399,6 +409,50 @@ export default function SessionWorkspace({
   const knownActivity = isKnownActivity(activity) ? activity : null
   const activePane = !blocked && panes.some((candidate) => paneActive(session, candidate))
   const actions = sessionActionState(session, pending, allowSleep)
+  const terminalView = (
+    <div className="relative min-h-0 flex-1 bg-background" data-testid="terminal-view">
+      {panes.map((candidate) => (
+        <TerminalPane
+          key={`${candidate.id}:${candidate.incarnationId ?? 'pending'}`}
+          session={candidate}
+          active={terminalActive && paneActive(session, candidate)}
+          onError={onError}
+        />
+      ))}
+      {!activePane && recovery !== null && progressVisible ? (
+        <SessionProgressPanel phase={recovery} />
+      ) : !activePane && worktree && (blocked || worktree.status === 'failed') ? (
+        <SessionProblemPanel
+          session={session}
+          worktree={worktree}
+          onRetry={() => onRestart(session.id)}
+          onRemove={() => setRemoveOpen(true)}
+          onStartFresh={() =>
+            onRecoverWorktree(session.id, { keepExistingAsAside: true })
+          }
+        />
+      ) : !activePane ? (
+        <StatePanel
+          session={session}
+          onRestart={() => onRestart(session.id)}
+          onResume={onResume === undefined ? undefined : () => onResume(session.id)}
+          onRecheck={() => onRecheck(session.id)}
+        />
+      ) : null}
+    </div>
+  )
+
+  if (contentOnly) {
+    return (
+      <section
+        className="flex min-h-0 min-w-0 flex-1 flex-col"
+        data-testid="session-pane"
+        data-session-id={session.id}
+      >
+        {terminalView}
+      </section>
+    )
+  }
 
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -538,38 +592,7 @@ export default function SessionWorkspace({
         onOpenHistory={onOpenHistory}
         drafts={drafts}
         sessionState={session.state}
-        terminal={
-          <div className="relative min-h-0 flex-1 bg-background" data-testid="terminal-view">
-            {panes.map((candidate) => (
-              <TerminalPane
-                key={`${candidate.id}:${candidate.incarnationId ?? 'pending'}`}
-                session={candidate}
-                active={paneActive(session, candidate)}
-                onError={onError}
-              />
-            ))}
-            {!activePane && recovery !== null && progressVisible ? (
-              <SessionProgressPanel phase={recovery} />
-            ) : !activePane && worktree && (blocked || worktree.status === 'failed') ? (
-              <SessionProblemPanel
-                session={session}
-                worktree={worktree}
-                onRetry={() => onRestart(session.id)}
-                onRemove={() => setRemoveOpen(true)}
-                onStartFresh={() =>
-                  onRecoverWorktree(session.id, { keepExistingAsAside: true })
-                }
-              />
-            ) : !activePane ? (
-              <StatePanel
-                session={session}
-                onRestart={() => onRestart(session.id)}
-                onResume={onResume === undefined ? undefined : () => onResume(session.id)}
-                onRecheck={() => onRecheck(session.id)}
-              />
-            ) : null}
-          </div>
-        }
+        terminal={terminalView}
       />
 
       {detailsOpen ? (

@@ -11,7 +11,12 @@ import { AppCloseDialog } from './FilesDialogs'
  */
 import { useT } from '../i18n/use-i18n'
 
-export default function AppCloseGuard(): React.JSX.Element | null {
+export default function AppCloseGuard({
+  resolveOwner
+}: {
+  /** Maps a worktree/task scope to a session that can service file IPC. */
+  resolveOwner: (scopeKey: string) => string | null
+}): React.JSX.Element | null {
   const t = useT()
   const [prompt, setPrompt] = useState<{ files: number; sessions: number } | null>(null)
   const [busy, setBusy] = useState(false)
@@ -39,8 +44,20 @@ export default function AppCloseGuard(): React.JSX.Element | null {
     setFailure(null)
     const tabs = openFilesStore.allDirtyTabs()
     for (const tab of tabs) {
+      const owner = resolveOwner(tab.scopeKey)
+      if (owner === null) {
+        setBusy(false)
+        setFailure(
+          t('files.appClose.saveError', {
+            path: tab.path,
+            detail: tab.scopeKey
+          })
+        )
+        await window.icode.window.respondClose('cancel')
+        return
+      }
       const result = await window.icode.files.write({
-        sessionId: tab.sessionId,
+        sessionId: owner,
         path: tab.path,
         text: tab.text,
         expectedEtag: tab.etag
@@ -66,7 +83,7 @@ export default function AppCloseGuard(): React.JSX.Element | null {
         await window.icode.window.respondClose('cancel')
         return
       }
-      openFilesStore.markSaved(tab.sessionId, tab.path, result.value.etag)
+      openFilesStore.markSaved(tab.scopeKey, tab.path, result.value.etag)
     }
     setBusy(false)
     await openFilesStore.flush()
@@ -77,7 +94,7 @@ export default function AppCloseGuard(): React.JSX.Element | null {
     setBusy(true)
     // Discard means the dirty buffers must not reappear through hot exit.
     for (const tab of openFilesStore.allDirtyTabs()) {
-      openFilesStore.closeTab(tab.sessionId, tab.path)
+      openFilesStore.closeTab(tab.scopeKey, tab.path)
     }
     await openFilesStore.flush()
     await window.icode.window.respondClose('close')

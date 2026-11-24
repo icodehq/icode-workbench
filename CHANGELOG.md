@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.30.0] - 2026-11-25
+
+### Added
+
+- **Center tabs are worktree-scoped.** Agent sessions, raw terminals, files and
+  diffs now share one ordered tab list per worktree (or the default checkout).
+  Splitting creates an empty pane with a tab picker; each pane remembers its own
+  active tab and a tab is displayed in at most one pane. Closing a session tab
+  hides it while its PTY keeps running; closing a file or diff tab closes it,
+  with the usual unsaved-file prompt. Direct sessions that are not displayed
+  stay mounted in a hidden terminal host, including across worktree switches.
+- The worktree bar replaces the session header: workspace identity, the unified
+  tab list, split/zoom controls, Save all/Close all, and a `+` menu for a new
+  agent or raw terminal. Session actions remain on the tab context menu and the
+  sidebar row menu.
+- Files, buffers, review drafts, explorer position, file clipboard, Monaco model
+  caches, file index and the split layout follow the worktree. Hot-exit v2 stores
+  direct tabs by workspace and migrates session-scoped v1 payloads once after
+  sessions load.
+
+### Changed
+
+- One files-watch host and one SCM controller serve a worktree; switching the
+  owner session resubscribes IPC without dropping tabs or buffers.
+- The app-close save resolves each worktree scope to a live owner session.
+
 ## [0.29.0] - 2026-11-24
 
 ### Added

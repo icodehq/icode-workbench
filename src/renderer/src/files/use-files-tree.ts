@@ -23,12 +23,19 @@ export type TreeState = {
 }
 
 export function useFilesTree(input: {
+  /** IPC owner for file reads. */
   sessionId: string
+  /** Worktree identity that owns the tree state; defaults to the session. */
+  scopeKey?: string
   refreshToken: number
   settings: FilesSettings
   notify: (notice: Notice) => void
 }) {
-  const { sessionId, refreshToken, settings, notify } = input
+  const { sessionId, scopeKey = sessionId, refreshToken, settings, notify } = input
+  // The owner can change while the worktree stays the same. Keep the stable
+  // scope in callbacks so an owner change does not reset the loaded tree.
+  const sessionIdRef = useRef(sessionId)
+  sessionIdRef.current = sessionId
   const [tree, setTree] = useState<TreeState>({
     expanded: { '': true },
     children: {},
@@ -56,7 +63,7 @@ export function useFilesTree(input: {
   /** Invalidates in-flight directory reads when the session or refresh key changes. */
   const treeGeneration = useRef(0)
   const treeResetKey = useRef('')
-  const resetKey = `${sessionId}\u0000${String(refreshToken)}`
+  const resetKey = `${scopeKey}\u0000${String(refreshToken)}`
   if (treeResetKey.current !== resetKey) {
     treeResetKey.current = resetKey
     treeGeneration.current += 1
@@ -73,7 +80,7 @@ export function useFilesTree(input: {
       const generation = treeGeneration.current
       setTree((current) => ({ ...current, loading: { ...current.loading, [path]: true } }))
       const result = await callApi<FilesListingPayload>(
-        window.icode.files.list({ sessionId, path })
+        window.icode.files.list({ sessionId: sessionIdRef.current, path })
       )
       if (generation !== treeGeneration.current) return
       if (!result.ok) {
@@ -105,7 +112,7 @@ export function useFilesTree(input: {
       if (excludeGitIgnoreRef.current && value.entries.length > 0) {
         const check = await callApi<GitCheckIgnorePayload>(
           window.icode.git.checkIgnore({
-            sessionId,
+            sessionId: sessionIdRef.current,
             paths: value.entries.map((entry) => entry.path)
           })
         )
@@ -163,7 +170,7 @@ export function useFilesTree(input: {
         void loadDirectory(child.path, true, chainDepth + 1, false)
       }
     },
-    [notify, sessionId]
+    [notify, scopeKey]
   )
 
   const revealPath = useCallback(

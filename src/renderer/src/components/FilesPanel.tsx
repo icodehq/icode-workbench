@@ -74,6 +74,8 @@ import {
 
 export type FilesPanelProps = {
   sessionId: string
+  /** Store/persistence scope; defaults to the session for TaskWorkbench. */
+  scopeKey?: string
   /** Bumped when the user asks for a refresh of the whole workspace. */
   refreshToken: number
   /** True while Files is the visible view; controls the watcher/polling. */
@@ -114,6 +116,7 @@ type ContextState = {
  */
 export default function FilesPanel({
   sessionId,
+  scopeKey = sessionId,
   refreshToken,
   active,
   notify,
@@ -126,7 +129,7 @@ export default function FilesPanel({
 }: FilesPanelProps): React.JSX.Element {
   const t = useT()
   const tp = useTp()
-  const sessionFiles = useSessionFiles(sessionId)
+  const sessionFiles = useSessionFiles(scopeKey)
   const registeredLive = useSessionLiveState(sessionId)
   const settings = useFilesSettings()
   const tabs = fileTabs(sessionFiles)
@@ -160,7 +163,7 @@ export default function FilesPanel({
     createParent,
     selectOnly,
     expandFolder
-  } = useFilesTree({ sessionId, refreshToken, settings, notify })
+  } = useFilesTree({ sessionId, scopeKey, refreshToken, settings, notify })
   const [context, setContext] = useState<ContextState | null>(null)
   const [dropTarget, setDropTarget] = useState<string | null>(null)
   /*
@@ -218,7 +221,7 @@ export default function FilesPanel({
     ]
   )
   const clipboard = useFilesClipboard()
-  const clipboardHere = clipboard !== null && clipboard.sessionId === sessionId
+  const clipboardHere = clipboard !== null && clipboard.scopeKey === scopeKey
 
   const {
     treeScrollRef,
@@ -248,7 +251,7 @@ export default function FilesPanel({
     setDetailDismissed(false)
     setDetailMaximized(false)
     setListHidden(false)
-    const persisted = loadTreeState(sessionId)
+    const persisted = loadTreeState(scopeKey) ?? loadTreeState(sessionId)
     const expanded: Record<string, boolean> = { '': true }
     for (const path of persisted?.expanded ?? []) {
       if (path !== '') expanded[path] = true
@@ -266,7 +269,7 @@ export default function FilesPanel({
     setUndoStack([])
     setUndoing(false)
     setTrashBanner(null)
-    const activePath = activeRevealPath(openFilesStore.get(sessionId))
+    const activePath = activeRevealPath(openFilesStore.get(scopeKey))
     setSelection(
       activePath === null
         ? EMPTY_SELECTION
@@ -314,13 +317,13 @@ export default function FilesPanel({
       }
     })()
     void refreshTrash()
-  }, [loadDirectory, sessionId, refreshToken])
+  }, [loadDirectory, scopeKey, refreshToken])
 
   // Persist the explorer position after the user stops moving for a moment.
   useEffect(() => {
     if (rootState !== 'ready') return
     const timer = window.setTimeout(() => {
-      saveTreeState(sessionId, {
+      saveTreeState(scopeKey, {
         expanded: Object.keys(tree.expanded).filter(
           (path) => path !== '' && tree.expanded[path] === true
         ),
@@ -331,7 +334,7 @@ export default function FilesPanel({
       })
     }, 300)
     return () => window.clearTimeout(timer)
-  }, [rootState, selection, sessionId, tree.expanded, viewport.scrollTop])
+  }, [rootState, selection, scopeKey, tree.expanded, viewport.scrollTop])
 
   // A restored scrollTop can only be applied once rows and their heights exist.
   useEffect(() => {
@@ -451,6 +454,7 @@ export default function FilesPanel({
     onTabKeyDown
   } = useSessionEditor({
     sessionId,
+    scopeKey,
     refreshToken,
     notify,
     sessionFiles,
@@ -536,6 +540,7 @@ export default function FilesPanel({
 
   const { liveState } = useFilesWatch({
     sessionId,
+    scopeKey,
     active: active && !listOnly,
     roots: watchRoots,
     rootStateRef,
@@ -571,6 +576,7 @@ export default function FilesPanel({
     refreshTrash
   } = useFilesOperations({
     sessionId,
+    scopeKey,
     useTrash: settings.useTrash,
     notify,
     t,
@@ -603,6 +609,7 @@ export default function FilesPanel({
     commitEdit
   } = useFilesEditing({
     sessionId,
+    scopeKey,
     notify,
     t,
     setTree,
@@ -1020,7 +1027,7 @@ export default function FilesPanel({
   const deleteDirtyCount =
     deletePrompt === null
       ? 0
-      : fileTabs(openFilesStore.get(sessionId)).filter(
+      : fileTabs(openFilesStore.get(scopeKey)).filter(
           (tab) =>
             isDirty(tab) &&
             deletePrompt.paths.some((path) => isUnder(tab.path, path))
@@ -1920,7 +1927,7 @@ export default function FilesPanel({
             value={activeTab.text}
             dirty={isDirty(activeTab)}
             gotoLine={gotoLine}
-            onChange={(next) => openFilesStore.updateText(sessionId, activeTab.path, next)}
+            onChange={(next) => openFilesStore.updateText(scopeKey, activeTab.path, next)}
             onSave={() => void saveActive()}
             onClose={() => requestClose(activeTab.path)}
             onHistory={
@@ -1932,6 +1939,7 @@ export default function FilesPanel({
               void reloadFromDisk(activeTab.path)
             }}
             sessionId={sessionId}
+            scopeKey={scopeKey}
           />
         )}
       </div>

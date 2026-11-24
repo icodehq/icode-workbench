@@ -43,6 +43,8 @@ export type MovePrompt = { paths: string[]; destination: string }
 
 export function useFilesOperations(input: {
   sessionId: string
+  /** Worktree tab/buffer identity; defaults to the session for task panes. */
+  scopeKey?: string
   useTrash: boolean
   notify: (notice: Notice) => void
   t: ReturnType<typeof useT>
@@ -59,6 +61,7 @@ export function useFilesOperations(input: {
 }) {
   const {
     sessionId,
+    scopeKey = sessionId,
     useTrash,
     notify,
     t,
@@ -105,7 +108,7 @@ export function useFilesOperations(input: {
   }
 
   const closeTabsUnder = (paths: readonly string[]): void => {
-    for (const path of paths) openFilesStore.closeTabsUnder(sessionId, path)
+    for (const path of paths) openFilesStore.closeTabsUnder(scopeKey, path)
   }
 
   const restoreTrashOp = async (opId: string): Promise<boolean> => {
@@ -156,7 +159,7 @@ export function useFilesOperations(input: {
         })
       })
     }
-    clearWorktreeFileIndex(sessionId)
+    clearWorktreeFileIndex(scopeKey)
     await reloadExpanded()
     scheduleDecorationsRef.current?.(0)
     await refreshTrash()
@@ -218,7 +221,7 @@ export function useFilesOperations(input: {
         })
       })
     }
-    clearWorktreeFileIndex(sessionId)
+    clearWorktreeFileIndex(scopeKey)
     await reloadExpanded()
     scheduleDecorationsRef.current?.(0)
     setTransferBusy(false)
@@ -290,7 +293,7 @@ export function useFilesOperations(input: {
       setSelection(EMPTY_SELECTION)
       setEditorMode('tab')
     }
-    clearWorktreeFileIndex(sessionId)
+    clearWorktreeFileIndex(scopeKey)
     await reloadExpanded()
     scheduleDecorationsRef.current?.(0)
     await refreshTrash()
@@ -461,7 +464,7 @@ export function useFilesOperations(input: {
       setUndoing(false)
     }
     if (ok) setUndoStack((current) => popUndo(current))
-    clearWorktreeFileIndex(sessionId)
+    clearWorktreeFileIndex(scopeKey)
     await reloadExpanded()
     scheduleDecorationsRef.current?.(0)
     if (ok) {
@@ -486,7 +489,7 @@ export function useFilesOperations(input: {
   const copySelection = (mode: 'copy' | 'cut', paths = selectedPaths()): void => {
     const targets = collapseSelectedPaths(paths.filter((path) => path !== ''))
     if (targets.length === 0) return
-    filesClipboardStore.set({ sessionId, paths: targets, mode })
+    filesClipboardStore.set({ scopeKey, paths: targets, mode })
   }
 
   const collectEtags = async (
@@ -553,7 +556,7 @@ export function useFilesOperations(input: {
       created: await collectEtags(created),
       at: Date.now()
     })
-    clearWorktreeFileIndex(sessionId)
+    clearWorktreeFileIndex(scopeKey)
     await reloadExpanded()
     await new Promise<void>((resolve) => {
       window.requestAnimationFrame(() => resolve())
@@ -664,12 +667,12 @@ export function useFilesOperations(input: {
     if (mode === 'move') {
       for (const entry of successes) {
         if (entry.from !== undefined && entry.to !== undefined) {
-          openFilesStore.renamePath(sessionId, entry.from, entry.to)
+          openFilesStore.renamePath(scopeKey, entry.from, entry.to)
         }
       }
     }
     const first = successes.find((entry) => entry.to !== undefined)
-    clearWorktreeFileIndex(sessionId)
+    clearWorktreeFileIndex(scopeKey)
     if (destination !== '') await expandFolder(destination)
     await reloadExpanded()
     if (first?.to !== undefined) {
@@ -723,7 +726,7 @@ export function useFilesOperations(input: {
   }
   const pasteInto = async (destination: string): Promise<void> => {
     const current = filesClipboardStore.get()
-    if (current === null || current.sessionId !== sessionId) {
+    if (current === null || current.scopeKey !== scopeKey) {
       notify({
         tone: 'error',
         message:
@@ -739,7 +742,7 @@ export function useFilesOperations(input: {
       if (outcome.allOk) filesClipboardStore.clear()
       else if (outcome.succeeded > 0) {
         filesClipboardStore.set({
-          sessionId,
+          scopeKey,
           paths: outcome.failures.map((entry) => entry.path),
           mode: 'cut'
         })

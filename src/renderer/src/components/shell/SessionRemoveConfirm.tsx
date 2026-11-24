@@ -1,5 +1,6 @@
 import type { SessionSummary } from '../../../../shared/schemas/ipc'
 import { useFilesDirtyCount } from '../../files/open-files'
+import { workspaceKeyForSession } from '../../workspace/workspace-key'
 import { worktreeIsShared } from '../sessions/session-menu'
 import RemoveSessionDialog from '../RemoveSessionDialog'
 
@@ -18,7 +19,8 @@ export default function SessionRemoveConfirm({
   onClose: () => void
   onConfirm: (deleteBranch: boolean) => void
 }): React.JSX.Element {
-  const unsavedCount = useFilesDirtyCount(session.id)
+  // Direct sessions share the worktree's buffers.
+  const unsavedCount = useFilesDirtyCount(workspaceKeyForSession(session))
   return (
     <RemoveSessionDialog
       session={session}

@@ -100,7 +100,10 @@ export function useFilesDecorations(input: {
 
 /** Watches the worktree while Files is visible, with a poll fallback. */
 export function useFilesWatch(input: {
+  /** Session that owns the IPC/watch subscription. */
   sessionId: string
+  /** Store/persistence scope; defaults to the session for TaskWorkbench. */
+  scopeKey?: string
   active: boolean
   roots: readonly string[]
   rootStateRef: MutableRefObject<'loading' | 'ready' | 'unavailable'>
@@ -108,7 +111,7 @@ export function useFilesWatch(input: {
     (quiet?: boolean, discover?: boolean) => Promise<void>
   >
 }) {
-  const { sessionId, active, roots, rootStateRef, reloadExpandedRef } = input
+  const { sessionId, scopeKey = sessionId, active, roots, rootStateRef, reloadExpandedRef } = input
   const [liveState, setLiveState] = useState<LiveState>('off')
   const rootsKey = roots.join('\u0000')
   const sentRootsKey = useRef<string | null>(null)
@@ -127,26 +130,26 @@ export function useFilesWatch(input: {
       const read = await callApi<FileContentPayload>(
         window.icode.files.read({ sessionId, path })
       )
-      if (cancelled || openFilesStore.find(sessionId, path) === null) return
+      if (cancelled || openFilesStore.find(scopeKey, path) === null) return
       if (!read.ok) return
       const value = read.value
       if (value.status === 'unavailable') {
-        if (value.reason === 'not-found') openFilesStore.markDiskDeleted(sessionId, path)
+        if (value.reason === 'not-found') openFilesStore.markDiskDeleted(scopeKey, path)
         return
       }
       if (value.binary || value.tooLarge) {
-        openFilesStore.markDiskChanged(sessionId, path)
+        openFilesStore.markDiskChanged(scopeKey, path)
         return
       }
       // The user may have typed while the read was in flight. Never replace a
       // buffer that became dirty after the clean check.
-      const current = openFilesStore.find(sessionId, path)
+      const current = openFilesStore.find(scopeKey, path)
       if (current === null) return
       if (isDirty(current)) {
-        openFilesStore.markDiskChanged(sessionId, path)
+        openFilesStore.markDiskChanged(scopeKey, path)
         return
       }
-      openFilesStore.setContent(sessionId, path, { text: value.text, etag: value.etag })
+      openFilesStore.setContent(scopeKey, path, { text: value.text, etag: value.etag })
     }
 
     let reconciling = false
@@ -161,8 +164,8 @@ export function useFilesWatch(input: {
       reconciling = true
       try {
         await reloadExpandedRef.current(true)
-        clearWorktreeFileIndex(sessionId)
-        const state = openFilesStore.get(sessionId)
+        clearWorktreeFileIndex(scopeKey)
+        const state = openFilesStore.get(scopeKey)
         for (const tab of fileTabs(state)) {
           if (cancelled) return
           if (tab.load !== 'ready') continue
@@ -174,17 +177,17 @@ export function useFilesWatch(input: {
           const value = stat.value
           if (value.status === 'unavailable') {
             if (value.reason === 'not-found') {
-              openFilesStore.markDiskDeleted(sessionId, tab.path)
+              openFilesStore.markDiskDeleted(scopeKey, tab.path)
             }
             continue
           }
           if (value.etag === tab.etag) {
-            openFilesStore.markDiskCurrent(sessionId, tab.path)
+            openFilesStore.markDiskCurrent(scopeKey, tab.path)
             continue
           }
-          const current = openFilesStore.find(sessionId, tab.path)
+          const current = openFilesStore.find(scopeKey, tab.path)
           if (current === null) continue
-          if (isDirty(current)) openFilesStore.markDiskChanged(sessionId, current.path)
+          if (isDirty(current)) openFilesStore.markDiskChanged(scopeKey, current.path)
           else await reloadCleanTab(current.path)
         }
       } finally {
@@ -270,7 +273,7 @@ export function useFilesWatch(input: {
       setLiveState('off')
       void window.icode.files.watch({ sessionId, active: false })
     }
-  }, [active, sessionId])
+  }, [active, scopeKey, sessionId])
 
   /*
    * Expanding or collapsing a folder changes the watch roots without tearing
@@ -284,7 +287,7 @@ export function useFilesWatch(input: {
       void window.icode.files.watch({ sessionId, active: true, roots: [...roots] })
     }, 150)
     return () => window.clearTimeout(timer)
-  }, [active, rootsKey, sessionId])
+  }, [active, rootsKey, scopeKey, sessionId])
 
   return { liveState }
 }

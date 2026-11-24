@@ -52,6 +52,7 @@ import { WorkbenchDraftStore } from './review/drafts'
 import { openFilesStore } from './files/open-files'
 import { pruneTreeStates } from './files/tree-state'
 import { filesClipboardStore } from './files/files-clipboard'
+import { workspaceKeyForSession } from './workspace/workspace-key'
 
 /** What the New Session dialog should preselect when it opens. */
 type NewSessionInitialCheckout =
@@ -191,18 +192,63 @@ export default function App(): React.JSX.Element {
   // drop the text the user is looking at.
   useEffect(() => {
     if (state.boot !== 'ready') return
-    const ids = new Set(state.sessions.map((session) => session.id))
-    for (const task of tasks.tasks) {
-      if (task.sessionId !== null) ids.add(task.sessionId)
+    // Direct tabs are worktree-scoped; task buffers stay session-scoped.
+    const sessionIds = new Set(state.sessions.map((session) => session.id))
+    const scopes = new Set<string>()
+    for (const session of state.sessions) {
+      scopes.add(
+        taskSessionIds.has(session.id) ? session.id : workspaceKeyForSession(session)
+      )
     }
-    if (state.activeSessionId !== null) ids.add(state.activeSessionId)
-    if (taskSession !== null) ids.add(taskSession.sessionId)
-    if (projectSession !== null) ids.add(projectSession.id)
-    openFilesStore.retain(ids)
-    pruneTreeStates(ids)
+    for (const task of tasks.tasks) {
+      if (task.sessionId !== null) {
+        sessionIds.add(task.sessionId)
+        scopes.add(task.sessionId)
+      }
+    }
+    if (state.activeSessionId !== null) {
+      sessionIds.add(state.activeSessionId)
+      const active = state.sessions.find((session) => session.id === state.activeSessionId)
+      scopes.add(
+        active !== undefined && !taskSessionIds.has(active.id)
+          ? workspaceKeyForSession(active)
+          : state.activeSessionId
+      )
+    }
+    if (taskSession !== null) {
+      sessionIds.add(taskSession.sessionId)
+      scopes.add(taskSession.sessionId)
+    }
+    if (projectSession !== null) {
+      sessionIds.add(projectSession.id)
+      scopes.add(workspaceKeyForSession(projectSession))
+    }
+    openFilesStore.retain(scopes)
+    // Direct tree snapshots use the workspace key; task/legacy ones use the
+    // session id. Keep a key while either identity is still live.
+    pruneTreeStates(new Set([...scopes, ...sessionIds]))
     const clipboard = filesClipboardStore.get()
-    if (clipboard !== null && !ids.has(clipboard.sessionId)) filesClipboardStore.clear()
-  }, [projectSession, state.activeSessionId, state.boot, state.sessions, taskSession, tasks.tasks])
+    if (clipboard !== null && !scopes.has(clipboard.scopeKey)) filesClipboardStore.clear()
+  }, [
+    projectSession,
+    state.activeSessionId,
+    state.boot,
+    state.sessions,
+    taskSession,
+    taskSessionIds,
+    tasks.tasks
+  ])
+
+  // Legacy hot-exit state was session-keyed. Map it onto worktree scopes once
+  // the session list is known; task sessions keep their session scope.
+  useEffect(() => {
+    if (state.boot !== 'ready') return
+    void openFilesStore.migrateLegacy({
+      sessions: state.sessions,
+      taskSessionIds,
+      activeSessionId: state.activeSessionId
+    })
+  }, [state.activeSessionId, state.boot, state.sessions, taskSessionIds])
 
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [terminalFocus, setTerminalFocus] = useState(false)
@@ -838,7 +884,15 @@ export default function App(): React.JSX.Element {
             repos: state.repos,
             sessions: state.sessions,
             tasks: [...tasks.tasks, ...tasks.archivedTasks],
-            fileSession: quickOpenSession,
+            fileSession:
+              quickOpenSession === null
+                ? null
+                : {
+                    ...quickOpenSession,
+                    scopeKey: taskSessionIds.has(quickOpenSession.id)
+                      ? quickOpenSession.id
+                      : workspaceKeyForSession(quickOpenSession)
+                  },
             canStartSession: !hostUnreachable,
             resolvedTheme: theme.resolved,
             notify: workspace.notify,
@@ -862,6 +916,9 @@ export default function App(): React.JSX.Element {
               ? {
                   open: quickOpenOpen,
                   sessionId: quickOpenSession.id,
+                  scopeKey: taskSessionIds.has(quickOpenSession.id)
+                    ? quickOpenSession.id
+                    : workspaceKeyForSession(quickOpenSession),
                   notify: workspace.notify,
                   onClose: () => setQuickOpenOpen(false),
                   onOpen: (path, line) => {
@@ -938,6 +995,17 @@ export default function App(): React.JSX.Element {
                 }
               : null
           }
+          resolveFileScopeOwner={(scopeKey) => {
+            const direct = state.sessions.find(
+              (session) =>
+                !taskSessionIds.has(session.id) &&
+                workspaceKeyForSession(session) === scopeKey
+            )
+            if (direct !== undefined) return direct.id
+            return state.sessions.some((session) => session.id === scopeKey)
+              ? scopeKey
+              : null
+          }}
         />
       }
     >

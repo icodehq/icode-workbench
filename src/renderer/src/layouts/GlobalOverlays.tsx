@@ -20,6 +20,8 @@ type Props = {
   newSession: ComponentProps<typeof NewSessionDialog> | null
   sessionCleanup: ComponentProps<typeof WorktreeCleanupDialog> | null
   branchCleanup: ComponentProps<typeof BranchCleanupDialog> | null
+  /** Resolves a Files scope to an owner session for the close-time save. */
+  resolveFileScopeOwner: (scopeKey: string) => string | null
 }
 
 /**
@@ -34,7 +36,8 @@ export default function GlobalOverlays({
   addRepository,
   newSession,
   sessionCleanup,
-  branchCleanup
+  branchCleanup,
+  resolveFileScopeOwner
 }: Props): React.JSX.Element {
   return (
     <>
@@ -54,7 +57,7 @@ export default function GlobalOverlays({
 
       {branchCleanup !== null ? <BranchCleanupDialog {...branchCleanup} /> : null}
 
-      <AppCloseGuard />
+      <AppCloseGuard resolveOwner={resolveFileScopeOwner} />
 
       <UpdateRestartDialog />
     </>

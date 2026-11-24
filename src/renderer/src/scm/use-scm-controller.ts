@@ -46,8 +46,10 @@ type ScmControllerOptions = {
   /** Bumped by the global refresh action; reloads Git status. */
   refreshToken: number
   notify: (notice: Notice) => void
-  /** Notes and the commit message belong to the session. */
+  /** Notes and the commit message belong to the session or worktree. */
   drafts: WorkbenchDraftStore
+  /** Draft identity; defaults to the session for task-scoped panels. */
+  draftKey?: string
   /** Called after a Git operation changed the worktree. */
   onChanged: () => void
   /** A task's shared chain branch, preselected as the merge target. */
@@ -155,12 +157,13 @@ export function useScmController({
   refreshToken,
   notify,
   drafts,
+  draftKey = sessionId,
   onChanged,
   mergeTargetHint = null,
   lockMergeTarget = false,
   repositoryScope = false
 }: ScmControllerOptions): ScmController {
-  const draft = useWorkbenchDraft(drafts, sessionId)
+  const draft = useWorkbenchDraft(drafts, draftKey)
   const message = draft.commitMessage
   const [busy, setBusy] = useState(false)
   const status = useScmStatus({
@@ -278,9 +281,9 @@ export function useScmController({
 
   const setMessage = useCallback(
     (value: string): void => {
-      drafts.update(sessionId, (current) => ({ ...current, commitMessage: value }))
+      drafts.update(draftKey, (current) => ({ ...current, commitMessage: value }))
     },
-    [drafts, sessionId]
+    [drafts, draftKey]
   )
 
   // A different session has a different working tree. Status state is reset
@@ -784,7 +787,7 @@ export function useScmController({
           subject: result.value.subject
         })
       })
-      drafts.update(sessionId, (current) => ({
+      drafts.update(draftKey, (current) => ({
         ...current,
         commitMessage: current.commitMessage === message ? '' : current.commitMessage
       }))
@@ -1084,7 +1087,7 @@ export function useScmController({
         notify({ tone: 'error', message: result.value.detail })
         return
       }
-      drafts.update(sessionId, (current) => ({
+      drafts.update(draftKey, (current) => ({
         ...current,
         commitMessage: current.commitMessage === sentMessage ? '' : current.commitMessage
       }))

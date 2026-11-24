@@ -65,7 +65,7 @@ type PaletteItem = {
   run: () => void
 }
 
-type FileSession = { id: string; title: string }
+type FileSession = { id: string; title: string; scopeKey?: string }
 
 type Props = {
   open: boolean
@@ -181,7 +181,11 @@ export default function CommandPalette({
     setFileNote('')
     if (!open || fileSession === null) return
     let cancelled = false
-    void getWorktreeFileIndex(fileSession.id, notify).then((result) => {
+    void getWorktreeFileIndex(
+      fileSession.id,
+      notify,
+      fileSession.scopeKey ?? fileSession.id
+    ).then((result) => {
       if (cancelled) return
       setFiles(result.files)
       setFilesIndexed(true)
@@ -190,7 +194,7 @@ export default function CommandPalette({
     return () => {
       cancelled = true
     }
-  }, [fileSession?.id, notify, open])
+  }, [fileSession?.id, fileSession?.scopeKey, notify, open])
 
   const normalizedQuery = query.trim().toLowerCase()
   const scmCommands = useScmCommandSnapshot()
