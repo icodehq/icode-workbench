@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  defaultCheckoutMenuEntries,
   newMenuEntries,
   projectMenuEntries,
   worktreeMenuEntries,
@@ -125,6 +126,42 @@ describe('worktree menu plan', () => {
       unavailableReason: 'Checkout unavailable'
     })
     expect(ids(withoutSession)).not.toContain('recover')
+  })
+})
+
+describe('default checkout menu plan', () => {
+  it('offers the same actions as a worktree row that can host a session', () => {
+    const entries = defaultCheckoutMenuEntries({
+      canStart: true,
+      unavailableReason: 'Checkout unavailable'
+    })
+    expect(ids(entries)).toEqual(['new-session', 'copy-path', 'toggle'])
+    expect(separators(entries)).toEqual(['toggle'])
+    expect(entries.every((entry) => !entry.disabled)).toBe(true)
+  })
+
+  it('disables a session when the checkout cannot start one', () => {
+    const entries = defaultCheckoutMenuEntries({
+      canStart: false,
+      unavailableReason: 'Checkout unavailable'
+    })
+    expect(byId(entries, 'new-session')).toMatchObject({
+      disabled: true,
+      reason: 'Checkout unavailable'
+    })
+  })
+
+  it('cannot drift from the worktree row actions', () => {
+    const checkout = defaultCheckoutMenuEntries({
+      canStart: true,
+      unavailableReason: 'Checkout unavailable'
+    })
+    const worktree = worktreeMenuEntries({
+      status: 'ready-to-start',
+      hasSession: false,
+      unavailableReason: 'Checkout unavailable'
+    })
+    expect(checkout).toEqual(worktree)
   })
 })
 

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.2] - 2026-11-24
+
+### Fixed
+
+- Right-clicking the **Default checkout** row in the left sidebar now opens its
+  actions — New session in the checkout, Copy path, Collapse/Expand — matching
+  worktree rows. Both row types read one shared menu plan, so their actions
+  cannot drift apart again.
+- Worktree and Default checkout rows answer the keyboard Menu key (Shift+F10)
+  as well as the pointer.
+
 ## [0.26.1] - 2026-11-24
 
 ### Fixed

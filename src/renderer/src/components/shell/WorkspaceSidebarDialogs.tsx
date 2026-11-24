@@ -9,7 +9,7 @@ import SessionRemoveConfirm from './SessionRemoveConfirm'
 
 type Props = {
   projectMenu: ComponentProps<typeof ContextMenu> | null
-  worktreeMenu: ComponentProps<typeof ContextMenu> | null
+  checkoutMenu: ComponentProps<typeof ContextMenu> | null
   taskMenu: ComponentProps<typeof ContextMenu> | null
   sessionMenu: ComponentProps<typeof ContextMenu> | null
   newMenu: ComponentProps<typeof ContextMenu> | null
@@ -24,7 +24,7 @@ type Props = {
 /** The sidebar's menus and dialogs, mounted in the same order as before. */
 export default function WorkspaceSidebarDialogs({
   projectMenu,
-  worktreeMenu,
+  checkoutMenu,
   taskMenu,
   sessionMenu,
   newMenu,
@@ -38,7 +38,7 @@ export default function WorkspaceSidebarDialogs({
   return (
     <>
       {projectMenu !== null ? <ContextMenu {...projectMenu} /> : null}
-      {worktreeMenu !== null ? <ContextMenu {...worktreeMenu} /> : null}
+      {checkoutMenu !== null ? <ContextMenu {...checkoutMenu} /> : null}
       {taskMenu !== null ? <ContextMenu {...taskMenu} /> : null}
       {sessionMenu !== null ? <ContextMenu {...sessionMenu} /> : null}
       {newMenu !== null ? <ContextMenu {...newMenu} /> : null}
