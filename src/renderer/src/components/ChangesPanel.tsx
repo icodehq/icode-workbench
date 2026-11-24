@@ -23,6 +23,7 @@ import { isAgentHarness } from '../../../shared/domain/harness'
 import type { WorkingTreeEntry } from '../review/working-tree'
 import { afterAgentSend, useWorkbenchDraft, type WorkbenchDraftStore } from '../review/drafts'
 import { useScmController } from '../scm/use-scm-controller'
+import { clearScmController, setScmController } from '../scm/controller-registry'
 import { useCommitMessageGeneration } from '../scm/use-commit-message-generation'
 import { registerScmCommand, type ScmCommandId } from '../scm/scm-commands'
 import AmendDialog from './AmendDialog'
@@ -36,6 +37,7 @@ import type { LineComment } from './UnifiedDiffView'
 import WorkingTreeView from './WorkingTreeView'
 import { useT, useTp } from '../i18n/use-i18n'
 import type { ScmMergeRequest } from '../scm/scm-merge'
+import type { DiffTabRequest } from '../files/open-files'
 
 type Props = {
   sessionId: string
@@ -73,6 +75,12 @@ type Props = {
   /** A Files request to open History for one path. */
   initialHistoryPath?: { path: string; nonce: number } | null
   onHistoryPathHandled?: () => void
+  /**
+   * `embedded` keeps the list + inline diff for the task workbench. `list`
+   * keeps the inspector list-only and opens row diffs as center tabs.
+   */
+  presentation?: 'embedded' | 'list'
+  onOpenDiff?: (request: DiffTabRequest, options?: { preview?: boolean }) => void
 }
 
 function anchorFor(element: HTMLElement | null): MenuAnchor | null {
@@ -110,7 +118,9 @@ export default function ChangesPanel({
   mergeRequest = null,
   onMergeRequestHandled,
   initialHistoryPath = null,
-  onHistoryPathHandled
+  onHistoryPathHandled,
+  presentation = 'embedded',
+  onOpenDiff
 }: Props): React.JSX.Element {
   const t = useT()
   const tp = useTp()
@@ -130,6 +140,12 @@ export default function ChangesPanel({
     lockMergeTarget,
     repositoryScope
   })
+  // Center diff tabs consume this session's controller (notes, hunk actions,
+  // conflict resolution) without creating a second status/watcher loop.
+  useEffect(() => {
+    setScmController(sessionId, controller)
+    return () => clearScmController(sessionId, controller)
+  }, [controller, sessionId])
   const [sent, setSent] = useState(false)
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
@@ -1164,46 +1180,68 @@ export default function ChangesPanel({
       ) : null}
       {discardBar}
       {operationBanner}
-      <WorkingTreeView
-        sessionId={sessionId}
-        sessionState={sessionState}
-        baseOid={baseOid}
-        committed={committed}
-        snapshot={snapshot}
-        loading={loading}
-        active={active}
-        refreshToken={refreshToken}
-        diffTick={diffTick}
-        watchActive={watchMode === 'watch'}
-        onStage={(path) => setPathStaged(path, true)}
-        onUnstage={(path) => setPathStaged(path, false)}
-        onStageEntries={(entries) => void setEntriesStaged(entries, true)}
-        onUnstageEntries={(entries) => void setEntriesStaged(entries, false)}
-        onDiscardEntries={(entries) => requestDiscard(entries)}
-        onDiscard={(entry: WorkingTreeEntry) => requestDiscard([entry])}
-        onApplyHunk={(path, patch, mode) => applyHunk(path, patch, mode)}
-        onResolveConflict={(path, text) => resolveConflict(path, text)}
-        onOpenPath={onOpenPath}
-        onOpenTerminal={onOpenTerminal}
-        editorOverride={
-          historyOpen ? (
-            <ScmHistoryView
-              sessionId={sessionId}
-              baseOid={baseOid}
-              notify={notify}
-              onClose={() => {
-                setHistoryOpen(false)
-                setHistoryPath('')
-              }}
-              initialPath={historyPath}
-              onChanged={refresh}
-            />
-          ) : null
-        }
-        comments={comments}
-        onAddComment={onAddComment}
-        onRemoveComment={onRemoveComment}
-      />
+      {presentation === 'list' && historyOpen ? (
+        <div className="flex min-h-0 flex-1 flex-col">
+          <ScmHistoryView
+            sessionId={sessionId}
+            baseOid={baseOid}
+            notify={notify}
+            onClose={() => {
+              setHistoryOpen(false)
+              setHistoryPath('')
+            }}
+            initialPath={historyPath}
+            onChanged={refresh}
+          />
+        </div>
+      ) : (
+        <WorkingTreeView
+          sessionId={sessionId}
+          sessionState={sessionState}
+          baseOid={baseOid}
+          committed={committed}
+          snapshot={snapshot}
+          loading={loading}
+          active={active}
+          refreshToken={refreshToken}
+          diffTick={diffTick}
+          watchActive={watchMode === 'watch'}
+          onStage={(path) => setPathStaged(path, true)}
+          onUnstage={(path) => setPathStaged(path, false)}
+          onStageEntries={(entries) => void setEntriesStaged(entries, true)}
+          onUnstageEntries={(entries) => void setEntriesStaged(entries, false)}
+          onDiscardEntries={(entries) => requestDiscard(entries)}
+          onDiscard={(entry: WorkingTreeEntry) => requestDiscard([entry])}
+          onApplyHunk={(path, patch, mode) => applyHunk(path, patch, mode)}
+          onResolveConflict={(path, text) => resolveConflict(path, text)}
+          onOpenPath={onOpenPath}
+          onOpenTerminal={onOpenTerminal}
+          listOnly={presentation === 'list'}
+          onOpenDiff={onOpenDiff}
+          editorOverride={
+            presentation === 'list'
+              ? undefined
+              : historyOpen
+                ? (
+                  <ScmHistoryView
+                    sessionId={sessionId}
+                    baseOid={baseOid}
+                    notify={notify}
+                    onClose={() => {
+                      setHistoryOpen(false)
+                      setHistoryPath('')
+                    }}
+                    initialPath={historyPath}
+                    onChanged={refresh}
+                  />
+                )
+                : null
+          }
+          comments={comments}
+          onAddComment={onAddComment}
+          onRemoveComment={onRemoveComment}
+        />
+      )}
       {commitComposer}
       {commitDock}
 

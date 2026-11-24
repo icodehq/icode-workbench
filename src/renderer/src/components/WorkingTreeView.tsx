@@ -83,6 +83,7 @@ import {
 import { useElementWidth } from '../lib/use-element-width'
 import { usePanelResize } from '../lib/use-panel-resize'
 import { INSPECTOR_TWO_COLUMN_MIN } from '../state/inspector-layout'
+import type { DiffTabRequest } from '../files/open-files'
 
 type DiffState = {
   phase: 'idle' | 'loading' | 'ready' | 'error'
@@ -130,6 +131,12 @@ type Props = {
     path: string,
     text: string
   ) => Promise<{ ok: boolean; message?: string }>
+  /**
+   * The inspector's list-only composition: rows open center diff tabs instead
+   * of rendering a detail beside/covers the list.
+   */
+  listOnly?: boolean
+  onOpenDiff?: (request: DiffTabRequest, options?: { preview?: boolean }) => void
 }
 
 const SECTION_ORDER: WorkingTreeArea[] = ['conflicts', 'staged', 'unstaged', 'untracked']
@@ -243,7 +250,9 @@ export default function WorkingTreeView({
   onAddComment,
   onRemoveComment,
   onApplyHunk,
-  onResolveConflict
+  onResolveConflict,
+  listOnly = false,
+  onOpenDiff
 }: Props): React.JSX.Element {
   const t = useT()
   const statusGroups = useMemo(() => workingTreeGroups(snapshot), [snapshot])
@@ -364,11 +373,11 @@ export default function WorkingTreeView({
   // they keep the detail slot so those messages are never hidden behind the
   // list.
   const statusDetail = snapshot === null || !hasAnyChanges
-  const detailOpen = selected !== null || overrideOpen || statusDetail
+  const detailOpen = !listOnly && (selected !== null || overrideOpen || statusDetail)
   const twoColumnAvailable = panelWidth >= INSPECTOR_TWO_COLUMN_MIN
-  const detailVisible = (detailOpen && !detailDismissed) || statusDetail
+  const detailVisible = !listOnly && ((detailOpen && !detailDismissed) || statusDetail)
   const twoColumn =
-    twoColumnAvailable && detailVisible && !listHidden && !statusDetail
+    !listOnly && twoColumnAvailable && detailVisible && !listHidden && !statusDetail
   // Leave the diff at least 260px when the list is beside it.
   const maxListWidth = Math.max(
     SCM_SIDEBAR_WIDTH_MIN,
@@ -385,6 +394,7 @@ export default function WorkingTreeView({
   }, [selectedKey])
 
   useEffect(() => {
+    if (listOnly) return
     if (!active || (!detailMaximized && !detailVisible)) return
     const onKey = (event: KeyboardEvent): void => {
       if (event.key !== 'Escape') return
@@ -650,13 +660,15 @@ export default function WorkingTreeView({
   )
 
   useEffect(() => {
+    if (listOnly) return
     if (!active || selected === null || selected.area === 'committed') return
     const force = pendingFollowKey.current === selected.key
     if (force) pendingFollowKey.current = null
     loadDiff(selected, force)
-  }, [active, diffTick, loadDiff, refreshToken, selected])
+  }, [active, diffTick, loadDiff, listOnly, refreshToken, selected])
 
   useEffect(() => {
+    if (listOnly) return
     if (!active || selected === null || selected.area === 'committed') return
     // With a live watcher, the status event bumps diffTick and the effect
     // above reloads the selected diff. The polling fallback remains for guest
@@ -671,7 +683,7 @@ export default function WorkingTreeView({
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [active, refreshDiff, selected, sessionState, watchActive])
+  }, [active, listOnly, refreshDiff, selected, sessionState, watchActive])
 
   const visibleKeys = useMemo(() => visibleEntries.map((entry) => entry.key), [visibleEntries])
   const selectedRows = selectedEntries(selection, groups)
@@ -865,11 +877,24 @@ export default function WorkingTreeView({
     ]
   }
 
+  const diffRequestFor = (entry: WorkingTreeEntry): DiffTabRequest | null => {
+    if (entry.area === 'committed') {
+      if (entry.range === undefined || baseOid === null) return null
+      return { kind: 'committed', baseOid, file: entry.range }
+    }
+    return { kind: 'working', entry }
+  }
+
   const onRowClick = (
     entry: WorkingTreeEntry,
     event: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean }
   ): void => {
     setSelectedKey(entry.key)
+    const modifier = event.shiftKey || event.metaKey || event.ctrlKey
+    if (listOnly && !modifier) {
+      const request = diffRequestFor(entry)
+      if (request !== null) onOpenDiff?.(request, { preview: true })
+    }
     // Committed rows are read-only: they open their diff but never join the
     // staging/discard selection.
     if (entry.area === 'committed') return
@@ -942,6 +967,41 @@ export default function WorkingTreeView({
       </button>
     </span>
   )
+
+  const statusPane =
+    snapshot === null ? (
+      loading ? (
+        <div className="flex h-full items-center justify-center text-[11px] text-muted-foreground">
+          <Loader2 size={12} className="mr-2 animate-spin" />
+          {t('scm.changes.reading')}
+        </div>
+      ) : (
+        <div
+          className="flex h-full items-center justify-center px-6 text-center text-[11px] text-signal"
+          data-testid="working-tree-unavailable"
+        >
+          {t('scm.worktree.gitUnavailable')}
+        </div>
+      )
+    ) : !hasAnyChanges ? (
+      <div
+        className="flex h-full items-center justify-center px-6 text-center"
+        data-testid="working-tree-empty"
+      >
+        <div>
+          <p className="text-[13px] font-medium text-foreground">
+            {baseOid === null
+              ? t('scm.worktree.noChanges')
+              : t('scm.worktree.noChangesSince')}
+          </p>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            {baseOid === null
+              ? t('scm.worktree.nothingDirty')
+              : t('scm.worktree.matchesBase', { base: baseOid.slice(0, 7) })}
+          </p>
+        </div>
+      </div>
+    ) : null
 
   return (
     <div
@@ -1302,6 +1362,11 @@ export default function WorkingTreeView({
                             data-testid={`working-file-${entry.area}-${entry.entry.path}`}
                             data-area={entry.area}
                             data-selected={isChecked}
+                            onDoubleClick={() => {
+                              if (!listOnly) return
+                              const request = diffRequestFor(entry)
+                              if (request !== null) onOpenDiff?.(request, { preview: false })
+                            }}
                             onContextMenu={(event) => {
                               event.preventDefault()
                               openMenu(entry, event.clientX, event.clientY)
@@ -1442,6 +1507,11 @@ export default function WorkingTreeView({
         </div>
         )}
       </aside>
+      {listOnly && statusDetail ? (
+        <div className="absolute inset-0 z-10 flex min-w-0 flex-col bg-background">
+          {statusPane}
+        </div>
+      ) : null}
       {twoColumn ? (
         <div
           role="separator"

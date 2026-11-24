@@ -1096,6 +1096,37 @@ async function run() {
     )
 
     await waitForSelector('[data-testid="files-entry-README.md"]', 15000)
+
+    // Single click opens a preview; the next single click replaces it.
+    await click('[data-testid="files-entry-README.md"]')
+    await waitForSelector('[data-testid="center-tab-README.md"]', 15000)
+    await waitFor(
+      `document.querySelector('[data-testid="center-tab-README.md"]')?.dataset.preview === 'true'`,
+      'first click opened a preview tab',
+      10000
+    )
+    await waitForSelector('[data-testid="files-entry-watcher-live.txt"]', 15000)
+    await click('[data-testid="files-entry-watcher-live.txt"]')
+    await waitFor(
+      `!document.querySelector('[data-testid="center-tab-README.md"]') && document.querySelector('[data-testid="center-tab-watcher-live.txt"]')?.dataset.preview === 'true'`,
+      'the second preview replaced the first',
+      10000
+    )
+    await cdp.evaluate(
+      `document.querySelector('[data-testid="center-tab-watcher-live.txt"]')?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }))`
+    )
+    await waitFor(
+      `!document.querySelector('[data-testid="center-tab-watcher-live.txt"]')?.dataset.preview`,
+      'double click pinned the preview tab',
+      10000
+    )
+    await click('[data-testid="center-tab-close-watcher-live.txt"]')
+    await waitFor(
+      `!document.querySelector('[data-testid="center-tab-watcher-live.txt"]')`,
+      'the clean pinned tab closed',
+      10000
+    )
+
     await click('[data-testid="files-entry-README.md"]')
     await waitFor(
       `Boolean(document.querySelector('[data-testid="monaco-editor"]')?.__icodeEditor)`,
@@ -1106,17 +1137,32 @@ async function run() {
       `document.querySelector('[data-testid="monaco-editor"]')?.__icodeEditor?.focus()`
     )
     await cdp.send('Input.insertText', { text: 'phase-a dirty text\\n' })
-    await waitForSelector('[data-testid="files-tab-dirty"]', 10000)
+    await waitForSelector('[data-testid="center-tab-dirty"]', 10000)
     const dirtyText = await cdp.evaluate(
       `document.querySelector('[data-testid="monaco-editor"]')?.__icodeEditor?.getValue() ?? ''`
     )
     assert(dirtyText.includes('phase-a dirty text'), 'typed Files text was not in the editor')
 
+    // The terminal tab keeps the dirty buffer and hides the editor, and coming
+    // back restores it unchanged.
+    await click('[data-testid="center-tab-terminal"]')
+    await waitFor(
+      `getComputedStyle(document.querySelector('[data-testid="center-terminal"]')).display !== 'none' && getComputedStyle(document.querySelector('[data-testid="center-editor"]')).display === 'none'`,
+      'terminal tab shows the terminal',
+      10000
+    )
+    await click('[data-testid="center-tab-README.md"]')
+    await waitFor(
+      `getComputedStyle(document.querySelector('[data-testid="center-editor"]')).display !== 'none' && document.querySelector('[data-testid="monaco-editor"]')?.__icodeEditor?.getValue().includes('phase-a dirty text') === true`,
+      'dirty text survived a terminal switch',
+      10000
+    )
+
     // A second file opens a second tab; returning restores the first buffer.
     await waitForSelector('[data-testid="files-entry-watcher-live.txt"]', 15000)
     await click('[data-testid="files-entry-watcher-live.txt"]')
-    await waitForSelector('[data-testid="files-tab-watcher-live.txt"]', 10000)
-    await click('[data-testid="files-tab-README.md"]')
+    await waitForSelector('[data-testid="center-tab-watcher-live.txt"]', 10000)
+    await click('[data-testid="center-tab-README.md"]')
     await waitFor(
       `document.querySelector('[data-testid="monaco-editor"]')?.__icodeEditor?.getValue().includes('phase-a dirty text') === true`,
       'unsaved text survives a Files tab switch',
@@ -1130,7 +1176,7 @@ async function run() {
       if (!result.ok) throw new Error(result.error.message);
       return result.value;
     })()`)
-    await waitForSelector('[data-testid="files-disk-changed"]', 15000)
+    await waitForSelector('[data-testid="center-disk-changed"]', 15000)
     await click('[data-testid="editor-save"]')
     await waitForSelector('[data-testid="files-conflict-dialog"]', 15000)
     await click('[data-testid="files-conflict-overwrite"]')
@@ -1153,12 +1199,12 @@ async function run() {
       `document.querySelector('[data-testid="monaco-editor"]')?.__icodeEditor?.focus()`
     )
     await cdp.send('Input.insertText', { text: 'still-dirty-text\\n' })
-    await waitForSelector('[data-testid="files-tab-dirty"]', 10000)
-    await click('[data-testid="files-tab-close-README.md"]')
+    await waitForSelector('[data-testid="center-tab-dirty"]', 10000)
+    await click('[data-testid="center-tab-close-README.md"]')
     await waitForSelector('[data-testid="files-unsaved-dialog"]', 10000)
     await click('[data-testid="files-unsaved-cancel"]')
     await waitFor(
-      `!document.querySelector('[data-testid="files-unsaved-dialog"]') && Boolean(document.querySelector('[data-testid="files-tab-README.md"]'))`,
+      `!document.querySelector('[data-testid="files-unsaved-dialog"]') && Boolean(document.querySelector('[data-testid="center-tab-README.md"]'))`,
       'Cancel kept the dirty tab',
       10000
     )
@@ -1195,11 +1241,11 @@ async function run() {
     await screenshot('11-files-tabs-conflict')
 
     // Close All → Save All writes the dirty buffer and closes every tab.
-    await click('[data-testid="files-close-all"]')
+    await click('[data-testid="center-close-all"]')
     await waitForSelector('[data-testid="files-unsaved-dialog"]', 10000)
     await click('[data-testid="files-unsaved-save"]')
     await waitFor(
-      `!document.querySelector('[data-testid="files-tab-README.md"]') && !document.querySelector('[data-testid="files-tab-watcher-live.txt"]')`,
+      `!document.querySelector('[data-testid="center-tab-README.md"]') && !document.querySelector('[data-testid="center-tab-watcher-live.txt"]')`,
       'Close All saved and closed every tab',
       15000
     )
@@ -1642,7 +1688,7 @@ async function run() {
 
     log('phase-c: auto-reveal after returning to Files')
     await click('[data-testid="files-entry-phase-c/alpha.ts"]')
-    await waitForSelector('[data-testid="files-tab-phase-c/alpha.ts"]', 15000)
+    await waitForSelector('[data-testid="center-tab-phase-c/alpha.ts"]', 15000)
     if (
       await cdp.evaluate(
         `document.querySelector('[data-testid="files-entry-phase-c"]')?.getAttribute('aria-expanded') === 'true'`
@@ -1754,7 +1800,7 @@ async function run() {
       `document.querySelector('[data-testid="monaco-editor"]')?.__icodeEditor?.focus()`
     )
     await cdp.send('Input.insertText', { text: 'phase-d dirty text\\n' })
-    await waitForSelector('[data-testid="files-tab-dirty"]', 10000)
+    await waitForSelector('[data-testid="center-tab-dirty"]', 10000)
     await sleep(800)
     await cdp.evaluate('location.reload()')
     await sleep(1200)
@@ -1769,7 +1815,7 @@ async function run() {
     await waitForSelector('[data-testid="session-title"]', 20000)
     await click('[data-testid="view-files"]')
     await waitForSelector('[data-testid="files-panel"]', 15000)
-    await waitForSelector('[data-testid="files-tab-phase-d/dup.txt"]', 20000)
+    await waitForSelector('[data-testid="center-tab-phase-d/dup.txt"]', 20000)
     await waitFor(
       `document.querySelector('[data-testid="monaco-editor"]')?.__icodeEditor?.getValue().includes('phase-d dirty text') === true`,
       'hot-exit dirty text restored',
@@ -1789,7 +1835,7 @@ async function run() {
       ),
       'a folder outside the active tab was not restored'
     )
-    await click('[data-testid="files-tab-close-phase-d/dup.txt"]')
+    await click('[data-testid="center-tab-close-phase-d/dup.txt"]')
     await waitForSelector('[data-testid="files-unsaved-dialog"]', 10000)
     await click('[data-testid="files-unsaved-discard"]')
 

@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
+import type { WorkingTreeEntry } from '../review/working-tree'
 import {
   FILES_MAX_BUFFERED_CHARS,
   OpenFilesStore,
+  fileTabs,
   isDirty,
   parsePersistedOpenFiles,
   type OpenFilesPersistence
@@ -44,7 +46,7 @@ describe('open files store', () => {
 
     store.setActive('ses_a', 'one.ts')
     expect(store.get('ses_a').activePath).toBe('one.ts')
-    expect(store.get('ses_a').tabs.map((tab) => tab.path)).toEqual(['one.ts', 'two.ts'])
+    expect(fileTabs(store.get('ses_a')).map((tab) => tab.path)).toEqual(['one.ts', 'two.ts'])
   })
 
   it('closes the active tab onto its neighbour and clears the session last', () => {
@@ -84,7 +86,7 @@ describe('open files store', () => {
     store.open('ses_a', 'src/nested/b.ts')
     store.setActive('ses_a', 'src/nested/b.ts')
     store.renamePath('ses_a', 'src', 'lib')
-    expect(store.get('ses_a').tabs.map((tab) => tab.path)).toEqual([
+    expect(fileTabs(store.get('ses_a')).map((tab) => tab.path)).toEqual([
       'lib/a.ts',
       'lib/nested/b.ts'
     ])
@@ -131,7 +133,7 @@ describe('open files store', () => {
 
     const second = new OpenFilesStore(memory.persistence, 0)
     await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(second.get('ses_a').tabs.map((tab) => tab.path)).toEqual(['a.ts', 'b.ts'])
+    expect(fileTabs(second.get('ses_a')).map((tab) => tab.path)).toEqual(['a.ts', 'b.ts'])
     expect(second.get('ses_a').activePath).toBe('a.ts')
     expect(second.find('ses_a', 'a.ts')).toMatchObject({
       text: 'dirty\n',
@@ -183,5 +185,140 @@ describe('open files store', () => {
       load: 'failed',
       failure: expect.stringContaining('closed before')
     })
+  })
+
+  it('replaces the preview tab and pins on a permanent open or typing', () => {
+    const store = new OpenFilesStore()
+    store.open('ses_a', 'a.ts', { preview: true })
+    expect(store.get('ses_a').tabs[0]).toMatchObject({ preview: true, path: 'a.ts' })
+
+    const second = store.open('ses_a', 'b.ts', { preview: true })
+    expect(second.replacedKey).toBe('a.ts')
+    expect(fileTabs(store.get('ses_a')).map((tab) => tab.path)).toEqual(['b.ts'])
+    expect(store.get('ses_a').tabs[0]).toMatchObject({ preview: true })
+
+    store.open('ses_a', 'b.ts', { preview: false })
+    expect(store.get('ses_a').tabs[0]).toMatchObject({ preview: false })
+    store.open('ses_a', 'c.ts', { preview: true })
+    expect(fileTabs(store.get('ses_a')).map((tab) => tab.path)).toEqual(['b.ts', 'c.ts'])
+
+    store.updateText('ses_a', 'c.ts', 'typed')
+    expect(store.find('ses_a', 'c.ts')).toMatchObject({ preview: false, text: 'typed' })
+  })
+
+  it('returns to the terminal when the last tab closes', () => {
+    const store = new OpenFilesStore()
+    store.open('ses_a', 'a.ts')
+    store.open('ses_a', 'b.ts')
+    store.open('ses_a', 'c.ts')
+    store.setActiveKey('ses_a', 'b.ts')
+    expect(store.get('ses_a').mode).toBe('editor')
+
+    store.closeTab('ses_a', 'b.ts')
+    expect(store.get('ses_a').activeKey).toBe('c.ts')
+    store.closeTab('ses_a', 'c.ts')
+    expect(store.get('ses_a').activeKey).toBe('a.ts')
+    store.closeTab('ses_a', 'a.ts')
+    expect(store.get('ses_a')).toMatchObject({
+      tabs: [],
+      activeKey: null,
+      activePath: null,
+      mode: 'terminal'
+    })
+
+    store.open('ses_a', 'd.ts')
+    store.setMode('ses_a', 'terminal')
+    expect(store.get('ses_a')).toMatchObject({ mode: 'terminal', activeKey: 'd.ts' })
+  })
+
+  it('keeps diff tabs in the shared list without making them dirty or persistent', async () => {
+    const memory = memoryPersistence()
+    const store = new OpenFilesStore(memory.persistence, 0)
+    const entry: WorkingTreeEntry = {
+      key: 'unstaged:a.ts',
+      area: 'unstaged',
+      entry: {
+        path: 'a.ts',
+        oldPath: null,
+        code: ' M',
+        area: 'unstaged',
+        status: 'modified'
+      },
+      added: 1,
+      removed: 0
+    }
+    store.openDiff('ses_a', { kind: 'working', entry })
+    store.openDiff('ses_a', { kind: 'working', entry })
+    expect(store.get('ses_a').tabs).toHaveLength(1)
+    expect(store.get('ses_a')).toMatchObject({ mode: 'editor', activePath: null })
+    expect(store.dirtySummary()).toEqual({ files: 0, sessions: 0 })
+
+    store.open('ses_a', 'b.ts')
+    await store.flush()
+    const second = new OpenFilesStore(memory.persistence, 0)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(fileTabs(second.get('ses_a')).map((tab) => tab.path)).toEqual(['b.ts'])
+    expect(second.get('ses_a').tabs).toHaveLength(1)
+  })
+
+  it('closes file and diff tabs under a renamed or deleted path', () => {
+    const store = new OpenFilesStore()
+    const entry: WorkingTreeEntry = {
+      key: 'unstaged:src/a.ts',
+      area: 'unstaged',
+      entry: {
+        path: 'src/a.ts',
+        oldPath: null,
+        code: ' M',
+        area: 'unstaged',
+        status: 'modified'
+      },
+      added: 1,
+      removed: 0
+    }
+    store.open('ses_a', 'src/a.ts')
+    store.openDiff('ses_a', { kind: 'working', entry })
+    store.renamePath('ses_a', 'src', 'lib')
+    expect(store.get('ses_a').tabs).toHaveLength(1)
+    expect(store.find('ses_a', 'lib/a.ts')?.path).toBe('lib/a.ts')
+
+    store.closeTabsUnder('ses_a', 'lib')
+    expect(store.get('ses_a')).toMatchObject({
+      tabs: [],
+      activeKey: null,
+      mode: 'terminal'
+    })
+  })
+
+  it('restores the center mode but never restores a preview tab', () => {
+    const parsed = parsePersistedOpenFiles({
+      version: 1,
+      sessions: {
+        ses_a: {
+          tabs: [
+            {
+              kind: 'file',
+              preview: true,
+              path: 'a.ts',
+              text: 'a',
+              savedText: 'a',
+              original: null,
+              etag: null,
+              disk: 'current',
+              load: 'ready',
+              failure: null
+            }
+          ],
+          activeKey: 'a.ts',
+          activePath: 'a.ts',
+          mode: 'terminal'
+        }
+      }
+    })
+    expect(parsed.get('ses_a')).toMatchObject({
+      mode: 'terminal',
+      activeKey: 'a.ts'
+    })
+    expect(parsed.get('ses_a')?.tabs[0]).toMatchObject({ preview: false, kind: 'file' })
   })
 })

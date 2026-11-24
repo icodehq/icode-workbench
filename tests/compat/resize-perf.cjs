@@ -588,180 +588,73 @@ async function scenarioInspector() {
   return { before, mid, after, metrics, seam }
 }
 
-async function openFileAndResizeList() {
+async function editorWidth() {
+  return cdp.evaluate(
+    `Math.round(document.querySelector('[data-testid="center-editor"]')?.getBoundingClientRect().width ?? 0)`
+  )
+}
+
+async function openCenterFile() {
   await click('[data-testid="view-files"]')
   await waitForSelector('[data-testid="session-inspector"] [data-testid="files-tree"]', 15_000)
   await waitForSelector(
     '[data-testid="session-inspector"] [data-testid^="files-entry-README.md"]',
     15_000
   )
-  await click('[data-testid="session-inspector"] [data-testid^="files-entry-README.md"]')
-  await waitForSelector(
-    '[data-testid="session-inspector"] [data-testid="files-list-resizer"]',
-    20_000
-  )
-  // The first commit flips to two columns; sample only after the list has its
-  // own (bounded) width rather than the transient flex-1 width.
-  await waitFor(
-    `(() => {
-      const column = document.querySelector('[data-testid="session-inspector"] [data-testid="files-list-column"]');
-      if (column === null) return false;
-      const width = column.getBoundingClientRect().width;
-      return width >= 180 && width <= 460;
-    })()`,
-    'the Files list to settle into its column',
-    5_000
-  )
-  await sleep(150)
-  await waitForCalm('the opened editor')
-
-  const before = await settingsState(FILES_KEY, 'listWidth')
-  const renderedBefore = await cdp.evaluate(
-    `Math.round(document.querySelector('[data-testid="session-inspector"] [data-testid="files-list-column"]').getBoundingClientRect().width)`
-  )
-  await startProbe()
-  const { mid, seam } = await drag(
-    '[data-testid="session-inspector"] [data-testid="files-list-resizer"]',
-    80,
-    0,
-    async () => ({
-      width: await cdp.evaluate(
-        `Math.round(document.querySelector('[data-testid="session-inspector"] [data-testid="files-list-column"]').getBoundingClientRect().width)`
-      ),
-      storage: await settingsState(FILES_KEY, 'listWidth')
-    })
-  )
-  const metrics = await stopProbe()
-  const after = await settingsState(FILES_KEY, 'listWidth')
-  const renderedAfter = await cdp.evaluate(
-    `Math.round(document.querySelector('[data-testid="session-inspector"] [data-testid="files-list-column"]').getBoundingClientRect().width)`
-  )
-
-  assert(mid.width >= renderedBefore + 20, `Files list did not follow the pointer (${renderedBefore} -> ${mid.width})`)
-  assert(mid.storage.raw === before.raw, 'Files list width was persisted during the drag')
-  assert(after.value !== null, 'Files list width was not persisted on release')
-  assert(Number(after.value) === renderedAfter, `Stored files list width ${after.value} != rendered ${renderedAfter}`)
-
-  return { renderedBefore, mid, renderedAfter, metrics, seam }
-}
-
-async function makeWorktreeChanges(sessionList) {
-  const { execFileSync } = require('node:child_process')
-  const paths = [...new Set(sessionList.map((session) => session.worktreePath).filter(Boolean))]
-  assert(paths.length > 0, 'No session worktree path to write a change into')
-  for (const path of paths) {
-    writeFileSync(join(path, 'perf-change.txt'), 'resize perf change\n')
-    try {
-      execFileSync('git', ['-C', path, 'add', 'perf-change.txt'], { stdio: 'pipe' })
-    } catch {
-      // Staging is not required; the untracked row is enough.
-    }
-  }
-  return paths
-}
-
-async function scenarioScmList(sessionList) {
-  const paths = await makeWorktreeChanges(sessionList)
-  await click('[data-testid="view-changes"]')
-  await waitForSelector('[data-testid="session-inspector"] [data-testid="working-tree"]', 15_000)
-  await waitFor(
-    `Boolean(document.querySelector('[data-testid="session-inspector"] [data-testid^="working-file-"]'))`,
-    'the working-tree change row',
-    25_000
-  )
   const opened = await cdp.evaluate(`(() => {
-    const row = document.querySelector('[data-testid="session-inspector"] [data-testid^="working-file-"] button[data-scm-row="file"]');
+    const row = document.querySelector('[data-testid="session-inspector"] [data-testid="files-entry-README.md"]');
     if (row === null) return false;
     row.click();
     return true;
   })()`)
-  assert(opened, 'Could not open the SCM change')
-  await waitForSelector(
-    '[data-testid="session-inspector"] [data-testid="scm-sidebar-resizer"]',
-    20_000
-  )
-  // The diff mounts after the row click; let the two-column layout settle.
-  await waitFor(
-    `(() => {
-      const list = document.querySelector('[data-testid="session-inspector"] [data-testid="working-tree"] [role="tree"]');
-      if (list === null) return false;
-      const width = list.getBoundingClientRect().width;
-      return width >= 180 && width <= 460;
-    })()`,
-    'the SCM list to settle into its column',
-    5_000
-  )
-  await sleep(300)
-  await waitForCalm('the loaded diff')
+  assert(opened, 'Could not open a file in the center editor')
+  await waitForSelector('[data-testid="center-editor"]', 20_000)
+  await waitForSelector('[data-testid="monaco-editor"]', 20_000)
+  await waitForCalm('the center editor')
+}
 
-  const before = await settingsState(SCM_KEY, 'sidebarWidth')
-  const layout = await cdp.evaluate(`(() => {
-    const panel = document.querySelector('[data-testid="session-inspector"] [data-testid="working-tree"]');
-    const list = document.querySelector('[data-testid="session-inspector"] [data-testid="working-tree"] [role="tree"]');
-    const inspector = document.querySelector('[data-testid="session-inspector"]');
-    const sidebar = document.querySelector('[data-testid="workspace-sidebar"]');
-    return {
-      innerWidth: window.innerWidth,
-      sidebar: sidebar === null ? 0 : Math.round(sidebar.getBoundingClientRect().width),
-      inspector: inspector === null ? 0 : Math.round(inspector.getBoundingClientRect().width),
-      panel: panel === null ? 0 : Math.round(panel.getBoundingClientRect().width),
-      list: list === null ? 0 : Math.round(list.getBoundingClientRect().width)
-    };
-  })()`)
-  const renderedBefore = layout.list
+/**
+ * The inspector seam now gives its width to the center editor, not to a
+ * two-column Files/SCM detail. The drag contract is unchanged: the editor
+ * follows the pointer immediately and only the release persists the width.
+ */
+async function scenarioCenterEditor() {
+  await openCenterFile()
+  const before = { ...(await inspectorState()), editor: await editorWidth() }
   await startProbe()
-  const { mid, seam } = await drag(
-    '[data-testid="session-inspector"] [data-testid="scm-sidebar-resizer"]',
-    80,
-    0,
-    async () => ({
-      width: await cdp.evaluate(
-        `Math.round(document.querySelector('[data-testid="session-inspector"] [data-testid="working-tree"] [role="tree"]').getBoundingClientRect().width)`
-      ),
-      storage: await settingsState(SCM_KEY, 'sidebarWidth')
-    })
-  )
+  const { mid } = await drag('[data-testid="inspector-resizer"]', -120, 0, async () => ({
+    ...(await inspectorState()),
+    editor: await editorWidth()
+  }))
   const metrics = await stopProbe()
-  const after = await settingsState(SCM_KEY, 'sidebarWidth')
-  const renderedAfter = await cdp.evaluate(
-    `Math.round(document.querySelector('[data-testid="session-inspector"] [data-testid="working-tree"] [role="tree"]').getBoundingClientRect().width)`
-  )
+  const after = { ...(await inspectorState()), editor: await editorWidth() }
 
-  assert(mid.width >= renderedBefore + 20, `SCM list did not follow the pointer (${renderedBefore} -> ${mid.width})`)
-  assert(mid.storage.raw === before.raw, 'SCM list width was persisted during the drag')
-  assert(after.value !== null, 'SCM list width was not persisted on release')
-  assert(Number(after.value) === renderedAfter, `Stored SCM list width ${after.value} != rendered ${renderedAfter}`)
+  assert(mid.width >= before.width + 40, `Inspector did not widen (${before.width} -> ${mid.width})`)
+  assert(mid.editor <= before.editor - 20, `Editor did not yield width (${before.editor} -> ${mid.editor})`)
+  assert(mid.storage === before.storage, 'Inspector width was persisted during the drag')
+  assert(after.storage !== null, 'Inspector width was not persisted on release')
+  assert(Number(after.storage) === after.width, `Stored width ${after.storage} != rendered ${after.width}`)
 
-  return { paths, layout, renderedBefore, mid, renderedAfter, metrics, seam }
+  await cdp.evaluate(`document.querySelector('[data-testid="inspector-resizer"]')?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))`)
+  await sleep(250)
+  return { before, mid, after, metrics }
 }
 
 async function scenarioInspectorLoaded() {
-  // The Files editor and the SCM diff are mounted, with Changes active.
-  // Shrinking back across INSPECTOR_TWO_COLUMN_MIN (600) is the case the width
-  // deferral exists for: the diff pane must not relayout on every pointer
-  // frame, only once at release.
-  await waitForSelector(
-    '[data-testid="session-inspector"] [data-testid="scm-sidebar-resizer"]',
-    10_000
-  )
-  const before = await inspectorState()
+  // A center editor is mounted while the inspector is dragged. The editor must
+  // reclaim the width only through the normal row layout, not a per-frame
+  // relayout of its own.
+  if (!(await cdp.evaluate(`Boolean(document.querySelector('[data-testid="center-editor"]'))`))) {
+    await openCenterFile()
+  }
+  const before = { ...(await inspectorState()), editor: await editorWidth() }
   await startProbe()
-  const { mid, seam } = await drag(
-    '[data-testid="inspector-resizer"]',
-    360,
-    0,
-    async () => ({
-      ...(await inspectorState()),
-      scmResizer: await cdp.evaluate(
-        `Boolean(document.querySelector('[data-testid="session-inspector"] [data-testid="scm-sidebar-resizer"]'))`
-      )
-    })
-  )
+  const { mid } = await drag('[data-testid="inspector-resizer"]', 360, 0, async () => ({
+    ...(await inspectorState()),
+    editor: await editorWidth()
+  }))
   const metrics = await stopProbe()
-  const after = await inspectorState()
-  const afterResizer = await cdp.evaluate(
-    `Boolean(document.querySelector('[data-testid="session-inspector"] [data-testid="scm-sidebar-resizer"]'))`
-  )
+  const after = { ...(await inspectorState()), editor: await editorWidth() }
 
   assert(
     mid.width <= before.width - 40,
@@ -771,12 +664,19 @@ async function scenarioInspectorLoaded() {
   assert(after.storage !== null, 'Inspector width was not persisted on release')
   assert(Number(after.storage) === after.width, `Stored inspector width ${after.storage} != rendered ${after.width}`)
   assert(
-    mid.scmResizer === true,
-    'The SCM pane flipped to one column during the drag instead of on release'
+    mid.editor >= before.editor + 40,
+    `The center editor did not reclaim the width (${before.editor} -> ${mid.editor})`
   )
-  assert(afterResizer === false, 'The SCM pane did not flip to one column on release')
+  assert(
+    after.editor >= before.editor + 40,
+    `The center editor did not keep the reclaimed width (${after.editor})`
+  )
 
-  return { before, mid, after, afterResizer, metrics, seam }
+  // Back to the default for the bounds scenario.
+  await cdp.evaluate(`document.querySelector('[data-testid="inspector-resizer"]')?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))`)
+  await sleep(250)
+
+  return { before, mid, after, metrics }
 }
 
 async function scenarioInspectorBounds() {
@@ -808,32 +708,6 @@ async function scenarioInspectorBounds() {
   assert(restored.width === 320, `Inspector did not restore to 320 (${restored.width})`)
 
   return { before, atMin, atMax, restored }
-}
-
-async function scenarioListBounds(name, panelSelector, seamSelector, columnSelector, selectorTestid) {
-  const read = () => cdp.evaluate(`(() => {
-    const column = document.querySelector(${JSON.stringify(columnSelector)});
-    return Math.round(column.getBoundingClientRect().width);
-  })()`)
-  const expectedMax = await cdp.evaluate(`(() => {
-    const panel = document.querySelector(${JSON.stringify(panelSelector)});
-    return Math.max(180, Math.min(460, Math.floor(panel.getBoundingClientRect().width) - 260));
-  })()`)
-
-  const before = await read()
-  await drag(seamSelector, -400, 0)
-  const atMin = await read()
-  assert(atMin === 180, `${name} minimum is ${atMin}, expected 180`)
-
-  await drag(seamSelector, 400, 0)
-  const atMax = await read()
-  assert(Math.abs(atMax - expectedMax) <= 1, `${name} maximum is ${atMax}, expected ${expectedMax}`)
-
-  await drag(seamSelector, 240 - atMax, 0)
-  const restored = await read()
-  assert(restored === 240, `${name} did not restore to 240 (${restored})`)
-
-  return { testid: selectorTestid, before, atMin, atMax, expectedMax, restored }
 }
 
 async function scenarioSplit() {
@@ -903,26 +777,7 @@ async function main() {
   RUN.sessions = sessionList.length
 
   await measureScenario('inspector', scenarioInspector)
-  await measureScenario('files-list', openFileAndResizeList)
-  await measureScenario('files-list-bounds', () =>
-    scenarioListBounds(
-      'Files list',
-      '[data-testid="session-inspector"] [data-testid="files-panel"]',
-      '[data-testid="session-inspector"] [data-testid="files-list-resizer"]',
-      '[data-testid="session-inspector"] [data-testid="files-list-column"]',
-      'files-list-resizer'
-    )
-  )
-  await measureScenario('scm-list', () => scenarioScmList(sessionList))
-  await measureScenario('scm-list-bounds', () =>
-    scenarioListBounds(
-      'SCM list',
-      '[data-testid="session-inspector"] [data-testid="working-tree"]',
-      '[data-testid="session-inspector"] [data-testid="scm-sidebar-resizer"]',
-      '[data-testid="session-inspector"] [data-testid="working-tree"] [role="tree"]',
-      'scm-sidebar-resizer'
-    )
-  )
+  await measureScenario('center-editor', scenarioCenterEditor)
   await measureScenario('sidebar-loaded', () => scenarioSidebar(-60))
   await measureScenario('inspector-loaded', scenarioInspectorLoaded)
   await measureScenario('inspector-bounds', scenarioInspectorBounds)

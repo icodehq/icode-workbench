@@ -466,9 +466,11 @@ export function useAppNavigation({
     (path: string, line: number): void => {
       if (quickOpenSession === null) return
       requestOpenInFiles(path, line)
+      // Direct sessions open in the center editor; only task workbenches still
+      // need their own Files tab selected.
       if (displaySurface === 'tasks' && selectedWorkbenchTask !== null) {
         setTaskViewRequest({ tab: 'files', nonce: Date.now() })
-      } else if (displaySurface === 'sessions' || taskSession !== null) {
+      } else if (taskSession !== null) {
         setViewRequest({ view: 'files', nonce: Date.now() })
       }
     },

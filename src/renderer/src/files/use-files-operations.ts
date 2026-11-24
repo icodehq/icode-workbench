@@ -18,7 +18,7 @@ import type {
 } from '../../../shared/icode-api'
 import type { FileBatchEntry, FileEntry } from '../../../shared/domain/workspace-files'
 import { clearWorktreeFileIndex } from './file-index'
-import { isUnder, parentPathOf } from './file-paths'
+import { parentPathOf } from './file-paths'
 import { filesClipboardStore } from './files-clipboard'
 import { openFilesStore } from './open-files'
 import {
@@ -36,7 +36,7 @@ import { unavailableText } from './search-utils'
 import { translate, translatePlural } from '../i18n/i18n-store'
 import type { useT, useTp } from '../i18n/use-i18n'
 import type { Notice } from '../state/workspace'
-import type { EditorMode } from './use-files-tabs'
+import type { EditorMode } from './use-session-editor'
 
 export type DeletePrompt = { paths: string[]; permanentOnly: boolean }
 export type MovePrompt = { paths: string[]; destination: string }
@@ -105,11 +105,7 @@ export function useFilesOperations(input: {
   }
 
   const closeTabsUnder = (paths: readonly string[]): void => {
-    for (const path of paths) {
-      for (const tab of openFilesStore.get(sessionId).tabs) {
-        if (isUnder(tab.path, path)) openFilesStore.closeTab(sessionId, tab.path)
-      }
-    }
+    for (const path of paths) openFilesStore.closeTabsUnder(sessionId, path)
   }
 
   const restoreTrashOp = async (opId: string): Promise<boolean> => {

@@ -36,6 +36,8 @@ export type CodeEditorProps = {
   dirty: boolean
   /** Caret requested by a navigation action (search hit, quick open). */
   gotoLine?: number | null
+  /** Called once the goto request was applied, so the owner can clear it. */
+  onGotoLineConsumed?: () => void
   onChange: (next: string) => void
   onSave: () => void
   onClose: () => void
@@ -53,6 +55,11 @@ export type CodeEditorProps = {
    * complete there.
    */
   engine?: 'monaco' | 'plain'
+  /**
+   * False while another center tab or the terminal is showing. A hidden editor
+   * keeps its model (undo survives) but must not publish status-bar blame.
+   */
+  active?: boolean
 }
 
 const TAB_WIDTH = 2
@@ -115,6 +122,7 @@ export default function CodeEditor({
   value,
   dirty,
   gotoLine,
+  onGotoLineConsumed,
   onChange,
   onSave,
   onClose,
@@ -122,7 +130,8 @@ export default function CodeEditor({
   original = null,
   onQuickDiffChanged,
   sessionId,
-  engine = 'plain'
+  engine = 'plain',
+  active = true
 }: CodeEditorProps): React.JSX.Element {
   const t = useT()
   const [caret, setCaret] = useState({ line: 1, column: 1 })
@@ -420,6 +429,7 @@ export default function CodeEditor({
   // Blame for the file, fetched once per path while the annotation is enabled.
   useEffect(() => {
     if (
+      !active ||
       engine !== 'monaco' ||
       !settings.inlineBlame ||
       sessionId === undefined ||
@@ -443,7 +453,7 @@ export default function CodeEditor({
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [dirty, engine, monacoState, path, sessionId, settings.inlineBlame, value])
+  }, [active, dirty, engine, monacoState, path, sessionId, settings.inlineBlame, value])
 
   // The caret line owns one after-content decoration. It is replaced, never
   // accumulated, so switching lines does not leave stale blame behind.
@@ -493,7 +503,7 @@ export default function CodeEditor({
   // file closes, the buffer becomes dirty, or blame is disabled.
   useEffect(() => {
     const info =
-      engine === 'monaco' && monacoState !== 'failed' && sessionId !== undefined
+      active && engine === 'monaco' && monacoState !== 'failed' && sessionId !== undefined
         ? blameLines.find((line) => line.line === caret.line)
         : undefined
     if (info === undefined) {
@@ -509,7 +519,7 @@ export default function CodeEditor({
       summary: info.summary,
       committed: info.committed
     })
-  }, [blameLines, caret.line, engine, monacoState, path, sessionId])
+  }, [active, blameLines, caret.line, engine, monacoState, path, sessionId])
 
   useEffect(() => {
     return () => {
@@ -536,6 +546,7 @@ export default function CodeEditor({
       current.editor.revealLineInCenter(target)
       current.editor.setPosition({ lineNumber: target, column: 1 })
       current.editor.focus()
+      onGotoLineConsumed?.()
       return
     }
     const element = textarea.current
@@ -547,7 +558,8 @@ export default function CodeEditor({
     element.focus()
     element.setSelectionRange(offset, offset)
     setCaret({ line: target, column: 1 })
-  }, [gotoLine, monacoState, value])
+    onGotoLineConsumed?.()
+  }, [gotoLine, monacoState, onGotoLineConsumed, value])
 
   const syncScroll = (): void => {
     const element = textarea.current
@@ -652,7 +664,11 @@ export default function CodeEditor({
   const peekMessage = peekNote ?? peekState.reason
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col" data-testid="code-editor">
+    <div
+      className="flex min-h-0 flex-1 flex-col"
+      data-testid="code-editor"
+      data-active={active ? 'true' : 'false'}
+    >
       <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-1.5">
         <div className="flex min-w-0 items-center gap-2">
           <span className="truncate font-mono text-[11px] text-foreground" data-testid="editor-path">

@@ -36,7 +36,7 @@
 </h3>
 
 <p align="center">
-  <img src=".github/assets/workbench-0916-shell.png" alt="The iCode Workbench with a project and task sidebar, app and session tabs, a live terminal, and a Source Control diff in the inspector" width="960" />
+  <img src=".github/assets/workbench-0916-shell.png" alt="The iCode Workbench with a project and task sidebar, app and session tabs, a live terminal, and a Source Control diff in the center workbench" width="960" />
 </p>
 
 <p align="center">
@@ -141,9 +141,11 @@ made.
 - **WSL and Windows are first-class.** Managed WSL guest hosts, `wsl.exe` shell
   sessions, and target-aware harness detection that knows when a CLI exists on
   Windows but not inside the distro. Linux and macOS run natively too.
-- **Review in place.** Files, Search, and Source Control live beside the
-  terminal, scoped to the checkout the agent is editing. Stage by file, folder,
-  hunk, or line; send line notes back to the agent's terminal.
+- **Review in place.** Files, Search, and Source Control are navigators beside
+  the terminal, scoped to the checkout the agent is editing. Files and diffs open
+  as tabs in the center, next to the terminal, so the editor gets the full width.
+  Stage by file, folder, hunk, or line; send line notes back to the agent's
+  terminal.
 - **One sidebar, two surfaces.** Projects, direct sessions, pinned items, and
   the cross-project task queue share one sidebar. Sessions and task workbenches
   are the main surfaces; Mira, Settings, and Schedules are auxiliary tabs.
@@ -166,8 +168,9 @@ with **Needs** and **History** views. The sidebar footer keeps host status, task
 slots, live session count, harness count, and app version in view.
 
 The main column has two work surfaces: **Sessions** (one tab per direct session,
-a resizable nested split view, and a persistent Files/Search/Source Control
-inspector) and the **Task workbench** (Overview, Terminal, Source Control, and
+a resizable nested split view, a persistent Files/Search/Source Control
+navigator, and a center tab strip for the terminal, files, and diffs) and the
+**Task workbench** (Overview, Terminal, Source Control, and
 Files for one task, selected from the sidebar rather than opened as a tab).
 
 Every project, session, and task row has its own right-click menu. A session
@@ -294,11 +297,10 @@ baseline, and a review decision. Execution and review are separate.*
 ### Review where the agent worked
 
 Source Control is scoped to the session's checkout and lives in the persistent
-inspector, or in a task's full-width Source Control tab. Source Control opens on
-the changed-file list; clicking a file gives its diff the whole panel, and the
-list returns with one toggle. A one-line dock keeps the staged/uncommitted
-counts and the primary action in sight while a diff is open; the commit composer
-expands above it on demand.
+inspector as a list, or in a task's full-width Source Control tab. Clicking a
+changed file opens its diff as a tab in the center, beside the terminal, while
+the list stays visible; a one-line dock keeps the staged/uncommitted counts and
+the primary action in sight; the commit composer expands above it on demand.
 
 Diffs are area-scoped; stage or unstage by file, folder, hunk, or line; discard
 by file, folder, or hunk; and a three-way merge editor handles conflicts. Add
@@ -341,11 +343,12 @@ available for 21 harnesses; harnesses without it stay `unknown` by design.
 ### Edit in the same checkout
 
 Open Files beside the terminal (or in a task's Files tab) and work in the same
-worktree the agent is editing. The explorer supports create, rename, delete,
-duplicate, and move, with app-managed trash and undo; Monaco provides editing,
-quick diffs against HEAD, inline blame, and file history. The inspector's Search
-pane keeps the tree uncluttered and opens results in Files. Quick-open files,
-handle external changes with reload/keep, and keep unsaved buffers across an
+worktree the agent is editing. Clicking a file opens a preview tab in the center,
+next to the terminal; double-click or start typing to keep it, and the full-width
+editor carries Monaco editing, quick diffs against HEAD, inline blame, and file
+history. The explorer supports create, rename, delete, duplicate, and move, with
+app-managed trash and undo. The inspector's Search pane opens results in the
+center, external changes offer reload/keep, and unsaved buffers survive an
 ordinary restart through hot exit.
 
 <p align="center">

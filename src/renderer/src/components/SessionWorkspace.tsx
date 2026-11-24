@@ -1,15 +1,10 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import {
   AlertTriangle,
-  FileDiff,
-  Files,
   Loader2,
-  PanelLeftOpen,
   Play,
   RefreshCw,
   RotateCcw,
-  Search,
-  TerminalSquare,
   Trash2
 } from 'lucide-react'
 import type { AppError } from '../../../shared/domain/errors'
@@ -28,13 +23,12 @@ import type {
   WorktreeRecoveryOptions
 } from '../state/session-actions'
 import TerminalPane from './TerminalPane'
-import ChangesPanel from './ChangesPanel'
-import FilesPanel from './FilesPanel'
-import FilesSearchPanel from './FilesSearchPanel'
 import RemoveSessionDialog from './RemoveSessionDialog'
 import SessionActionsMenu from './SessionActionsMenu'
 import SleepSessionDialog from './SleepSessionDialog'
 import SessionDetailsDrawer from './SessionDetailsDrawer'
+import SessionCenterTabs from './sessions/SessionCenterTabs'
+import SessionFilesWatchHost from './sessions/SessionFilesWatchHost'
 import {
   hostUnavailable,
   sessionActionState,
@@ -42,6 +36,7 @@ import {
 } from './sessions/session-menu'
 import { useLocale, useT } from '../i18n/use-i18n'
 import { useFilesDirtyCount } from '../files/open-files'
+import type { DiffTabRequest } from '../files/open-files'
 import {
   activityDotClass,
   activityLabel,
@@ -83,28 +78,25 @@ type Props = {
   notify: (notice: Notice) => void
   /** Bumped by the global refresh action; every tools panel reloads. */
   refreshToken: number
-  /** A file opened from outside the panel (search hit, quick open). */
-  openRequest: { path: string; line: number; nonce: number } | null
-  onOpenRequestHandled: () => void
+  /** A one-shot file request routed to the center editor. */
+  centerRequest?: { path: string; line: number; nonce: number; preview?: boolean } | null
+  onCenterRequestHandled?: () => void
+  /** A one-shot diff tab request from the Changes list. */
+  diffRequest?: {
+    sessionId: string
+    request: DiffTabRequest
+    preview: boolean
+    nonce: number
+  } | null
+  onDiffRequestHandled?: () => void
+  /** Opens Source Control History filtered to the open file. */
+  onOpenHistory?: (path: string) => void
   /** Sends review feedback to the Agent's terminal. */
   onSendToAgent: (text: string) => Promise<AgentSendResult>
   /** Review notes, feedback and commit message, keyed by session. */
   drafts: WorkbenchDraftStore
-  /** Asks the shell to open a file in the Files tab (Git list, review). */
-  onRequestOpenInFiles: (path: string, line: number) => void
-  /**
-   * A view another surface asked for (a task's Changes button).
-   *
-   * `nonce` makes repeating the same request observable, so clicking "Changes"
-   * twice still lands on Changes rather than being ignored as unchanged.
-   */
-  viewRequest: { view: 'terminal' | 'changes' | 'files'; nonce: number } | null
-  onViewRequestHandled: () => void
-  /** Shows a labelled restore control only while the Sessions column is hidden. */
-  sessionsListHidden?: boolean
-  onShowSessionsList?: () => void
-  /** Split mode hides the internal Files/Changes panes for an external inspector. */
-  layout?: 'tabs' | 'split'
+  /** True while this session's pane is the focused one. */
+  focused?: boolean
   /** Focus mode drops the session header so only the terminal remains. */
   hideHeader?: boolean
   /** Split panes render a drag affordance at the start of their header. */
@@ -365,16 +357,13 @@ export default function SessionWorkspace({
   onError,
   notify,
   refreshToken,
-  openRequest,
-  onOpenRequestHandled,
-  onSendToAgent,
+  centerRequest = null,
+  onCenterRequestHandled,
+  diffRequest = null,
+  onDiffRequestHandled,
+  onOpenHistory,
   drafts,
-  onRequestOpenInFiles,
-  viewRequest,
-  onViewRequestHandled,
-  sessionsListHidden = false,
-  onShowSessionsList,
-  layout = 'tabs',
+  focused = true,
   hideHeader = false,
   dragHandle,
   worktreeShared = false
@@ -384,10 +373,6 @@ export default function SessionWorkspace({
   const worktree = session.worktree
   const unsavedFiles = useFilesDirtyCount(session.id)
   const blocked = worktreeBlocksTerminal(worktree)
-  // The view survives re-renders but resets when the active session changes.
-  const [view, setView] = useState<'terminal' | 'changes' | 'files' | 'search'>('terminal')
-  const [filesReloadToken, setFilesReloadToken] = useState(0)
-  const [historyRequest, setHistoryRequest] = useState<{ path: string; nonce: number } | null>(null)
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [removeOpen, setRemoveOpen] = useState(false)
   const [sleepOpen, setSleepOpen] = useState(false)
@@ -408,18 +393,6 @@ export default function SessionWorkspace({
     setDetailsOpen(false)
   }, [session.id])
 
-  useEffect(() => {
-    if (layout === 'split') return
-    if (!viewRequest) return
-    setView(viewRequest.view)
-    onViewRequestHandled()
-  }, [layout, viewRequest, onViewRequestHandled])
-  const [viewSessionId, setViewSessionId] = useState(session.id)
-  if (viewSessionId !== session.id) {
-    setViewSessionId(session.id)
-    setView('terminal')
-    setHistoryRequest(null)
-  }
   const activity = session.activity
   // Unknown is an absence of evidence, not a state worth occupying the compact
   // header with. Details explains why it is absent.
@@ -431,9 +404,7 @@ export default function SessionWorkspace({
     <section className="flex min-h-0 min-w-0 flex-1 flex-col">
       {hideHeader ? null : (
       <header
-        className={`icode-titlebar shrink-0 border-b border-border bg-background ${
-          layout === 'tabs' ? 'window-chrome-safe' : ''
-        }`}
+        className="icode-titlebar shrink-0 border-b border-border bg-background"
         data-testid="session-header"
       >
         <div className="flex h-12 items-center gap-2 px-3">
@@ -523,96 +494,6 @@ export default function SessionWorkspace({
             </span>
           </div>
 
-          {layout === 'tabs' ? (
-          <div
-            className="flex shrink-0 items-center gap-0.5 rounded-md border border-border bg-muted/30 p-0.5"
-            role="tablist"
-            aria-label={t('session.view')}
-          >
-            <button
-              type="button"
-              role="tab"
-              aria-selected={view === 'terminal'}
-              aria-label={t('session.viewTerminal')}
-              title={t('session.viewTerminal')}
-              className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded px-2 text-[11px] ${
-                view === 'terminal'
-                  ? 'bg-card text-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-              onClick={() => setView('terminal')}
-              data-testid="view-terminal"
-            >
-              <TerminalSquare size={13} />
-              <span className="hidden xl:inline">{t('session.viewTerminal')}</span>
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={view === 'changes'}
-              aria-label={t('session.viewSourceControl')}
-              title={t('session.viewSourceControl')}
-              className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded px-2 text-[11px] ${
-                view === 'changes'
-                  ? 'bg-card text-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-              onClick={() => setView('changes')}
-              data-testid="view-changes"
-            >
-              <FileDiff size={13} />
-              <span className="hidden xl:inline">{t('session.viewSourceControl')}</span>
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={view === 'files'}
-              aria-label={t('session.viewFiles')}
-              title={t('session.viewFiles')}
-              className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded px-2 text-[11px] ${
-                view === 'files'
-                  ? 'bg-card text-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-              onClick={() => setView('files')}
-              data-testid="view-files"
-            >
-              <Files size={13} />
-              <span className="hidden xl:inline">{t('session.viewFiles')}</span>
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={view === 'search'}
-              aria-label={t('session.viewSearch')}
-              title={t('session.viewSearch')}
-              className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded px-2 text-[11px] ${
-                view === 'search'
-                  ? 'bg-card text-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-              onClick={() => setView('search')}
-              data-testid="view-search"
-            >
-              <Search size={13} />
-              <span className="hidden xl:inline">{t('session.viewSearch')}</span>
-            </button>
-          </div>
-          ) : null}
-
-          {layout === 'tabs' && sessionsListHidden && onShowSessionsList !== undefined ? (
-            <button
-              type="button"
-              className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
-              onClick={onShowSessionsList}
-              title={t('session.showSessions')}
-              data-testid="show-sessions-list"
-            >
-              <PanelLeftOpen size={12} />
-              {t('session.sessions')}
-            </button>
-          ) : null}
-
           <SessionActionsMenu
             state={actions}
             allowSleep={allowSleep}
@@ -642,104 +523,54 @@ export default function SessionWorkspace({
         </div>
       ) : null}
 
-      <div className={`relative min-h-0 flex-1 bg-background ${layout === 'split' || view === 'terminal' ? '' : 'hidden'}`}>
-        {panes.map((candidate) => (
-          <TerminalPane
-            key={`${candidate.id}:${candidate.incarnationId ?? 'pending'}`}
-            session={candidate}
-            active={paneActive(session, candidate)}
-            onError={onError}
-          />
-        ))}
-        {!activePane && recovery !== null && progressVisible ? (
-          <SessionProgressPanel phase={recovery} />
-        ) : !activePane && worktree && (blocked || worktree.status === 'failed') ? (
-          <SessionProblemPanel
-            session={session}
-            worktree={worktree}
-            onRetry={() => onRestart(session.id)}
-            onRemove={() => setRemoveOpen(true)}
-            onStartFresh={() =>
-              onRecoverWorktree(session.id, { keepExistingAsAside: true })
-            }
-          />
-        ) : !activePane ? (
-          <StatePanel
-            session={session}
-            onRestart={() => onRestart(session.id)}
-            onResume={onResume === undefined ? undefined : () => onResume(session.id)}
-            onRecheck={() => onRecheck(session.id)}
-          />
-        ) : null}
-      </div>
+      <SessionFilesWatchHost sessionId={session.id} />
 
-      {layout === 'tabs' ? (
-        <>
-      <div
-        className={`flex min-h-0 flex-1 ${view === 'files' ? '' : 'hidden'}`}
-        data-testid="files-view"
-      >
-        <FilesPanel
-          sessionId={session.id}
-          refreshToken={refreshToken + filesReloadToken}
-          active={view === 'files'}
-          notify={notify}
-          openRequest={openRequest}
-          onOpenRequestHandled={onOpenRequestHandled}
-          onOpenHistory={(path) => {
-            setHistoryRequest({ path, nonce: Date.now() })
-            setView('changes')
-          }}
-          editorEngine="monaco"
-        />
-      </div>
-
-      <div
-        className={`min-h-0 flex-1 ${view === 'changes' ? '' : 'hidden'}`}
-        data-testid="changes-view"
-      >
-        <ChangesPanel
-          sessionId={session.id}
-          sessionState={session.state}
-          repoId={session.repoId}
-          harness={session.harness}
-          baseOid={worktree?.baseOid ?? null}
-          refreshToken={refreshToken}
-          active={view === 'changes'}
-          notify={notify}
-          onOpenPath={(path) => {
-            setView('files')
-            onRequestOpenInFiles(path, 1)
-          }}
-          onOpenTerminal={() => setView('terminal')}
-          onSendToAgent={onSendToAgent}
-          canSendToAgent={session.state === 'live' && isAgentHarness(session.harness)}
-          drafts={drafts}
-          onChanged={() => onRecheck(session.id)}
-          initialHistoryPath={historyRequest}
-          onHistoryPathHandled={() => setHistoryRequest(null)}
-        />
-      </div>
-
-      <div
-        className={`flex min-h-0 flex-1 ${view === 'search' ? '' : 'hidden'}`}
-        data-testid="search-view"
-      >
-        <FilesSearchPanel
-          key={session.id}
-          sessionId={session.id}
-          active={view === 'search'}
-          notify={notify}
-          onOpenPath={(path, line) => {
-            setView('files')
-            onRequestOpenInFiles(path, line)
-          }}
-          onReplaced={() => setFilesReloadToken((value) => value + 1)}
-        />
-      </div>
-
-        </>
-      ) : null}
+      <SessionCenterTabs
+        sessionId={session.id}
+        refreshToken={refreshToken}
+        notify={notify}
+        focused={focused}
+        hideStrip={hideHeader}
+        request={centerRequest}
+        onRequestHandled={onCenterRequestHandled ?? (() => undefined)}
+        diffRequest={diffRequest}
+        onDiffRequestHandled={onDiffRequestHandled ?? (() => undefined)}
+        onOpenHistory={onOpenHistory}
+        drafts={drafts}
+        sessionState={session.state}
+        terminal={
+          <div className="relative min-h-0 flex-1 bg-background" data-testid="terminal-view">
+            {panes.map((candidate) => (
+              <TerminalPane
+                key={`${candidate.id}:${candidate.incarnationId ?? 'pending'}`}
+                session={candidate}
+                active={paneActive(session, candidate)}
+                onError={onError}
+              />
+            ))}
+            {!activePane && recovery !== null && progressVisible ? (
+              <SessionProgressPanel phase={recovery} />
+            ) : !activePane && worktree && (blocked || worktree.status === 'failed') ? (
+              <SessionProblemPanel
+                session={session}
+                worktree={worktree}
+                onRetry={() => onRestart(session.id)}
+                onRemove={() => setRemoveOpen(true)}
+                onStartFresh={() =>
+                  onRecoverWorktree(session.id, { keepExistingAsAside: true })
+                }
+              />
+            ) : !activePane ? (
+              <StatePanel
+                session={session}
+                onRestart={() => onRestart(session.id)}
+                onResume={onResume === undefined ? undefined : () => onResume(session.id)}
+                onRecheck={() => onRecheck(session.id)}
+              />
+            ) : null}
+          </div>
+        }
+      />
 
       {detailsOpen ? (
         <SessionDetailsDrawer
