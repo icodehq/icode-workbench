@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **The center is now the workbench tab surface.** The terminal, open files and
+  diffs share one tab strip. A single click opens an italic preview tab that the
+  next single click replaces; double-clicking, typing, saving or acting on a
+  diff pins it. Hot-exit restores file tabs as permanent tabs, with their order
+  and whether the editor or terminal was showing.
+- **Diffs open in the center.** Clicking a working-tree, staged, untracked,
+  conflict or committed-since-base row opens its diff in a center tab, beside
+  the terminal, using the shared Source Control controller for hunk and conflict
+  actions. A diff tab follows its path when a hunk moves it between the index and
+  the worktree, and shows a stale notice if the change disappears entirely.
+- Files and Source Control row actions, search results, quick open, the command
+  palette and terminal links all route to the center editor.
+
+### Changed
+
+- The right inspector is a navigator: Files is a tree-only list and Source
+  Control is a change list. The History panel keeps its own list/detail layout in
+  the inspector.
+- The Files watcher has one owner per session (`SessionFilesWatchHost`); the
+  tree registers expanded folders and open tabs keep reconciliation alive while
+  the editor is showing. Source Control keeps one controller per session.
+- Inline blame follows the caret line only while the editor is the visible,
+  focused center tab.
+
+### Removed
+
+- The unreachable in-session `layout="tabs"` Files/Changes/Search center branch
+  and its duplicated test ids. `TaskWorkbench` keeps its own Files/Changes
+  composition unchanged.
+
 ## [0.27.0] - 2026-11-24
 
 ### Added

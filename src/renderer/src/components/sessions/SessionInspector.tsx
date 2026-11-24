@@ -15,6 +15,7 @@ import { usePanelResize } from '../../lib/use-panel-resize'
 import ChangesPanel from '../ChangesPanel'
 import FilesPanel from '../FilesPanel'
 import FilesSearchPanel from '../FilesSearchPanel'
+import type { DiffTabRequest } from '../../files/open-files'
 import { useT } from '../../i18n/use-i18n'
 
 type Pane = 'changes' | 'files' | 'search'
@@ -22,9 +23,16 @@ type Pane = 'changes' | 'files' | 'search'
 type Props = {
   session: SessionSummary
   refreshToken: number
-  openRequest: { path: string; line: number; nonce: number } | null
-  onOpenRequestHandled: () => void
   requestedPane: { pane: Pane; nonce: number } | null
+  /** History requested from the tree menu or the center editor. */
+  historyRequest?: { path: string; nonce: number } | null
+  onHistoryRequestHandled?: () => void
+  /** Opens a file as a center preview tab. */
+  onOpenFile: (path: string, line: number, options?: { preview?: boolean }) => void
+  /** Opens a diff as a center tab. */
+  onOpenDiff: (request: DiffTabRequest, options?: { preview?: boolean }) => void
+  /** Opens Source Control History filtered to a file. */
+  onOpenHistory: (path: string) => void
   notify: (notice: Notice) => void
   drafts: WorkbenchDraftStore
   onSendToAgent: (text: string) => Promise<AgentSendResult>
@@ -39,23 +47,25 @@ type Props = {
 }
 
 /**
- * Persistent right-hand inspector for a direct session.
+ * Persistent right-hand navigator for a direct session.
  *
- * Terminal stays in the center; Files and Changes live here. Both panes stay
- * mounted once visited, and collapse only hides the shell so editor state and
- * SCM polling survive.
+ * Files, Search and Source Control are lists here; the terminal, file editor
+ * and diffs share the center tab surface. Panes stay mounted once visited, and
+ * collapse only hides the shell so SCM polling and the tree survive.
  *
  * One row carries the pane switch and collapse control: the old eyebrow +
  * repo/branch header only repeated what the session header already shows.
- * The left edge is a drag seam, and the width is remembered, so the panel can
- * grow when a diff or an editor needs the room.
+ * The left edge is a drag seam, and the width is remembered.
  */
 export default function SessionInspector({
   session,
   refreshToken,
-  openRequest,
-  onOpenRequestHandled,
   requestedPane,
+  historyRequest = null,
+  onHistoryRequestHandled,
+  onOpenFile,
+  onOpenDiff,
+  onOpenHistory,
   notify,
   drafts,
   onSendToAgent,
@@ -71,14 +81,6 @@ export default function SessionInspector({
   const paneMemory = useRef(new Map<string, Pane>())
   const [visited, setVisited] = useState<Set<Pane>>(() => new Set<Pane>(['files']))
   const [filesReloadToken, setFilesReloadToken] = useState(0)
-  const [historyRequest, setHistoryRequest] = useState<{ path: string; nonce: number } | null>(
-    null
-  )
-  const [fileRequest, setFileRequest] = useState<{
-    path: string
-    line: number
-    nonce: number
-  } | null>(null)
 
   const [preferredWidth, setPreferredWidth] = useState<number>(() => loadInspectorWidth())
   const preferredRef = useRef(preferredWidth)
@@ -165,11 +167,6 @@ export default function SessionInspector({
     if (!requestedPane) return
     selectPane(requestedPane.pane)
   }, [requestedPane?.nonce])
-
-  useEffect(() => {
-    if (!openRequest) return
-    selectPane('files')
-  }, [openRequest?.nonce])
 
   const worktree = session.worktree
 
@@ -298,16 +295,12 @@ export default function SessionInspector({
                 refreshToken={refreshToken + filesReloadToken}
                 active={!collapsed && pane === 'files'}
                 notify={notify}
-                openRequest={fileRequest ?? openRequest}
-                onOpenRequestHandled={() => {
-                  setFileRequest(null)
-                  onOpenRequestHandled()
-                }}
+                listOnly
+                onOpenFile={onOpenFile}
                 onOpenHistory={(path) => {
-                  setHistoryRequest({ path, nonce: Date.now() })
+                  onOpenHistory(path)
                   selectPane('changes')
                 }}
-                editorEngine="monaco"
               />
             ) : null}
           </div>
@@ -322,8 +315,7 @@ export default function SessionInspector({
                 active={!collapsed && pane === 'search'}
                 notify={notify}
                 onOpenPath={(path, line) => {
-                  setFileRequest({ path, line, nonce: Date.now() })
-                  selectPane('files')
+                  onOpenFile(path, line, { preview: true })
                 }}
                 onReplaced={() => setFilesReloadToken((value) => value + 1)}
               />
@@ -345,8 +337,7 @@ export default function SessionInspector({
                 active={!collapsed && pane === 'changes'}
                 notify={notify}
                 onOpenPath={(path) => {
-                  setFileRequest({ path, line: 1, nonce: Date.now() })
-                  selectPane('files')
+                  onOpenFile(path, 1, { preview: true })
                 }}
                 onOpenTerminal={() => onOpenTerminal?.()}
                 onSendToAgent={onSendToAgent}
@@ -356,7 +347,9 @@ export default function SessionInspector({
                 drafts={drafts}
                 onChanged={onRecheck}
                 initialHistoryPath={historyRequest}
-                onHistoryPathHandled={() => setHistoryRequest(null)}
+                onHistoryPathHandled={() => onHistoryRequestHandled?.()}
+                presentation="list"
+                onOpenDiff={onOpenDiff}
               />
             ) : null}
           </div>

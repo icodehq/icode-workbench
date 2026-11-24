@@ -11,7 +11,7 @@ import {
   buildFileDecorations,
   type FileDecorations
 } from './file-decorations'
-import { isDirty, openFilesStore } from './open-files'
+import { fileTabs, isDirty, openFilesStore } from './open-files'
 
 export type LiveState = 'off' | 'watch' | 'poll'
 
@@ -163,7 +163,7 @@ export function useFilesWatch(input: {
         await reloadExpandedRef.current(true)
         clearWorktreeFileIndex(sessionId)
         const state = openFilesStore.get(sessionId)
-        for (const tab of state.tabs) {
+        for (const tab of fileTabs(state)) {
           if (cancelled) return
           if (tab.load !== 'ready') continue
           const stat = await callApi<FilesStatPayload>(

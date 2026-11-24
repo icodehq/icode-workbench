@@ -1196,7 +1196,7 @@ async function run() {
       `document.querySelector('[data-testid="scm-operation-continue"]')?.disabled ?? null`
     )
     assert(continueDisabled === true, 'Continue must be disabled while conflicts remain')
-    await click('[data-testid="working-file-conflicts-src/app.ts"]')
+    await click('[data-testid="working-file-conflicts-src/app.ts"] button[aria-selected]')
     await waitForSelector('[data-testid="merge-editor"]', 15000)
     await waitFor(
       `Boolean(document.querySelector('[data-testid="merge-result"]')?.__icodeEditor) && Boolean(document.querySelector('[data-testid="merge-pane-incoming"]')?.__icodeEditor)`,
@@ -1414,6 +1414,11 @@ async function run() {
     assert(
       content.includes('Edited in the real editor.'),
       `the Monaco edit was not saved: ${content.slice(0, 200)}`
+    )
+    // The caret follows the inserted text to the trailing empty line; blame is
+    // rendered for the caret line, so put it back on a blamed line.
+    await cdp.evaluate(
+      `document.querySelector('[data-testid="monaco-editor"]')?.__icodeEditor?.setPosition({ lineNumber: 1, column: 1 })`
     )
     await waitForSelector('.icode-blame-inline', 15000)
     const blameAfter = (

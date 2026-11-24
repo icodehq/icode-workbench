@@ -23,7 +23,7 @@ import { useFilesDecorations, useFilesWatch } from '../files/use-files-live'
 import { useFilesEditing } from '../files/use-files-editing'
 import { useFilesLayout } from '../files/use-files-layout'
 import { useFilesOperations } from '../files/use-files-operations'
-import { useFilesTabs } from '../files/use-files-tabs'
+import { useSessionEditor } from '../files/use-session-editor'
 import { useFilesTree } from '../files/use-files-tree'
 import { useFilesViewport } from '../files/use-files-viewport'
 import { deriveWatchRoots } from '../files/watch-roots'
@@ -33,7 +33,18 @@ import { isGitMetadata } from '../files/search-utils'
 import { translate } from '../i18n/i18n-store'
 import { useT, useTp } from '../i18n/use-i18n'
 import { buildTreeRows } from '../files/tree-layout'
-import { isDirty, openFilesStore, useSessionFiles } from '../files/open-files'
+import {
+  activeFileTab,
+  activeRevealPath,
+  fileTabs,
+  isDirty,
+  openFilesStore,
+  useSessionFiles
+} from '../files/open-files'
+import {
+  setSessionTreeWatch,
+  useSessionLiveState
+} from '../files/session-watch-registry'
 import {
   EMPTY_SELECTION,
   collapseSelectedPaths,
@@ -69,12 +80,18 @@ export type FilesPanelProps = {
   active: boolean
   notify: (notice: Notice) => void
   /** A file to open at a line, requested from search / quick open. */
-  openRequest: { path: string; line: number; nonce: number } | null
-  onOpenRequestHandled: () => void
+  openRequest?: { path: string; line: number; nonce: number } | null
+  onOpenRequestHandled?: () => void
   /** Opens Source Control History filtered to the open file. */
   onOpenHistory?: (path: string) => void
   /** `monaco` opts into the bundled editor; the default keeps the textarea. */
   editorEngine?: 'monaco' | 'plain'
+  /**
+   * Tree-only composition for the session inspector: the center owns the
+   * editor, watcher and hot-exit state. Clicks route to `onOpenFile`.
+   */
+  listOnly?: boolean
+  onOpenFile?: (path: string, line: number, options?: { preview?: boolean }) => void
 }
 
 type ContextTarget =
@@ -100,20 +117,20 @@ export default function FilesPanel({
   refreshToken,
   active,
   notify,
-  openRequest,
+  openRequest = null,
   onOpenRequestHandled,
   onOpenHistory,
-  editorEngine = 'plain'
+  editorEngine = 'plain',
+  listOnly = false,
+  onOpenFile
 }: FilesPanelProps): React.JSX.Element {
   const t = useT()
   const tp = useTp()
   const sessionFiles = useSessionFiles(sessionId)
+  const registeredLive = useSessionLiveState(sessionId)
   const settings = useFilesSettings()
-  const tabs = sessionFiles.tabs
-  const activeTab =
-    sessionFiles.activePath === null
-      ? null
-      : (tabs.find((tab) => tab.path === sessionFiles.activePath) ?? null)
+  const tabs = fileTabs(sessionFiles)
+  const activeTab = activeFileTab(sessionFiles)
   const dirtyCount = tabs.reduce((count, tab) => (isDirty(tab) ? count + 1 : count), 0)
 
   const {
@@ -169,7 +186,7 @@ export default function FilesPanel({
     twoColumn,
     persistListWidth,
     handleProps
-  } = useFilesLayout({ active, detailOpen, settings })
+  } = useFilesLayout({ active: active && !listOnly, detailOpen: !listOnly && detailOpen, settings })
 
   const visibleChildren = useMemo(
     () =>
@@ -249,7 +266,7 @@ export default function FilesPanel({
     setUndoStack([])
     setUndoing(false)
     setTrashBanner(null)
-    const activePath = openFilesStore.get(sessionId).activePath
+    const activePath = activeRevealPath(openFilesStore.get(sessionId))
     setSelection(
       activePath === null
         ? EMPTY_SELECTION
@@ -349,6 +366,19 @@ export default function FilesPanel({
   )
   reloadExpandedRef.current = reloadExpanded
 
+  // The session watch host owns the single IPC watcher; this tree only says
+  // what it can display and how to reload after a tick.
+  useEffect(() => {
+    if (!listOnly) return
+    setSessionTreeWatch(sessionId, {
+      visible: active,
+      expanded: tree.expanded,
+      reloadExpanded: () => reloadExpanded(true),
+      rootState
+    })
+    return () => setSessionTreeWatch(sessionId, null)
+  }, [active, listOnly, reloadExpanded, rootState, sessionId, tree.expanded])
+
   const { decorations, setDecorations, scheduleDecorationsRef } = useFilesDecorations({
     sessionId,
     active,
@@ -419,13 +449,14 @@ export default function FilesPanel({
     resolveConflictReload,
     cancelConflict,
     onTabKeyDown
-  } = useFilesTabs({
+  } = useSessionEditor({
     sessionId,
     refreshToken,
     notify,
     sessionFiles,
     tabs,
     activeTab,
+    enabled: !listOnly,
     revealPath,
     setSelection,
     selectOnly,
@@ -437,9 +468,10 @@ export default function FilesPanel({
   // Auto-reveal scrolls the tree to the active tab when Files opens or the
   // active tab changes. It expands ancestors first, then waits for the rows to
   // render; watcher reloads do not retrigger it because only these inputs do.
+  const revealPathValue = activeRevealPath(sessionFiles)
   useEffect(() => {
     if (!active || !settings.autoReveal) return
-    const path = sessionFiles.activePath
+    const path = revealPathValue
     if (path === null) return
     let cancelled = false
     let attempts = 0
@@ -463,10 +495,14 @@ export default function FilesPanel({
       cancelled = true
       if (timer !== null) window.clearTimeout(timer)
     }
-  }, [active, sessionFiles.activePath, settings.autoReveal])
+  }, [active, revealPathValue, settings.autoReveal])
 
   const openPath = useCallback(
-    async (path: string, line = 1): Promise<void> => {
+    async (
+      path: string,
+      line = 1,
+      options?: { preview?: boolean }
+    ): Promise<void> => {
       setDetailDismissed(false)
       setFileNote('')
       if (isGitMetadata(path)) {
@@ -474,16 +510,20 @@ export default function FilesPanel({
         setFileNote(translate('files.gitMetadataReadOnly'))
         return
       }
+      if (listOnly) {
+        onOpenFile?.(path, line, options ?? { preview: false })
+        return
+      }
       await loadTab(path, line)
     },
-    [loadTab]
+    [listOnly, loadTab, onOpenFile]
   )
 
   // A request from search or quick open selects the file and reveals the line.
   useEffect(() => {
     if (!openRequest) return
-    void openPath(openRequest.path, openRequest.line)
-    onOpenRequestHandled()
+    void openPath(openRequest.path, openRequest.line, { preview: true })
+    onOpenRequestHandled?.()
   }, [onOpenRequestHandled, openPath, openRequest])
 
   // The watcher follows what the pane can show: the root, expanded folders,
@@ -496,11 +536,12 @@ export default function FilesPanel({
 
   const { liveState } = useFilesWatch({
     sessionId,
-    active,
+    active: active && !listOnly,
     roots: watchRoots,
     rootStateRef,
     reloadExpandedRef
   })
+  const effectiveLiveState = listOnly ? registeredLive : liveState
 
 
 
@@ -582,7 +623,7 @@ export default function FilesPanel({
 
   const toggleEntry = async (entry: FileEntry): Promise<void> => {
     if (entry.kind === 'file') {
-      await openPath(entry.path, 1)
+      await openPath(entry.path, 1, listOnly ? { preview: true } : undefined)
       return
     }
     setFileNote('')
@@ -979,13 +1020,11 @@ export default function FilesPanel({
   const deleteDirtyCount =
     deletePrompt === null
       ? 0
-      : openFilesStore
-          .get(sessionId)
-          .tabs.filter(
-            (tab) =>
-              isDirty(tab) &&
-              deletePrompt.paths.some((path) => isUnder(tab.path, path))
-          ).length
+      : fileTabs(openFilesStore.get(sessionId)).filter(
+          (tab) =>
+            isDirty(tab) &&
+            deletePrompt.paths.some((path) => isUnder(tab.path, path))
+        ).length
 
   const editParent =
     edit === null ? '' : edit.kind === 'rename' ? parentPathOf(edit.path) : edit.parent
@@ -1138,6 +1177,11 @@ export default function FilesPanel({
         } ${isCut(entry.path) ? 'opacity-45' : ''} ${row.nested === true ? 'opacity-80' : ''}`}
         style={{ paddingLeft: `${String(row.depth * 12 + 4)}px` }}
         onClick={(event) => onRowClick(event, row)}
+        onDoubleClick={(event) => {
+          if (!listOnly || entry.kind !== 'file') return
+          event.preventDefault()
+          onOpenFile?.(entry.path, 1, { preview: false })
+        }}
         onContextMenu={(event) => onRowContextMenu(event, row)}
         draggable={edit === null}
         onDragStart={(event) => onDragStart(event, row)}
@@ -1484,7 +1528,7 @@ export default function FilesPanel({
       ref={panelRef}
       className="relative flex h-full min-h-0 flex-1"
       data-testid="files-panel"
-      data-live-mode={liveState}
+      data-live-mode={effectiveLiveState}
       data-busy={transferBusy ? 'true' : 'false'}
     >
       <div
@@ -1504,7 +1548,7 @@ export default function FilesPanel({
           >
             {rootNote || t('files.move.root')}
           </span>
-          {liveState === 'poll' ? (
+          {effectiveLiveState === 'poll' ? (
             <span
               className="shrink-0 text-[9px] text-signal"
               title={t('files.toolbar.watcherUnavailable')}
@@ -1594,6 +1638,15 @@ export default function FilesPanel({
               {t('files.trash.restore')}
             </button>
           </div>
+        ) : null}
+
+        {listOnly && fileNote.length > 0 ? (
+          <p
+            className="border-b border-border px-3 py-1 text-[10px] text-signal"
+            data-testid="files-file-note"
+          >
+            {fileNote}
+          </p>
         ) : null}
 
         <div
@@ -1739,7 +1792,7 @@ export default function FilesPanel({
         ) : null}
       </div>
 
-      {twoColumn ? (
+      {twoColumn && !listOnly ? (
         <div
           role="separator"
           aria-orientation="vertical"
@@ -1760,6 +1813,7 @@ export default function FilesPanel({
         />
       ) : null}
 
+      {listOnly ? null : (
       <div
         className={
           detailVisible
@@ -1881,6 +1935,7 @@ export default function FilesPanel({
           />
         )}
       </div>
+      )}
 
       {unsaved !== null ? (
         <UnsavedFilesDialog

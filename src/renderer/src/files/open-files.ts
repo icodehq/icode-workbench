@@ -1,18 +1,33 @@
 import { translate } from '../i18n/i18n-store'
 import { useCallback, useSyncExternalStore } from 'react'
 import { z } from 'zod'
+import type { GitRangeFile } from '../../../shared/domain/git-workspace'
+import type { WorkingTreeEntry } from '../review/working-tree'
 
 /**
- * Open files belong to a session, not to the Files panel.
+ * Center tabs belong to a session, not to a panel.
  *
- * `SessionWorkspace` keeps its view state but the Files panel is re-created
- * when the active session changes. A tiny external store keeps each session's
- * tabs, unsaved text and active tab alive across that switch. Phase D adds a
- * debounced hot-exit backup in IndexedDB so a normal app restart restores the
- * same tabs and dirty buffers; the in-memory store remains authoritative.
+ * `SessionWorkspace` is re-created when the active session changes. A tiny
+ * external store keeps each session's open tabs, unsaved text, active tab and
+ * center mode alive across that switch. A debounced hot-exit backup in
+ * IndexedDB restores the same file tabs and dirty buffers after a restart; the
+ * in-memory store remains authoritative.
+ *
+ * File and diff tabs share one ordered list so the center strip is the only
+ * navigation order. Diff tabs are read-only projections of the working tree or
+ * a committed range: they are transient, never dirty and never persisted.
+ *
+ * The list is scoped by session today. The workspace-tabs layer will later
+ * re-key it to a worktree-scoped list; the `kind` discriminator and preview
+ * rules are the shared interface (see docs/workbench-tabs.md).
  */
 
-export type OpenFileTab = {
+export type CenterMode = 'terminal' | 'editor'
+
+export type FileTab = {
+  kind: 'file'
+  /** A single click opens a preview tab the next single click replaces. */
+  preview: boolean
   /** Worktree-relative, normalized by main. */
   path: string
   text: string
@@ -26,9 +41,31 @@ export type OpenFileTab = {
   failure: string | null
 }
 
+/** What a diff tab shows; the host fetches the payload. */
+export type DiffTabRequest =
+  | { kind: 'working'; entry: WorkingTreeEntry }
+  | { kind: 'committed'; baseOid: string; file: GitRangeFile }
+
+export type DiffTab = {
+  kind: 'diff'
+  preview: boolean
+  /** Stable identity: scope + path, or base + path for committed rows. */
+  key: string
+  request: DiffTabRequest
+}
+
+export type CenterTab = FileTab | DiffTab
+
+/** File tabs keep this name for the existing Files panel composition. */
+export type OpenFileTab = FileTab
+
 export type FilesSessionState = {
-  tabs: OpenFileTab[]
+  tabs: CenterTab[]
+  /** Key of the active tab; null means the terminal is showing. */
+  activeKey: string | null
+  /** Active file path for the tree/highlight and legacy consumers. */
   activePath: string | null
+  mode: CenterMode
 }
 
 export type DirtyFileTab = {
@@ -41,9 +78,50 @@ export type DirtyFileTab = {
 }
 
 const EMPTY_STATE: FilesSessionState = Object.freeze({
-  tabs: Object.freeze([]) as unknown as OpenFileTab[],
-  activePath: null
+  tabs: Object.freeze([]) as unknown as CenterTab[],
+  activeKey: null,
+  activePath: null,
+  mode: 'terminal'
 })
+
+export function isFileTab(tab: CenterTab): tab is FileTab {
+  return tab.kind === 'file'
+}
+
+export function fileTabs(state: FilesSessionState): FileTab[] {
+  return state.tabs.filter(isFileTab)
+}
+
+export function activeTab(state: FilesSessionState): CenterTab | null {
+  if (state.activeKey === null) return null
+  return state.tabs.find((tab) => tabKey(tab) === state.activeKey) ?? null
+}
+
+export function activeFileTab(state: FilesSessionState): FileTab | null {
+  const tab = activeTab(state)
+  return tab !== null && isFileTab(tab) ? tab : null
+}
+
+/** The file or diff path the tree should highlight for the active tab. */
+export function activeRevealPath(state: FilesSessionState): string | null {
+  const tab = activeTab(state)
+  if (tab === null) return null
+  if (isFileTab(tab)) return tab.path
+  return tab.request.kind === 'working'
+    ? tab.request.entry.entry.path
+    : tab.request.file.path
+}
+
+export function tabKey(tab: CenterTab): string {
+  return isFileTab(tab) ? tab.path : tab.key
+}
+
+export function diffTabKey(request: DiffTabRequest): string {
+  if (request.kind === 'committed') {
+    return `diff:committed:${request.baseOid}:${request.file.path}`
+  }
+  return `diff:${request.entry.area}:${request.entry.entry.path}`
+}
 
 /**
  * Upper bound on buffered file text. This is a guard against opening a wall of
@@ -60,6 +138,9 @@ export type OpenFilesPersistence = {
 }
 
 const tabSchema = z.object({
+  /** Absent on payloads written before center tabs. */
+  kind: z.literal('file').optional(),
+  preview: z.boolean().optional(),
   path: z.string().min(1).max(4096),
   text: z.string().max(FILES_MAX_BUFFERED_CHARS),
   savedText: z.string().max(FILES_MAX_BUFFERED_CHARS),
@@ -72,7 +153,10 @@ const tabSchema = z.object({
 
 const stateSchema = z.object({
   tabs: z.array(tabSchema).max(200),
-  activePath: z.string().max(4096).nullable()
+  /** Legacy active file; still written so older builds can restore buffers. */
+  activePath: z.string().max(4096).nullable().optional(),
+  activeKey: z.string().max(4096).nullable().optional(),
+  mode: z.enum(['terminal', 'editor']).optional()
 })
 
 const payloadSchema = z.object({
@@ -82,22 +166,47 @@ const payloadSchema = z.object({
 
 export type PersistedOpenFiles = z.infer<typeof payloadSchema>
 
-/** Turns a stored payload into usable state, dropping malformed tabs whole. */
+/**
+ * Turns a stored payload into usable state, dropping malformed tabs whole.
+ *
+ * Restored tabs are always permanent: a preview tab is a transient browsing
+ * state, not a promise about the next launch. Older payloads lack `activeKey`
+ * and `mode`, so the active file stands in and the editor opens when it did.
+ */
 export function parsePersistedOpenFiles(raw: unknown): Map<string, FilesSessionState> {
   const parsed = payloadSchema.safeParse(raw)
   if (!parsed.success) return new Map()
   const result = new Map<string, FilesSessionState>()
   for (const [sessionId, state] of Object.entries(parsed.data.sessions)) {
-    const tabs = state.tabs.map((tab) =>
-      tab.load === 'loading'
-        ? {
-            ...tab,
-            load: 'failed' as const,
-            failure: translate('fileIndex.editorClosed')
-          }
-        : tab
-    )
-    result.set(sessionId, { tabs, activePath: state.activePath })
+    const tabs: FileTab[] = state.tabs.map((tab) => ({
+      kind: 'file',
+      preview: false,
+      path: tab.path,
+      text: tab.text,
+      savedText: tab.savedText,
+      original: tab.original,
+      etag: tab.etag,
+      disk: tab.disk,
+      load: tab.load === 'loading' ? 'failed' : tab.load,
+      failure: tab.load === 'loading' ? translate('fileIndex.editorClosed') : tab.failure
+    }))
+    const keys = new Set(tabs.map((tab) => tab.path))
+    const activePath =
+      state.activePath !== undefined && state.activePath !== null && keys.has(state.activePath)
+        ? state.activePath
+        : null
+    const activeKey =
+      state.activeKey !== undefined && state.activeKey !== null && keys.has(state.activeKey)
+        ? state.activeKey
+        : (activePath ?? tabs[0]?.path ?? null)
+    const mode =
+      state.mode === 'terminal' || activeKey === null ? 'terminal' : ('editor' as const)
+    result.set(sessionId, {
+      tabs,
+      activeKey,
+      activePath: activeKey !== null && keys.has(activeKey) ? activeKey : null,
+      mode
+    })
   }
   return result
 }
@@ -140,23 +249,47 @@ export function createIndexedDbPersistence(): OpenFilesPersistence | null {
   }
 }
 
-export function isDirty(tab: OpenFileTab): boolean {
+export function isDirty(tab: FileTab): boolean {
   return tab.text !== tab.savedText
 }
 
 function replaceTab(
   state: FilesSessionState,
   path: string,
-  update: (tab: OpenFileTab) => OpenFileTab
+  update: (tab: FileTab) => FileTab
 ): FilesSessionState {
   let changed = false
   const tabs = state.tabs.map((tab) => {
-    if (tab.path !== path) return tab
+    if (!isFileTab(tab) || tab.path !== path) return tab
     const next = update(tab)
     if (next !== tab) changed = true
     return next
   })
   return changed ? { ...state, tabs } : state
+}
+
+function replaceablePreview(tab: CenterTab): boolean {
+  return tab.preview && (!isFileTab(tab) || !isDirty(tab))
+}
+
+/**
+ * Picks the active tab and mode after a close/rename: a still-valid key wins,
+ * one tab replaced by its neighbour, no tabs by the terminal.
+ */
+function normalizeTabs(
+  tabs: CenterTab[],
+  activeKey: string | null,
+  mode: CenterMode
+): FilesSessionState {
+  const valid =
+    activeKey !== null && tabs.some((tab) => tabKey(tab) === activeKey) ? activeKey : null
+  const active = valid === null ? null : tabs.find((tab) => tabKey(tab) === valid) ?? null
+  return {
+    tabs,
+    activeKey: active === null ? null : valid,
+    activePath: active !== null && isFileTab(active) ? active.path : null,
+    mode: active === null ? 'terminal' : mode === 'terminal' ? 'terminal' : 'editor'
+  }
 }
 
 export class OpenFilesStore {
@@ -211,10 +344,29 @@ export class OpenFilesStore {
       clearTimeout(this.saveTimer)
       this.saveTimer = null
     }
-    const payload: PersistedOpenFiles = {
-      version: 1,
-      sessions: Object.fromEntries(this.states)
+    const sessions: PersistedOpenFiles['sessions'] = {}
+    for (const [sessionId, state] of this.states) {
+      // Diff tabs are transient; only file buffers and the file active tab survive.
+      const active = activeFileTab(state)
+      sessions[sessionId] = {
+        tabs: fileTabs(state).map((tab) => ({
+          kind: 'file' as const,
+          preview: false,
+          path: tab.path,
+          text: tab.text,
+          savedText: tab.savedText,
+          original: tab.original,
+          etag: tab.etag,
+          disk: tab.disk,
+          load: tab.load,
+          failure: tab.failure
+        })),
+        activePath: active?.path ?? null,
+        activeKey: active?.path ?? null,
+        mode: active !== null && state.mode === 'editor' ? 'editor' : 'terminal'
+      }
     }
+    const payload: PersistedOpenFiles = { version: 1, sessions }
     this.saveChain = this.saveChain
       .catch(() => undefined)
       .then(async () => {
@@ -247,33 +399,57 @@ export class OpenFilesStore {
     if (existing !== null) return true
     let total = 0
     for (const state of this.states.values()) {
-      for (const tab of state.tabs) total += tab.text.length
+      for (const tab of fileTabs(state)) total += tab.text.length
     }
     return total + extraChars <= FILES_MAX_BUFFERED_CHARS
   }
 
-  find(sessionId: string, path: string): OpenFileTab | null {
-    return this.get(sessionId).tabs.find((tab) => tab.path === path) ?? null
+  find(sessionId: string, path: string): FileTab | null {
+    return (
+      this.get(sessionId).tabs.find(
+        (tab): tab is FileTab => isFileTab(tab) && tab.path === path
+      ) ?? null
+    )
   }
 
   /**
    * Opens a file, or activates it when it is already open.
    *
    * Returns whether a new tab was created, so the caller knows whether it owes
-   * a read. An existing tab is never replaced or reloaded here: its buffer is
-   * the user's.
+   * a read, and the key of a preview tab it replaced. An existing tab is never
+   * replaced or reloaded here: its buffer is the user's. A permanent open pins
+   * an existing preview tab.
    */
-  open(sessionId: string, path: string): { tab: OpenFileTab; created: boolean } {
+  open(
+    sessionId: string,
+    path: string,
+    options?: { preview?: boolean }
+  ): { tab: FileTab; created: boolean; replacedKey: string | null } {
     const state = this.get(sessionId)
-    const existing = state.tabs.find((tab) => tab.path === path)
+    const existing = state.tabs.find(
+      (tab): tab is FileTab => isFileTab(tab) && tab.path === path
+    )
     if (existing !== undefined) {
-      if (state.activePath !== path) {
-        this.states.set(sessionId, { ...state, activePath: path })
+      const pin = options?.preview === false && existing.preview
+      if (state.activeKey !== path || pin) {
+        this.states.set(
+          sessionId,
+          normalizeTabs(
+            state.tabs.map((tab) =>
+              tab === existing ? { ...existing, preview: pin ? false : existing.preview } : tab
+            ),
+            path,
+            'editor'
+          )
+        )
         this.emit()
       }
-      return { tab: existing, created: false }
+      return { tab: pin ? { ...existing, preview: false } : existing, created: false, replacedKey: null }
     }
-    const tab: OpenFileTab = {
+    const preview = options?.preview === true
+    const tab: FileTab = {
+      kind: 'file',
+      preview,
       path,
       text: '',
       savedText: '',
@@ -283,19 +459,87 @@ export class OpenFilesStore {
       load: 'loading',
       failure: null
     }
-    this.states.set(sessionId, {
-      tabs: [...state.tabs, tab],
-      activePath: path
-    })
+    const replaced = preview ? state.tabs.find(replaceablePreview) : undefined
+    const replacedKey = replaced === undefined ? null : tabKey(replaced)
+    const tabs =
+      replaced === undefined
+        ? [...state.tabs, tab]
+        : state.tabs.map((candidate) => (candidate === replaced ? tab : candidate))
+    this.states.set(sessionId, normalizeTabs(tabs, path, 'editor'))
     this.emit()
-    return { tab, created: true }
+    return { tab, created: true, replacedKey }
+  }
+
+  /** Opens or focuses a diff tab. Diff tabs are never dirty and never persisted. */
+  openDiff(
+    sessionId: string,
+    request: DiffTabRequest,
+    options?: { preview?: boolean }
+  ): { tab: DiffTab; created: boolean; replacedKey: string | null } {
+    const state = this.get(sessionId)
+    const key = diffTabKey(request)
+    const existing = state.tabs.find(
+      (tab): tab is DiffTab => !isFileTab(tab) && tab.key === key
+    )
+    if (existing !== undefined) {
+      const pin = options?.preview === false && existing.preview
+      const tabs = pin
+        ? state.tabs.map((tab) => (tab === existing ? { ...existing, preview: false } : tab))
+        : state.tabs
+      if (state.activeKey !== key || pin) {
+        this.states.set(sessionId, normalizeTabs(tabs, key, 'editor'))
+        this.emit()
+      }
+      return { tab: pin ? { ...existing, preview: false } : existing, created: false, replacedKey: null }
+    }
+    const tab: DiffTab = {
+      kind: 'diff',
+      preview: options?.preview === true,
+      key,
+      request
+    }
+    const replaced = tab.preview
+      ? state.tabs.find(replaceablePreview)
+      : undefined
+    const tabs = replaced === undefined
+      ? [...state.tabs, tab]
+      : state.tabs.map((candidate) => (candidate === replaced ? tab : candidate))
+    this.states.set(sessionId, normalizeTabs(tabs, key, 'editor'))
+    this.emit()
+    return { tab, created: true, replacedKey: replaced === undefined ? null : tabKey(replaced) }
+  }
+
+  /** Keeps a preview tab open, so later previews no longer replace it. */
+  pin(sessionId: string, keyOrPath: string): void {
+    const state = this.get(sessionId)
+    let changed = false
+    const tabs = state.tabs.map((tab) => {
+      if (tabKey(tab) !== keyOrPath || !tab.preview) return tab
+      changed = true
+      return { ...tab, preview: false }
+    })
+    if (!changed) return
+    this.states.set(sessionId, { ...state, tabs })
+    this.emit()
+  }
+
+  setActiveKey(sessionId: string, key: string): void {
+    const state = this.get(sessionId)
+    if (state.activeKey === key && state.mode === 'editor') return
+    if (!state.tabs.some((tab) => tabKey(tab) === key)) return
+    this.states.set(sessionId, normalizeTabs(state.tabs, key, 'editor'))
+    this.emit()
   }
 
   setActive(sessionId: string, path: string): void {
+    this.setActiveKey(sessionId, path)
+  }
+
+  setMode(sessionId: string, mode: CenterMode): void {
     const state = this.get(sessionId)
-    if (state.activePath === path) return
-    if (!state.tabs.some((tab) => tab.path === path)) return
-    this.states.set(sessionId, { ...state, activePath: path })
+    if (state.mode === mode) return
+    if (mode === 'editor' && state.activeKey === null) return
+    this.states.set(sessionId, { ...state, mode })
     this.emit()
   }
 
@@ -336,7 +580,9 @@ export class OpenFilesStore {
   }
 
   updateText(sessionId: string, path: string, text: string): void {
-    this.update(sessionId, path, (tab) => (tab.text === text ? tab : { ...tab, text }))
+    this.update(sessionId, path, (tab) =>
+      tab.text === text && !tab.preview ? tab : { ...tab, text, preview: false }
+    )
   }
 
   markSaved(sessionId: string, path: string, etag: string): void {
@@ -344,7 +590,8 @@ export class OpenFilesStore {
       ...tab,
       savedText: tab.text,
       etag,
-      disk: 'current'
+      disk: 'current',
+      preview: false
     }))
   }
 
@@ -379,41 +626,114 @@ export class OpenFilesStore {
     )
   }
 
-  /** Follows an in-app rename or move for every open tab under that path. */
+  /**
+   * Follows an in-app rename or move for every open file tab under that path.
+   * A diff tab for the renamed path would now describe a file that no longer
+   * exists there, so it is closed instead of retargeted.
+   */
   renamePath(sessionId: string, from: string, to: string): void {
     const state = this.get(sessionId)
     const prefix = `${from}/`
+    const renamed = (path: string): string | null => {
+      if (path === from) return to
+      if (path.startsWith(prefix)) return `${to}/${path.slice(prefix.length)}`
+      return null
+    }
     let changed = false
-    const tabs = state.tabs.map((tab) => {
-      let nextPath: string
-      if (tab.path === from) nextPath = to
-      else if (tab.path.startsWith(prefix)) nextPath = `${to}/${tab.path.slice(prefix.length)}`
-      else return tab
+    let activeKey = state.activeKey
+    let mode = state.mode
+    const tabs: CenterTab[] = []
+    for (const tab of state.tabs) {
+      if (isFileTab(tab)) {
+        const nextPath = renamed(tab.path)
+        if (nextPath === null) {
+          tabs.push(tab)
+          continue
+        }
+        changed = true
+        if (activeKey === tab.path) activeKey = nextPath
+        // The quick-diff baseline is path-scoped; the next read refreshes it.
+        tabs.push({ ...tab, path: nextPath, original: null })
+        continue
+      }
+      const path =
+        tab.request.kind === 'working'
+          ? tab.request.entry.entry.path
+          : tab.request.file.path
+      if (renamed(path) === null) {
+        tabs.push(tab)
+        continue
+      }
       changed = true
-      // The quick-diff baseline is path-scoped; the next read refreshes it.
-      return { ...tab, path: nextPath, original: null }
-    })
-    let activePath = state.activePath
-    if (activePath === from) activePath = to
-    else if (activePath !== null && activePath.startsWith(prefix)) {
-      activePath = `${to}/${activePath.slice(prefix.length)}`
+      if (activeKey === tab.key) {
+        activeKey = null
+        mode = 'terminal'
+      }
     }
     if (!changed) return
-    this.states.set(sessionId, { tabs, activePath })
+    this.states.set(sessionId, normalizeTabs(tabs, activeKey, mode))
     this.emit()
   }
 
-  closeTab(sessionId: string, path: string): void {
+  closeTab(sessionId: string, keyOrPath: string): void {
     const state = this.get(sessionId)
-    const index = state.tabs.findIndex((tab) => tab.path === path)
+    const index = state.tabs.findIndex(
+      (tab) => tabKey(tab) === keyOrPath || (isFileTab(tab) && tab.path === keyOrPath)
+    )
     if (index === -1) return
-    const tabs = state.tabs.filter((tab) => tab.path !== path)
-    const activePath =
-      state.activePath !== path
-        ? state.activePath
-        : (tabs[Math.min(index, tabs.length - 1)]?.path ?? null)
-    if (tabs.length === 0) this.states.delete(sessionId)
-    else this.states.set(sessionId, { tabs, activePath })
+    const removed = state.tabs[index]
+    if (removed === undefined) return
+    const tabs = state.tabs.filter((_, position) => position !== index)
+    if (tabs.length === 0) {
+      this.states.delete(sessionId)
+      this.emit()
+      return
+    }
+    const wasActive = state.activeKey === tabKey(removed)
+    const nextActive = wasActive
+      ? tabKey(tabs[Math.min(index, tabs.length - 1)]!)
+      : state.activeKey
+    this.states.set(
+      sessionId,
+      normalizeTabs(tabs, nextActive, wasActive ? 'editor' : state.mode)
+    )
+    this.emit()
+  }
+
+  /** Closes every file and diff tab for a deleted path or any descendant. */
+  closeTabsUnder(sessionId: string, path: string): void {
+    const state = this.get(sessionId)
+    const under = (candidate: string | null | undefined): boolean =>
+      candidate !== undefined &&
+      candidate !== null &&
+      (candidate === path || candidate.startsWith(`${path}/`))
+    const matches = (tab: CenterTab): boolean => {
+      if (isFileTab(tab)) return under(tab.path)
+      if (tab.request.kind === 'working') {
+        return (
+          under(tab.request.entry.entry.path) || under(tab.request.entry.entry.oldPath)
+        )
+      }
+      return under(tab.request.file.path) || under(tab.request.file.oldPath)
+    }
+    const firstRemoved = state.tabs.findIndex(matches)
+    if (firstRemoved === -1) return
+    const tabs = state.tabs.filter((tab) => !matches(tab))
+    if (tabs.length === 0) {
+      this.states.delete(sessionId)
+      this.emit()
+      return
+    }
+    const wasActive = state.tabs.some(
+      (tab) => tabKey(tab) === state.activeKey && matches(tab)
+    )
+    const nextActive = wasActive
+      ? tabKey(tabs[Math.min(firstRemoved, tabs.length - 1)]!)
+      : state.activeKey
+    this.states.set(
+      sessionId,
+      normalizeTabs(tabs, nextActive, wasActive ? 'editor' : state.mode)
+    )
     this.emit()
   }
 
@@ -440,8 +760,8 @@ export class OpenFilesStore {
     if (changed) this.emit()
   }
 
-  dirtyTabs(sessionId: string): OpenFileTab[] {
-    return this.get(sessionId).tabs.filter(isDirty)
+  dirtyTabs(sessionId: string): FileTab[] {
+    return fileTabs(this.get(sessionId)).filter(isDirty)
   }
 
   dirtyCount(sessionId: string): number {
@@ -451,7 +771,7 @@ export class OpenFilesStore {
   allDirtyTabs(): DirtyFileTab[] {
     const result: DirtyFileTab[] = []
     for (const [sessionId, state] of this.states) {
-      for (const tab of state.tabs) {
+      for (const tab of fileTabs(state)) {
         if (!isDirty(tab)) continue
         result.push({
           sessionId,
@@ -470,7 +790,7 @@ export class OpenFilesStore {
     const sessions = new Set<string>()
     let files = 0
     for (const [sessionId, state] of this.states) {
-      for (const tab of state.tabs) {
+      for (const tab of fileTabs(state)) {
         if (!isDirty(tab)) continue
         files += 1
         sessions.add(sessionId)
@@ -482,7 +802,7 @@ export class OpenFilesStore {
   private update(
     sessionId: string,
     path: string,
-    updater: (tab: OpenFileTab) => OpenFileTab
+    updater: (tab: FileTab) => FileTab
   ): void {
     const state = this.get(sessionId)
     const next = replaceTab(state, path, updater)

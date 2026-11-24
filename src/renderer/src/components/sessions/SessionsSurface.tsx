@@ -5,6 +5,7 @@ import { harnessLabel } from '../../../../shared/domain/harness'
 import type { RepositorySummary, SessionSummary } from '../../../../shared/schemas/ipc'
 import type { AgentSendResult } from '../../lib/agent-send'
 import type { WorkbenchDraftStore } from '../../review/drafts'
+import type { DiffTabRequest } from '../../files/open-files'
 import type { OpenFileRequest, ViewRequest } from '../../router/use-app-navigation'
 import type { Notice, PendingAction, RecoveryPhase } from '../../state/workspace'
 import type { PendingCreate } from '../../state/pending-create'
@@ -114,6 +115,28 @@ export default function SessionsSurface({
     pane: 'changes' | 'files'
     nonce: number
   } | null>(null)
+  /**
+   * A one-shot open routed to the center editor. It carries the session so a
+   * request cannot land in a different pane after a selection change.
+   */
+  const [centerRequest, setCenterRequest] = useState<{
+    sessionId: string
+    path: string
+    line: number
+    preview: boolean
+    nonce: number
+  } | null>(null)
+  const [historyRequest, setHistoryRequest] = useState<{
+    path: string
+    nonce: number
+  } | null>(null)
+  /** A one-shot diff tab request from the Changes list. */
+  const [centerDiffRequest, setCenterDiffRequest] = useState<{
+    sessionId: string
+    request: DiffTabRequest
+    preview: boolean
+    nonce: number
+  } | null>(null)
   /*
    * The row that holds the terminal and the inspector. The inspector's drag
    * bounds are measured against this space, not the window, so the sidebar and
@@ -175,10 +198,62 @@ export default function SessionsSurface({
     onClearViewRequest()
   }, [viewRequest, onClearViewRequest])
 
+  // Quick open, palette file results and terminal links land in the center;
+  // the tree reveals the file if its pane is already open.
   useEffect(() => {
-    if (!openRequest) return
+    if (!openRequest || activeSession === null) return
+    setCenterRequest({
+      sessionId: activeSession.id,
+      path: openRequest.path,
+      line: openRequest.line,
+      preview: true,
+      nonce: openRequest.nonce
+    })
+    onClearOpenRequest()
+  }, [activeSession, onClearOpenRequest, openRequest])
+
+  const openFileInCenter = useCallback(
+    (sessionId: string, path: string, line: number, options?: { preview?: boolean }): void => {
+      setCenterRequest({
+        sessionId,
+        path,
+        line,
+        preview: options?.preview ?? true,
+        nonce: Date.now()
+      })
+    },
+    []
+  )
+
+  const openHistoryInInspector = useCallback((path: string): void => {
     setInspectorCollapsed(false)
-  }, [openRequest?.nonce])
+    setPaneRequest({ pane: 'changes', nonce: Date.now() })
+    setHistoryRequest({ path, nonce: Date.now() })
+  }, [])
+
+  const openDiffInCenter = useCallback(
+    (sessionId: string, request: DiffTabRequest, options?: { preview?: boolean }): void => {
+      setCenterDiffRequest({
+        sessionId,
+        request,
+        preview: options?.preview ?? true,
+        nonce: Date.now()
+      })
+    },
+    []
+  )
+
+  useEffect(() => {
+    if (centerRequest === null) return
+    if (sessions.some((session) => session.id === centerRequest.sessionId)) return
+    setCenterRequest(null)
+  }, [centerRequest, sessions])
+
+  useEffect(() => {
+    if (centerDiffRequest === null) return
+    if (sessions.some((session) => session.id === centerDiffRequest.sessionId)) return
+    setCenterDiffRequest(null)
+  }, [centerDiffRequest, sessions])
 
   const orderedSessions = useMemo(() => {
     const byId = new Map(sessions.map((session) => [session.id, session]))
@@ -542,7 +617,6 @@ export default function SessionsSurface({
               </button>
             )
           }
-          layout="split"
           hideHeader={focusActive}
           session={target}
           repo={repo}
@@ -558,10 +632,21 @@ export default function SessionsSurface({
           worktreeShared={worktreeIsShared(target, sessions)}
           allowSleep
           refreshToken={refreshToken}
-          openRequest={null}
-          viewRequest={null}
+          centerRequest={
+            centerRequest !== null && centerRequest.sessionId === target.id
+              ? centerRequest
+              : null
+          }
+          onCenterRequestHandled={() => setCenterRequest(null)}
+          diffRequest={
+            centerDiffRequest !== null && centerDiffRequest.sessionId === target.id
+              ? centerDiffRequest
+              : null
+          }
+          onDiffRequestHandled={() => setCenterDiffRequest(null)}
+          onOpenHistory={(path) => openHistoryInInspector(path)}
+          focused={target.id === activeSession.id}
           drafts={drafts}
-          sessionsListHidden={false}
           onRestart={sessionActions.restart}
           onResume={sessionActions.resume}
           onSleep={sessionActions.sleep}
@@ -572,9 +657,6 @@ export default function SessionsSurface({
           onError={onError}
           notify={notify}
           onSendToAgent={(text) => sendToAgent(text, target)}
-          onOpenRequestHandled={onClearOpenRequest}
-          onRequestOpenInFiles={() => undefined}
-          onViewRequestHandled={() => undefined}
         />
       </SessionPaneActionsProvider>
       {paneDrop !== null && paneDrop.targetId === target.id ? (
@@ -648,9 +730,16 @@ export default function SessionsSurface({
               <SessionInspector
                 session={activeSession}
                 refreshToken={refreshToken}
-                openRequest={openRequest}
-                onOpenRequestHandled={onClearOpenRequest}
                 requestedPane={paneRequest}
+                historyRequest={historyRequest}
+                onHistoryRequestHandled={() => setHistoryRequest(null)}
+                onOpenFile={(path, line, options) =>
+                  openFileInCenter(activeSession.id, path, line, options)
+                }
+                onOpenDiff={(request, options) =>
+                  openDiffInCenter(activeSession.id, request, options)
+                }
+                onOpenHistory={(path) => openHistoryInInspector(path)}
                 notify={notify}
                 drafts={drafts}
                 onSendToAgent={(text) => sendToAgent(text, activeSession)}

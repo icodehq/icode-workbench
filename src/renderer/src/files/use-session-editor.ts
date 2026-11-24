@@ -17,10 +17,11 @@ import type {
 import { translate, translatePlural } from '../i18n/i18n-store'
 import { clearWorktreeFileIndex } from './file-index'
 import { parentPathOf } from './file-paths'
-import { unavailableText } from './search-utils'
+import { isGitMetadata, unavailableText } from './search-utils'
 import {
   isDirty,
   openFilesStore,
+  type CenterMode,
   type FilesSessionState,
   type OpenFileTab
 } from './open-files'
@@ -35,23 +36,36 @@ export type ConflictPrompt = {
   detail: string
 }
 
-export function useFilesTabs(input: {
+/**
+ * File-tab editor state shared by the TaskWorkbench Files panel and the
+ * session center. The tree callbacks are optional: the center host has no tree
+ * of its own, so reveal/selection/decorations are supplied only by the
+ * `FilesPanel` composition. Diff tabs carry no buffer and are closed without a
+ * prompt.
+ */
+export function useSessionEditor(input: {
   sessionId: string
   refreshToken: number
   notify: (notice: Notice) => void
   sessionFiles: FilesSessionState
   tabs: OpenFileTab[]
   activeTab: OpenFileTab | null
-  revealPath: (path: string) => Promise<void>
-  setSelection: Dispatch<SetStateAction<SelectionState>>
-  selectOnly: (path: string) => void
-  loadDirectory: (
+  /**
+   * False for the inspector's tree-only composition: it must not re-read tabs,
+   * consume the hot-exit warning, or chase the active tab while the center owns
+   * the editor.
+   */
+  enabled?: boolean
+  revealPath?: (path: string) => Promise<void>
+  setSelection?: Dispatch<SetStateAction<SelectionState>>
+  selectOnly?: (path: string) => void
+  loadDirectory?: (
     path: string,
     quiet?: boolean,
     chainDepth?: number,
     allowFanout?: boolean
   ) => Promise<void>
-  scheduleDecorationsRef: MutableRefObject<((delay?: number) => void) | null>
+  scheduleDecorationsRef?: MutableRefObject<((delay?: number) => void) | null>
 }) {
   const {
     sessionId,
@@ -60,6 +74,7 @@ export function useFilesTabs(input: {
     sessionFiles,
     tabs,
     activeTab,
+    enabled = true,
     revealPath,
     setSelection,
     selectOnly,
@@ -79,9 +94,10 @@ export function useFilesTabs(input: {
   const revealSequence = useRef(0)
 
   useEffect(() => {
+    if (!enabled) return
     const warning = openFilesStore.takeHotExitWarning()
     if (warning !== null) setHotExitNote(warning)
-  }, [])
+  }, [enabled])
 
   const reloadFromDisk = useCallback(
     async (path: string, quiet = false): Promise<boolean> => {
@@ -127,23 +143,32 @@ export function useFilesTabs(input: {
   const tabsRef = useRef(tabs)
   tabsRef.current = tabs
   useEffect(() => {
+    if (!enabled) return
     for (const tab of tabsRef.current) {
       if (tab.load === 'ready' && !isDirty(tab)) void reloadFromDiskRef.current(tab.path, true)
     }
-  }, [refreshToken])
+  }, [enabled, refreshToken])
 
-  const loadTab = useCallback(
-    async (path: string, line: number): Promise<void> => {
+  const openFile = useCallback(
+    async (path: string, line = 1, options?: { preview?: boolean }): Promise<void> => {
       setFileNote('')
       setEditorMode('tab')
+      if (isGitMetadata(path)) {
+        setFileNote(translate('files.gitMetadataReadOnly'))
+        return
+      }
       setGotoLine(line)
       const sequence = ++revealSequence.current
-      void revealPath(path).then(() => {
-        if (revealSequence.current !== sequence) return
-        if (openFilesStore.find(sessionId, path) === null) return
-        setSelection({ selected: new Set([path]), anchor: path, focused: path })
+      if (revealPath !== undefined) {
+        void revealPath(path).then(() => {
+          if (revealSequence.current !== sequence) return
+          if (openFilesStore.find(sessionId, path) === null) return
+          setSelection?.({ selected: new Set([path]), anchor: path, focused: path })
+        })
+      }
+      const opened = openFilesStore.open(sessionId, path, {
+        preview: options?.preview === true
       })
-      const opened = openFilesStore.open(sessionId, path)
       if (!opened.created) {
         if (opened.tab.load === 'ready' || opened.tab.load === 'loading') return
         // A failed tab is retried by opening it again.
@@ -192,19 +217,28 @@ export function useFilesTabs(input: {
     [revealPath, sessionId, setSelection]
   )
 
-  const setActiveTab = (path: string): void => {
-    openFilesStore.setActive(sessionId, path)
-    setSelection({ selected: new Set([path]), anchor: path, focused: path })
-    setEditorMode('tab')
+  const loadTab = useCallback(
+    (path: string, line: number): Promise<void> => openFile(path, line),
+    [openFile]
+  )
+
+  const activateTab = (key: string): void => {
+    openFilesStore.setActiveKey(sessionId, key)
+    if (openFilesStore.find(sessionId, key) !== null) {
+      setSelection?.({ selected: new Set([key]), anchor: key, focused: key })
+      setEditorMode('tab')
+    }
     setGotoLine(null)
   }
 
+  const setActiveTab = (path: string): void => activateTab(path)
+
   useEffect(() => {
-    if (sessionFiles.activePath === null) return
+    if (!enabled || sessionFiles.activePath === null) return
     tabRefs.current
       .get(sessionFiles.activePath)
       ?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
-  }, [sessionFiles.activePath])
+  }, [enabled, sessionFiles.activePath])
 
   const saveTabAt = async (
     path: string,
@@ -241,8 +275,10 @@ export function useFilesTabs(input: {
     }
     openFilesStore.markSaved(sessionId, path, result.value.etag)
     clearWorktreeFileIndex(sessionId)
-    void loadDirectory(parentPathOf(path), true, 0, false)
-    scheduleDecorationsRef.current?.(0)
+    if (loadDirectory !== undefined) {
+      void loadDirectory(parentPathOf(path), true, 0, false)
+    }
+    scheduleDecorationsRef?.current?.(0)
     if (announce) notify({ tone: 'success', message: translate('files.notice.saved', { path }) })
     return true
   }
@@ -258,7 +294,7 @@ export function useFilesTabs(input: {
       const ok = await saveTabAt(tab.path, undefined, false)
       if (!ok) {
         openFilesStore.setActive(sessionId, tab.path)
-        selectOnly(tab.path)
+        selectOnly?.(tab.path)
         setEditorMode('tab')
         return
       }
@@ -286,16 +322,39 @@ export function useFilesTabs(input: {
     openFilesStore.adoptDiskVersion(sessionId, path, stat.value.etag)
   }
 
-  const requestClose = (path: string): void => {
-    const tab = openFilesStore.find(sessionId, path)
-    if (tab === null) return
-    if (isDirty(tab)) {
-      setUnsaved({ kind: 'single', path })
+  /**
+   * Closes a file or diff tab. A dirty file asks first; a diff tab is a
+   * read-only projection and closes immediately.
+   */
+  const requestClose = (keyOrPath: string): void => {
+    const tab = openFilesStore.find(sessionId, keyOrPath)
+    if (tab === null) {
+      openFilesStore.closeTab(sessionId, keyOrPath)
+      setGotoLine(null)
       return
     }
-    openFilesStore.closeTab(sessionId, path)
+    if (isDirty(tab)) {
+      setUnsaved({ kind: 'single', path: keyOrPath })
+      return
+    }
+    openFilesStore.closeTab(sessionId, keyOrPath)
     setGotoLine(null)
-    if (openFilesStore.get(sessionId).tabs.length === 0) setEditorMode('tab')
+  }
+
+  const closeCenterTab = requestClose
+
+  /** Keeps a preview tab open (double click, typing, or a diff action). */
+  const pin = (keyOrPath: string): void => {
+    openFilesStore.pin(sessionId, keyOrPath)
+  }
+
+  const setMode = (mode: CenterMode): void => {
+    openFilesStore.setMode(sessionId, mode)
+  }
+
+  /** The editor applied a goto-line request; clear it so it cannot replay. */
+  const onGotoLineConsumed = (): void => {
+    setGotoLine(null)
   }
 
   const requestCloseAll = (): void => {
@@ -334,7 +393,7 @@ export function useFilesTabs(input: {
       if (!ok) {
         setDialogBusy(false)
         openFilesStore.setActive(sessionId, tab.path)
-        selectOnly(tab.path)
+        selectOnly?.(tab.path)
         setEditorMode('tab')
         return
       }
@@ -425,6 +484,7 @@ export function useFilesTabs(input: {
     setFileNote,
     gotoLine,
     setGotoLine,
+    onGotoLineConsumed,
     editorMode,
     setEditorMode,
     hotExitNote,
@@ -439,7 +499,12 @@ export function useFilesTabs(input: {
     tabRefs,
     reloadFromDisk,
     loadTab,
+    openFile,
     setActiveTab,
+    activateTab,
+    pin,
+    setMode,
+    closeCenterTab,
     saveTabAt,
     saveActive,
     saveAllTabs,

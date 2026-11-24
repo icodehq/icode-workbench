@@ -6,8 +6,30 @@ session state, debounce/coalescing, revisions, and the renderer payload.
 
 The design follows Orca and Termio's split: the UI process is never the thing
 that crawls a tree, native recursive watching is preferred over per-file
-handles, WSL is polled on the owning side, and the Files pane only watches what
-it can display.
+handles, WSL is polled on the owning side, and the Files surface only watches
+what it can display.
+
+## Renderer ownership
+
+The center tab work moved the editor out of the inspector, so the main process's
+one-subscription-per-session contract is mirrored by one host in the renderer:
+
+- `SessionFilesWatchHost` (one per session workspace) is the only caller of
+  `window.icode.files.watch`. The inspector tree registers its expanded folders
+  and visibility through `files/session-watch-registry.ts`; open file tabs
+  contribute their parent folders. The host runs while the tree is visible **or**
+  any file tab is open, so an editor keeps reconciling while the inspector shows
+  Search/Changes or is collapsed.
+- The host owns root updates, the polling fallback, retries, and file-tab
+  reconciliation. The tree only reloads its expanded folders when the host calls
+  back; no second renderer consumer may call `files.watch`.
+- Source Control keeps its single controller in the Changes pane. Center diff
+  tabs read that controller through `scm/controller-registry.ts` for hunk and
+  conflict actions, but poll their own patch while visible; they never start a
+  second status/watcher loop. A hidden Changes pane still stops the SCM watcher,
+  and a visible diff keeps working through its own polling fallback.
+- `TaskWorkbench` keeps its own `ChangesPanel`/Files composition; it is a
+  different surface and never shares the session registries.
 
 ## Process model
 
