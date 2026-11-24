@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, rmSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
+import { basename, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionService, SessionServiceError, type SessionServiceDeps } from './session-service'
 import { FakeHostGateway } from './fake-host-gateway'
@@ -1332,25 +1332,125 @@ describe('worktree isolation', () => {
     expect(f.worktrees.findBySession(legacyId)).toBeNull()
   })
 
-  it('reports a missing worktree and never falls back to the primary checkout', async () => {
+  it('re-creates a missing worktree and never falls back to the primary checkout', async () => {
     const f = await withRepo()
     const created = await f.service.create(createInput(f))
-    rmTree(created.worktree!.path, { recursive: true, force: true })
+    const worktreePath = created.worktree!.path
+    rmTree(worktreePath, { recursive: true, force: true })
 
-    await expect(f.service.attach(created.id)).rejects.toSatisfy(
-      (error: unknown) =>
-        error instanceof SessionServiceError && error.appError.code === 'WORKTREE_MISSING'
-    )
-    expect(f.host.calls.createOrAttach).toHaveLength(1)
+    // The attach repairs the checkout instead of refusing the session.
+    await f.service.attach(created.id)
+    expect(existsSync(worktreePath)).toBe(true)
+    expect(samePathResolved(f.host.calls.createOrAttach.at(-1)!.cwd, worktreePath)).toBe(true)
+    expect(f.host.sessions.get(created.id)!.info.status).toBe('live')
 
     const listed = await f.service.list(f.repoId)
-    expect(listed.sessions[0]!.worktree!.status).toBe('missing')
+    expect(listed.sessions[0]!.worktree!.status).not.toBe('missing')
 
-    await expect(f.service.restart(created.id)).rejects.toSatisfy(
-      (error: unknown) =>
-        error instanceof SessionServiceError && error.appError.code === 'WORKTREE_MISSING'
-    )
+    await f.service.restart(created.id)
+    expect(samePathResolved(f.host.calls.createOrAttach.at(-1)!.cwd, worktreePath)).toBe(true)
     expect(f.host.sessions.get(created.id)!.info.status).toBe('live')
+  })
+})
+
+describe('worktree health self-healing', () => {
+  it('keeps the checkout healthy when the process fails to start', async () => {
+    const f = await withRepo()
+    f.host.failNextSpawn = new Error('conpty could not start')
+
+    await expect(f.service.create(createInput(f))).rejects.toSatisfy(
+      (error: unknown) =>
+        error instanceof SessionServiceError && error.appError.code === 'SPAWN_FAILED'
+    )
+
+    const failed = (await f.service.list(f.repoId)).sessions[0]!
+    expect(failed.state).toBe('failed')
+    expect(failed.error?.context?.stage).toBe('launch')
+    expect(failed.worktree).not.toBeNull()
+    // The spawn failed; Git did not. The checkout must not be blamed for it.
+    expect(failed.worktree!.status).not.toBe('failed')
+    const record = f.worktrees.findBySession(failed.id)!
+    expect(record.state).toBe('created')
+    expect(existsSync(record.path)).toBe(true)
+  })
+
+  it('repairs a broken checkout in the background sweep', async () => {
+    const f = await withRepo()
+    const created = await f.service.create(createInput(f))
+    const adminDir = join(
+      f.repoPath,
+      '.git',
+      'worktrees',
+      basename(created.worktree!.path)
+    )
+    rmSync(adminDir, { recursive: true, force: true })
+    f.events.length = 0
+
+    await f.service.sweepWorktrees()
+
+    expect(existsSync(adminDir)).toBe(true)
+    expect(f.worktrees.findBySession(created.id)!.state).not.toBe('failed')
+    expect(
+      f.events.some(
+        (event) => event.type === 'state' && event.session.id === created.id
+      )
+    ).toBe(true)
+  })
+
+  it('starts a healthy checkout without spawning Git', async () => {
+    const f = await withRepo()
+    const created = await f.service.create(createInput(f))
+    const list = vi.spyOn(f.gitWorktrees, 'listWorktrees')
+    const inspect = vi.spyOn(f.gitWorktrees, 'inspect')
+    const gitFor = vi.spyOn(f.gitWorktrees, 'gitFor')
+
+    await f.service.restart(created.id)
+
+    expect(list).not.toHaveBeenCalled()
+    expect(inspect).not.toHaveBeenCalled()
+    expect(gitFor).not.toHaveBeenCalled()
+  })
+
+  it('moves an unrecoverable checkout aside only when confirmed', async () => {
+    const f = await withRepo()
+    const created = await f.service.create(createInput(f))
+    const worktreePath = created.worktree!.path
+    await f.service.stop(created.id)
+    rmSync(join(worktreePath, '.git'))
+    writeFileSync(join(worktreePath, 'keep.txt'), 'keep\n')
+
+    await expect(f.service.recoverWorktree(created.id)).rejects.toSatisfy(
+      (error: unknown) =>
+        error instanceof SessionServiceError &&
+        error.appError.code === 'WORKTREE_UNRECOVERABLE'
+    )
+    expect(existsSync(join(worktreePath, 'keep.txt'))).toBe(true)
+
+    const recovered = await f.service.recoverWorktree(created.id, {
+      keepExistingAsAside: true
+    })
+    expect(recovered.session.id).toBe(created.id)
+    expect(existsSync(join(worktreePath, '.git'))).toBe(true)
+    const preserved = `${worktreePath}.stale-1700000000000`
+    expect(recovered.preservedPath).toBe(preserved)
+    expect(existsSync(preserved)).toBe(true)
+    expect(readFileSync(join(preserved, 'keep.txt'), 'utf8')).toBe('keep\n')
+  })
+
+  it('refuses to move a checkout a live session is using', async () => {
+    const f = await withRepo()
+    const created = await f.service.create(createInput(f))
+    const worktreePath = created.worktree!.path
+    rmSync(join(worktreePath, '.git'))
+    writeFileSync(join(worktreePath, 'keep.txt'), 'keep\n')
+
+    await expect(
+      f.service.recoverWorktree(created.id, { keepExistingAsAside: true })
+    ).rejects.toSatisfy(
+      (error: unknown) =>
+        error instanceof SessionServiceError && error.appError.code === 'INVALID_ARGUMENT'
+    )
+    expect(existsSync(join(worktreePath, 'keep.txt'))).toBe(true)
   })
 })
 
@@ -1662,7 +1762,7 @@ describe('session create prewarm and fresh checkout grant', () => {
     expect(inspect).not.toHaveBeenCalled()
   })
 
-  it('re-inspects after a restart, where the grant no longer applies', async () => {
+  it('re-checks the checkout on restart instead of reusing the create-time grant', async () => {
     const f = await withRepo()
     const created = await f.service.create({
       repoId: f.repoId,
@@ -1670,9 +1770,20 @@ describe('session create prewarm and fresh checkout grant', () => {
       cols: 80,
       rows: 24
     })
+    // The grant would only check that the directory exists. Losing the admin
+    // entry is invisible to it, but not to the health probe.
+    const adminDir = join(
+      f.repoPath,
+      '.git',
+      'worktrees',
+      basename(created.worktree!.path)
+    )
+    rmSync(adminDir, { recursive: true, force: true })
     const inspect = vi.spyOn(f.gitWorktrees, 'inspect')
     await f.service.restart(created.id)
-    expect(inspect).toHaveBeenCalled()
+    expect(inspect).not.toHaveBeenCalled()
+    expect(existsSync(adminDir)).toBe(true)
+    expect(f.host.sessions.get(created.id)!.info.status).toBe('live')
   })
 })
 

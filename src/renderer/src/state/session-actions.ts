@@ -3,7 +3,16 @@ export type SessionRemovalOptions = {
   deleteBranch?: boolean
 }
 
+export type WorktreeRecoveryOptions = {
+  /** The user confirmed that an unrecoverable checkout may be moved aside. */
+  keepExistingAsAside?: boolean
+}
+
 export type SessionAction = (sessionId: string, options?: SessionRemovalOptions) => void
+export type WorktreeRecoverAction = (
+  sessionId: string,
+  options?: WorktreeRecoveryOptions
+) => void
 
 export type SessionActions = {
   restart: SessionAction
@@ -12,7 +21,7 @@ export type SessionActions = {
   wake: SessionAction
   recheck: SessionAction
   remove: SessionAction
-  recoverWorktree: SessionAction
+  recoverWorktree: WorktreeRecoverAction
   stop: SessionAction
 }
 
@@ -23,7 +32,10 @@ export type SessionActionSource = {
   wakeSession: (sessionId: string) => Promise<void>
   recheckSession: (sessionId: string) => Promise<void>
   requestRemoveSession: (sessionId: string, options?: SessionRemovalOptions) => Promise<void>
-  recoverWorktree: (sessionId: string) => Promise<void>
+  recoverWorktree: (
+    sessionId: string,
+    options?: WorktreeRecoveryOptions
+  ) => Promise<void>
   stopSession: (sessionId: string) => Promise<void>
 }
 
@@ -53,7 +65,10 @@ export function createSessionActions(source: SessionActionSource): SessionAction
       void (options === undefined
         ? source.requestRemoveSession(sessionId)
         : source.requestRemoveSession(sessionId, options)),
-    recoverWorktree: (sessionId) => void source.recoverWorktree(sessionId),
+    recoverWorktree: (sessionId, options) =>
+      void (options === undefined
+        ? source.recoverWorktree(sessionId)
+        : source.recoverWorktree(sessionId, options)),
     stop: (sessionId) => void source.stopSession(sessionId)
   }
 }

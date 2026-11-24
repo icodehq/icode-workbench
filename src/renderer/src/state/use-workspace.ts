@@ -20,7 +20,7 @@ import {
   type Notice,
   type WorkspaceState
 } from './workspace'
-import type { SessionRemovalOptions } from './session-actions'
+import type { SessionRemovalOptions, WorktreeRecoveryOptions } from './session-actions'
 
 const REPO_STORAGE_KEY = 'icode.activeRepoId'
 const SESSION_STORAGE_KEY = 'icode.activeSessionId'
@@ -104,7 +104,10 @@ export function useWorkspace(): {
     confirmBranch: string,
     options?: SessionRemovalOptions
   ) => Promise<boolean>
-  recoverWorktree: (sessionId: string) => Promise<void>
+  recoverWorktree: (
+    sessionId: string,
+    options?: WorktreeRecoveryOptions
+  ) => Promise<void>
   dismissSessionCleanup: () => void
   requestRemoveBranch: (branch: string, confirmBranch?: string) => Promise<void>
   dismissBranchCleanup: () => void
@@ -135,6 +138,8 @@ export function useWorkspace(): {
   const [runtime, setRuntime] = useState<RuntimeInfo | null>(null)
   const booted = useRef(false)
   const stopTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>())
+  /** Progress is transient: a lost completion event must not leave it stuck. */
+  const recoveryTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>())
   // Event callbacks are registered once; they read the latest selection here.
   const stateRef = useRef(state)
   stateRef.current = state
@@ -266,6 +271,23 @@ export function useWorkspace(): {
               stopTimers.current.delete(event.session.id)
             }
           }
+          return
+        }
+        if (event.type === 'recovery') {
+          const previous = recoveryTimers.current.get(event.sessionId)
+          if (previous !== undefined) clearTimeout(previous)
+          recoveryTimers.current.set(
+            event.sessionId,
+            setTimeout(() => {
+              recoveryTimers.current.delete(event.sessionId)
+              dispatch({ type: 'sessionRecoveryCleared', sessionId: event.sessionId })
+            }, 20_000)
+          )
+          dispatch({
+            type: 'sessionRecovery',
+            sessionId: event.sessionId,
+            phase: event.phase
+          })
           return
         }
         if (event.type === 'activity') {
@@ -674,17 +696,33 @@ export function useWorkspace(): {
   )
 
   const recoverWorktree = useCallback(
-    async (sessionId: string): Promise<void> => {
-      const result = await callApi(window.icode.sessions.recoverWorktree({ sessionId }))
+    async (
+      sessionId: string,
+      options?: WorktreeRecoveryOptions
+    ): Promise<void> => {
+      const result = await callApi(
+        window.icode.sessions.recoverWorktree({
+          sessionId,
+          ...(options?.keepExistingAsAside === true ? { keepExistingAsAside: true } : {})
+        })
+      )
+      dispatch({ type: 'sessionRecoveryCleared', sessionId })
       if (!result.ok) {
         notify(errorNotice(result.error))
         return
       }
-      dispatch({ type: 'sessionUpserted', session: result.value })
+      dispatch({ type: 'sessionUpserted', session: result.value.session })
       dispatch({ type: 'sessionCleanup', prompt: null })
       notify({
         tone: 'success',
-        message: translate('workspace.notice.recovered')
+        message: translate('workspace.notice.recovered'),
+        ...(result.value.preservedPath === null
+          ? {}
+          : {
+              detail: translate('workspace.notice.preservedWorkspace', {
+                path: result.value.preservedPath
+              })
+            })
       })
       await refreshSessions()
     },
@@ -866,6 +904,7 @@ export function useWorkspace(): {
       dispatch({ type: 'pendingSet', sessionId, action: 'restarting' })
       const result = await callApi(window.icode.sessions.restart({ sessionId }))
       dispatch({ type: 'pendingClear', sessionId })
+      dispatch({ type: 'sessionRecoveryCleared', sessionId })
       if (!result.ok) {
         notify(errorNotice(result.error))
         await refreshSessions()
@@ -893,6 +932,7 @@ export function useWorkspace(): {
       dispatch({ type: 'pendingSet', sessionId, action: 'resuming' })
       const result = await callApi(window.icode.sessions.resume({ sessionId }))
       dispatch({ type: 'pendingClear', sessionId })
+      dispatch({ type: 'sessionRecoveryCleared', sessionId })
       if (!result.ok) {
         notify(errorNotice(result.error))
         await refreshSessions()
@@ -941,6 +981,7 @@ export function useWorkspace(): {
       dispatch({ type: 'pendingSet', sessionId, action: 'waking' })
       const result = await callApi(window.icode.sessions.wake({ sessionId }))
       dispatch({ type: 'pendingClear', sessionId })
+      dispatch({ type: 'sessionRecoveryCleared', sessionId })
       if (!result.ok) {
         notify(errorNotice(result.error))
         await refreshSessions()

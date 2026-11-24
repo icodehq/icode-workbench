@@ -3,7 +3,6 @@ import {
   AlertTriangle,
   FileDiff,
   Files,
-  GitBranch,
   Loader2,
   PanelLeftOpen,
   Play,
@@ -23,8 +22,11 @@ import type {
 } from '../../../shared/schemas/ipc'
 import type { AgentSendResult } from '../lib/agent-send'
 import type { WorkbenchDraftStore } from '../review/drafts'
-import type { Notice, PendingAction } from '../state/workspace'
-import type { SessionRemovalOptions } from '../state/session-actions'
+import type { Notice, PendingAction, RecoveryPhase } from '../state/workspace'
+import type {
+  SessionRemovalOptions,
+  WorktreeRecoveryOptions
+} from '../state/session-actions'
 import TerminalPane from './TerminalPane'
 import ChangesPanel from './ChangesPanel'
 import FilesPanel from './FilesPanel'
@@ -38,7 +40,6 @@ import {
   sessionActionState,
   worktreeBlocksTerminal
 } from './sessions/session-menu'
-import { translate } from '../i18n/i18n-store'
 import { useLocale, useT } from '../i18n/use-i18n'
 import { useFilesDirtyCount } from '../files/open-files'
 import {
@@ -60,6 +61,8 @@ type Props = {
   session: SessionSummary
   repo: RepositorySummary | null
   pending: PendingAction | null
+  /** Transient checkout progress reported by the main process. */
+  recovery?: RecoveryPhase | null
   panes: SessionSummary[]
   onRestart: (sessionId: string) => void
   /**
@@ -74,7 +77,7 @@ type Props = {
   allowSleep?: boolean
   onRecheck: (sessionId: string) => void
   onRemove: (sessionId: string, options?: SessionRemovalOptions) => void
-  onRecoverWorktree: (sessionId: string) => void
+  onRecoverWorktree: (sessionId: string, options?: WorktreeRecoveryOptions) => void
   onError: (error: AppError) => void
   /** Shared notice channel for the tools panels. */
   notify: (notice: Notice) => void
@@ -104,118 +107,141 @@ type Props = {
   layout?: 'tabs' | 'split'
   /** Focus mode drops the session header so only the terminal remains. */
   hideHeader?: boolean
-  /** Split panes hide the branch so the session title keeps its room. */
-  showBranch?: boolean
   /** Split panes render a drag affordance at the start of their header. */
   dragHandle?: ReactNode
   /** Another session runs in this session's worktree, so removal only detaches. */
   worktreeShared?: boolean
 }
 
-function worktreeStatusLabel(status: WorktreeSummary['status']): string {
-  switch (status) {
-    case 'creating':
-      return translate('worktree.label.creating')
-    case 'incomplete':
-      return translate('worktree.label.incomplete')
-    case 'ready-to-start':
-      return translate('worktree.label.ready')
-    case 'active':
-      return translate('worktree.label.active')
-    case 'missing':
-      return translate('worktree.label.missing')
-    case 'inconsistent':
-      return translate('worktree.label.inconsistent')
-    case 'failed':
-      return translate('worktree.label.failed')
-  }
-}
-
-const WORKTREE_STATUS_TONE: Record<WorktreeSummary['status'], string> = {
-  creating: 'text-signal',
-  incomplete: 'text-signal',
-  'ready-to-start': 'text-muted-foreground',
-  active: 'text-add',
-  missing: 'text-destructive',
-  inconsistent: 'text-destructive',
-  failed: 'text-destructive'
-}
-
-function WorktreePanel({
-  session,
-  worktree,
-  onRecheck,
-  onRecover,
-  onRemove
+/** Transient progress while a checkout is checked, repaired, or started. */
+export function SessionProgressPanel({
+  phase
 }: {
-  session: SessionSummary
-  worktree: WorktreeSummary
-  onRecheck: () => void
-  onRecover: () => void
-  onRemove: () => void
+  phase: RecoveryPhase
 }): React.JSX.Element {
   const t = useT()
-  const missing = worktree.status === 'missing'
+  const message =
+    phase === 'checking'
+      ? t('session.recovery.checking')
+      : phase === 'repairing'
+        ? t('session.recovery.repairing')
+        : t('session.recovery.starting')
+  return (
+    <div
+      className="absolute inset-0 z-10 flex items-center justify-center bg-background p-6"
+      data-testid="session-recovery"
+      data-recovery-phase={phase}
+    >
+      <span className="inline-flex items-center gap-2 text-[12px] text-muted-foreground">
+        <Loader2 size={14} className="animate-spin" />
+        {message}
+      </span>
+    </div>
+  )
+}
+
+/**
+ * The only blocking session panel.
+ *
+ * It appears after automatic repair has exhausted its options, so it never
+ * blames Git for a process failure. Technical evidence stays collapsed.
+ */
+export function SessionProblemPanel({
+  session,
+  worktree,
+  onRetry,
+  onRemove,
+  onStartFresh
+}: {
+  session: SessionSummary
+  worktree: WorktreeSummary | null
+  onRetry: () => void
+  onRemove: () => void
+  onStartFresh: () => void
+}): React.JSX.Element {
+  const t = useT()
+  const startFresh = worktree?.error?.code === 'WORKTREE_UNRECOVERABLE'
+  const error = session.error ?? worktree?.error ?? null
   return (
     <div className="absolute inset-0 z-10 flex items-center justify-center bg-background p-6">
-      <div className="w-full max-w-lg rounded-lg border border-destructive/40 bg-card p-5">
+      <div
+        className="w-full max-w-md rounded-lg border border-border bg-card p-5"
+        data-testid="session-problem"
+      >
         <div className="flex items-center gap-2">
           <AlertTriangle size={14} className="text-destructive" />
-          <h2 className="text-[13px] font-semibold">
-            {missing ? t('worktree.missingTitle') : t('worktree.inconsistentTitle')}
-          </h2>
+          <h2 className="text-[13px] font-semibold">{t('session.problem.title')}</h2>
         </div>
         <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-          {missing ? t('worktree.missingBody') : t('worktree.inconsistentBody')}
+          {t('session.problem.body')}
         </p>
-        <dl className="mt-3 space-y-1 rounded-md border border-border bg-background px-3 py-2 font-mono text-[10px] text-muted-foreground">
-          <div>
-            {t('worktree.branch')} <span className="text-foreground">{worktree.branch}</span>
-          </div>
-          <div className="break-all">
-            {t('worktree.path')} <span className="text-foreground">{worktree.path}</span>
-          </div>
-          <div>
-            {t('worktree.baseline')} <span className="text-foreground">{worktree.baseOid.slice(0, 12)}</span>
-          </div>
-        </dl>
         <div className="mt-4 flex flex-wrap gap-2">
-          {missing ? (
+          <button
+            type="button"
+            className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-[11px] hover:bg-muted"
+            onClick={onRetry}
+            data-testid="session-problem-retry"
+          >
+            <RotateCcw size={12} />
+            {t('session.problem.retry')}
+          </button>
+          {startFresh ? (
             <button
               type="button"
               className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-[11px] hover:bg-muted"
-              onClick={onRecover}
-              data-testid="worktree-recover"
+              onClick={onStartFresh}
+              data-testid="session-problem-fresh"
             >
-              <GitBranch size={12} />
-              {t('worktree.recreate')}
+              <Play size={12} />
+              {t('session.problem.freshWorkspace')}
             </button>
           ) : null}
           <button
             type="button"
-            className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-[11px] hover:bg-muted"
-            onClick={onRecheck}
-            data-testid="worktree-recheck"
-          >
-            <RefreshCw size={12} />
-            {t('worktree.checkHost')}
-          </button>
-          <button
-            type="button"
             className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-[11px] text-muted-foreground hover:bg-muted"
             onClick={onRemove}
-            data-testid="worktree-remove"
+            data-testid="session-problem-remove"
           >
             <Trash2 size={12} />
-            {t('worktree.removeSession')}
+            {t('session.problem.remove')}
           </button>
         </div>
-        <p className="mt-3 text-[10px] text-muted-foreground">
-          {t('worktree.sessionState', {
-            state: session.state,
-            note: authorityNote(session)
-          })}
-        </p>
+        <details className="mt-3 text-[10px] text-muted-foreground">
+          <summary className="cursor-pointer select-none">
+            {t('session.problem.technical')}
+          </summary>
+          <dl className="mt-2 space-y-1 rounded-md border border-border bg-background px-3 py-2 font-mono text-[10px]">
+            <div className="break-all">
+              {t('session.technical.session')}{' '}
+              <span className="text-foreground">{session.id}</span>
+            </div>
+            {error ? (
+              <div className="break-all">
+                {t('session.technical.error')}{' '}
+                <span className="text-destructive">
+                  {error.message}
+                  {error.detail ? ` — ${error.detail}` : ''}
+                </span>
+              </div>
+            ) : null}
+            {worktree ? (
+              <>
+                <div className="break-all">
+                  {t('session.technical.path')}{' '}
+                  <span className="text-foreground">{worktree.path}</span>
+                </div>
+                <div>
+                  {t('session.technical.branch')}{' '}
+                  <span className="text-foreground">{worktree.branch}</span>
+                </div>
+                <div>
+                  {t('session.technical.baseline')}{' '}
+                  <span className="text-foreground">{worktree.baseOid.slice(0, 12)}</span>
+                </div>
+              </>
+            ) : null}
+          </dl>
+        </details>
       </div>
     </div>
   )
@@ -240,6 +266,14 @@ export function StatePanel({
 }): React.JSX.Element {
   const t = useT()
   const live = session.state === 'live' || session.state === 'starting'
+  const unreachable = hostUnavailable(session)
+  const body = live
+    ? t('session.statePanel.attachingBody')
+    : session.state === 'exited'
+      ? t('session.statePanel.stoppedBody')
+      : session.state === 'unavailable'
+        ? t('session.statePanel.unavailableBody')
+        : t('session.problem.body')
   return (
     <div className="absolute inset-0 z-10 flex items-center justify-center bg-background p-6">
       <div className="w-full max-w-md rounded-lg border border-border bg-card p-5">
@@ -261,20 +295,7 @@ export function StatePanel({
                   : t('session.statePanel.unavailable')}
           </h2>
         </div>
-        <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-          {live ? t('session.statePanel.attachingBody') : authorityNote(session)}
-        </p>
-        {session.error ? (
-          <p className="mt-2 break-words rounded-md border border-destructive/30 bg-destructive/10 px-2.5 py-1.5 font-mono text-[10px] leading-relaxed text-destructive">
-            {session.error.message}
-            {session.error.detail ? ` — ${session.error.detail}` : ''}
-          </p>
-        ) : null}
-        {session.exitCode !== null && !live ? (
-          <p className="mt-2 text-[10px] text-muted-foreground">
-            {t('session.exitCode', { code: session.exitCode })}
-          </p>
-        ) : null}
+        <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">{body}</p>
         {!live ? (
           <div className="mt-4 flex flex-wrap gap-2">
             {onResume !== undefined && session.resumable === true ? (
@@ -282,9 +303,9 @@ export function StatePanel({
                 type="button"
                 className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-[11px] hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
                 onClick={onResume}
-                disabled={hostUnavailable(session)}
+                disabled={unreachable}
                 title={
-                  hostUnavailable(session)
+                  unreachable
                     ? t('session.hostUnreachable')
                     : t('session.resumeDescription')
                 }
@@ -296,30 +317,32 @@ export function StatePanel({
             ) : null}
             <button
               type="button"
-              className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-[11px] hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
-              onClick={onRestart}
-              disabled={hostUnavailable(session)}
-              title={
-                hostUnavailable(session)
-                  ? t('session.hostUnreachable')
-                  : t('session.restartDescription')
-              }
-              data-testid="state-restart"
-            >
-              <RotateCcw size={12} />
-              {t('session.restartButton')}
-            </button>
-            <button
-              type="button"
               className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-[11px] hover:bg-muted"
-              onClick={onRecheck}
-              data-testid="state-recheck"
+              onClick={unreachable ? onRecheck : onRestart}
+              data-testid={unreachable ? 'state-reconnect' : 'state-restart'}
             >
-              <RefreshCw size={12} />
-              {t('worktree.checkHost')}
+              {unreachable ? <RefreshCw size={12} /> : <RotateCcw size={12} />}
+              {unreachable ? t('session.problem.retry') : t('session.restartButton')}
             </button>
           </div>
         ) : null}
+        <details className="mt-3 text-[10px] text-muted-foreground">
+          <summary className="cursor-pointer select-none">
+            {t('session.problem.technical')}
+          </summary>
+          <div className="mt-2 space-y-1 rounded-md border border-border bg-background px-3 py-2">
+            <p>{authorityNote(session)}</p>
+            {session.error ? (
+              <p className="break-words font-mono text-destructive">
+                {session.error.message}
+                {session.error.detail ? ` — ${session.error.detail}` : ''}
+              </p>
+            ) : null}
+            {session.exitCode !== null && !live ? (
+              <p>{t('session.exitCode', { code: session.exitCode })}</p>
+            ) : null}
+          </div>
+        </details>
       </div>
     </div>
   )
@@ -329,6 +352,7 @@ export default function SessionWorkspace({
   session,
   repo,
   pending,
+  recovery = null,
   panes,
   onRestart,
   onResume,
@@ -352,7 +376,6 @@ export default function SessionWorkspace({
   onShowSessionsList,
   layout = 'tabs',
   hideHeader = false,
-  showBranch = true,
   dragHandle,
   worktreeShared = false
 }: Props): React.JSX.Element {
@@ -368,6 +391,18 @@ export default function SessionWorkspace({
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [removeOpen, setRemoveOpen] = useState(false)
   const [sleepOpen, setSleepOpen] = useState(false)
+  // A quick check should not flash a progress panel; a real repair should.
+  const [progressVisible, setProgressVisible] = useState(false)
+  const recovering = recovery !== null
+
+  useEffect(() => {
+    if (!recovering) {
+      setProgressVisible(false)
+      return
+    }
+    const timer = setTimeout(() => setProgressVisible(true), 300)
+    return () => clearTimeout(timer)
+  }, [recovering])
 
   useEffect(() => {
     setDetailsOpen(false)
@@ -457,40 +492,9 @@ export default function SessionWorkspace({
                 {t('activity.subagentsCount', { count: activity.subagents.length })}
               </span>
             ) : null}
-            {knownActivity === null ? null : <span className="h-3 w-px shrink-0 bg-border" />}
-            {worktree ? (
-              <span
-                className={`min-w-0 max-w-[176px] shrink items-center ${WORKTREE_STATUS_TONE[worktree.status]} ${
-                  showBranch ? 'inline-flex' : 'hidden'
-                }`}
-                title={`${worktreeStatusLabel(worktree.status)} · ${worktree.path}`}
-                data-testid="session-worktree"
-                data-worktree-status={worktree.status}
-                data-worktree-branch={worktree.branch}
-              >
-                <GitBranch size={11} className="shrink-0" />
-                <span
-                  className="min-w-0 truncate font-mono text-[10.5px]"
-                  title={`${worktreeStatusLabel(worktree.status)} · ${worktree.branch} · ${worktree.path}`}
-                >
-                  {worktree.branch}
-                </span>
-              </span>
-            ) : (
-              <span
-                className="shrink-0 text-[10.5px] text-muted-foreground"
-                title={repo?.path ?? t('worktree.defaultCheckout')}
-                data-testid="session-default-checkout"
-                data-default-checkout-branch={repo?.currentBranch ?? ''}
-              >
-                {t('worktree.defaultCheckout')}
-                {repo?.currentBranch ? ` · ${repo.currentBranch}` : ''}
-              </span>
-            )}
             {/*
-             * The compact header shows the branch because it is an action. The
-             * rest of the metadata stays in Session details; this screen-reader
-             * copy keeps it available without spending a second row.
+             * Branch, path and baseline are not header material: they are Git
+             * implementation details. Session details carries them for support.
              */}
             <span
               className="sr-only"
@@ -647,13 +651,17 @@ export default function SessionWorkspace({
             onError={onError}
           />
         ))}
-        {!activePane && worktree && (blocked || worktree.status === 'failed') ? (
-          <WorktreePanel
+        {!activePane && recovery !== null && progressVisible ? (
+          <SessionProgressPanel phase={recovery} />
+        ) : !activePane && worktree && (blocked || worktree.status === 'failed') ? (
+          <SessionProblemPanel
             session={session}
             worktree={worktree}
-            onRecheck={() => onRecheck(session.id)}
-            onRecover={() => onRecoverWorktree(session.id)}
+            onRetry={() => onRestart(session.id)}
             onRemove={() => setRemoveOpen(true)}
+            onStartFresh={() =>
+              onRecoverWorktree(session.id, { keepExistingAsAside: true })
+            }
           />
         ) : !activePane ? (
           <StatePanel
@@ -737,7 +745,6 @@ export default function SessionWorkspace({
         <SessionDetailsDrawer
           session={session}
           repo={repo}
-          notify={notify}
           onClose={() => setDetailsOpen(false)}
         />
       ) : null}

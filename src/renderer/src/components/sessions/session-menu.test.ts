@@ -204,6 +204,8 @@ describe('sessionMenuEntries', () => {
       )
     ).toMatchObject({ disabled: true, reason: 'host-unreachable' })
 
+    // The main process repairs the checkout before starting; the action is
+    // not the user's problem to solve.
     expect(
       byId(
         plan(
@@ -223,7 +225,7 @@ describe('sessionMenuEntries', () => {
         ),
         'resume'
       )
-    ).toMatchObject({ disabled: true, reason: 'worktree-blocked' })
+    ).toMatchObject({ disabled: false })
   })
 
   it('disables the lifecycle while a restart is in flight', () => {
@@ -268,7 +270,7 @@ describe('sessionMenuEntries', () => {
     })
   })
 
-  it('blocks restart when the worktree is missing or inconsistent', () => {
+  it('keeps restart available for a checkout the main process can repair', () => {
     for (const status of ['missing', 'inconsistent'] as const) {
       const entries = plan(
         session({
@@ -284,10 +286,7 @@ describe('sessionMenuEntries', () => {
           }
         })
       )
-      expect(byId(entries, 'restart')).toMatchObject({
-        disabled: true,
-        reason: 'worktree-blocked'
-      })
+      expect(byId(entries, 'restart')).toMatchObject({ disabled: false })
     }
   })
 

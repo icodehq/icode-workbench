@@ -1,9 +1,11 @@
+import { rename } from 'node:fs/promises'
 import { mainT } from '../i18n/main-i18n'
 import type { Database } from '../persistence/database'
 import type { RepositoryStore } from '../persistence/repository-store'
 import type { SessionStore } from '../persistence/session-store'
 import type { WorktreeStore } from '../persistence/worktree-store'
 import type { GitWorktreeService } from '../worktrees/git-worktree-service'
+import { WorktreeHealthService } from '../worktrees/worktree-health'
 import type { BranchService } from '../git/branch-service'
 import { describeWorktree, samePath } from '../worktrees/worktree-status'
 import { branchNameForSession } from '../../shared/domain/worktree'
@@ -69,6 +71,7 @@ import type {
 import type {
   CreateSessionInput,
   OrphanedHostSession,
+  RecoverWorktreeResult,
   RendererSessionEvent,
   SessionListView,
   SessionSummary,
@@ -98,6 +101,14 @@ export type SessionServiceDeps = {
   gitWorktrees: GitWorktreeService
   branches: Pick<BranchService, 'resolveStartRef'>
   host: HostGateway
+  /**
+   * Checkout health probe and repair.
+   *
+   * Optional so tests and embedders keep their current construction; the service
+   * builds one from its own stores when the composition root does not share an
+   * instance.
+   */
+  worktreeHealth?: WorktreeHealthService
   /**
    * Seeds the harness's per-folder trust record for a new session worktree.
    *
@@ -274,13 +285,25 @@ export class SessionService {
    * longer reports the session: the kill fails and is reported.
    */
   private readonly hostSessionTargets = new Map<string, ExecutionTarget>()
+  /** One sweep at a time; a second request is a no-op, not a queue. */
+  private sweeping = false
   private readonly now: () => number
   private readonly makeSessionId: () => SessionId
   private disposeHostEvents: (() => void) | null = null
 
+  private readonly worktreeHealth: WorktreeHealthService
+
   constructor(private readonly deps: SessionServiceDeps) {
     this.now = deps.now ?? Date.now
     this.makeSessionId = deps.newSessionId ?? newSessionId
+    this.worktreeHealth =
+      deps.worktreeHealth ??
+      new WorktreeHealthService({
+        worktrees: deps.worktrees,
+        repositories: deps.repositories,
+        gitWorktrees: deps.gitWorktrees,
+        now: this.now
+      })
   }
 
   start(): void {
@@ -509,7 +532,7 @@ export class SessionService {
         ? hostObservation(entry)
         : { reachable: false }
       const reconciled = reconcileSessionState(row.observation, observation)
-      const summary = this.toSummary(row, reconciled, entry?.cwd ?? null, worktreeExists.get(row.id))
+      const summary = this.toSummary(row, reconciled, worktreeExists.get(row.id))
       summaries.push(summary)
       if (entry && (entry.status === 'live' || entry.status === 'starting')) {
         this.currentIncarnations.set(row.id, entry.incarnationId)
@@ -567,20 +590,39 @@ export class SessionService {
         this.deps.worktrees.updateStateById(record.id, 'ready', null, this.now())
         continue
       }
+      /**
+       * A failed checkout is only a *last attempt* verdict. If the cheap probe
+       * now says it is healthy, the failure was transient (a locked index, a
+       * spawn that never touched Git) and the state must not keep blocking the
+       * session. Repairs themselves stay in the sweep and on open.
+       */
+      if (record.state === 'failed') {
+        const probe = await this.worktreeHealth.probe(record).catch(() => null)
+        if (probe?.kind === 'healthy') {
+          this.deps.worktrees.updateStateById(
+            record.id,
+            hostActive ? 'ready' : 'created',
+            null,
+            this.now()
+          )
+        }
+        continue
+      }
       if (record.state !== 'creating') continue
-      const repository = this.deps.repositories.findById(record.repoId)
-      if (!repository) continue
-      const inspection = await this.deps.gitWorktrees
-        .inspect({
-          primaryRoot: repository.path,
-          path: record.path,
-          branch: record.branch,
-          target: repository.executionTarget
-        })
-        .catch(() => null)
-      if (inspection?.pathExists === true && inspection.registered) {
+      /**
+       * A crash inside create left intent behind. The probe is cheaper than the
+       * old six-call inspection and answers the same question: is this checkout
+       * usable now? It never deletes or re-creates anything here.
+       */
+      const probe = await this.worktreeHealth.probe(record, { deep: true }).catch(() => null)
+      if (probe?.kind === 'healthy') {
         // Creation completed before the crash; the PTY was never started.
-        this.deps.worktrees.updateStateById(record.id, 'created', null, this.now())
+        this.deps.worktrees.updateStateById(
+          record.id,
+          hostActive ? 'ready' : 'created',
+          null,
+          this.now()
+        )
       }
     }
   }
@@ -934,6 +976,13 @@ export class SessionService {
           args: buildWslTerminalArgs(pathAPreflight.distro, worktreePath)
         }
       : null
+    /**
+     * Provisioning and launching fail for different reasons and must not share
+     * one worktree verdict. A Git failure can leave the checkout unusable; a
+     * spawn failure says nothing about it. The old single catch marked every
+     * failure `failed`, which is what showed a "Git does not recognise this
+     * directory" panel for a Host crash.
+     */
     try {
       await this.deps.gitWorktrees.create({
         primaryRoot: repository.path,
@@ -942,7 +991,25 @@ export class SessionService {
         baseOid: worktree.baseOid,
         target
       })
-      this.deps.worktrees.updateState(sessionId, 'created', null, this.now())
+    } catch (error) {
+      this.freshCheckouts.delete(sessionId)
+      const createError = this.withStage(this.startFailure(error), 'worktree-create')
+      // A timeout can hide a checkout that was actually created. Give the
+      // repair ladder one chance before declaring the workspace unusable.
+      const health = await this.worktreeHealth.ensureHealthy(worktree).catch(() => null)
+      if (health?.kind !== 'healthy' && health?.kind !== 'repaired') {
+        const finalError =
+          health?.kind === 'fatal' && health.error.code === 'WORKTREE_UNRECOVERABLE'
+            ? health.error
+            : createError
+        this.deps.worktrees.updateState(sessionId, 'failed', finalError, this.now())
+        this.recordFailedStart(sessionId, finalError)
+        throw new SessionServiceError(finalError)
+      }
+    }
+    this.deps.worktrees.updateState(sessionId, 'created', null, this.now())
+
+    try {
       // Orca parity: only a branch whose name matches the remote branch adopts
       // its upstream. Generated session branches stay untracked.
       if (remoteTracking !== null && branch === remoteTracking.branch) {
@@ -992,11 +1059,10 @@ export class SessionService {
           this.deps.worktrees.updateState(sessionId, 'ready', null, this.now())
       })
     } catch (error) {
-      // A worktree failure keeps its specific code; only a Host failure is a
-      // spawn failure. Nothing is deleted: the failed session stays inspectable.
+      // Nothing is deleted, and the checkout keeps its `created` state: the
+      // next start attempt reuses it instead of showing a worktree failure.
       this.freshCheckouts.delete(sessionId)
-      const appError = this.startFailure(error)
-      this.deps.worktrees.updateState(sessionId, 'failed', appError, this.now())
+      const appError = this.withStage(this.startFailure(error), 'launch')
       this.recordFailedStart(sessionId, appError)
       throw new SessionServiceError(appError)
     }
@@ -1197,13 +1263,15 @@ export class SessionService {
         })
       )
     }
-    if (record.state === 'failed') {
-      throw new SessionServiceError(
-        makeAppError('WORKTREE_CREATE_FAILED', 'That worktree could not be created.', {
-          detail: record.error?.message,
-          context: { worktreeId, path: record.path }
-        })
-      )
+    /**
+     * A previous failure is a historical verdict, not a gate. Repair the
+     * checkout first; only a checkout the ladder cannot recover refuses the
+     * session. When the probe could not answer, the inspection below remains
+     * the authority and preserves its specific error.
+     */
+    const health = await this.worktreeHealth.ensureHealthy(record)
+    if (health.kind === 'fatal') {
+      throw new SessionServiceError(health.error)
     }
     const inspection = await this.deps.gitWorktrees
       .inspect({
@@ -1402,11 +1470,15 @@ export class SessionService {
         exitCode: null,
         error: null
       },
-      null,
       true
     )
     this.emit({ type: 'state', session: summary })
     return summary
+  }
+
+  /** Tags an error with the phase that produced it, for logs and diagnostics. */
+  private withStage(error: AppError, stage: 'worktree-create' | 'launch'): AppError {
+    return { ...error, context: { ...(error.context ?? {}), stage } }
   }
 
   private startFailure(error: unknown): AppError {
@@ -1452,6 +1524,7 @@ export class SessionService {
         (await this.requirePathATerminal(target, checkout.path)))
       : null
 
+    this.emitRecovery(sessionId, 'starting')
     let attached: CreateOrAttachPayload
     try {
       attached = await this.deps.host.createOrAttach(
@@ -1689,6 +1762,7 @@ export class SessionService {
     }
     const proxyEnv = (await this.deps.proxyEnv?.(target, pathA !== null)) ?? {}
 
+    this.emitRecovery(sessionId, 'starting')
     let created: CreateOrAttachPayload
     try {
       created = await this.deps.host.createOrAttach(
@@ -1754,7 +1828,6 @@ export class SessionService {
         exitCode: null,
         error: null
       },
-      null,
       true
     )
     this.emit({ type: 'state', session: summary })
@@ -1992,8 +2065,20 @@ export class SessionService {
    * Explicit recovery: re-create the worktree directory from the retained
    * branch at the recorded path. Only valid when the directory is gone.
    */
-  async recoverWorktree(sessionId: string): Promise<SessionSummary> {
+  async recoverWorktree(
+    sessionId: string,
+    options: { keepExistingAsAside?: boolean } = {}
+  ): Promise<RecoverWorktreeResult> {
     this.requireRow(sessionId)
+    if (options.keepExistingAsAside === true && this.currentIncarnations.has(sessionId)) {
+      // Moving a directory out from under a running process is never safe.
+      throw new SessionServiceError(
+        makeAppError('INVALID_ARGUMENT', 'Stop the session before replacing its workspace.', {
+          context: { sessionId }
+        })
+      )
+    }
+    this.emitRecovery(sessionId, 'checking')
     // Recovery is about to rebuild the checkout; no create-time proof applies.
     this.freshCheckouts.delete(sessionId)
     const record = this.deps.worktrees.findBySession(sessionId)
@@ -2020,17 +2105,181 @@ export class SessionService {
         })
       )
     }
-    await this.deps.gitWorktrees.recover({
-      primaryRoot: repository.path,
-      path: record.path,
-      branch: record.branch,
-      target: repository.executionTarget
-    })
+    let preserved: string | null = null
+    if (options.keepExistingAsAside === true) {
+      const outcome = await this.preserveUnrecoverableCheckout(record, repository)
+      if (outcome.alreadyHealthy) {
+        // The repair ladder succeeded on its own; replacing the checkout would
+        // be a destructive answer to a problem that no longer exists.
+        const summary = await this.get(sessionId)
+        this.emit({ type: 'state', session: summary })
+        return { session: summary, preservedPath: null }
+      }
+      preserved = outcome.preserved
+    }
+    this.emitRecovery(sessionId, 'repairing')
+    try {
+      await this.deps.gitWorktrees.recover({
+        primaryRoot: repository.path,
+        path: record.path,
+        branch: record.branch,
+        target: repository.executionTarget
+      })
+    } catch (error) {
+      if (preserved !== null) {
+        // Leave the user exactly where they started when recovery cannot finish.
+        await rename(preserved, record.path).catch(() => undefined)
+      }
+      if (error instanceof SessionServiceError && error.appError.code === 'WORKTREE_INCONSISTENT') {
+        throw new SessionServiceError(
+          makeAppError(
+            'WORKTREE_UNRECOVERABLE',
+            'The workspace directory cannot be reconnected to Git without removing files.',
+            { detail: record.path, context: { sessionId, branch: record.branch } }
+          )
+        )
+      }
+      throw error
+    }
     // Recovery rebuilds the one shared checkout; every attached session sees it.
     this.deps.worktrees.updateStateById(record.id, 'created', null, this.now())
     const summary = await this.get(sessionId)
     this.emit({ type: 'state', session: summary })
-    return summary
+    return { session: summary, preservedPath: preserved }
+  }
+
+  /**
+   * Moves a checkout Git cannot re-attach aside, preserving every byte.
+   *
+   * Only an explicitly confirmed recovery may do this. A repairable checkout is
+   * refused: the user should retry instead of moving files.
+   */
+  private async preserveUnrecoverableCheckout(
+    record: SessionWorktreeRecord,
+    repository: RepositoryRecord
+  ): Promise<{ alreadyHealthy: boolean; preserved: string | null }> {
+    if (repository.executionTarget.kind !== 'local') {
+      throw new SessionServiceError(
+        makeAppError(
+          'INVALID_ARGUMENT',
+          'A fresh workspace can only be created for a local checkout.',
+          { context: { worktreeId: record.id, path: record.path } }
+        )
+      )
+    }
+    const health = await this.worktreeHealth.ensureHealthy(record, {
+      onRepair: () => this.emitRecovery(record.sessionId, 'repairing')
+    })
+    if (health.kind === 'healthy' || health.kind === 'repaired') {
+      return { alreadyHealthy: true, preserved: null }
+    }
+    if (health.kind === 'unknown') {
+      throw new SessionServiceError(
+        makeAppError(
+          'WORKTREE_REPAIR_FAILED',
+          'This workspace can still be repaired. Retry instead of replacing it.',
+          { detail: health.detail }
+        )
+      )
+    }
+    if (health.kind === 'fatal' && health.error.code !== 'WORKTREE_UNRECOVERABLE') {
+      throw new SessionServiceError(health.error)
+    }
+    const probe = await this.worktreeHealth.probe(record, { deep: true })
+    if (probe.kind !== 'unregistered') {
+      throw new SessionServiceError(
+        makeAppError(
+          'WORKTREE_REPAIR_FAILED',
+          'This workspace can still be repaired. Retry instead of replacing it.',
+          { detail: record.path }
+        )
+      )
+    }
+    if (probe.foreign) {
+      throw new SessionServiceError(
+        makeAppError('WORKTREE_UNRECOVERABLE', 'This workspace belongs to another repository.', {
+          detail: probe.adminDir ?? record.path
+        })
+      )
+    }
+    // An empty directory is removed and re-added by the normal recovery path;
+    // there is nothing to preserve.
+    if (!probe.nonEmpty) return { alreadyHealthy: false, preserved: null }
+    await this.deps.gitWorktrees.assertManagedPath(
+      record.path,
+      await this.deps.gitWorktrees.worktreeRootFor(repository.executionTarget)
+    )
+    const stamp = this.now()
+    for (let attempt = 1; attempt <= 50; attempt += 1) {
+      const target = `${record.path}.stale-${stamp}${attempt === 1 ? '' : `-${attempt}`}`
+      try {
+        await rename(record.path, target)
+        process.stderr.write(`[icode] preserved unrecoverable workspace at ${target}\n`)
+        return { alreadyHealthy: false, preserved: target }
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code
+        // The directory vanished between the probe and the rename; there is
+        // nothing left to preserve and normal recovery can proceed.
+        if (code === 'ENOENT') return { alreadyHealthy: false, preserved: null }
+        if (code !== 'ENOTEMPTY' && code !== 'EEXIST' && code !== 'EPERM') {
+          throw new SessionServiceError(
+            makeAppError('WORKTREE_REPAIR_FAILED', 'The old workspace could not be moved aside.', {
+              detail: error instanceof Error ? error.message : String(error)
+            })
+          )
+        }
+      }
+    }
+    throw new SessionServiceError(
+      makeAppError('WORKTREE_REPAIR_FAILED', 'The old workspace could not be moved aside.', {
+        detail: record.path
+      })
+    )
+  }
+
+  /**
+   * Background repair sweep, scheduled after the first window has loaded.
+   *
+   * Every local checkout is probed with filesystem evidence, so the healthy
+   * majority costs no Git process. A guest (WSL) probe is deliberately not
+   * attempted here: each `wsl.exe` spawn costs more than the repair it might
+   * trigger, and the on-open path already repairs a guest checkout.
+   */
+  async sweepWorktrees(): Promise<void> {
+    if (this.sweeping) return
+    this.sweeping = true
+    try {
+      const touched = new Set<string>()
+      const queue = this.deps.worktrees
+        .listAll()
+        .filter((record) => !this.deps.repositories.isRemoving(record.repoId))
+      const worker = async (): Promise<void> => {
+        for (;;) {
+          const record = queue.shift()
+          if (record === undefined) return
+          const repository = this.deps.repositories.findById(record.repoId)
+          if (repository === null || repository.executionTarget.kind !== 'local') continue
+          try {
+            const result = await this.worktreeHealth.ensureHealthy(record)
+            if (result.kind === 'repaired' || result.kind === 'fatal') touched.add(record.id)
+          } catch {
+            // One unusable checkout must not abort the sweep.
+          }
+        }
+      }
+      // Two concurrent checkouts keep a large profile from serializing on I/O
+      // without flooding the main process with Git children.
+      await Promise.all([worker(), worker()])
+      if (touched.size === 0) return
+      const view = await this.list()
+      for (const session of view.sessions) {
+        if (session.worktree !== null && touched.has(session.worktree.id)) {
+          this.emit({ type: 'state', session })
+        }
+      }
+    } finally {
+      this.sweeping = false
+    }
   }
 
   // ─── Internals ────────────────────────────────────────────────────
@@ -2242,7 +2491,6 @@ export class SessionService {
   private toSummary(
     row: StoredSession,
     reconciled: ReconciledSessionState,
-    hostCwd: string | null = null,
     worktreeExists?: boolean | null
   ): SessionSummary {
     const workspace = this.deps.repositories.findWorkspaceById(row.workspaceId)
@@ -2268,15 +2516,6 @@ export class SessionService {
         : repository !== null && repository.executionTarget.kind !== 'local'
           ? null
           : undefined
-    /**
-     * A WSL shell session is a desktop-Host ConPTY running `wsl.exe`: its cwd is
-     * a Windows directory chosen because a ConPTY cannot start in a Linux path.
-     * Comparing that cwd with the guest worktree would call every healthy WSL
-     * shell "inconsistent" and block its terminal. Guest checkouts are checked
-     * by Git against the distro instead; the cwd comparison is local-only.
-     */
-    const effectiveHostCwd =
-      repository !== null && repository.executionTarget.kind !== 'local' ? null : hostCwd
     return {
       id: row.id,
       repoId: workspace.repoId,
@@ -2292,12 +2531,7 @@ export class SessionService {
       updatedAt: this.now(),
       sleeping: row.sleepingAt !== null,
       resumable: this.resumable(row, reconciled.state),
-      worktree: this.worktreeSummaryFor(
-        row,
-        reconciled.state,
-        effectiveHostCwd,
-        effectiveWorktreeExists
-      ),
+      worktree: this.worktreeSummaryFor(row, reconciled.state, effectiveWorktreeExists),
       activity: this.activityFor(row, reconciled.state)
     }
   }
@@ -2317,7 +2551,6 @@ export class SessionService {
   private worktreeSummaryFor(
     row: StoredSession,
     sessionState: ReconciledSessionState['state'],
-    hostCwd: string | null,
     worktreeExists?: boolean | null
   ): WorktreeSummary | null {
     const record = this.deps.worktrees.findBySession(row.id)
@@ -2326,7 +2559,7 @@ export class SessionService {
     // could not answer, or this synchronous summary did not ask; neither may
     // become a `missing` claim.
     const directoryExists = worktreeExists === null ? true : (worktreeExists ?? undefined)
-    return describeWorktree(record, sessionState, hostCwd, directoryExists)
+    return describeWorktree(record, sessionState, directoryExists)
   }
 
   /**
@@ -2389,7 +2622,9 @@ export class SessionService {
   async resolveSessionCheckout(
     sessionId: string
   ): Promise<{ path: string; record: SessionWorktreeRecord | null; repoId: RepoId }> {
-    return this.resolveCheckout(this.requireRow(sessionId))
+    // Read-only callers (files, changes) must not move files or spawn Git
+    // repairs just to answer a path question.
+    return this.resolveCheckout(this.requireRow(sessionId), { repair: false })
   }
 
   /**
@@ -2448,7 +2683,7 @@ export class SessionService {
 
   private async resolveCheckout(
     row: StoredSession,
-    options: { allowFreshCheckout?: boolean } = {}
+    options: { allowFreshCheckout?: boolean; repair?: boolean } = {}
   ): Promise<{ path: string; record: SessionWorktreeRecord | null; repoId: RepoId }> {
     const workspace = this.deps.repositories.findWorkspaceById(row.workspaceId)
     if (!workspace) {
@@ -2496,27 +2731,50 @@ export class SessionService {
         this.freshCheckouts.delete(row.id)
       }
     }
-    const inspection = await this.deps.gitWorktrees.inspect({
-      primaryRoot: repository.path,
-      path: record.path,
-      branch: record.branch,
-      target: repository.executionTarget
-    })
-    if (!inspection.pathExists) {
-      throw new SessionServiceError(
-        makeAppError('WORKTREE_MISSING', 'The isolated worktree is missing.', {
-          detail: 'Restore the worktree from its retained branch before using this session.',
-          context: { sessionId: row.id, path: record.path, branch: record.branch }
-        })
-      )
+    /**
+     * Strict checkouts are repaired before they are used, not refused. `unknown`
+     * (a permission or transport failure) is deliberately not a verdict: claiming
+     * the checkout is gone would block a healthy session, so the launch attempt
+     * answers and a real failure is repaired on the next attempt.
+     */
+    if (options.repair === false) {
+      // Read-only verdict: report the checkout's state without proposing a fix.
+      const probe = await this.worktreeHealth.probe(record)
+      switch (probe.kind) {
+        case 'healthy':
+        case 'unknown':
+          break
+        case 'absent':
+          throw new SessionServiceError(
+            makeAppError('WORKTREE_MISSING', 'The isolated worktree is missing.', {
+              detail: record.path,
+              context: { sessionId: row.id, branch: record.branch }
+            })
+          )
+        case 'unregistered':
+          throw new SessionServiceError(
+            makeAppError('WORKTREE_INCONSISTENT', 'The worktree directory is not registered with Git.', {
+              detail: record.path,
+              context: { sessionId: row.id, branch: record.branch }
+            })
+          )
+        case 'reindex':
+        case 'blocked':
+          throw new SessionServiceError(
+            makeAppError('WORKTREE_REPAIR_FAILED', 'The workspace needs repair before it can be read.', {
+              detail: record.path,
+              context: { sessionId: row.id }
+            })
+          )
+      }
+      return { path: record.path, record, repoId: workspace.repoId }
     }
-    if (!inspection.registered) {
-      throw new SessionServiceError(
-        makeAppError('WORKTREE_INCONSISTENT', 'The worktree directory is not registered with Git.', {
-          detail: record.path,
-          context: { sessionId: row.id, branch: record.branch }
-        })
-      )
+    this.emitRecovery(row.id, 'checking')
+    const health = await this.worktreeHealth.ensureHealthy(record, {
+      onRepair: () => this.emitRecovery(row.id, 'repairing')
+    })
+    if (health.kind === 'fatal') {
+      throw new SessionServiceError(health.error)
     }
     return { path: record.path, record, repoId: workspace.repoId }
   }
@@ -2533,6 +2791,13 @@ export class SessionService {
       })
     }
     return null
+  }
+
+  private emitRecovery(
+    sessionId: string,
+    phase: 'checking' | 'repairing' | 'starting'
+  ): void {
+    this.emit({ type: 'recovery', sessionId, phase })
   }
 
   private emit(event: RendererSessionEvent): void {

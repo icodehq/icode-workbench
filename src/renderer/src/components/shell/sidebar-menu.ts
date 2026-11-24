@@ -19,7 +19,7 @@ export type ProjectMenuEntryId =
   | 'maintenance'
   | 'remove'
 
-export type WorktreeMenuEntryId = 'new-session' | 'copy-path' | 'toggle' | 'recover'
+export type WorktreeMenuEntryId = 'new-session' | 'copy-path' | 'toggle'
 
 /** The actions shared by the default checkout and every worktree row. */
 export type DefaultCheckoutMenuEntryId = 'new-session' | 'copy-path' | 'toggle'
@@ -76,8 +76,8 @@ export function projectMenuEntries(input: {
 
 /**
  * Both checkout row types share one plan so a change to the row actions cannot
- * land on one of them and miss the other. Recovery is the only worktree-only
- * entry, and `worktreeMenuEntries` adds it.
+ * land on one of them and miss the other. Recovery is automatic, so neither
+ * row offers a repair action.
  */
 function checkoutEntries(input: {
   canStart: boolean
@@ -105,18 +105,13 @@ export function defaultCheckoutMenuEntries(input: {
 
 export function worktreeMenuEntries(input: {
   status: WorktreeSummary['status'] | null
-  hasSession: boolean
   unavailableReason: string
 }): SidebarMenuEntry<WorktreeMenuEntryId>[] {
   const canStart = input.status === 'ready-to-start' || input.status === 'active'
-  const entries: SidebarMenuEntry<WorktreeMenuEntryId>[] = checkoutEntries({
+  return checkoutEntries({
     canStart,
     unavailableReason: input.unavailableReason
   })
-  if (input.status === 'missing' && input.hasSession) {
-    entries.push({ id: 'recover', separatorBefore: true, disabled: false })
-  }
-  return entries
 }
 
 export function newMenuEntries(input: {

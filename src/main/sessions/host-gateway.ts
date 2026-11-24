@@ -113,7 +113,9 @@ export class SupervisorHostGateway implements HostGateway {
   }
 
   async prewarm(target?: HostTarget): Promise<void> {
-    if (target === undefined || target.kind === 'local') return
+    // Local is included: after a Host crash or a closed client, the first
+    // session open should not pay the cold start. Startup usually warms this
+    // already via reconcile, so the call is normally free.
     await this.clientFor(target)
   }
 

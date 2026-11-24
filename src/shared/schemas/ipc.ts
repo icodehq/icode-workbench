@@ -408,6 +408,18 @@ export const sessionTargetInputSchema = z.strictObject({
   sessionId: sessionIdSchema
 })
 
+/**
+ * Explicit checkout recovery.
+ *
+ * `keepExistingAsAside` is the user's confirmation that an unrecoverable
+ * directory may be moved aside; without it the main process refuses to touch
+ * user files.
+ */
+export const recoverWorktreeInputSchema = z.strictObject({
+  sessionId: sessionIdSchema,
+  keepExistingAsAside: z.boolean().optional()
+})
+
 /** Opening a project supervisor creates it if needed and returns its session. */
 export const supervisorOpenInputSchema = z.strictObject({
   repoId: repoIdSchema
@@ -610,6 +622,12 @@ export const sessionSummarySchema = z.strictObject({
   activity: activitySummarySchema.nullable()
 })
 
+/** Recovery result; `preservedPath` names files moved aside by user request. */
+export const recoverWorktreeResultSchema = z.strictObject({
+  session: sessionSummarySchema,
+  preservedPath: z.string().min(1).max(4096).nullable()
+})
+
 const worktreeFileListSchema = z.array(z.string().min(1).max(4096)).max(200)
 
 export const worktreeBlockerSchema = z.strictObject({
@@ -771,6 +789,16 @@ export const rendererSessionEventSchema = z.union([
     type: z.literal('state'),
     session: sessionSummarySchema
   }),
+  /**
+   * Transient repair/start progress for one session. The next `state` event (or
+   * the renderer action settling) supersedes it; it is never persisted.
+   */
+  z.strictObject({
+    type: z.literal('recovery'),
+    sessionId: sessionIdSchema,
+    phase: z.enum(['checking', 'repairing', 'starting']),
+    detail: z.string().min(1).max(2000).optional()
+  }),
   /** Advisory activity for one session; never changes lifecycle state. */
   z.strictObject({
     type: z.literal('activity'),
@@ -824,6 +852,8 @@ export type MergeStartInput = z.infer<typeof mergeStartInputSchema>
 export type MergeSessionInput = z.infer<typeof mergeSessionInputSchema>
 export type MergeOutcomePayload = z.infer<typeof mergeOutcomeSchema>
 export type SessionTargetInput = z.infer<typeof sessionTargetInputSchema>
+export type RecoverWorktreeInput = z.infer<typeof recoverWorktreeInputSchema>
+export type RecoverWorktreeResult = z.infer<typeof recoverWorktreeResultSchema>
 export type RemoveSessionInput = z.infer<typeof removeSessionInputSchema>
 export type TerminalAttachInput = z.infer<typeof terminalAttachInputSchema>
 export type TerminalWriteInput = z.infer<typeof terminalWriteInputSchema>

@@ -19,6 +19,7 @@ import {
   removeBranchInputSchema,
   removeRepositoryInputSchema,
   removeSessionInputSchema,
+  recoverWorktreeInputSchema,
   sessionTargetInputSchema,
   supervisorOpenInputSchema,
   terminalAttachInputSchema,
@@ -161,7 +162,10 @@ export type DispatcherServices = {
     confirmBranch: string
     deleteBranch?: boolean
   }) => Promise<unknown>
-  sessionsRecoverWorktree: (input: { sessionId: string }) => Promise<unknown>
+  sessionsRecoverWorktree: (input: {
+    sessionId: string
+    keepExistingAsAside?: boolean
+  }) => Promise<unknown>
   branchesList: (input: { repoId: string }) => Promise<unknown>
   branchesRefs: (input: { repoId: string }) => Promise<unknown>
   branchesCurrent: (input: { repoId: string }) => Promise<unknown>
@@ -513,7 +517,7 @@ export function createDispatcher(services: DispatcherServices): Dispatcher {
       }
 
       case IPC_CHANNELS.sessionsRecoverWorktree: {
-        const input = parse(sessionTargetInputSchema, rawInput)
+        const input = parse(recoverWorktreeInputSchema, rawInput)
         if ('code' in input) return { ok: false, error: input }
         return run(() => services.sessionsRecoverWorktree(input))
       }

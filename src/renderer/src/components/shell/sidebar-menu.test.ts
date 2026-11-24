@@ -89,7 +89,6 @@ describe('worktree menu plan', () => {
   it('offers a session in a checkout that can host one', () => {
     const entries = worktreeMenuEntries({
       status: 'ready-to-start',
-      hasSession: false,
       unavailableReason: 'Checkout unavailable'
     })
     expect(ids(entries)).toEqual(['new-session', 'copy-path', 'toggle'])
@@ -101,7 +100,6 @@ describe('worktree menu plan', () => {
     for (const status of ['missing', 'inconsistent', 'creating'] as const) {
       const entries = worktreeMenuEntries({
         status,
-        hasSession: false,
         unavailableReason: 'Checkout unavailable'
       })
       expect(byId(entries, 'new-session')).toMatchObject({
@@ -111,21 +109,13 @@ describe('worktree menu plan', () => {
     }
   })
 
-  it('offers recovery only for a missing checkout that has a session', () => {
-    const withSession = worktreeMenuEntries({
+  it('leaves recovery to the automatic repair path', () => {
+    const entries = worktreeMenuEntries({
       status: 'missing',
-      hasSession: true,
       unavailableReason: 'Checkout unavailable'
     })
-    expect(ids(withSession)).toEqual(['new-session', 'copy-path', 'toggle', 'recover'])
-    expect(byId(withSession, 'recover').separatorBefore).toBe(true)
-
-    const withoutSession = worktreeMenuEntries({
-      status: 'missing',
-      hasSession: false,
-      unavailableReason: 'Checkout unavailable'
-    })
-    expect(ids(withoutSession)).not.toContain('recover')
+    expect(ids(entries)).toEqual(['new-session', 'copy-path', 'toggle'])
+    expect(ids(entries)).not.toContain('recover')
   })
 })
 
@@ -158,7 +148,6 @@ describe('default checkout menu plan', () => {
     })
     const worktree = worktreeMenuEntries({
       status: 'ready-to-start',
-      hasSession: false,
       unavailableReason: 'Checkout unavailable'
     })
     expect(checkout).toEqual(worktree)

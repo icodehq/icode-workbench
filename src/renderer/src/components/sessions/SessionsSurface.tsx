@@ -6,7 +6,7 @@ import type { RepositorySummary, SessionSummary } from '../../../../shared/schem
 import type { AgentSendResult } from '../../lib/agent-send'
 import type { WorkbenchDraftStore } from '../../review/drafts'
 import type { OpenFileRequest, ViewRequest } from '../../router/use-app-navigation'
-import type { Notice, PendingAction } from '../../state/workspace'
+import type { Notice, PendingAction, RecoveryPhase } from '../../state/workspace'
 import type { PendingCreate } from '../../state/pending-create'
 import type { DirectSessionActions } from '../../state/session-actions'
 import type { CreateSessionOutcome, CreateSessionRequest } from '../../state/use-workspace'
@@ -41,6 +41,7 @@ type Props = {
   activeSession: SessionSummary | null
   pendingCreate: PendingCreate | null
   pending: Record<string, PendingAction>
+  recovery: Record<string, RecoveryPhase>
   focusActive: boolean
   paneSessions: SessionSummary[]
   refreshToken: number
@@ -70,6 +71,7 @@ export default function SessionsSurface({
   activeSession,
   pendingCreate,
   pending,
+  recovery,
   focusActive,
   paneSessions,
   refreshToken,
@@ -542,10 +544,10 @@ export default function SessionsSurface({
           }
           layout="split"
           hideHeader={focusActive}
-          showBranch={leafIds === null}
           session={target}
           repo={repo}
           pending={pending[target.id] ?? null}
+          recovery={recovery[target.id] ?? null}
           panes={paneSessions.filter((candidate) => {
             if (leafIds === null) return true
             if (candidate.id === target.id) return true

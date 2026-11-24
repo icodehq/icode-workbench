@@ -36,6 +36,12 @@ export const APP_ERROR_CODES = [
   'WORKTREE_INCONSISTENT',
   'WORKTREE_DIRTY',
   'WORKTREE_UNMERGED',
+  // The checkout exists but cannot be re-attached to Git without moving or
+  // deleting user files, so recovery is a decision only the user can make.
+  'WORKTREE_UNRECOVERABLE',
+  // An automatic repair was attempted and failed. Retrying is meaningful:
+  // the cause (lock, transient I/O, an in-progress Git operation) can clear.
+  'WORKTREE_REPAIR_FAILED',
   'BRANCH_NOT_OWNED',
   'UNBORN_REPOSITORY',
   'GIT_OPERATION_IN_PROGRESS',
@@ -135,6 +141,7 @@ const RETRYABLE_CODES: ReadonlySet<AppErrorCode> = new Set<AppErrorCode>([
   'SESSION_START_TIMEOUT',
   'HARNESS_DETECTION_FAILED',
   'WORKTREE_CREATE_FAILED',
+  'WORKTREE_REPAIR_FAILED',
   'GIT_READ_FAILED',
   'GIT_READ_TIMEOUT',
   // Network and remote-server failures are commonly transient.

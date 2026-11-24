@@ -233,22 +233,6 @@ async function sessions() {
   }))`)
 }
 
-async function activeSession() {
-  return cdp.evaluate(`(() => {
-    const w = document.querySelector('[data-testid="session-worktree"]');
-    return {
-      id: document.querySelector('[data-session-id][aria-current], [data-session-id]')?.dataset?.sessionId ?? null,
-      title: document.querySelector('[data-testid="session-title"]')?.innerText ?? null,
-      state: document.querySelector('[data-testid="session-state"]')?.getAttribute('data-state') ?? null,
-      worktree: w ? {
-        branch: w.getAttribute('data-worktree-branch'),
-        status: w.getAttribute('data-worktree-status'),
-        text: w.innerText
-      } : null
-    };
-  })()`)
-}
-
 async function rows(sessionId) {
   return cdp.evaluate(`(() => {
     const pane = document.querySelector('[data-testid="terminal-pane-${sessionId}"]');
@@ -405,7 +389,7 @@ async function createShellSession(title) {
     `session ${title} to open`,
     30000
   )
-  await waitFor(`Boolean(document.querySelector('[data-testid="session-worktree"]'))`, 'worktree badge')
+  await waitFor(`Boolean(document.querySelector('[data-testid="session-state"]'))`, 'session state')
   const list = await sessions()
   const session = list.find((entry) => entry.text.split('\n')[0] === title)
   assert(session, `Session ${title} is missing from the sidebar`)
@@ -480,12 +464,7 @@ async function main() {
     const first = await createShellSession('Worktree A')
     const second = await createShellSession('Worktree B')
     await screenshot('01-two-sessions')
-
-    const firstInfo = await cdp.evaluate(`(() => {
-      const w = document.querySelector('[data-testid="session-worktree"]');
-      return w ? { branch: w.getAttribute('data-worktree-branch'), status: w.getAttribute('data-worktree-status') } : null;
-    })()`)
-    return { first, second, currentWorktree: firstInfo }
+    return { first, second }
   })
 
   const state = {}
@@ -603,13 +582,11 @@ async function main() {
     assert(after, 'Restarted session disappeared')
     assert(after.incarnation !== before.incarnation, 'Restart reused the incarnation')
     const entries = worktreeEntries()
-    assert(entries.some((entry) => entry.path === state.aEntry.path), 'Restart moved the worktree')
-    const worktree = await cdp.evaluate(
-      `document.querySelector('[data-testid="session-worktree"]')?.getAttribute('data-worktree-branch')`
-    )
-    assert(worktree === state.aEntry.branch, 'Restart changed the branch')
+    const worktree = entries.find((entry) => entry.path === state.aEntry.path) ?? null
+    assert(worktree !== null, 'Restart moved the worktree')
+    assert(worktree.branch === state.aEntry.branch, 'Restart changed the branch')
     state.a = after
-    return { before: before.incarnation, after: after.incarnation, branch: worktree }
+    return { before: before.incarnation, after: after.incarnation, branch: worktree.branch }
   })
 
   await step('confirm before removing a live session', 'AC6', async () => {
@@ -619,8 +596,8 @@ async function main() {
     )
     assert(text.includes('branch is kept'), 'Removal does not say the branch is kept')
     assert(
-      text.includes('uncommitted work is protected'),
-      'Removal does not say uncommitted work is protected'
+      text.includes('Uncommitted changes block removal'),
+      'Removal does not say uncommitted changes block removal'
     )
     assert(!text.includes('terminal process'), 'Removal exposes terminal-process internals')
     assert(!text.includes('worktree'), 'Removal exposes worktree internals')
@@ -634,7 +611,7 @@ async function main() {
     return { text: text.trim().split('\n').filter(Boolean) }
   })
 
-  await step('protect uncommitted work and require an exact discard confirmation', 'AC7', async () => {
+  await step('protect uncommitted work behind an explicit discard', 'AC7', async () => {
     writeFileSync(join(state.aEntry.path, 'uncommitted.txt'), 'work in progress\n')
     await requestRemoveSession()
     await click('[data-testid="remove-session-confirm"]')
@@ -649,23 +626,12 @@ async function main() {
     assert(dialog.includes('Uncommitted changes'), 'Dialog does not explain the dirty blocker')
     assert(dialog.includes('uncommitted.txt'), 'Dialog does not list the dirty file')
 
-    const disabledBefore = await cdp.evaluate(
-      `document.querySelector('[data-testid="discard-confirm"]').disabled`
+    const enabledBefore = await cdp.evaluate(
+      `!document.querySelector('[data-testid="discard-confirm"]').disabled`
     )
-    assert(disabledBefore, 'Discard is enabled without typing the branch')
+    assert(enabledBefore, 'Discard is not offered for the dirty blocker')
     await screenshot('05-dirty-blocked')
 
-    // Wrong name must stay disabled (the input is compared to the real branch).
-    await setInput('[data-testid="discard-confirm-input"]', 'not-the-branch')
-    const disabledWrong = await cdp.evaluate(
-      `document.querySelector('[data-testid="discard-confirm"]').disabled`
-    )
-    assert(disabledWrong, 'Discard accepted a wrong branch name')
-    await setInput('[data-testid="discard-confirm-input"]', state.aEntry.branch)
-    const disabledRight = await cdp.evaluate(
-      `document.querySelector('[data-testid="discard-confirm"]').disabled`
-    )
-    assert(!disabledRight, 'Discard did not enable with the exact branch')
     await click('[data-testid="discard-confirm"]')
     await waitFor(
       `!Array.from(document.querySelectorAll('[data-session-id]')).some((el) => el.innerText.includes('Worktree A'))`,

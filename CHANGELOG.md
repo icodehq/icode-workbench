@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-11-24
+
+### Added
+
+- **Sessions repair their own workspaces.** Opening or retrying a session
+  probes its checkout with filesystem evidence (no Git process in the common
+  case), rebuilds a lost Git registration or index when that is safe, and
+  re-creates a missing checkout from its owned branch. A background sweep after
+  first paint repairs the rest without blocking the window.
+- A session that cannot be repaired shows one plain problem panel with
+  **Try again** and **Remove session**. When the directory still holds files
+  that Git cannot re-attach, the panel offers **Start fresh (keep old files)**;
+  the old directory is moved beside the new one, never deleted.
+- Session details keep paths, branches, baselines, host authority and raw
+  errors behind a collapsed **Technical details** section with a **Copy
+  diagnostics** button.
+
+### Changed
+
+- Session state is now four user-facing labels: **Starting**, **Running**,
+  **Stopped** and **Needs attention**. Worktree, Host, branch and path
+  vocabulary is gone from the sidebar, header and details.
+- The new-session dialog speaks in workspaces and project folders rather than
+  worktrees and branch names.
+- Windows worktree Git commands pass `core.longpaths` per command, so deep
+  checkouts under `%APPDATA%` are less likely to fail.
+
+### Fixed
+
+- **A Host or PTY startup failure no longer marks the checkout failed.** Only a
+  Git provisioning or verification failure can, which removes the misleading
+  "Git does not recognise this directory" panel for process failures.
+- "Check host" is gone; it only re-read a failed row and could not repair it.
+
 ## [0.26.2] - 2026-11-24
 
 ### Fixed

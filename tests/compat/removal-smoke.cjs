@@ -15,6 +15,7 @@ const {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   writeFileSync
 } = require('node:fs')
 const { tmpdir } = require('node:os')
@@ -234,6 +235,19 @@ async function quitApp() {
   appProcess = null
 }
 
+/**
+ * The app keys checkouts by worktree id, not session id. Each project has one
+ * session in this smoke, so the single `wt_*` directory is its checkout.
+ */
+function sessionWorktree(repoId) {
+  const root = join(USER_DATA, 'worktrees', repoId)
+  if (!existsSync(root)) return null
+  const dirs = readdirSync(root, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && entry.name.startsWith('wt_'))
+    .map((entry) => join(root, entry.name))
+  return dirs.length === 1 ? dirs[0] : null
+}
+
 async function openProjectSessions(repoId) {
   if (
     await cdp.evaluate(
@@ -316,8 +330,8 @@ async function main() {
   const session1 = await step('create a live session', () =>
     createShellSession(repo1, 'Removal live shell')
   )
-  const worktree1 = join(USER_DATA, 'worktrees', repo1, session1)
-  assert(existsSync(worktree1), `Session worktree is missing: ${worktree1}`)
+  const worktree1 = sessionWorktree(repo1)
+  assert(worktree1 !== null && existsSync(worktree1), `Session worktree is missing for ${repo1}`)
 
   await step('remove while the session is live and discard its dirty snapshot', async () => {
     writeFileSync(join(worktree1, 'SMOKE_DIRTY.txt'), 'uncommitted\n')
@@ -357,8 +371,8 @@ async function main() {
   const session2 = await step('create a session for the unreachable-Host case', () =>
     createShellSession(repo2, 'Removal waits for host')
   )
-  const worktree2 = join(USER_DATA, 'worktrees', repo2, session2)
-  assert(existsSync(worktree2), `Second session worktree is missing: ${worktree2}`)
+  const worktree2 = sessionWorktree(repo2)
+  assert(worktree2 !== null && existsSync(worktree2), `Second session worktree is missing for ${repo2}`)
 
   await quitApp()
 

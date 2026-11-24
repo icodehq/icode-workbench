@@ -81,7 +81,8 @@ export function sessionActionState(
   const live = session.state === 'live'
   const active = live || session.state === 'starting'
   const sleeping = session.sleeping === true
-  const blocked = worktreeBlocksTerminal(session.worktree)
+  // A broken checkout is a reason to repair before starting, not a reason to
+  // hide the action: the main process owns that repair.
   const unreachable = hostUnavailable(session)
 
   const showSleep = allowSleep && live && !sleeping
@@ -93,8 +94,8 @@ export function sessionActionState(
 
   const canSleep = showSleep && pending === null
   const canWake = showWake && pending === null
-  const canResume = showResume && pending === null && !blocked && !unreachable
-  const canRestart = showRestart && pending === null && !blocked && !unreachable
+  const canResume = showResume && pending === null && !unreachable
+  const canRestart = showRestart && pending === null && !unreachable
   const canRemove = pending === null
 
   return {
@@ -117,18 +118,14 @@ export function sessionActionState(
         ? 'resuming'
         : pending !== null
           ? 'pending'
-          : unreachable
-            ? 'host-unreachable'
-            : 'worktree-blocked',
+          : 'host-unreachable',
     restartReason: !showRestart || canRestart
       ? null
       : pending === 'restarting'
         ? 'restarting'
         : pending !== null
           ? 'pending'
-          : unreachable
-            ? 'host-unreachable'
-            : 'worktree-blocked',
+          : 'host-unreachable',
     removeReason: canRemove ? null : 'pending'
   }
 }

@@ -111,4 +111,12 @@ describe('session lifecycle wording', () => {
   it('tells the user a removal is in progress without exposing the stop path', () => {
     expect(sessionStateLabel('live', 'removing')).toBe('Removing…')
   })
+
+  it('maps internal lifecycle states to four user-facing labels', () => {
+    expect(sessionStateLabel('starting', null)).toBe('Starting')
+    expect(sessionStateLabel('live', null)).toBe('Running')
+    expect(sessionStateLabel('exited', null)).toBe('Stopped')
+    expect(sessionStateLabel('failed', null)).toBe('Needs attention')
+    expect(sessionStateLabel('unavailable', null)).toBe('Needs attention')
+  })
 })

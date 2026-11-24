@@ -110,8 +110,8 @@ async function resolveTarget(
   const isLocal = executionTarget.kind === 'local'
 
   const described = isLocal
-    ? describeWorktree(record, summary.state, null)
-    : describeWorktree(record, summary.state, null, true)
+    ? describeWorktree(record, summary.state)
+    : describeWorktree(record, summary.state, true)
   if (described.status === 'missing') {
     return {
       status: 'unavailable',
