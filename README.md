@@ -28,7 +28,8 @@
 </p>
 
 <h3 align="center">
-  <a href="#install"><ins>Download</ins></a> &nbsp;·&nbsp;
+  <a href="https://icodehq.vercel.app/workbench/#install"><ins>Download</ins></a> &nbsp;·&nbsp;
+  <a href="https://icodehq.vercel.app/guides/"><ins>Guides</ins></a> &nbsp;·&nbsp;
   <a href="#features"><ins>Features</ins></a> &nbsp;·&nbsp;
   <a href="#supported-harnesses"><ins>Harnesses</ins></a> &nbsp;·&nbsp;
   <a href="CHANGELOG.md"><ins>Changelog</ins></a>
@@ -41,6 +42,20 @@
 <p align="center">
   <sub>Pre-1.0 · Windows x64 · Linux x64 (WSL2/WSLg) · macOS x64 / arm64</sub>
 </p>
+
+## Start here
+
+New to multi-agent workflows? These guides are the fastest path from one agent
+to a fleet:
+
+- [Parallel coding agents: the complete guide](https://icodehq.vercel.app/guides/parallel-agents/)
+- [What is an agent development environment?](https://icodehq.vercel.app/guides/what-is-an-agent-development-environment/)
+- [From one agent to a fleet](https://icodehq.vercel.app/guides/from-one-agent-to-a-fleet/)
+- [Git worktrees for coding agents](https://icodehq.vercel.app/guides/agent-worktrees-explained/)
+- [How to queue coding agent tasks](https://icodehq.vercel.app/guides/queue-coding-agent-tasks/)
+- [How to review AI-generated code](https://icodehq.vercel.app/guides/review-ai-generated-code/)
+- [How to run Claude Code in parallel](https://icodehq.vercel.app/guides/run-claude-code-in-parallel/)
+- [Compare with Orca](https://icodehq.vercel.app/compare/orca/)
 
 ## Install
 
