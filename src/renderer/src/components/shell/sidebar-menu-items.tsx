@@ -166,7 +166,6 @@ export function createSidebarMenuItems(context: SidebarMenuContext) {
     const { repo, group } = request
     const status = group.sessions[0]?.worktree?.status ?? null
     const collapsed = context.collapsedWorktrees.has(group.worktreeId)
-    const firstSession = group.sessions[0]
     const build: Record<WorktreeMenuEntryId, () => ContextMenuItem> = {
       'new-session': () => ({
         id: 'new-session',
@@ -186,21 +185,11 @@ export function createSidebarMenuItems(context: SidebarMenuContext) {
         icon: <ChevronRight size={12} className={collapsed ? '' : 'rotate-90'} />,
         testId: `sidebar-worktree-${group.worktreeId}-toggle`,
         onSelect: () => context.toggleWorktreeCollapsed(group.worktreeId)
-      }),
-      recover: () => ({
-        id: 'recover',
-        label: t('sidebar.recoverWorktree'),
-        icon: <RefreshCw size={12} />,
-        testId: `sidebar-worktree-${group.worktreeId}-recover`,
-        onSelect: () => {
-          if (firstSession !== undefined) context.onRecoverWorktree(firstSession.id)
-        }
       })
     }
     return withPlan(
       worktreeMenuEntries({
         status,
-        hasSession: firstSession !== undefined,
         unavailableReason: t('newSession.worktreeUnavailable')
       }),
       build

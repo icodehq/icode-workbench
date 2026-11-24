@@ -3,6 +3,7 @@ import {
   Bell,
   ChevronRight,
   Filter,
+  Folder,
   FolderGit2,
   GitBranch,
   History,
@@ -807,15 +808,8 @@ export default function WorkspaceSidebar({
           />
           <span className="min-w-0 flex-1">
             <span className="block truncate text-[13px]">{session.title}</span>
-            <span className="block truncate font-mono text-[11px] text-muted-foreground">
+            <span className="block truncate text-[11px] text-muted-foreground">
               {sessionStateLabelFor(session, pendingFor(session))}
-              {session.worktree
-                ? ` · ${
-                    session.worktree.branch.length > 22
-                      ? `${session.worktree.branch.slice(0, 21)}…`
-                      : session.worktree.branch
-                  }`
-                : ` · ${t('session.defaultCheckoutLabel')}`}
             </span>
             {suffix === null ? null : (
               <span
@@ -1109,7 +1103,6 @@ export default function WorkspaceSidebar({
                   className="flex h-full min-w-0 flex-1 items-center gap-1 text-left hover:text-foreground focus-visible:text-foreground"
                   aria-expanded={!defaultCollapsed}
                   aria-label={t('sidebar.defaultCheckout')}
-                  title={repo.path}
                   data-testid={`sidebar-default-checkout-toggle-${repo.id}`}
                   onClick={() => toggleDefaultCheckoutCollapsed(repo.id)}
                   onKeyDown={(event) =>
@@ -1125,10 +1118,9 @@ export default function WorkspaceSidebar({
                     size={8}
                     className={`shrink-0 transition-transform ${defaultCollapsed ? '' : 'rotate-90'}`}
                   />
-                  <GitBranch size={8} className="shrink-0" />
+                  <Folder size={8} className="shrink-0" />
                   <span className="min-w-0 flex-1 truncate">
                     {t('sidebar.defaultCheckout')}
-                    {repo.currentBranch ? ` · ${repo.currentBranch}` : ''}
                   </span>
                   <span>{groups.defaultCheckout.length}</span>
                 </button>
@@ -1160,7 +1152,12 @@ export default function WorkspaceSidebar({
               const status = group.sessions[0]?.worktree?.status
               // A checkout Git cannot hand to a PTY must not offer a session.
               const canAdd = status === 'ready-to-start' || status === 'active'
-              const collapsed = collapsedWorktrees.has(group.worktreeId)
+              // A header exists when it has a job: grouping several sessions,
+              // or carrying the drag affordance that orders workspaces. A
+              // project's only workspace needs neither.
+              const shared = group.sessions.length > 1
+              const showHeader = shared || orderedWorktrees.length > 1
+              const collapsed = showHeader && collapsedWorktrees.has(group.worktreeId)
               const menuOpen =
                 checkoutMenu?.repo.id === repo.id &&
                 checkoutMenu.group?.worktreeId === group.worktreeId
@@ -1178,76 +1175,79 @@ export default function WorkspaceSidebar({
               }
               return (
                 <div key={group.worktreeId} data-testid={`sidebar-worktree-${group.worktreeId}`}>
-                  <div
-                    className={`group/wt flex h-7 items-center gap-1 px-1 font-mono text-[12px] text-muted-foreground ${
-                      menuOpen ? 'bg-hover text-foreground' : ''
-                    } ${rowDropClass(dragTarget)} ${rowDraggingClass(dragTarget)}`}
-                    data-menu-open={menuOpen ? 'true' : undefined}
-                    onDragOver={(event) => rowDragOver(event, dragTarget)}
-                    onDragLeave={(event) => rowDragLeave(event, dragTarget)}
-                    onDrop={(event) => rowDrop(event, dragTarget, applyWorktreeDrop)}
-                    onContextMenu={(event) => {
-                      event.preventDefault()
-                      requestCheckoutMenu(repo, group, {
-                        x: event.clientX,
-                        y: event.clientY,
-                        // Focus returns to the row's disclosure, whichever
-                        // part of the row opened the menu.
-                        returnFocus:
-                          event.currentTarget.querySelector<HTMLElement>(
-                            `[data-testid="sidebar-worktree-toggle-${group.worktreeId}"]`
-                          ) ?? event.currentTarget
-                      })
-                    }}
-                  >
-                    <button
-                      type="button"
-                      className="flex h-full min-w-0 flex-1 items-center gap-1 text-left hover:text-foreground focus-visible:text-foreground"
-                      aria-expanded={!collapsed}
-                      aria-label={group.branch}
-                      data-testid={`sidebar-worktree-toggle-${group.worktreeId}`}
-                      draggable
-                      onDragStart={(event) => startRowDrag(event, dragTarget)}
-                      onDragEnd={resetRowDrag}
+                  {showHeader ? (
+                    <div
+                      className={`group/wt flex h-7 items-center gap-1 px-1 text-[12px] text-muted-foreground ${
+                        menuOpen ? 'bg-hover text-foreground' : ''
+                      } ${rowDropClass(dragTarget)} ${rowDraggingClass(dragTarget)}`}
+                      data-menu-open={menuOpen ? 'true' : undefined}
                       onDragOver={(event) => rowDragOver(event, dragTarget)}
                       onDragLeave={(event) => rowDragLeave(event, dragTarget)}
                       onDrop={(event) => rowDrop(event, dragTarget, applyWorktreeDrop)}
-                      onClick={() => toggleWorktreeCollapsed(group.worktreeId)}
-                      onKeyDown={(event) =>
-                        openRowMenuFromKey(event, (anchor) =>
-                          requestCheckoutMenu(repo, group, {
-                            anchor,
-                            returnFocus: event.currentTarget
-                          })
-                        )
-                      }
+                      onContextMenu={(event) => {
+                        event.preventDefault()
+                        requestCheckoutMenu(repo, group, {
+                          x: event.clientX,
+                          y: event.clientY,
+                          // Focus returns to the row's disclosure, whichever
+                          // part of the row opened the menu.
+                          returnFocus:
+                            event.currentTarget.querySelector<HTMLElement>(
+                              `[data-testid="sidebar-worktree-toggle-${group.worktreeId}"]`
+                            ) ?? event.currentTarget
+                        })
+                      }}
                     >
-                      <ChevronRight
-                        size={8}
-                        className={`shrink-0 transition-transform ${collapsed ? '' : 'rotate-90'}`}
-                      />
-                      <GitBranch size={8} className="shrink-0" />
-                      <span className="min-w-0 flex-1 truncate" title={group.path}>
-                        {group.branch}
-                      </span>
-                      <span>{group.sessions.length}</span>
-                    </button>
-                    <button
-                      type="button"
-                      className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded opacity-0 hover:bg-muted hover:text-foreground focus-visible:opacity-100 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-30 group-hover/wt:opacity-100 group-hover/wt:disabled:opacity-30"
-                      aria-label={t('sidebar.newSessionHere')}
-                      title={
-                        canAdd
-                          ? t('sidebar.newSessionHere')
-                          : t('newSession.worktreeUnavailable')
-                      }
-                      disabled={!canAdd}
-                      data-testid={`sidebar-worktree-new-session-${group.worktreeId}`}
-                      onClick={() => onNewSessionInWorktree(repo.id, group.worktreeId)}
-                    >
-                      <Plus size={9} />
-                    </button>
-                  </div>
+                      <button
+                        type="button"
+                        className="flex h-full min-w-0 flex-1 items-center gap-1 text-left hover:text-foreground focus-visible:text-foreground"
+                        aria-expanded={!collapsed}
+                        aria-label={
+                          shared ? t('sidebar.sharedWorkspace') : t('sidebar.workspaceGroup')
+                        }
+                        data-testid={`sidebar-worktree-toggle-${group.worktreeId}`}
+                        draggable
+                        onDragStart={(event) => startRowDrag(event, dragTarget)}
+                        onDragEnd={resetRowDrag}
+                        onDragOver={(event) => rowDragOver(event, dragTarget)}
+                        onDragLeave={(event) => rowDragLeave(event, dragTarget)}
+                        onDrop={(event) => rowDrop(event, dragTarget, applyWorktreeDrop)}
+                        onClick={() => toggleWorktreeCollapsed(group.worktreeId)}
+                        onKeyDown={(event) =>
+                          openRowMenuFromKey(event, (anchor) =>
+                            requestCheckoutMenu(repo, group, {
+                              anchor,
+                              returnFocus: event.currentTarget
+                            })
+                          )
+                        }
+                      >
+                        <ChevronRight
+                          size={8}
+                          className={`shrink-0 transition-transform ${collapsed ? '' : 'rotate-90'}`}
+                        />
+                        <span className="min-w-0 flex-1 truncate">
+                          {shared ? t('sidebar.sharedWorkspace') : t('sidebar.workspaceGroup')}
+                        </span>
+                        <span>{group.sessions.length}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded opacity-0 hover:bg-muted hover:text-foreground focus-visible:opacity-100 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-30 group-hover/wt:opacity-100 group-hover/wt:disabled:opacity-30"
+                        aria-label={t('sidebar.newSessionHere')}
+                        title={
+                          canAdd
+                            ? t('sidebar.newSessionHere')
+                            : t('newSession.worktreeUnavailable')
+                        }
+                        disabled={!canAdd}
+                        data-testid={`sidebar-worktree-new-session-${group.worktreeId}`}
+                        onClick={() => onNewSessionInWorktree(repo.id, group.worktreeId)}
+                      >
+                        <Plus size={9} />
+                      </button>
+                    </div>
+                  ) : null}
                   {collapsed ? null : (
                     <div className="pl-1">
                       {orderedGroupSessions.map((session) =>
@@ -1394,9 +1394,8 @@ export default function WorkspaceSidebar({
                         className={`h-1.5 w-1.5 shrink-0 rounded-full ${sessionStateDotClass(session, pendingFor(session))}`}
                       />
                       <span className="min-w-0 flex-1 truncate text-[13px]">{session.title}</span>
-                      <span className="max-w-[110px] shrink-0 truncate font-mono text-[11px] text-muted-foreground">
+                      <span className="max-w-[110px] shrink-0 truncate text-[11px] text-muted-foreground">
                         {repo?.displayName ?? session.repoId}
-                        {session.worktree ? ` / ${session.worktree.branch.split('/').pop()}` : ''}
                       </span>
                     </button>
                   </div>
@@ -1826,7 +1825,6 @@ export default function WorkspaceSidebar({
             : {
                 session: detailsSession,
                 repo: repos.find((repo) => repo.id === detailsSession.repoId) ?? null,
-                notify: onNotify,
                 onClose: () => setDetailsSession(null)
               }
         }

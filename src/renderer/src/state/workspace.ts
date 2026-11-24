@@ -11,6 +11,8 @@ import type {
 
 export type BootPhase = 'loading' | 'ready' | 'failed'
 export type PendingAction = 'stopping' | 'restarting' | 'resuming' | 'sleeping' | 'waking' | 'removing'
+/** Transient progress for a session that is checking or repairing its checkout. */
+export type RecoveryPhase = 'checking' | 'repairing' | 'starting'
 export type NoticeTone = 'info' | 'success' | 'error'
 
 export type Notice = {
@@ -51,6 +53,11 @@ export type WorkspaceState = {
   activeRepoId: string | null
   activeSessionId: string | null
   pending: Record<string, PendingAction>
+  /**
+   * Transient checkout progress. Ephemeral by design: a lifecycle state event,
+   * a settled action, or the fallback timer clears it; it is never persisted.
+   */
+  recovery: Record<string, RecoveryPhase>
   notice: Notice | null
   /** Repos removed optimistically; late session events for them are ignored. */
   removingRepoIds: string[]
@@ -80,6 +87,8 @@ export type WorkspaceAction =
     }
   | { type: 'pendingSet'; sessionId: string; action: PendingAction }
   | { type: 'pendingClear'; sessionId: string }
+  | { type: 'sessionRecovery'; sessionId: string; phase: RecoveryPhase }
+  | { type: 'sessionRecoveryCleared'; sessionId: string }
   | { type: 'notice'; notice: Notice | null }
   | { type: 'repoRemoving'; repoId: string }
   | {
@@ -110,6 +119,7 @@ export function createInitialState(
     activeRepoId: selection.repoId ?? null,
     activeSessionId: selection.sessionId ?? null,
     pending: {},
+    recovery: {},
     notice: null,
     removingRepoIds: [],
     branches: [],
@@ -279,7 +289,10 @@ export function workspaceReducer(
             )
       const pending = { ...state.pending }
       if (isTerminalSessionState(action.session.state)) delete pending[action.session.id]
-      return { ...state, sessions, pending }
+      // A lifecycle event supersedes any transient checkout progress.
+      const recovery = { ...state.recovery }
+      delete recovery[action.session.id]
+      return { ...state, sessions, pending, recovery }
     }
     case 'sessionRemoved': {
       const sessions = state.sessions.filter((session) => session.id !== action.sessionId)
@@ -289,11 +302,14 @@ export function workspaceReducer(
           : state.activeSessionId
       const pending = { ...state.pending }
       delete pending[action.sessionId]
+      const recovery = { ...state.recovery }
+      delete recovery[action.sessionId]
       return {
         ...state,
         sessions,
         activeSessionId,
         pending,
+        recovery,
         sessionCleanup:
           state.sessionCleanup?.sessionId === action.sessionId ? null : state.sessionCleanup
       }
@@ -308,6 +324,17 @@ export function workspaceReducer(
       const pending = { ...state.pending }
       delete pending[action.sessionId]
       return { ...state, pending }
+    }
+    case 'sessionRecovery':
+      return {
+        ...state,
+        recovery: { ...state.recovery, [action.sessionId]: action.phase }
+      }
+    case 'sessionRecoveryCleared': {
+      if (state.recovery[action.sessionId] === undefined) return state
+      const recovery = { ...state.recovery }
+      delete recovery[action.sessionId]
+      return { ...state, recovery }
     }
     case 'notice':
       return { ...state, notice: action.notice }

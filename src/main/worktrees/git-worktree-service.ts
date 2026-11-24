@@ -31,8 +31,26 @@ import { samePathResolved } from './worktree-status'
 const READ_TIMEOUT_MS = 10_000
 const MUTATE_TIMEOUT_MS = 30_000
 
-function isWindowsStylePath(value: string): boolean {
+export function isWindowsStylePath(value: string): boolean {
   return /^[A-Za-z]:[\\/]/u.test(value) || value.startsWith('\\\\')
+}
+
+/**
+ * Worktree Git arguments for one target.
+ *
+ * `core.longpaths` is passed per command instead of written into the user's
+ * repository config: the worktree root lives under a long `%APPDATA%` path on
+ * Windows, and a checkout that would otherwise fail there should not require a
+ * permanent change to the repository. Guest Git has no such setting.
+ */
+export function worktreeGitArgs(
+  target: ExecutionTarget,
+  args: readonly string[],
+  platform: NodeJS.Platform = process.platform
+): string[] {
+  return platform === 'win32' && target.kind === 'local'
+    ? ['-c', 'core.longpaths=true', ...args]
+    : [...args]
 }
 
 /**
@@ -43,7 +61,7 @@ function isWindowsStylePath(value: string): boolean {
  * drive/UNC path uses win32 semantics (case-insensitive, backslashes); anything
  * else uses POSIX semantics.
  */
-function isPathInside(root: string, candidate: string): boolean {
+export function isPathInside(root: string, candidate: string): boolean {
   const windows = isWindowsStylePath(root) || isWindowsStylePath(candidate)
   const api = windows ? win32 : posix
   const normalizedRoot = windows ? root.toLowerCase() : root
@@ -55,7 +73,7 @@ function isPathInside(root: string, candidate: string): boolean {
   )
 }
 
-const IN_PROGRESS_MARKERS = [
+export const IN_PROGRESS_MARKERS = [
   'MERGE_HEAD',
   'CHERRY_PICK_HEAD',
   'REVERT_HEAD',
@@ -75,6 +93,8 @@ export type GitWorktreeServiceDeps = {
   router?: GitExecutorRouter
   /** Shared local executor, so proxy env is resolved at each command. */
   localExecutor?: GitExecutor
+  /** Host platform; injectable so tests can assert Windows path/argument rules. */
+  platform?: NodeJS.Platform
 }
 
 /**
@@ -120,9 +140,11 @@ export type RegisteredWorktree = {
 export class GitWorktreeService {
   private readonly queues = new Map<string, Promise<unknown>>()
   private readonly localExecutor: GitExecutor
+  private readonly platform: NodeJS.Platform
 
   constructor(private readonly deps: GitWorktreeServiceDeps) {
     this.localExecutor = deps.localExecutor ?? createLocalGitExecutor()
+    this.platform = deps.platform ?? process.platform
   }
 
   get worktreeRoot(): string {
@@ -552,7 +574,11 @@ export class GitWorktreeService {
       try {
         await ctx.git(
           input.primaryRoot,
-          ['worktree', 'add', '-b', input.branch, input.path, input.baseOid],
+          worktreeGitArgs(
+            ctx.target,
+            ['worktree', 'add', '-b', input.branch, input.path, input.baseOid],
+            this.platform
+          ),
           MUTATE_TIMEOUT_MS
         )
       } catch (error) {
@@ -699,7 +725,7 @@ export class GitWorktreeService {
       try {
         await ctx.git(
           input.primaryRoot,
-          ['worktree', 'add', input.path, input.branch],
+          worktreeGitArgs(ctx.target, ['worktree', 'add', input.path, input.branch], this.platform),
           MUTATE_TIMEOUT_MS
         )
       } catch (error) {
@@ -754,7 +780,7 @@ export class GitWorktreeService {
       const args = ['worktree', 'remove', input.path]
       if (input.force) args.splice(2, 0, '--force')
       try {
-        await ctx.git(input.primaryRoot, args, MUTATE_TIMEOUT_MS)
+        await ctx.git(input.primaryRoot, worktreeGitArgs(ctx.target, args, this.platform), MUTATE_TIMEOUT_MS)
       } catch (error) {
         throw new SessionServiceError(
           makeAppError('WORKTREE_DIRTY', 'Git refused to remove the worktree.', {
@@ -1000,7 +1026,7 @@ export class GitWorktreeService {
     const entries = parseWorktreeList(output)
     // Git prints forward slashes on Windows. Return the controller's spelling
     // for local worktrees; guest paths are always POSIX.
-    if (process.platform === 'win32' && ctx.target.kind === 'local') {
+    if (this.platform === 'win32' && ctx.target.kind === 'local') {
       for (const entry of entries) entry.path = win32.normalize(entry.path)
     }
     return entries

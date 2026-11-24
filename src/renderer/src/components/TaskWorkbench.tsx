@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import {
   FileDiff,
   Files,
-  GitBranch,
   ListTodo,
   MoreHorizontal,
   Square,
@@ -306,21 +305,6 @@ export default function TaskWorkbench({
               <span>{task.harness}</span>
               <span className="h-2.5 w-px shrink-0 bg-border" />
               <span>{t('task.attempt', { count: task.attempt })}</span>
-              {session?.worktree ? (
-                <>
-                  <span className="h-2.5 w-px shrink-0 bg-border" />
-                  <span
-                    className="inline-flex min-w-0 max-w-[180px] items-center gap-1 font-mono text-[10px] text-muted-foreground"
-                    title={session.worktree.branch}
-                  >
-                    <GitBranch size={11} className="shrink-0" />
-                    <span className="truncate">{session.worktree.branch}</span>
-                  </span>
-                  <span className="font-mono text-[10px]">
-                    {t('task.base', { hash: session.worktree.baseOid.slice(0, 7) })}
-                  </span>
-                </>
-              ) : null}
               {duration ? (
                 <>
                   <span className="h-2.5 w-px shrink-0 bg-border" />

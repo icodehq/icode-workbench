@@ -21,7 +21,6 @@ import type {
 export function describeWorktree(
   record: SessionWorktreeRecord,
   sessionState: SessionLifecycleState,
-  hostCwd?: string | null,
   directoryExists?: boolean
 ): WorktreeSummary {
   const exists = directoryExists ?? isDirectory(record.path)
@@ -32,8 +31,6 @@ export function describeWorktree(
     status = exists ? 'incomplete' : 'creating'
   } else if (!exists) {
     status = 'missing'
-  } else if (hostCwd !== undefined && hostCwd !== null && !samePath(hostCwd, record.path)) {
-    status = 'inconsistent'
   } else if (
     record.state === 'ready' &&
     (sessionState === 'live' || sessionState === 'starting')

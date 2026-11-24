@@ -1,7 +1,6 @@
 import { useEffect } from 'react'
-import { Copy, X } from 'lucide-react'
+import { X } from 'lucide-react'
 import type { RepositorySummary, SessionSummary } from '../../../shared/schemas/ipc'
-import type { Notice } from '../state/workspace'
 import {
   activityDetailsHint,
   activityDetailsLabel,
@@ -17,44 +16,13 @@ import { getLocale } from '../i18n/i18n-store'
 type Props = {
   session: SessionSummary
   repo: RepositorySummary | null
-  notify: (notice: Notice) => void
   onClose: () => void
-}
-
-function Value({
-  value,
-  label,
-  mono = false,
-  onCopy
-}: {
-  value: string
-  label: string
-  mono?: boolean
-  onCopy: () => void
-}): React.JSX.Element {
-  return (
-    <span className="flex min-w-0 items-center gap-1">
-      <span className={`min-w-0 truncate ${mono ? 'font-mono text-[10.5px]' : ''}`} title={value}>
-        {value}
-      </span>
-      <button
-        type="button"
-        className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-        onClick={onCopy}
-        aria-label={`Copy ${label}`}
-        title={`Copy ${label}`}
-      >
-        <Copy size={10} />
-      </button>
-    </span>
-  )
 }
 
 /** Diagnostics for one session: identity, host truth and worktree coordinates. */
 export default function SessionDetailsDrawer({
   session,
   repo,
-  notify,
   onClose
 }: Props): React.JSX.Element {
   const t = useT()
@@ -66,16 +34,23 @@ export default function SessionDetailsDrawer({
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [onClose])
 
-  const copy = async (value: string, label: string): Promise<void> => {
-    try {
-      await navigator.clipboard.writeText(value)
-      notify({ tone: 'success', message: t('sessionDetails.copied', { label }) })
-    } catch {
-      notify({ tone: 'error', message: t('sessionDetails.clipboardUnavailable') })
-    }
-  }
-
   const worktree = session.worktree
+  const diagnostics = [
+    `session: ${session.id}`,
+    `state: ${session.state}`,
+    `authority: ${session.authority}`,
+    `reason: ${session.reason}`,
+    `worktree: ${worktree?.path ?? '(primary checkout)'}`,
+    `branch: ${worktree?.branch ?? repo?.currentBranch ?? '—'}`,
+    `base: ${worktree?.baseOid ?? '—'}`,
+    session.error
+      ? `error: ${session.error.code}: ${session.error.message}${
+          session.error.detail ? ` — ${session.error.detail}` : ''
+        }`
+      : null
+  ]
+    .filter((line): line is string => line !== null)
+    .join('\n')
   const rows: Array<[string, React.ReactNode]> = [
     [
       t('sessionDetails.repository'),
@@ -92,16 +67,6 @@ export default function SessionDetailsDrawer({
         : t('sessionDetails.interactive')
     ],
     [t('sessionDetails.status'), sessionStateLabelFor(session, null)],
-    [
-      t('sessionDetails.authority'),
-      t(
-        session.authority === 'host'
-          ? 'sessionDetails.authority.host'
-          : session.authority === 'persisted'
-            ? 'sessionDetails.authority.persisted'
-            : 'sessionDetails.authority.unreachable'
-      )
-    ],
     [
       'Activity',
       <span key="activity" title={activityDetailsHint(session.activity, session.harness)}>
@@ -149,71 +114,7 @@ export default function SessionDetailsDrawer({
         t('sessionDetails.empty')
       )
     ],
-    [t('sessionDetails.updated'), formatDateTime(getLocale(), session.updatedAt)],
-    [
-      t('sessionDetails.host'),
-      session.authority === 'unreachable'
-        ? t('sessionDetails.unreachable')
-        : t('sessionDetails.reachable')
-    ],
-    [
-      t('sessionDetails.worktree'),
-      worktree ? (
-        <Value
-          value={worktree.path}
-          label={t('sessionDetails.worktreePath')}
-          mono
-          onCopy={() => void copy(worktree.path, t('sessionDetails.worktreePath'))}
-        />
-      ) : repo ? (
-        <Value
-          value={repo.path}
-          label={t('sessionDetails.defaultCheckout')}
-          mono
-          onCopy={() => void copy(repo.path, t('sessionDetails.defaultCheckout'))}
-        />
-      ) : (
-        t('sessionDetails.defaultCheckout')
-      )
-    ],
-    [
-      t('sessionDetails.branch'),
-      worktree ? (
-        <Value
-          value={worktree.branch}
-          label={t('sessionDetails.branch')}
-          mono
-          onCopy={() => void copy(worktree.branch, t('sessionDetails.branch'))}
-        />
-      ) : repo?.currentBranch ? (
-        <Value
-          value={repo.currentBranch}
-          label={t('sessionDetails.branch')}
-          mono
-          onCopy={() => void copy(repo.currentBranch!, t('sessionDetails.branch'))}
-        />
-      ) : (
-        '—'
-      )
-    ],
-    [t('sessionDetails.base'), worktree ? <span key="base" className="font-mono text-[10.5px]">{worktree.baseOid.slice(0, 12)}</span> : '—'],
-    [
-      t('sessionDetails.session'),
-      <Value value={session.id} label={t('sessionDetails.sessionId')} mono onCopy={() => void copy(session.id, t('sessionDetails.sessionId'))} />
-    ],
-    [
-      t('sessionDetails.incarnation'),
-      session.incarnationId ? (
-        <Value
-          value={session.incarnationId}
-          label={t('sessionDetails.incarnation')}
-          mono
-          onCopy={() => void copy(session.incarnationId!, t('sessionDetails.incarnation'))}
-        />
-      ) : (
-        '—'
-      )
-    ]
+    [t('sessionDetails.updated'), formatDateTime(getLocale(), session.updatedAt)]
   ]
 
   return (
@@ -235,7 +136,6 @@ export default function SessionDetailsDrawer({
               {session.title}
             </p>
             <p className="mt-0.5 truncate font-mono text-[10.5px] text-muted-foreground">
-              {worktree?.branch ?? repo?.currentBranch ?? t('session.defaultCheckoutLabel')} ·{' '}
               {repo?.displayName ?? t('sessionDetails.unknownProject')}
             </p>
           </div>
@@ -258,21 +158,88 @@ export default function SessionDetailsDrawer({
               </div>
             ))}
           </dl>
-          <p className="mt-3 rounded-md border border-border bg-muted/30 px-2.5 py-2 text-[10px] leading-relaxed text-muted-foreground">
-            {authorityNote(session)}
-          </p>
-          {session.error ? (
-            <p className="mt-2 break-words rounded-md border border-destructive/40 bg-destructive/10 px-2.5 py-2 font-mono text-[10px] leading-relaxed text-destructive">
-              {session.error.message}
-              {session.error.detail ? ` — ${session.error.detail}` : ''}
-            </p>
-          ) : null}
-          {session.exitCode !== null ? (
-            <p className="mt-2 text-[10px] text-muted-foreground">
-              {t('sessionDetails.exitCode')}{' '}
-              <span className="font-mono">{session.exitCode}</span>
-            </p>
-          ) : null}
+          {/*
+           * Paths, branches, baselines, host authority and raw errors are for
+           * support, not for the main details view. They stay one click away.
+           */}
+          <details className="mt-3 text-[10px] text-muted-foreground" data-testid="session-technical-details">
+            <summary className="cursor-pointer select-none">
+              {t('session.problem.technical')}
+            </summary>
+            <div className="mt-2 space-y-1 rounded-md border border-border bg-background px-3 py-2">
+              <p>{authorityNote(session)}</p>
+              {session.error ? (
+                <p className="break-words font-mono text-destructive">
+                  {session.error.message}
+                  {session.error.detail ? ` — ${session.error.detail}` : ''}
+                </p>
+              ) : null}
+              {session.exitCode !== null ? (
+                <p>
+                  {t('sessionDetails.exitCode')}{' '}
+                  <span className="font-mono">{session.exitCode}</span>
+                </p>
+              ) : null}
+              <dl className="mt-2 space-y-1 font-mono">
+                <div className="break-all">
+                  {t('session.technical.session')}{' '}
+                  <span className="text-foreground">{session.id}</span>
+                </div>
+                <div className="break-all">
+                  {t('session.technical.path')}{' '}
+                  <span className="text-foreground">
+                    {worktree?.path ?? repo?.path ?? '—'}
+                  </span>
+                </div>
+                <div>
+                  {t('session.technical.branch')}{' '}
+                  <span className="text-foreground">
+                    {worktree?.branch ?? repo?.currentBranch ?? '—'}
+                  </span>
+                </div>
+                <div>
+                  {t('session.technical.baseline')}{' '}
+                  <span className="text-foreground">
+                    {worktree ? worktree.baseOid.slice(0, 12) : '—'}
+                  </span>
+                </div>
+                <div>
+                  {t('sessionDetails.authority')}{' '}
+                  <span className="text-foreground">
+                    {t(
+                      session.authority === 'host'
+                        ? 'sessionDetails.authority.host'
+                        : session.authority === 'persisted'
+                          ? 'sessionDetails.authority.persisted'
+                          : 'sessionDetails.authority.unreachable'
+                    )}
+                  </span>
+                </div>
+                <div>
+                  {t('sessionDetails.host')}{' '}
+                  <span className="text-foreground">
+                    {session.authority === 'unreachable'
+                      ? t('sessionDetails.unreachable')
+                      : t('sessionDetails.reachable')}
+                  </span>
+                </div>
+                {session.incarnationId ? (
+                  <div className="break-all">
+                    {t('sessionDetails.incarnation')}{' '}
+                    <span className="text-foreground">{session.incarnationId}</span>
+                  </div>
+                ) : null}
+              </dl>
+              <button
+                type="button"
+                className="mt-2 rounded-md border border-border px-2 py-1 text-[10px] hover:bg-muted"
+                onClick={() => void navigator.clipboard?.writeText(diagnostics)}
+                data-testid="session-copy-diagnostics"
+              >
+                {t('sessionDetails.copyDiagnostics')}
+              </button>
+            </div>
+          </details>
         </div>
         <div className="flex items-center border-t border-border px-4 py-2.5">
           <span className="text-[10px] text-muted-foreground">{t('session.detailsDirect')}</span>

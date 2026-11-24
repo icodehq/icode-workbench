@@ -451,7 +451,7 @@ export default function NewSessionDialog({
                   const usable = canAttach(worktree.status)
                   return (
                     <option key={worktree.id} value={worktree.id} disabled={!usable}>
-                      {worktree.branch} ·{' '}
+                      {t('sidebar.sharedWorkspace')} ·{' '}
                       {tp('newSession.worktreeSessions', worktree.sessionCount)}
                       {usable ? '' : ` · ${t('newSession.worktreeUnavailable')}`}
                     </option>
@@ -464,11 +464,9 @@ export default function NewSessionDialog({
               data-testid="new-session-worktree-hint"
             >
               {usesDefaultCheckout
-                ? t('newSession.defaultCheckoutHint', {
-                    path: selectedRepo?.path ?? ''
-                  })
+                ? t('newSession.defaultCheckoutHint')
                 : chosenWorktree !== null
-                  ? t('newSession.existingWorktreeHint', { path: chosenWorktree.path })
+                  ? t('newSession.existingWorktreeHint')
                   : t('newSession.newWorktreeHint')}
             </p>
           </div>

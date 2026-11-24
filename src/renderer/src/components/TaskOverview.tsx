@@ -643,21 +643,6 @@ export default function TaskOverview({
                 <span data-testid="task-detail-exit">{task.exitCode}</span>
               </Row>
             ) : null}
-            {session?.worktree ? (
-              <>
-                <Row label={t('taskOverview.row.branch')}>
-                  <span className="font-mono">{session.worktree.branch}</span>
-                </Row>
-                <Row label={t('taskOverview.row.base')}>
-                  <span className="font-mono">{session.worktree.baseOid.slice(0, 7)}</span>
-                </Row>
-              </>
-            ) : null}
-            <Row label={t('taskOverview.row.worktree')}>
-              <span className="break-all font-mono text-[10px]" data-testid="task-detail-worktree">
-                {task.worktreePath ?? session?.worktree?.path ?? '—'}
-              </span>
-            </Row>
             {task.scheduleId ? <Row label={t('taskOverview.row.schedule')}>{t('taskOverview.fromSchedule')}</Row> : null}
           </Card>
 

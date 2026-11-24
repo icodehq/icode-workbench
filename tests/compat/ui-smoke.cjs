@@ -762,7 +762,7 @@ async function main() {
     const text = await cdp.evaluate(
       `document.querySelector('[data-testid="sidebar-default-checkout-${repoId}"]')?.textContent ?? ''`
     )
-    assert(text.includes('Default checkout'), 'Default checkout container label is missing')
+    assert(text.includes('Project folder'), 'Project folder container label is missing')
     assert((await sessions()).length === 0, 'Adding a project must not auto-create a session')
 
     await click(`[data-testid="sidebar-default-checkout-new-session-${repoId}"]`)

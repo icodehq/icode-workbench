@@ -102,7 +102,7 @@ function watchSystemAppearance(): void {
   })
 }
 
-function createWindow(locale: Locale): void {
+function createWindow(locale: Locale, onLoaded?: () => void): void {
   const backgroundLaunch = process.env.ICODE_BACKGROUND_LAUNCH === '1'
   const profileDirectory = app.getPath('userData')
   const saved = loadWindowState(profileDirectory)
@@ -157,6 +157,9 @@ function createWindow(locale: Locale): void {
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   window.webContents.on('will-navigate', (event) => event.preventDefault())
   installWindowCloseGuard(window, { enabled: !backgroundLaunch })
+
+  // Registered before the load starts so the first paint cannot race it.
+  if (onLoaded !== undefined) window.webContents.once('did-finish-load', onLoaded)
 
   const devUrl = process.env.ELECTRON_RENDERER_URL
   if (devUrl) {
@@ -225,6 +228,7 @@ if (gateFlag || packagedSmoke) {
       // Diagnostics stay available even if persistence cannot open, so the
       // renderer can show an actionable error instead of a blank window.
       installRuntimeInfoHandler(localeService)
+      let sweepWorktrees: (() => Promise<void>) | null = null
       try {
         const runtime = await startAppRuntime()
         registerAppIpc(runtime, () => getAppPersistence(), {
@@ -233,12 +237,17 @@ if (gateFlag || packagedSmoke) {
             ? { devServerUrl: process.env.ELECTRON_RENDERER_URL }
             : {})
         })
+        sweepWorktrees = () => runtime.sessions.sweepWorktrees()
       } catch (error) {
         // A corrupt database is intentionally non-destructive: keep the window
         // usable so the failure can be surfaced instead of silently recreating.
         process.stderr.write(`[icode] application services failed to start: ${String(error)}\n`)
       }
-      createWindow(startupLocale)
+      // First paint belongs to the user: the sweep starts only after the window
+      // has loaded, and its results arrive as ordinary state events.
+      createWindow(startupLocale, () => {
+        if (sweepWorktrees !== null) void sweepWorktrees()
+      })
       app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) createWindow(localeService.locale)
       })

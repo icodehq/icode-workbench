@@ -37,6 +37,8 @@ describe('app error codes', () => {
       'WORKTREE_INCONSISTENT',
       'WORKTREE_DIRTY',
       'WORKTREE_UNMERGED',
+      'WORKTREE_UNRECOVERABLE',
+      'WORKTREE_REPAIR_FAILED',
       'BRANCH_NOT_OWNED',
       'UNBORN_REPOSITORY',
       'GIT_OPERATION_IN_PROGRESS',

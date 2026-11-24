@@ -27,17 +27,21 @@ export function sessionStateLabel(
   if (pending === 'sleeping') return translate('session.pending.sleeping')
   if (pending === 'waking') return translate('session.pending.waking')
   if (pending === 'removing') return translate('session.pending.removing')
+  /**
+   * Four user-visible states, never the internal lifecycle vocabulary. `live`
+   * is "running"; a finished or unavailable process is something the user may
+   * need to act on, not a Git or Host diagnosis.
+   */
   switch (state) {
     case 'starting':
-      return translate('session.state.starting')
+      return translate('session.userState.starting')
     case 'live':
-      return translate('session.state.live')
+      return translate('session.userState.running')
     case 'exited':
-      return translate('session.state.exited')
+      return translate('session.userState.stopped')
     case 'failed':
-      return translate('session.state.failed')
     case 'unavailable':
-      return translate('session.state.unavailable')
+      return translate('session.userState.problem')
   }
 }
 
@@ -47,7 +51,7 @@ export function sessionStateLabelFor(
   pending: PendingAction | null
 ): string {
   if (pending !== null) return sessionStateLabel(session.state, pending)
-  return session.sleeping === true ? translate('session.state.sleeping') : sessionStateLabel(session.state, null)
+  return sessionStateLabel(session.state, null)
 }
 
 export function sessionStatePillClass(

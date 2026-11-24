@@ -20,6 +20,8 @@ import type {
   harnessListInputSchema,
   removeRepositoryInputSchema,
   removeSessionInputSchema,
+  recoverWorktreeInputSchema,
+  recoverWorktreeResultSchema,
   sessionTargetInputSchema,
   supervisorOpenInputSchema,
   windowOpenExternalInputSchema,
@@ -360,8 +362,8 @@ export type IcodeProductApi = {
       input: z.infer<typeof discardSessionInputSchema>
     ) => Promise<IpcResult<DiscardSessionResult>>
     recoverWorktree: (
-      input: z.infer<typeof sessionTargetInputSchema>
-    ) => Promise<IpcResult<SessionSummary>>
+      input: z.infer<typeof recoverWorktreeInputSchema>
+    ) => Promise<IpcResult<z.infer<typeof recoverWorktreeResultSchema>>>
   }
   branches: {
     list: (input: z.infer<typeof listBranchesInputSchema>) => Promise<IpcResult<OwnedBranchSummary[]>>

@@ -13,6 +13,13 @@ afterEach(async () => {
 
 const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
+/**
+ * macOS CI runners under load can take several seconds to deliver the first
+ * FSEvents callback. The old 2–3 s deadlines made this suite flaky on both
+ * macOS arches; a real missing event still fails the test, just later.
+ */
+const DEADLINE_MS = 10_000
+
 async function until(check: () => boolean, timeoutMs: number): Promise<void> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
@@ -64,7 +71,9 @@ function emitter(): BackendEmitter & {
   return record
 }
 
-describe('shallow files backend', () => {
+// The 10 s FSEvents deadline needs headroom over Vitest's default 5 s test
+// timeout; otherwise a slow CI runner kills the test before the deadline does.
+describe('shallow files backend', { timeout: 20_000 }, () => {
   it('watches only the roots it was given, and updates them in place', async () => {
     const root = mkdtempSync(join(tmpdir(), 'icode-shallow-'))
     cleanups.push(() => rmSync(root, { recursive: true, force: true }))
@@ -74,10 +83,10 @@ describe('shallow files backend', () => {
     const watch = emitter()
     const subscription = await backend.subscribe(spec([root], root), watch)
     cleanups.push(() => subscription.close())
-    await until(() => watch.readies === 1, 2_000)
+    await until(() => watch.readies === 1, DEADLINE_MS)
 
     writeFileSync(join(root, 'root.txt'), 'a\n')
-    await until(() => watch.emitted.some((event) => event.path.endsWith('root.txt')), 3_000)
+    await until(() => watch.emitted.some((event) => event.path.endsWith('root.txt')), DEADLINE_MS)
 
     const before = watch.emitted.length
     writeFileSync(join(root, 'sub/deep.txt'), 'b\n')
@@ -94,7 +103,7 @@ describe('shallow files backend', () => {
         watch.emitted.some((event) =>
           event.path.replace(/\\/gu, '/').endsWith('sub/visible.txt')
         ),
-      3_000
+      DEADLINE_MS
     )
   })
 
@@ -109,11 +118,11 @@ describe('shallow files backend', () => {
     const a = await backend.subscribe({ ...spec([root], root), id: 'files:a' }, first)
     const b = await backend.subscribe({ ...spec([root], root), id: 'files:b' }, second)
     cleanups.push(() => a.close(), () => b.close())
-    await until(() => first.readies === 1 && second.readies === 1, 2_000)
+    await until(() => first.readies === 1 && second.readies === 1, DEADLINE_MS)
 
     writeFileSync(join(root, 'node_modules/ignored.js'), 'x\n')
     writeFileSync(join(root, 'shared.txt'), 'y\n')
-    await until(() => first.emitted.some((event) => event.path.endsWith('shared.txt')), 3_000)
+    await until(() => first.emitted.some((event) => event.path.endsWith('shared.txt')), DEADLINE_MS)
     expect(second.emitted.some((event) => event.path.endsWith('shared.txt'))).toBe(true)
     expect(first.emitted.some((event) => event.path.includes('node_modules'))).toBe(false)
   })
@@ -128,7 +137,7 @@ describe('shallow files backend', () => {
     const watch = emitter()
     const subscription = await backend.subscribe(spec([watched], watched), watch)
     cleanups.push(() => subscription.close())
-    await until(() => watch.readies === 1, 2_000)
+    await until(() => watch.readies === 1, DEADLINE_MS)
 
     rmSync(watched, { recursive: true, force: true })
     await wait(150)
@@ -137,7 +146,7 @@ describe('shallow files backend', () => {
     writeFileSync(join(watched, 'after.txt'), 'z\n')
     await until(
       () => watch.emitted.some((event) => event.path.endsWith('after.txt')),
-      4_000
+      DEADLINE_MS
     )
   })
 
@@ -150,11 +159,11 @@ describe('shallow files backend', () => {
     const subscription = await backend.subscribe(spec([root, missing], root), watch)
     cleanups.push(() => subscription.close())
 
-    await until(() => watch.rootErrors.includes(missing), 2_000)
+    await until(() => watch.rootErrors.includes(missing), DEADLINE_MS)
     writeFileSync(join(root, 'still-works.txt'), 'ok\n')
     await until(
       () => watch.emitted.some((event) => event.path.endsWith('still-works.txt')),
-      3_000
+      DEADLINE_MS
     )
   })
 })

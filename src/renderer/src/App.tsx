@@ -599,6 +599,7 @@ export default function App(): React.JSX.Element {
         activeSession={projectSession}
         pendingCreate={pendingCreateView}
         pending={state.pending}
+        recovery={state.recovery}
         focusActive={focusActive}
         paneSessions={paneSessions}
         refreshToken={refreshToken}
