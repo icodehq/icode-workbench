@@ -1146,6 +1146,21 @@ export default function WorkspaceSidebar({
                     onDragOver={(event) => rowDragOver(event, dragTarget)}
                     onDragLeave={(event) => rowDragLeave(event, dragTarget)}
                     onDrop={(event) => rowDrop(event, dragTarget, applyWorktreeDrop)}
+                    onContextMenu={(event) => {
+                      event.preventDefault()
+                      setWorktreeMenu({
+                        repo,
+                        group,
+                        x: event.clientX,
+                        y: event.clientY,
+                        // Focus returns to the row's disclosure, whichever
+                        // part of the row opened the menu.
+                        returnFocus:
+                          event.currentTarget.querySelector<HTMLElement>(
+                            `[data-testid="sidebar-worktree-toggle-${group.worktreeId}"]`
+                          ) ?? event.currentTarget
+                      })
+                    }}
                   >
                     <button
                       type="button"
@@ -1160,16 +1175,6 @@ export default function WorkspaceSidebar({
                       onDragLeave={(event) => rowDragLeave(event, dragTarget)}
                       onDrop={(event) => rowDrop(event, dragTarget, applyWorktreeDrop)}
                       onClick={() => toggleWorktreeCollapsed(group.worktreeId)}
-                      onContextMenu={(event) => {
-                        event.preventDefault()
-                        setWorktreeMenu({
-                          repo,
-                          group,
-                          x: event.clientX,
-                          y: event.clientY,
-                          returnFocus: event.currentTarget
-                        })
-                      }}
                     >
                       <ChevronRight
                         size={8}

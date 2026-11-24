@@ -76,6 +76,19 @@
   --radius-lg: 10px;
 }
 
+/*
+ * Tailwind v4 leaves buttons on the default arrow. Everything here that
+ * answers a click — including the sidebar's project, worktree, session and
+ * task rows — should read as clickable, so the base layer sets the hand
+ * cursor. `cursor-*` utilities still win where the interaction differs
+ * (grab handles, resize seams) and disabled controls keep the arrow.
+ */
+@layer base {
+  :is(button, [role='button']):not(:disabled, [aria-disabled='true']) {
+    cursor: pointer;
+  }
+}
+
 /* The frameless window: the top bar is the drag region; every control opts out. */
 .icode-titlebar {
   -webkit-app-region: drag;
