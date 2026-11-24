@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.1] - 2026-11-24
+
+### Fixed
+
+- Right-clicking anywhere on a worktree row in the left sidebar opens
+  **Worktree actions**. Previously only the branch label answered the
+  right-click, so the add-session button and the row's padding did nothing.
+
+### Changed
+
+- Controls that answer a click show the hand cursor. Tailwind v4 leaves
+  buttons on the default arrow, so the workbench sets the pointer in its base
+  layer; disabled controls and drag handles keep their own cursors.
+
 ## [0.26.0] - 2026-11-24
 
 ### Fixed
