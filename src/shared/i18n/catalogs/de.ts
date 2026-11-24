@@ -1914,6 +1914,8 @@ export const de = {
   'sidebar.tasksFilter': "Nur Aufgaben anzeigen, die dich brauchen",
   'sidebar.collapseTasks': "Aufgaben einklappen",
   'sidebar.expandTasks': "Aufgaben ausklappen",
+  'sidebar.collapseProject': "{name} einklappen",
+  'sidebar.expandProject': "{name} ausklappen",
   'sidebar.openSidebar': "Arbeitsbereich-Seitenleiste öffnen",
   'sidebar.closeSidebar': "Arbeitsbereich-Seitenleiste schließen",
   'sidebar.resize': "Arbeitsbereich-Seitenleiste anpassen",

@@ -23,6 +23,7 @@ import {
   X
 } from 'lucide-react'
 import { callApi } from '../lib/api'
+import { isOverlayOpen } from '../lib/overlay-layer'
 import type {
   GitRangeFile,
   GitWorkspaceStatus
@@ -49,6 +50,7 @@ import { useT } from '../i18n/use-i18n'
 import { translate } from '../i18n/i18n-store'
 import {
   EMPTY_SELECTION,
+  keyPath,
   pruneSelection,
   selectAll,
   selectOnly,
@@ -331,10 +333,27 @@ export default function WorkingTreeView({
   // No fallback to the first row: opening Changes shows the list, and a click
   // opens that file's diff. Auto-opening the first diff would cover the list
   // the moment the pane appears.
-  const selected =
-    selectedKey === null
-      ? null
-      : (visibleEntries.find((entry) => entry.key === selectedKey) ?? null)
+  //
+  // A file can still move between areas while its diff is open — unstaging its
+  // last hunk moves it from Staged to Changes. Follow the same path so the
+  // diff the user is reading stays put.
+  const selected = useMemo(() => {
+    if (selectedKey === null) return null
+    const exact = visibleEntries.find((entry) => entry.key === selectedKey)
+    if (exact !== undefined) return exact
+    const path = keyPath(selectedKey)
+    return visibleEntries.find((entry) => entry.entry.path === path) ?? null
+  }, [selectedKey, visibleEntries])
+
+  const pendingFollowKey = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (selected === null || selected.key === selectedKey) return
+    // Moving areas changes what the diff means (index vs worktree), so the
+    // cached patch from the old area must not be reused under the new key.
+    pendingFollowKey.current = selected.key
+    setSelectedKey(selected.key)
+  }, [selected, selectedKey])
   // The History pane replaces the detail area through `editorOverride`, so it
   // counts as a detail for layout too.
   const overrideOpen = editorOverride !== undefined && editorOverride !== null
@@ -369,7 +388,18 @@ export default function WorkingTreeView({
     if (!active || (!detailMaximized && !detailVisible)) return
     const onKey = (event: KeyboardEvent): void => {
       if (event.key !== 'Escape') return
+      // A menu or popover above the pane owns the first Escape.
+      if (isOverlayOpen()) return
       const target = event.target
+      // A batch selection in the changed-files tree clears first; only the
+      // next Escape dismisses the detail pane.
+      if (
+        selection.selected.size > 0 &&
+        target instanceof HTMLElement &&
+        target.closest('[role="tree"]') !== null
+      ) {
+        return
+      }
       if (
         target instanceof HTMLElement &&
         target.closest('input, textarea, select, [contenteditable="true"]') !== null
@@ -383,7 +413,7 @@ export default function WorkingTreeView({
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [active, detailMaximized, detailVisible])
+  }, [active, detailMaximized, detailVisible, selection.selected.size])
 
   // A hidden list only means anything in the two-column layout; dropping below
   // the threshold shows the list again rather than leaving a stale flag.
@@ -621,7 +651,9 @@ export default function WorkingTreeView({
 
   useEffect(() => {
     if (!active || selected === null || selected.area === 'committed') return
-    loadDiff(selected)
+    const force = pendingFollowKey.current === selected.key
+    if (force) pendingFollowKey.current = null
+    loadDiff(selected, force)
   }, [active, diffTick, loadDiff, refreshToken, selected])
 
   useEffect(() => {

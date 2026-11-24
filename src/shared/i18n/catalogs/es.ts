@@ -1914,6 +1914,8 @@ export const es = {
   'sidebar.tasksFilter': "Mostrar solo tareas que te necesitan",
   'sidebar.collapseTasks': "Contraer tareas",
   'sidebar.expandTasks': "Expandir tareas",
+  'sidebar.collapseProject': "Contraer {name}",
+  'sidebar.expandProject': "Expandir {name}",
   'sidebar.openSidebar': "Abrir barra lateral del espacio de trabajo",
   'sidebar.closeSidebar': "Cerrar barra lateral del espacio de trabajo",
   'sidebar.resize': "Cambiar tamaño de la barra lateral del espacio de trabajo",

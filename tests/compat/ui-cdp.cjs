@@ -3,6 +3,7 @@
 const { spawn } = require('node:child_process')
 const { writeFileSync } = require('node:fs')
 const { join } = require('node:path')
+const net = require('node:net')
 
 const PORT = Number(process.env.CDP_PORT || 9333)
 const APP_DIR = join(__dirname, '..', '..')
@@ -90,4 +91,29 @@ async function connect(port = PORT) {
   return cdp
 }
 
-module.exports = { sleep, connect, Cdp, APP_DIR, PORT, spawn }
+/**
+ * Ask the OS for a free port so a stale DevTools listener cannot collide.
+ *
+ * A terminated app can leave its listening socket bound by a detached Host
+ * child that inherited the file descriptor, so a fixed port range eventually
+ * collides across smoke runs.
+ */
+function allocatePort() {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer()
+    server.unref()
+    server.on('error', reject)
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address()
+      const port = typeof address === 'object' && address ? address.port : 0
+      if (port === 0) {
+        server.close()
+        reject(new Error('Could not allocate a CDP port'))
+        return
+      }
+      server.close(() => resolve(port))
+    })
+  })
+}
+
+module.exports = { sleep, connect, Cdp, APP_DIR, PORT, spawn, allocatePort }

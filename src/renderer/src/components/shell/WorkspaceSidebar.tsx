@@ -1001,7 +1001,11 @@ export default function WorkspaceSidebar({
             className="ml-1 inline-flex h-6 w-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground"
             onClick={() => toggleProjectExpanded(repo.id)}
             aria-expanded={expanded}
-            aria-label={repo.displayName}
+            aria-label={
+              expanded
+                ? t('sidebar.collapseProject', { name: repo.displayName })
+                : t('sidebar.expandProject', { name: repo.displayName })
+            }
             data-testid={`sidebar-project-toggle-${repo.id}`}
           >
             <ChevronRight size={9} className={expanded ? 'rotate-90' : ''} />
@@ -1016,9 +1020,14 @@ export default function WorkspaceSidebar({
             onDragOver={(event) => rowDragOver(event, projectDragTarget)}
             onDragLeave={(event) => rowDragLeave(event, projectDragTarget)}
             onDrop={(event) => rowDrop(event, projectDragTarget, applyProjectDrop)}
-            onClick={() => onOpenProject(repo.id, 'sessions')}
+            onClick={() => {
+              // The row is the group's disclosure as well as its open action:
+              // clicking a project reveals or hides its sessions.
+              onOpenProject(repo.id, 'sessions')
+              toggleProjectExpanded(repo.id)
+            }}
             aria-current={isActive ? 'page' : undefined}
-            aria-haspopup="menu"
+            aria-expanded={expanded}
             title={repo.path}
           >
             <FolderGit2 size={12} className="shrink-0" />

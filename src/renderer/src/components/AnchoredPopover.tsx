@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { menuPosition, type MenuAnchor } from './context-menu-position'
+import { holdOverlay } from '../lib/overlay-layer'
 
 type Props = {
   anchor: MenuAnchor | null
@@ -70,6 +71,10 @@ export default function AnchoredPopover({
   useEffect(() => {
     return () => returnFocusTo.current?.focus()
   }, [])
+
+  // The view beneath must yield Escape to this popover rather than dismissing
+  // itself first.
+  useEffect(() => holdOverlay(), [])
 
   useEffect(() => {
     const onPointerDown = (event: PointerEvent): void => {

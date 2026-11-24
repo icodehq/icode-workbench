@@ -11,6 +11,7 @@ import {
   type MenuAnchor,
   type MenuPosition
 } from './context-menu-position'
+import { holdOverlay } from '../lib/overlay-layer'
 
 export type { MenuAnchor } from './context-menu-position'
 
@@ -110,6 +111,10 @@ export default function ContextMenu({
   useEffect(() => {
     if (returnFocus !== undefined && returnFocus !== null) restoreFocusTo.current = returnFocus
   }, [returnFocus])
+
+  // The view beneath must yield Escape to this menu rather than dismissing
+  // itself first.
+  useEffect(() => holdOverlay(), [])
 
   useLayoutEffect(() => {
     return () => restoreFocusTo.current?.focus()
