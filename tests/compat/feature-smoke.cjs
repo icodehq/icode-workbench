@@ -16,7 +16,7 @@ const {
 } = require('node:fs')
 const { tmpdir } = require('node:os')
 const { join, resolve } = require('node:path')
-const { connect } = require('./ui-cdp.cjs')
+const { connect, allocatePort } = require('./ui-cdp.cjs')
 
 const APP_DIR = resolve(__dirname, '..', '..')
 const ELECTRON = require('electron')
@@ -38,7 +38,7 @@ const RUN = {
 
 let appProcess = null
 let cdp = null
-let port = 20000 + Math.floor(Math.random() * 10000)
+let port = 0
 let repoId = null
 
 function sleep(ms) {
@@ -233,6 +233,7 @@ function git(...args) {
 }
 
 async function launch() {
+  port = await allocatePort()
   const logPath = join(ARTIFACT_DIR, 'app.log')
   const logStream = createWriteStream(logPath)
   RUN.artifacts.push(logPath)
@@ -267,7 +268,6 @@ async function quit() {
     appProcess = null
     return
   }
-  const currentPort = cdp.port
   try {
     await cdp.evaluate('window.close()')
   } catch {}
@@ -282,7 +282,6 @@ async function quit() {
   cdp = null
   appProcess = null
   await sleep(250)
-  port = currentPort + 1
 }
 
 /** Project groups start collapsed; expand them before reading sidebar children. */
@@ -314,6 +313,9 @@ async function openSessionWorkspace() {
   assert(repoId, 'No repository lane')
   await click(`[data-testid="project-row-${repoId}"]`)
   await waitForSelector('[data-testid="sessions-surface"]', 20000)
+  // Opening a project from its row toggles its expanded group; restore the
+  // expanded invariant so later steps can click sidebar session rows.
+  await expandAllProjects()
 }
 
 async function openProjectTasks() {

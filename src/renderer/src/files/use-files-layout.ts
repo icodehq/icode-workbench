@@ -6,6 +6,7 @@ import {
   type FilesSettings
 } from './files-settings'
 import { useElementWidth } from '../lib/use-element-width'
+import { isOverlayOpen } from '../lib/overlay-layer'
 import { usePanelResize } from '../lib/use-panel-resize'
 import { INSPECTOR_TWO_COLUMN_MIN } from '../state/inspector-layout'
 
@@ -51,6 +52,8 @@ export function useFilesLayout(input: {
     if (!active || (!detailMaximized && !detailVisible)) return
     const onKey = (event: KeyboardEvent): void => {
       if (event.key !== 'Escape') return
+      // A menu or popover above the pane owns the first Escape.
+      if (isOverlayOpen()) return
       const target = event.target
       if (
         target instanceof HTMLElement &&

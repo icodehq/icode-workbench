@@ -18,7 +18,7 @@ const {
 } = require('node:fs')
 const { tmpdir } = require('node:os')
 const { join, resolve } = require('node:path')
-const { connect } = require('./ui-cdp.cjs')
+const { connect, allocatePort } = require('./ui-cdp.cjs')
 
 const APP_DIR = resolve(__dirname, '..', '..')
 const PACKAGED_EXECUTABLE = process.env.ICODE_SMOKE_EXECUTABLE
@@ -45,7 +45,7 @@ const RUN = {
 
 let appProcess = null
 let cdp = null
-let port = 20000 + Math.floor(Math.random() * 10000)
+let port = 0
 let repoId = null
 let sessionId = null
 let worktreePath = null
@@ -79,6 +79,9 @@ async function step(name, work) {
       error: error instanceof Error ? error.message : String(error)
     })
     RUN.failures.push(`${name}: ${error instanceof Error ? error.message : String(error)}`)
+    // Keep the pixels of the failed state; the error alone rarely shows what
+    // the UI was actually displaying.
+    await screenshot(`failure-${RUN.steps.length}`)
     throw error
   }
 }
@@ -192,6 +195,7 @@ function git(...args) {
 }
 
 async function launch() {
+  port = await allocatePort()
   const logPath = join(ARTIFACT_DIR, 'app.log')
   const logStream = createWriteStream(logPath)
   RUN.artifacts.push(logPath)
@@ -234,7 +238,6 @@ async function quit() {
     appProcess = null
     return
   }
-  const currentPort = cdp.port
   try {
     await cdp.evaluate('window.close()')
   } catch {}
@@ -249,7 +252,6 @@ async function quit() {
   cdp = null
   appProcess = null
   await sleep(250)
-  port = currentPort + 1
 }
 
 async function openChanges() {
@@ -284,6 +286,9 @@ async function reopenSession() {
   if (!(await cdp.evaluate(`Boolean(document.querySelector('[data-testid="sessions-surface"]'))`))) {
     await click(`[data-testid="project-row-${repoId}"]`)
     await waitForSelector('[data-testid="sessions-surface"]', 20000)
+    // Opening a project from its row toggles its expanded group; restore the
+    // expanded invariant before clicking the session row below.
+    await expandAllProjects()
   }
   await click(`[data-testid="session-item-${sessionId}"]`)
   await waitForSelector('[data-testid="session-title"]', 20000)

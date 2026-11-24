@@ -18,7 +18,7 @@ const {
 } = require('node:fs')
 const { tmpdir } = require('node:os')
 const { join, resolve } = require('node:path')
-const { connect } = require('./ui-cdp.cjs')
+const { connect, allocatePort } = require('./ui-cdp.cjs')
 
 const APP_DIR = resolve(__dirname, '..', '..')
 const ELECTRON = require('electron')
@@ -42,7 +42,6 @@ const RUN = {
 
 let appProcess = null
 let cdp = null
-let nextPort = 9600 + (process.pid % 300)
 let repoId = null
 /** Tip of the remote-only branch the first session starts from. */
 let remoteBaseOid = null
@@ -331,6 +330,14 @@ async function openProjectSessions() {
   assert(repoId, 'Could not identify the registered repository lane')
   await click(`[data-testid="project-row-${repoId}"]`)
   await waitForSelector('[data-testid="sessions-surface"]', 20000)
+  // The project row is a disclosure too, so opening it flips the group that
+  // expandAllProjects established. Prove the flip happened, then restore the
+  // expanded invariant the rest of the flow relies on.
+  const collapsed = await cdp.evaluate(
+    `document.querySelector('[data-testid="sidebar-project-toggle-${repoId}"]')?.getAttribute('aria-expanded') === 'false'`
+  )
+  assert(collapsed, 'Opening a project from its row should collapse the expanded group')
+  await expandAllProjects()
 }
 
 async function openProjectMenu(repoId) {
@@ -624,7 +631,16 @@ async function launch(label, environment, port) {
 }
 
 async function quitApp() {
-  if (!cdp) return
+  if (!cdp) {
+    // A launch can fail before a CDP connection exists; the child must still
+    // be stopped or it keeps Node's event loop alive after the report.
+    if (appProcess && appProcess.exitCode === null) {
+      appProcess.kill('SIGTERM')
+      await sleep(1000)
+    }
+    appProcess = null
+    return
+  }
   const port = cdp.port
   try {
     await cdp.evaluate('window.close()')
@@ -695,7 +711,7 @@ async function main() {
     node: process.version
   }
 
-  let port = nextPort++
+  let port = await allocatePort()
 
   await step('boot empty workspace and detect Harnesses', async () => {
     await launch('initial', hostEnv(), port)
@@ -1801,7 +1817,7 @@ async function main() {
       assert(existsSync(SOCKET), 'Terminal host socket disappeared with the iCode app')
     }
 
-    port = nextPort++
+    port = await allocatePort()
     await launch('relaunch', hostEnv(), port)
     await openProjectSessions()
     await waitFor(
@@ -1841,7 +1857,7 @@ async function main() {
 
   await step('present an unreachable Host truthfully', async () => {
     await quitApp()
-    port = nextPort++
+    port = await allocatePort()
     await launch(
       'unreachable-host',
       {
@@ -1900,7 +1916,7 @@ async function main() {
 
   await step('restore Host and stop the surviving sessions', async () => {
     await quitApp()
-    port = nextPort++
+    port = await allocatePort()
     await launch('restored', hostEnv(), port)
     await waitFor(
       `document.querySelector('[data-testid="host-status"]')?.dataset.hostStatus === 'reachable'`,
@@ -1934,7 +1950,7 @@ async function main() {
 
   await step('show a truthful no-available-Harness state', async () => {
     await quitApp()
-    port = nextPort++
+    port = await allocatePort()
     await launch(
       'no-harnesses',
       {
@@ -1990,7 +2006,7 @@ async function main() {
   })
 
   await step('remove a repository after confirming', async () => {
-    port = nextPort++
+    port = await allocatePort()
     await launch('final', { ICODE_HOST_DIR: HOST_DIR, ICODE_HOST_SOCKET: SOCKET }, port)
     await waitFor(
       `document.querySelector('[data-testid="host-status"]')?.dataset.hostStatus === 'reachable'`,

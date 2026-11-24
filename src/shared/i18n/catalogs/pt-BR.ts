@@ -1916,6 +1916,8 @@ export const ptBR = {
   'sidebar.tasksFilter': "Mostrar apenas tarefas que precisam de você",
   'sidebar.collapseTasks': "Recolher tarefas",
   'sidebar.expandTasks': "Expandir tarefas",
+  'sidebar.collapseProject': "Recolher {name}",
+  'sidebar.expandProject': "Expandir {name}",
   'sidebar.openSidebar': "Abrir barra lateral do espaço de trabalho",
   'sidebar.closeSidebar': "Fechar barra lateral do espaço de trabalho",
   'sidebar.resize': "Redimensionar a barra lateral do espaço de trabalho",

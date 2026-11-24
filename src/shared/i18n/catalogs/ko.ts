@@ -1916,6 +1916,8 @@ export const ko = {
   'sidebar.tasksFilter': "도움이 필요한 작업만 표시",
   'sidebar.collapseTasks': "작업 접기",
   'sidebar.expandTasks': "작업 펼치기",
+  'sidebar.collapseProject': "{name} 접기",
+  'sidebar.expandProject': "{name} 펼치기",
   'sidebar.openSidebar': "작업 공간 사이드바 열기",
   'sidebar.closeSidebar': "작업 공간 사이드바 닫기",
   'sidebar.resize': "작업 공간 사이드바 크기 조정",

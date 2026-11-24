@@ -2006,6 +2006,8 @@ export const en = {
   'sidebar.tasksFilter': "Show only tasks needing you",
   'sidebar.collapseTasks': "Collapse tasks",
   'sidebar.expandTasks': "Expand tasks",
+  'sidebar.collapseProject': "Collapse {name}",
+  'sidebar.expandProject': "Expand {name}",
   'sidebar.openSidebar': "Open workspace sidebar",
   'sidebar.closeSidebar': "Close workspace sidebar",
   'sidebar.resize': "Resize workspace sidebar",

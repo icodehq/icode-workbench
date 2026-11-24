@@ -39,6 +39,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and its duplicated test ids. `TaskWorkbench` keeps its own Files/Changes
   composition unchanged.
 
+## [0.28.0] - 2026-11-24
+
+### Changed
+
+- Clicking a project row in the left sidebar now expands or collapses its
+  sessions as well as opening the project, matching every other collapsible
+  row. The disclosure arrow still toggles the group without changing the
+  current view.
+
+### Fixed
+
+- Escape now dismisses an open context menu or popover before it dismisses the
+  Files or Source Control detail pane. In Source Control it also clears a
+  batch selection before closing the pane. Previously the pane's shortcut
+  consumed the key first, so the menu, popover or selection stayed put.
+- Unstaging a file's last hunk keeps its diff open: the view follows the file
+  from **Staged changes** to **Changes** instead of closing the detail pane.
+
 ## [0.27.0] - 2026-11-24
 
 ### Added
