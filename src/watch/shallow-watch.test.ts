@@ -29,6 +29,30 @@ async function until(check: () => boolean, timeoutMs: number): Promise<void> {
   throw new Error('condition was not met before the deadline')
 }
 
+/**
+ * Writes until the watcher reports the file. A write that lands in the same
+ * tick the backend becomes ready can be missed by macOS FSEvents on a slow
+ * runner; retrying the write proves delivery without depending on a settle.
+ */
+async function untilWrite(
+  write: (attempt: number) => void,
+  check: () => boolean,
+  timeoutMs: number
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  let attempt = 0
+  while (Date.now() < deadline) {
+    attempt += 1
+    write(attempt)
+    const sliceDeadline = Date.now() + 1_000
+    while (Date.now() < sliceDeadline) {
+      if (check()) return
+      await wait(25)
+    }
+  }
+  throw new Error('condition was not met before the deadline')
+}
+
 function spec(roots: string[], worktreePath: string): SerializedWatchSpec {
   return {
     kind: 'shallow',
@@ -85,8 +109,11 @@ describe('shallow files backend', { timeout: 20_000 }, () => {
     cleanups.push(() => subscription.close())
     await until(() => watch.readies === 1, DEADLINE_MS)
 
-    writeFileSync(join(root, 'root.txt'), 'a\n')
-    await until(() => watch.emitted.some((event) => event.path.endsWith('root.txt')), DEADLINE_MS)
+    await untilWrite(
+      (attempt) => writeFileSync(join(root, 'root.txt'), `a${String(attempt)}\n`),
+      () => watch.emitted.some((event) => event.path.endsWith('root.txt')),
+      DEADLINE_MS
+    )
 
     const before = watch.emitted.length
     writeFileSync(join(root, 'sub/deep.txt'), 'b\n')
@@ -97,8 +124,8 @@ describe('shallow files backend', { timeout: 20_000 }, () => {
       bound: 2,
       missing: []
     })
-    writeFileSync(join(root, 'sub/visible.txt'), 'c\n')
-    await until(
+    await untilWrite(
+      (attempt) => writeFileSync(join(root, 'sub/visible.txt'), `c${String(attempt)}\n`),
       () =>
         watch.emitted.some((event) =>
           event.path.replace(/\\/gu, '/').endsWith('sub/visible.txt')
@@ -121,8 +148,11 @@ describe('shallow files backend', { timeout: 20_000 }, () => {
     await until(() => first.readies === 1 && second.readies === 1, DEADLINE_MS)
 
     writeFileSync(join(root, 'node_modules/ignored.js'), 'x\n')
-    writeFileSync(join(root, 'shared.txt'), 'y\n')
-    await until(() => first.emitted.some((event) => event.path.endsWith('shared.txt')), DEADLINE_MS)
+    await untilWrite(
+      (attempt) => writeFileSync(join(root, 'shared.txt'), `y${String(attempt)}\n`),
+      () => first.emitted.some((event) => event.path.endsWith('shared.txt')),
+      DEADLINE_MS
+    )
     expect(second.emitted.some((event) => event.path.endsWith('shared.txt'))).toBe(true)
     expect(first.emitted.some((event) => event.path.includes('node_modules'))).toBe(false)
   })
