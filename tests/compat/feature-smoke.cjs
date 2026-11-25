@@ -201,14 +201,43 @@ async function rightClick(selector, x = 320, y = 320) {
 }
 
 /** Session actions live on the sidebar row now that the header is gone. */
-async function sessionAction(action) {
-  const activeId = await cdp.evaluate(
-    `document.querySelector('[data-session-id][data-active="true"]')?.getAttribute('data-session-id') ?? null`
-  )
-  assert(activeId, 'No active session row for the session action')
-  await rightClick(`[data-testid="session-item-${activeId}"]`)
-  await waitForSelector('[data-testid="sidebar-session-menu"]', 10000)
-  await click(`[data-testid="sidebar-session-${activeId}-${action}"]`)
+async function sessionAction(action, sessionId = null) {
+  const activeId =
+    sessionId ??
+    (await cdp.evaluate(
+      `document.querySelector('[data-tab-kind="session"][aria-selected="true"]')?.getAttribute('data-session-id') ?? document.querySelector('[data-tab-kind="session"]')?.getAttribute('data-session-id') ?? null`
+    ))
+  assert(activeId, 'No session tab for the session action')
+  await rightClick(`[data-testid="session-tab-${activeId}"]`)
+  await waitForSelector('[data-testid="session-tab-menu"]', 10000)
+  await click(`[data-testid="session-tab-menu-${action}"]`)
+}
+
+/** Select a session by opening its tab or its workspace row. */
+async function selectSession(sessionId) {
+  if (
+    await cdp.evaluate(
+      `Boolean(document.querySelector('[data-testid="session-tab-${sessionId}"]'))`
+    )
+  ) {
+    await click(`[data-testid="session-tab-${sessionId}"]`)
+    return
+  }
+  const info = await cdp.evaluate(`(async () => {
+    const result = await window.icode.sessions.get({ sessionId: ${JSON.stringify(sessionId)} });
+    return result.ok ? { repoId: result.value.repoId, worktreeId: result.value.worktree?.id ?? null } : null;
+  })()`)
+  assert(info, `Session ${sessionId} is not available to select`)
+  const selector =
+    info.worktreeId === null
+      ? `[data-testid="sidebar-default-checkout-select-${info.repoId}"]`
+      : `[data-testid="sidebar-worktree-select-${info.worktreeId}"]`
+  if (!(await cdp.evaluate(`Boolean(document.querySelector(${JSON.stringify(selector)}))`))) {
+    await click(`[data-testid="sidebar-project-toggle-${info.repoId}"]`)
+  }
+  await waitForSelector(selector, 10000)
+  await click(selector)
+  await waitForSelector(`[data-testid="session-tab-${sessionId}"]`, 10000)
 }
 
 async function focusElement(selector) {
@@ -673,7 +702,7 @@ async function run() {
     assert(stored?.alwaysSignOff === true, 'sign-off setting was not persisted')
 
     await openSessionWorkspace()
-    await click(`[data-testid="session-item-${sessionId}"]`)
+    await selectSession(sessionId)
     await waitForSelector('[data-testid="session-title"]', 20000)
 
     await cdp.evaluate(`(async () => {
@@ -1094,7 +1123,7 @@ async function run() {
     // whose worktree the earlier Git steps used.
     await openSessionWorkspace()
     await waitForSelector('[data-testid="sessions-surface"]', 15000)
-    await click(`[data-testid="session-item-${sessionId}"]`)
+    await selectSession(sessionId)
     await waitForSelector('[data-testid="session-title"]', 20000)
     await click('[data-testid="view-files"]')
     await waitForSelector('[data-testid="files-panel"]', 15000)
@@ -1167,6 +1196,35 @@ async function run() {
       10000
     )
 
+    // A sidebar reveal brings the terminal forward even when the session was
+    // already active. X must ask before killing the running process; Cancel
+    // leaves the session and its tab untouched.
+    await selectSession(sessionId)
+    await waitFor(
+      `document.querySelector('[data-testid="session-tab-${sessionId}"]')?.getAttribute('aria-selected') === 'true' && !document.querySelector('[data-testid="center-editor"]')`,
+      'sidebar reveal shows the terminal',
+      10000
+    )
+    await click(`[data-testid="session-tab-close-${sessionId}"]`)
+    await waitForSelector('[data-testid="stop-session-dialog"]', 10000)
+    const stopWarning = await cdp.evaluate(
+      `document.querySelector('[data-testid="stop-session-dialog"]')?.innerText ?? ''`
+    )
+    assert(stopWarning.includes('terminal process'), 'Stop warning did not name the terminal process')
+    await screenshot('10a-stop-session-warning')
+    await click('[data-testid="stop-session-cancel"]')
+    await waitFor(
+      `!document.querySelector('[data-testid="stop-session-dialog"]') && document.querySelector('[data-testid="session-tab-${sessionId}"]')?.getAttribute('aria-selected') === 'true' && !document.querySelector('[data-testid="center-editor"]')`,
+      'Cancel kept the running session open',
+      10000
+    )
+    await click('[data-testid="center-tab-README.md"]')
+    await waitFor(
+      `document.querySelector('[data-testid="monaco-editor"]')?.__icodeEditor?.getValue().includes('phase-a dirty text') === true`,
+      'the file tab kept its dirty text',
+      10000
+    )
+
     // A second file opens a second tab; returning restores the first buffer.
     await waitForSelector('[data-testid="files-entry-watcher-live.txt"]', 15000)
     await click('[data-testid="files-entry-watcher-live.txt"]')
@@ -1219,7 +1277,7 @@ async function run() {
     )
 
     // Removing the session names the unsaved Files text before it can be lost.
-    await sessionAction('remove')
+    await sessionAction('remove', sessionId)
     await waitForSelector('[data-testid="remove-session-dialog"]', 10000)
     assert(
       await cdp.evaluate(
@@ -1279,7 +1337,7 @@ async function run() {
   await step('Files explorer: selection, context menu, inline rename, clipboard, batch delete and drag & drop', async () => {
     if (!(await cdp.evaluate(`Boolean(document.querySelector('[data-testid="files-panel"]'))`))) {
       await openSessionWorkspace()
-      await click(`[data-testid="session-item-${sessionId}"]`)
+      await selectSession(sessionId)
       await waitForSelector('[data-testid="session-title"]', 20000)
       await click('[data-testid="view-files"]')
     }
@@ -1316,11 +1374,18 @@ async function run() {
     await waitForSelector('[data-testid="files-entry-phase-b/one.txt"]', 20000)
 
     await click('[data-testid="files-entry-phase-b/one.txt"]')
+    await waitFor(
+      `document.querySelector('[data-testid="files-selection"]')?.innerText.includes('phase-b/one.txt') === true`,
+      'Files single selection',
+      10000
+    )
     await clickWithModifiers('[data-testid="files-entry-phase-b/two.txt"]', { ctrlKey: true })
     await waitFor(
-      `document.querySelector('[data-testid="files-selection"]')?.innerText.includes('2 selected') === true`,
+      `document.querySelector('[data-testid="files-selection"]')?.innerText.includes('2 selected') === true &&
+       document.querySelector('[data-testid="files-entry-phase-b/one.txt"]')?.getAttribute('aria-selected') === 'true' &&
+       document.querySelector('[data-testid="files-entry-phase-b/two.txt"]')?.getAttribute('aria-selected') === 'true'`,
       'Files multi-selection summary',
-      10000
+      15000
     )
 
     await rightClick('[data-testid="files-entry-phase-b/one.txt"]')
@@ -1512,7 +1577,7 @@ async function run() {
 
   await step('Files phase C: Git marks, visibility rules, compact/nesting, search and replace', async () => {
     if (!(await cdp.evaluate(`Boolean(document.querySelector('[data-testid="files-panel"]'))`))) {
-      await click(`[data-testid="session-item-${sessionId}"]`)
+      await selectSession(sessionId)
       await waitForSelector('[data-testid="session-title"]', 20000)
       await click('[data-testid="view-files"]')
     }
@@ -1659,7 +1724,7 @@ async function run() {
     )
 
     await openSessionWorkspace()
-    await click(`[data-testid="session-item-${sessionId}"]`)
+    await selectSession(sessionId)
     await waitForSelector('[data-testid="session-title"]', 20000)
     await click('[data-testid="view-files"]')
     await waitForSelector('[data-testid="files-panel"]', 15000)
@@ -1818,7 +1883,17 @@ async function run() {
       30000
     )
     await openSessionWorkspace()
-    await click(`[data-testid="session-item-${sessionId}"]`)
+    // Selecting a session from the sidebar intentionally brings its terminal
+    // forward. Hot exit should restore the active file tab only when the
+    // session is already in the restored workspace, so click the row only when
+    // its tab is missing (a workspace switch rather than a reveal).
+    if (
+      !(await cdp.evaluate(
+        `Boolean(document.querySelector('[data-testid="session-tab-${sessionId}"]'))`
+      ))
+    ) {
+      await selectSession(sessionId)
+    }
     await waitForSelector('[data-testid="session-title"]', 20000)
     await click('[data-testid="view-files"]')
     await waitForSelector('[data-testid="files-panel"]', 15000)
@@ -1891,6 +1966,35 @@ async function run() {
       'the large folder rendered no rows after scrolling to the end'
     )
     await screenshot('14-files-phase-d')
+
+    log('phase-d: X stops the running session after confirmation')
+    const worktreeId = await cdp.evaluate(`(async () => {
+      const result = await window.icode.sessions.get({ sessionId: ${JSON.stringify(sessionId)} });
+      return result.ok ? (result.value.worktree?.id ?? null) : null;
+    })()`)
+    assert(worktreeId, 'Session has no worktree before the stop check')
+    await selectSession(sessionId)
+    await waitForSelector(`[data-testid="session-tab-${sessionId}"][aria-selected="true"]`, 10000)
+    await click(`[data-testid="session-tab-close-${sessionId}"]`)
+    await waitForSelector('[data-testid="stop-session-dialog"]', 10000)
+    await click('[data-testid="stop-session-confirm"]')
+    await waitFor(
+      `!document.querySelector('[data-testid="session-tab-${sessionId}"]')`,
+      'confirmed stop closed the session tab',
+      10000
+    )
+    await waitFor(
+      `(async () => {
+        const result = await window.icode.sessions.get({ sessionId: ${JSON.stringify(sessionId)} });
+        return result.ok && result.value.state !== 'live' && result.value.state !== 'starting';
+      })()`,
+      'confirmed stop terminated the session',
+      20000
+    )
+    // Selecting the workspace must reopen the stopped session's tab rather
+    // than leaving a closed terminal as a dead end.
+    await click(`[data-testid="sidebar-worktree-select-${worktreeId}"]`)
+    await waitForSelector(`[data-testid="session-tab-${sessionId}"]`, 10000)
   })
 
   await quit()

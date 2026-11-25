@@ -5,11 +5,17 @@ import {
   FileDiff,
   Folder,
   GitBranch,
+  Info,
   Maximize2,
   Minimize2,
+  Moon,
+  Play,
   Plus,
+  RotateCcw,
   Sparkles,
+  Sunrise,
   TerminalSquare,
+  Trash2,
   X
 } from 'lucide-react'
 import type { SessionSummary } from '../../../../shared/schemas/ipc'
@@ -28,12 +34,22 @@ import ContextMenu, { type ContextMenuItem, type MenuAnchor } from '../ContextMe
 import type { PendingAction } from '../../state/workspace'
 import type { SplitSide } from '../../state/workspace-split'
 
+export type SessionTabAction =
+  | 'details'
+  | 'sleep'
+  | 'wake'
+  | 'restart'
+  | 'resume'
+  | 'remove'
+
 type Props = {
   workspaceKey: string
   workspaceLabel: string
   workspaceKind: 'default' | 'worktree'
   tabs: readonly CenterTab[]
   sessions: ReadonlyMap<string, SessionSummary>
+  /** Session commands available from a session tab's context menu. */
+  onSessionAction?: (session: SessionSummary, action: SessionTabAction) => void
   /** The tab shown by the focused pane. */
   focusedTabKey: string | null
   /** Pane id per displayed tab key. */
@@ -100,6 +116,7 @@ export default function WorktreeTabStrip({
   workspaceKind,
   tabs,
   sessions,
+  onSessionAction,
   focusedTabKey,
   displayedPaneByKey,
   focusedPaneId,
@@ -136,15 +153,87 @@ export default function WorktreeTabStrip({
   const menuTab = tabMenu === null ? null : (tabs.find((tab) => tabKey(tab) === tabMenu.key) ?? null)
   const menuIndex =
     menuTab === null ? -1 : tabs.findIndex((tab) => tabKey(tab) === tabKey(menuTab))
+  const menuSession =
+    menuTab !== null && menuTab.kind === 'session'
+      ? (sessions.get(menuTab.sessionId) ?? null)
+      : null
+  const sessionItems: ContextMenuItem[] =
+    menuSession !== null && onSessionAction !== undefined
+      ? [
+          {
+            id: 'details',
+            label: t('session.details'),
+            icon: <Info size={12} />,
+            testId: 'session-tab-menu-details',
+            onSelect: () => onSessionAction(menuSession, 'details')
+          },
+          ...(menuSession.sleeping === true
+            ? [
+                {
+                  id: 'wake',
+                  label: t('session.wake'),
+                  icon: <Sunrise size={12} />,
+                  testId: 'session-tab-menu-wake',
+                  onSelect: () => onSessionAction(menuSession, 'wake')
+                }
+              ]
+            : menuSession.state === 'live' || menuSession.state === 'starting'
+              ? [
+                  {
+                    id: 'sleep',
+                    label: t('session.sleep'),
+                    icon: <Moon size={12} />,
+                    testId: 'session-tab-menu-sleep',
+                    onSelect: () => onSessionAction(menuSession, 'sleep')
+                  }
+                ]
+              : []),
+          ...(menuSession.sleeping === true
+            ? []
+            : [
+                {
+                  id: 'restart',
+                  label: t('session.restart'),
+                  icon: <RotateCcw size={12} />,
+                  testId: 'session-tab-menu-restart',
+                  onSelect: () => onSessionAction(menuSession, 'restart')
+                }
+              ]),
+          ...(menuSession.resumable === true &&
+          menuSession.sleeping !== true &&
+          menuSession.state !== 'live' &&
+          menuSession.state !== 'starting'
+            ? [
+                {
+                  id: 'resume',
+                  label: t('session.resume'),
+                  icon: <Play size={12} />,
+                  testId: 'session-tab-menu-resume',
+                  onSelect: () => onSessionAction(menuSession, 'resume')
+                }
+              ]
+            : []),
+          {
+            id: 'remove',
+            label: t('session.remove'),
+            icon: <Trash2 size={12} />,
+            danger: true,
+            testId: 'session-tab-menu-remove',
+            onSelect: () => onSessionAction(menuSession, 'remove')
+          }
+        ]
+      : []
   const menuItems: ContextMenuItem[] =
     menuTab === null
       ? []
       : [
+          ...sessionItems,
           {
             id: 'close',
             label: t('session.close'),
             icon: <X size={12} />,
             disabled: tabs.length <= 1,
+            separatorBefore: sessionItems.length > 0,
             testId: 'session-tab-menu-close',
             onSelect: () => onClose(tabKey(menuTab))
           },
@@ -471,19 +560,20 @@ export default function WorktreeTabStrip({
           )
         })}
 
+        <button
+          type="button"
+          className="ml-1 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+          onClick={(event) => openNewMenu(event.currentTarget)}
+          aria-label={t('newSession.title')}
+          aria-haspopup="menu"
+          aria-expanded={newMenu !== null}
+          title={t('newSession.title')}
+          data-testid="workspace-tab-new"
+        >
+          <Plus size={12} />
+        </button>
+
         <div className="ml-auto flex shrink-0 items-center gap-1">
-          <button
-            type="button"
-            className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
-            onClick={(event) => openNewMenu(event.currentTarget)}
-            aria-label={t('newSession.title')}
-            aria-haspopup="menu"
-            aria-expanded={newMenu !== null}
-            title={t('newSession.title')}
-            data-testid="workspace-tab-new"
-          >
-            <Plus size={12} />
-          </button>
           {dirtyCount > 0 && onSaveAll !== undefined ? (
             <button
               type="button"

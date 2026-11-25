@@ -221,6 +221,8 @@ export default function FilesPanel({
     ]
   )
   const clipboard = useFilesClipboard()
+  // A slow directory load must not overwrite a selection the user already made.
+  const userSelectionEpoch = useRef(0)
   const clipboardHere = clipboard !== null && clipboard.scopeKey === scopeKey
 
   const {
@@ -290,6 +292,7 @@ export default function FilesPanel({
     setCloseAfterSave(null)
     restoreScroll.current = persisted?.scrollTop ?? null
     const pendingSelection = persisted
+    const selectionEpoch = userSelectionEpoch.current
     const generation = treeGeneration.current
     void (async () => {
       await loadDirectory('')
@@ -303,6 +306,7 @@ export default function FilesPanel({
         )
       }
       if (treeGeneration.current !== generation) return
+      if (userSelectionEpoch.current !== selectionEpoch) return
       if (pendingSelection !== null) {
         await new Promise<void>((resolve) => {
           window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve()))
@@ -644,6 +648,7 @@ export default function FilesPanel({
   }
 
   const onRowClick = (event: React.MouseEvent<HTMLDivElement>, row: TreeRow): void => {
+    userSelectionEpoch.current += 1
     const toggle = event.metaKey || event.ctrlKey
     const range = event.shiftKey
     if (toggle || range) {
@@ -678,6 +683,7 @@ export default function FilesPanel({
   ): void => {
     event.preventDefault()
     event.stopPropagation()
+    userSelectionEpoch.current += 1
     const isSelected = selection.selected.has(row.entry.path)
     const next = isSelected
       ? selection
@@ -832,6 +838,7 @@ export default function FilesPanel({
   const focusRow = (index: number): void => {
     const row = rows[index]
     if (row === undefined) return
+    userSelectionEpoch.current += 1
     setSelection((current) => selectRow(current, rows, row.entry.path))
     scrollRowIndexIntoView(index)
     focusRowElement(row.entry.path)
@@ -951,6 +958,7 @@ export default function FilesPanel({
     }
     if (command && event.key.toLowerCase() === 'a') {
       handled()
+      userSelectionEpoch.current += 1
       setSelection(selectAll(rows))
       setEditorMode(rows.length > 1 ? 'folder' : 'tab')
       return

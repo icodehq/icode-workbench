@@ -169,28 +169,35 @@ async function click(selector) {
   assert(ok, `Could not click ${selector}`)
 }
 
-async function openSessionMenu() {
-  if (
-    await cdp.evaluate(
-      `Boolean(document.querySelector('[data-testid="session-menu-popover"]'))`
-    )
-  ) {
-    return
-  }
-  await click('[data-testid="session-menu"]')
-  await waitFor(
-    `Boolean(document.querySelector('[data-testid="session-menu-popover"]'))`,
-    'the Session menu'
-  )
+async function rightClick(selector) {
+  const clicked = await cdp.evaluate(`(() => {
+    const element = document.querySelector(${JSON.stringify(selector)});
+    if (!element) return false;
+    element.dispatchEvent(new MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+      view: window,
+      button: 2,
+      clientX: 320,
+      clientY: 320
+    }));
+    return true;
+  })()`)
+  assert(clicked, `Could not right-click ${selector}`)
 }
 
-async function sessionAction(testId) {
-  await openSessionMenu()
-  await click(`[data-testid="${testId}"]`)
+async function sessionAction(action) {
+  const activeId = await cdp.evaluate(
+    `document.querySelector('[data-tab-kind="session"][aria-selected="true"]')?.getAttribute('data-session-id') ?? document.querySelector('[data-tab-kind="session"]')?.getAttribute('data-session-id') ?? null`
+  )
+  assert(activeId, 'No session tab for the session action')
+  await rightClick(`[data-testid="session-tab-${activeId}"]`)
+  await waitFor(`Boolean(document.querySelector('[data-testid="session-tab-menu"]'))`, 'the session tab menu')
+  await click(`[data-testid="session-tab-menu-${action}"]`)
 }
 
 async function requestRemoveSession() {
-  await sessionAction('remove-session')
+  await sessionAction('remove')
   await waitFor(
     `Boolean(document.querySelector('[data-testid="remove-session-dialog"]'))`,
     'the Remove session dialog'
@@ -225,12 +232,27 @@ async function waitForNotice(needle, timeoutMs = 20000) {
 }
 
 async function sessions() {
-  return cdp.evaluate(`Array.from(document.querySelectorAll('[data-session-id]')).map((el) => ({
-    id: el.dataset.sessionId,
-    state: el.dataset.sessionState,
-    incarnation: el.dataset.sessionIncarnation,
-    text: el.innerText
-  }))`)
+  const result = await cdp.evaluate(`window.icode.sessions.list({})`)
+  if (!result || !result.ok) return []
+  return result.value.sessions.map((session) => ({
+    id: session.id,
+    state: session.state,
+    incarnation: session.incarnationId,
+    title: session.title,
+    worktree: session.worktree,
+    text: session.title
+  }))
+}
+
+async function waitForSessionCount(count, label, timeout = 30000) {
+  await waitFor(
+    `(async () => {
+      const result = await window.icode.sessions.list({});
+      return result.ok && result.value.sessions.length === ${count};
+    })()`,
+    label,
+    timeout
+  )
 }
 
 async function rows(sessionId) {
@@ -397,7 +419,24 @@ async function createShellSession(title) {
 }
 
 async function selectSession(sessionId) {
-  await click(`[data-testid="session-item-${sessionId}"]`)
+  if (
+    await cdp.evaluate(
+      `Boolean(document.querySelector('[data-testid="session-tab-${sessionId}"]'))`
+    )
+  ) {
+    await click(`[data-testid="session-tab-${sessionId}"]`)
+  } else {
+    const info = await cdp.evaluate(`(async () => {
+      const result = await window.icode.sessions.get({ sessionId: ${JSON.stringify(sessionId)} });
+      return result.ok ? { repoId: result.value.repoId, worktreeId: result.value.worktree?.id ?? null } : null;
+    })()`)
+    assert(info, `Session ${sessionId} is not available to select`)
+    const selector =
+      info.worktreeId === null
+        ? `[data-testid="sidebar-default-checkout-select-${info.repoId}"]`
+        : `[data-testid="sidebar-worktree-select-${info.worktreeId}"]`
+    await click(selector)
+  }
   await sleep(300)
 }
 
@@ -531,11 +570,7 @@ async function main() {
     await launch('relaunch')
     await sleep(1500)
     await openProjectSessions()
-    await waitFor(
-      `new Set(Array.from(document.querySelectorAll('[data-session-id]')).map((el) => el.dataset.sessionId)).size === 2`,
-      'sessions restored',
-      30000
-    )
+    await waitForSessionCount(2, 'sessions restored')
     const after = await sessions()
     const aAfter = after.find((entry) => entry.text.startsWith('Worktree A'))
     const bAfter = after.find((entry) => entry.text.startsWith('Worktree B'))
@@ -567,13 +602,12 @@ async function main() {
 
   await step('restart in the same worktree with a new incarnation', 'AC5', async () => {
     const before = state.a
-    await sessionAction('restart-session')
+    await sessionAction('restart')
     await waitFor(
-      `(() => {
-        const item = document.querySelector('[data-session-id="${before.id}"]');
-        return Boolean(item) &&
-          item.dataset.sessionIncarnation !== ${JSON.stringify(before.incarnation)} &&
-          item.dataset.sessionState === 'live';
+      `(async () => {
+        const result = await window.icode.sessions.list({});
+        const session = result.ok ? result.value.sessions.find((entry) => entry.id === ${JSON.stringify(before.id)}) : null;
+        return Boolean(session) && session.incarnationId !== ${JSON.stringify(before.incarnation)} && session.state === 'live';
       })()`,
       'restart to produce a new incarnation',
       30000
@@ -634,7 +668,10 @@ async function main() {
 
     await click('[data-testid="discard-confirm"]')
     await waitFor(
-      `!Array.from(document.querySelectorAll('[data-session-id]')).some((el) => el.innerText.includes('Worktree A'))`,
+      `(async () => {
+        const result = await window.icode.sessions.list({});
+        return result.ok && !result.value.sessions.some((entry) => entry.title === 'Worktree A');
+      })()`,
       'session A to be discarded',
       20000
     )
@@ -654,7 +691,10 @@ async function main() {
     await requestRemoveSession()
     await click('[data-testid="remove-session-confirm"]')
     await waitFor(
-      `!Array.from(document.querySelectorAll('[data-session-id]')).some((el) => el.innerText.includes('Worktree B'))`,
+      `(async () => {
+        const result = await window.icode.sessions.list({});
+        return result.ok && !result.value.sessions.some((entry) => entry.title === 'Worktree B');
+      })()`,
       'session B removal',
       20000
     )

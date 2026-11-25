@@ -125,17 +125,36 @@ export function useWorkspaceSplit({
     writeStored(storageKey, state)
   }, [state, storageKey])
 
-  // Clear pane tabs that left the worktree tab list.
+  // Clear pane tabs that left the worktree tab list. If the focused pane lost
+  // its tab to a close, fall back to the store's next active tab instead of
+  // leaving a picker beside a still-open tab.
   useEffect(() => {
     setState((current) => {
-      const root = reconcilePaneTabs(current.root, validKeys)
+      const focusedBefore = findPane(current.root, current.focusedPaneId)
+      const lostFocusedTab =
+        focusedBefore !== null && focusedBefore.activeTabKey !== null
+      let root = reconcilePaneTabs(current.root, validKeys)
       if (root === current.root) return current
       const focusedPaneId = containsPane(root, current.focusedPaneId)
         ? current.focusedPaneId
         : firstLeafPaneId(root)
+      if (lostFocusedTab) {
+        const focusedPane = findPane(root, focusedPaneId)
+        const fallbackUsable =
+          activeKey !== null &&
+          validKeys.has(activeKey) &&
+          findPaneForTabKey(root, activeKey) === null
+        if (
+          focusedPane !== null &&
+          focusedPane.activeTabKey === null &&
+          fallbackUsable
+        ) {
+          root = setPaneTabKey(root, focusedPaneId, activeKey)
+        }
+      }
       return { ...current, root, focusedPaneId }
     })
-  }, [validKeys])
+  }, [activeKey, validKeys])
 
   // Selecting a session from the sidebar shows it in the focused pane.
   const previousSession = useRef(activeSessionId)
@@ -176,13 +195,24 @@ export function useWorkspaceSplit({
   const selectForTab = useCallback(
     (key: string) => {
       const sessionId = sessionIdFromTabKey(key)
-      if (sessionId !== null) onSelectSession?.(sessionId)
+      if (sessionId !== null && sessionId !== activeSessionId) {
+        onSelectSession?.(sessionId)
+      }
     },
-    [onSelectSession]
+    [activeSessionId, onSelectSession]
   )
 
   const focusedPane = findPane(state.root, state.focusedPaneId)
   const focusedTabKey = focusedPane?.activeTabKey ?? null
+
+  // A fallback or close can change the focused tab without going through
+  // activateTab; keep the active session in step with the terminal on screen.
+  const previousFocusedTab = useRef(focusedTabKey)
+  useEffect(() => {
+    if (focusedTabKey === previousFocusedTab.current) return
+    previousFocusedTab.current = focusedTabKey
+    if (focusedTabKey !== null) selectForTab(focusedTabKey)
+  }, [focusedTabKey, selectForTab])
 
   const activateTabInPane = useCallback(
     (paneId: string, key: string) => {

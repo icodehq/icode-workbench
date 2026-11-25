@@ -274,14 +274,42 @@ async function notice() {
 }
 
 async function sessions() {
-  // Scope to the session list. `data-session-id` also exists on the status-bar
-  // git summary and the Changes panel, which are not session rows.
-  return cdp.evaluate(`Array.from(document.querySelectorAll('[data-testid^="sidebar-project-group-"] [data-session-id]')).map((element) => ({
-    id: element.dataset.sessionId,
-    state: element.dataset.sessionState,
-    incarnation: element.dataset.sessionIncarnation,
-    text: element.innerText
-  }))`)
+  const result = await cdp.evaluate(`window.icode.sessions.list({})`)
+  if (!result || !result.ok) return []
+  return result.value.sessions.map((session) => ({
+    id: session.id,
+    state: session.state,
+    incarnation: session.incarnationId,
+    title: session.title,
+    worktree: session.worktree,
+    text: session.title
+  }))
+}
+
+async function selectSession(sessionId) {
+  if (
+    await cdp.evaluate(
+      `Boolean(document.querySelector('[data-testid="session-tab-${sessionId}"]'))`
+    )
+  ) {
+    await click(`[data-testid="session-tab-${sessionId}"]`)
+    return
+  }
+  const info = await cdp.evaluate(`(async () => {
+    const result = await window.icode.sessions.get({ sessionId: ${JSON.stringify(sessionId)} });
+    return result.ok ? { repoId: result.value.repoId, worktreeId: result.value.worktree?.id ?? null } : null;
+  })()`)
+  assert(info, `Session ${sessionId} is not available to select`)
+  const selector =
+    info.worktreeId === null
+      ? `[data-testid="sidebar-default-checkout-select-${info.repoId}"]`
+      : `[data-testid="sidebar-worktree-select-${info.worktreeId}"]`
+  if (!(await cdp.evaluate(`Boolean(document.querySelector(${JSON.stringify(selector)}))`))) {
+    await click(`[data-testid="sidebar-project-toggle-${info.repoId}"]`)
+  }
+  await waitForSelector(selector, 10000)
+  await click(selector)
+  await waitForSelector(`[data-testid="session-tab-${sessionId}"]`, 15000)
 }
 
 async function activeState() {
@@ -1068,7 +1096,7 @@ async function main() {
     )
     const shellPid = /^SHELL_PID=(\d+)$/m.exec(shellRows.join('\n'))[1]
 
-    await click(`[data-testid="session-item-${claude.id}"]`)
+    await selectSession(claude.id)
     await sleep(500)
     const gamma = await submitPrompt(
       claude.id,
@@ -1083,7 +1111,7 @@ async function main() {
     assert(allPanes.length === 2, 'Both terminal panes should remain mounted')
     assert(allPanes.filter((pane) => pane.active === 'true').length === 1, 'Exactly one pane should be active')
 
-    await click(`[data-testid="session-item-${shell.id}"]`)
+    await selectSession(shell.id)
     await sleep(400)
     await typeText(shell.id, 'echo SHELL_STILL=$WORK7_SHELL; echo SHELL_PID_NOW=$$')
     await pressEnter()
@@ -1127,11 +1155,14 @@ async function main() {
     // A relaunch opens on Sessions; the sessions live under the project.
     await openProjectSessions()
     await waitFor(
-      `document.querySelectorAll('[data-testid^="sidebar-project-group-"] [data-session-id]').length === 2`,
+      `(async () => {
+        const result = await window.icode.sessions.list({});
+        return result.ok && result.value.sessions.length === 2;
+      })()`,
       'persisted sessions',
       30000
     )
-    await click(`[data-testid="session-item-${claude.id}"]`)
+    await selectSession(claude.id)
     await waitFor(
       `document.querySelector('[data-testid="session-state"]')?.getAttribute('data-state') === 'live'`,
       'Claude session live after relaunch',
@@ -1205,7 +1236,7 @@ async function main() {
   })
 
   await step('exit the control session and clean up the isolated Host', CRITERIA.cleanup, async () => {
-    await click(`[data-testid="session-item-${shell.id}"]`)
+    await selectSession(shell.id)
     await sleep(400)
     const shellState = await activeState()
     if (shellState.state === 'live' || shellState.state === 'starting') {

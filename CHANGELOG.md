@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.30.1] - 2026-11-25
+
+### Changed
+
+- The sidebar is now project → workspace. Raw terminal sessions no longer get a
+  row; agent sessions keep a compact status row under their workspace, and all
+  sessions are switched and managed through the center tabs. Session actions
+  (details, sleep, wake, restart, resume, remove) are on the session tab's
+  context menu.
+- Closing a running session or terminal tab now asks for confirmation, then
+  kills the process and closes the tab. The worktree, branch and open editor
+  buffers stay; agent sessions keep a stopped row under their workspace.
+- The worktree bar's `+` now sits directly after the last tab instead of at the
+  far edge of the bar.
+
+### Fixed
+
+- Selecting a session from the sidebar always brings its terminal forward, even
+  when it was already the active session or its tab was hidden.
+- Closing the focused tab falls back to the next open tab instead of leaving an
+  empty pane, and the active session follows the terminal that is displayed.
+- The split pane picker only lists tabs that are not already visible in another
+  pane.
+- Worktree headers in the sidebar show the branch instead of an identical
+  "Shared workspace" label for every checkout.
+- Selecting a workspace whose last session tab was closed reopens that stopped
+  session instead of leaving the row inert.
+- A slow Files directory restore no longer overwrites a selection the user made
+  while it was loading.
+
 ## [0.30.0] - 2026-11-25
 
 ### Added

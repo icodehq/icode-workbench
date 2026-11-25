@@ -40,13 +40,33 @@ the tab is labelled. Session tabs are persisted by session id, not by tab key.
 
 ## Closing
 
-- Closing a **session tab hides it**. The PTY keeps running and the sidebar row
-  reopens the tab. Hidden ids are transient, so all direct sessions in a
-  worktree return as tabs after a restart.
+- Closing a **running session tab** asks first: the X kills the agent or
+  terminal process, then closes the tab. The worktree, branch and open editor
+  buffers stay. Agent sessions keep a stopped row in the sidebar; raw terminals
+  exist only as tabs.
+- Closing an **already stopped/failed session tab** closes it immediately.
 - Closing a **file or diff tab** closes it. A dirty file asks to save, discard
   or cancel through the pane that owns its editor.
 - **Close all** closes files and diffs only; sessions stay in the list.
 - Removing a session explicitly removes its tab and hidden marker.
+
+## Sidebar
+
+The sidebar is organized by **project → workspace**, not by session:
+
+- The default checkout and each worktree are selectable workspace rows showing
+  the branch. Selecting one opens that workspace's tab list.
+- Raw terminals never get a sidebar row; they are tabs.
+- Agent sessions (non-shell harnesses) get compact status rows under their
+  workspace, including stopped agents. Clicking a row opens that agent's tab.
+- Session commands live on the session tab's context menu: details, sleep,
+  wake, restart, resume and remove. Shell terminals therefore need no sidebar
+  row to be managed.
+- The workspace row still offers New agent/New terminal and the checkout
+  actions; the tab bar's `+` acts on the active workspace.
+
+This mirrors Orca: the sidebar chooses a workspace, while the center tab list is
+the actual set of terminals, agents, files and diffs.
 
 ## Preview and pin
 

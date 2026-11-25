@@ -41,7 +41,7 @@ export type SessionActionSource = {
 
 export type DirectSessionActions = Pick<
   SessionActions,
-  'restart' | 'resume' | 'sleep' | 'wake' | 'recheck' | 'remove' | 'recoverWorktree'
+  'restart' | 'resume' | 'sleep' | 'wake' | 'recheck' | 'remove' | 'recoverWorktree' | 'stop'
 >
 export type TaskSessionActions = Pick<SessionActions, 'stop' | 'restart' | 'recheck'>
 export type SidebarSessionActions = Pick<
