@@ -17,6 +17,25 @@ export const ja = {
   'session.remove.unsaved.one': "ファイルの未保存ファイル {count} 件が失われます。",
   'session.remove.unsaved.other': "ファイルの未保存ファイル {count} 件が失われます。",
   'session.remove.confirm': "セッションを削除",
+  'worktree.remove.title': "ワークツリーを削除しますか？",
+  'worktree.remove.bodySessions.one':
+    "{branch} のチェックアウトをディスクから削除します。中の {count} セッションは停止され、削除されます。未コミットの変更がある場合は削除できません。",
+  'worktree.remove.bodySessions.other':
+    "{branch} のチェックアウトをディスクから削除します。中の {count} セッションは停止され、削除されます。未コミットの変更がある場合は削除できません。",
+  'worktree.remove.repo': "プロジェクト",
+  'worktree.remove.path': "パス",
+  'worktree.remove.sessions': "セッション",
+  'worktree.remove.confirm': "ワークツリーを削除",
+  'worktree.remove.discardTitle': "変更を破棄してワークツリーを削除",
+  'worktree.remove.discardTitleDeleteBranch':
+    "変更を破棄し、ブランチを削除してワークツリーを削除",
+  'worktree.remove.discard': "変更を削除してワークツリーを削除",
+  'worktree.remove.discardDeleteBranch': "変更、ブランチ、ワークツリーを削除",
+  'worktree.remove.checkoutTitle': "ワークツリーのチェックアウトを削除",
+  'worktree.remove.checkoutTitleDeleteBranch':
+    "ワークツリーのチェックアウトを削除し、ブランチも削除",
+  'worktree.remove.missingBody':
+    "ワークツリーのディレクトリが存在しないため、何も削除されません。先にこのワークスペースのセッションから再作成してください。",
   'common.system': 'システム',
   'common.dark': 'ダーク',
   'common.light': 'ライト',
@@ -355,6 +374,9 @@ export const ja = {
   'workspace.bootFailed': "登録済みリポジトリを読み込めませんでした。",
   'workspace.notice.retryingFirstCommit': "{project} の初回コミットを再試行しています。",
   'workspace.notice.sessionRemoved': "セッションを削除しました。",
+  'workspace.notice.worktreeRemoved': "ワークツリーを削除しました。",
+  'workspace.notice.worktreeHostUnavailable':
+    "ターミナルホストに接続できないため、ワークツリーは削除されませんでした。",
   'workspace.notice.sessionStillRunning': "このセッションはまだ実行中です。しばらくしてから再試行してください。",
   'workspace.notice.terminalUnavailable': "ターミナルサービスを利用できないため、セッションを削除できませんでした。",
   'workspace.notice.discarded': "ワークツリーを破棄しました。ブランチ {branch} は保持されました。",
@@ -2391,6 +2413,8 @@ export const ja = {
   'newSession.worktreeUnavailable': "利用不可",
   'session.remove.bodyShared': "{title} を削除しますか？このセッションだけが削除され、{branch} とそこで実行中の他のセッションはそのまま残ります。",
   'sidebar.worktreeMenu': "ワークツリーの操作",
+  'sidebar.removeWorktree': "ワークツリーを削除…",
+  'sidebar.worktreeCreating': "このワークスペースはまだ作成中です。",
   'sidebar.collapseWorktree': "ワークツリーを折りたたむ",
   'sidebar.expandWorktree': "ワークツリーを展開",
   'sidebar.defaultCheckout': "プロジェクトフォルダー",

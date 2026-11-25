@@ -1791,6 +1791,8 @@ async function main() {
     )
 
     // Drop the extra worktree so later steps keep their two-session shape.
+    // Use the sidebar's own Remove worktree action: this is the user path and
+    // it exercises the worktree-level removal API, not a direct session call.
     const listedThird = await cdp.evaluate(
       `window.icode.sessions.list({ repoId: ${JSON.stringify(repoId)} })`
     )
@@ -1799,10 +1801,18 @@ async function main() {
         ? listedThird.value.sessions.find((entry) => entry.title === 'Smoke worktree two') ?? null
         : null
     assert(thirdSummary, 'The extra worktree session was not created')
-    const removedThird = await cdp.evaluate(
-      `window.icode.sessions.remove({ sessionId: ${JSON.stringify(thirdSummary.id)}, stopIfLive: true })`
+    const thirdWorktreeId = thirdSummary.worktree?.id ?? null
+    assert(thirdWorktreeId, 'The extra session has no worktree')
+    await rightClick(`[data-testid="sidebar-worktree-select-${thirdWorktreeId}"]`)
+    await waitForSelector('[data-testid="sidebar-worktree-menu"]', 5000)
+    await click(`[data-testid="sidebar-worktree-${thirdWorktreeId}-remove"]`)
+    await waitForSelector('[data-testid="remove-worktree-dialog"]', 5000)
+    await click('[data-testid="remove-worktree-confirm"]')
+    await waitFor(
+      `!document.querySelector('[data-testid="remove-worktree-dialog"]')`,
+      'worktree removal dialog closed',
+      15000
     )
-    assert(removedThird && removedThird.ok, 'The extra worktree session could not be removed')
     await click('[data-testid="sidebar-refresh"]')
     await waitForSessionCount(2, 'extra worktree session removed', '===', 15000)
     return { before, after: expected }
@@ -1864,6 +1874,12 @@ async function main() {
         `Boolean(document.querySelector('[data-testid^="sidebar-worktree-"][data-testid$="-new-session"]'))`
       ),
       'The worktree menu is missing New session'
+    )
+    assert(
+      await cdp.evaluate(
+        `Boolean(document.querySelector('[data-testid^="sidebar-worktree-"][data-testid$="-remove"]'))`
+      ),
+      'The worktree menu is missing Remove worktree'
     )
     await screenshot('06e-checkout-row-menus')
     await pressEscape()

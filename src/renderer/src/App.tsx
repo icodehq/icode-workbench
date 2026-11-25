@@ -775,6 +775,8 @@ export default function App(): React.JSX.Element {
             if (action === 'retry' || action === 'resume') setSidebarOpen(false)
           }}
           sessionActions={sessionActions}
+          onRemoveWorktree={workspace.requestRemoveWorktree}
+          onDiscardWorktree={workspace.discardWorktree}
           onNewSession={() => {
             openNewSession()
             setSidebarOpen(false)

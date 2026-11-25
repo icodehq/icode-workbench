@@ -3,6 +3,11 @@ export type SessionRemovalOptions = {
   deleteBranch?: boolean
 }
 
+export type WorktreeRemovalOptions = {
+  /** Delete the worktree's owned branch along with its checkout. */
+  deleteBranch?: boolean
+}
+
 export type WorktreeRecoveryOptions = {
   /** The user confirmed that an unrecoverable checkout may be moved aside. */
   keepExistingAsAside?: boolean

@@ -19,9 +19,9 @@ export type ProjectMenuEntryId =
   | 'maintenance'
   | 'remove'
 
-export type WorktreeMenuEntryId = 'new-session' | 'copy-path' | 'toggle'
+export type WorktreeMenuEntryId = 'new-session' | 'copy-path' | 'toggle' | 'remove'
 
-/** The actions shared by the default checkout and every worktree row. */
+/** The actions shared by the default checkout and a worktree row. */
 export type DefaultCheckoutMenuEntryId = 'new-session' | 'copy-path' | 'toggle'
 
 export type NewMenuEntryId = 'new-session' | 'queue-task' | 'add-project' | 'schedules'
@@ -106,12 +106,28 @@ export function defaultCheckoutMenuEntries(input: {
 export function worktreeMenuEntries(input: {
   status: WorktreeSummary['status'] | null
   unavailableReason: string
+  creatingReason: string
+  hostUnreachable: boolean
+  hostUnreachableReason: string
 }): SidebarMenuEntry<WorktreeMenuEntryId>[] {
   const canStart = input.status === 'ready-to-start' || input.status === 'active'
-  return checkoutEntries({
-    canStart,
-    unavailableReason: input.unavailableReason
-  })
+  const creating = input.status === 'creating'
+  return [
+    ...checkoutEntries({
+      canStart,
+      unavailableReason: input.unavailableReason
+    }),
+    {
+      id: 'remove',
+      separatorBefore: true,
+      disabled: input.hostUnreachable || creating,
+      ...(input.hostUnreachable
+        ? { reason: input.hostUnreachableReason }
+        : creating
+          ? { reason: input.creatingReason }
+          : {})
+    }
+  ]
 }
 
 export function newMenuEntries(input: {

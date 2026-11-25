@@ -86,21 +86,30 @@ describe('project menu plan', () => {
 })
 
 describe('worktree menu plan', () => {
+  const reachable = {
+    creatingReason: 'Still creating',
+    hostUnreachable: false,
+    hostUnreachableReason: 'Host unreachable'
+  }
+
   it('offers a session in a checkout that can host one', () => {
     const entries = worktreeMenuEntries({
       status: 'ready-to-start',
-      unavailableReason: 'Checkout unavailable'
+      unavailableReason: 'Checkout unavailable',
+      ...reachable
     })
-    expect(ids(entries)).toEqual(['new-session', 'copy-path', 'toggle'])
-    expect(separators(entries)).toEqual(['toggle'])
+    expect(ids(entries)).toEqual(['new-session', 'copy-path', 'toggle', 'remove'])
+    expect(separators(entries)).toEqual(['toggle', 'remove'])
     expect(byId(entries, 'new-session').disabled).toBe(false)
+    expect(byId(entries, 'remove').disabled).toBe(false)
   })
 
   it('disables a session for a status Git cannot hand to a PTY', () => {
     for (const status of ['missing', 'inconsistent', 'creating'] as const) {
       const entries = worktreeMenuEntries({
         status,
-        unavailableReason: 'Checkout unavailable'
+        unavailableReason: 'Checkout unavailable',
+        ...reachable
       })
       expect(byId(entries, 'new-session')).toMatchObject({
         disabled: true,
@@ -112,10 +121,36 @@ describe('worktree menu plan', () => {
   it('leaves recovery to the automatic repair path', () => {
     const entries = worktreeMenuEntries({
       status: 'missing',
-      unavailableReason: 'Checkout unavailable'
+      unavailableReason: 'Checkout unavailable',
+      ...reachable
     })
-    expect(ids(entries)).toEqual(['new-session', 'copy-path', 'toggle'])
+    expect(ids(entries)).toEqual(['new-session', 'copy-path', 'toggle', 'remove'])
     expect(ids(entries)).not.toContain('recover')
+  })
+
+  it('blocks removal while the checkout is still being created', () => {
+    const entries = worktreeMenuEntries({
+      status: 'creating',
+      unavailableReason: 'Checkout unavailable',
+      ...reachable
+    })
+    expect(byId(entries, 'remove')).toMatchObject({
+      disabled: true,
+      reason: 'Still creating'
+    })
+  })
+
+  it('blocks removal while the host is unreachable', () => {
+    const entries = worktreeMenuEntries({
+      status: 'ready-to-start',
+      unavailableReason: 'Checkout unavailable',
+      ...reachable,
+      hostUnreachable: true
+    })
+    expect(byId(entries, 'remove')).toMatchObject({
+      disabled: true,
+      reason: 'Host unreachable'
+    })
   })
 })
 
@@ -141,16 +176,21 @@ describe('default checkout menu plan', () => {
     })
   })
 
-  it('cannot drift from the worktree row actions', () => {
+  it('cannot drift from the shared worktree row actions', () => {
     const checkout = defaultCheckoutMenuEntries({
       canStart: true,
       unavailableReason: 'Checkout unavailable'
     })
     const worktree = worktreeMenuEntries({
       status: 'ready-to-start',
-      unavailableReason: 'Checkout unavailable'
+      unavailableReason: 'Checkout unavailable',
+      creatingReason: 'Still creating',
+      hostUnreachable: false,
+      hostUnreachableReason: 'Host unreachable'
     })
-    expect(checkout).toEqual(worktree)
+    // The primary checkout is Git-owned; Remove belongs only to a linked worktree.
+    expect(worktree.slice(0, checkout.length)).toEqual(checkout)
+    expect(ids(checkout)).not.toContain('remove')
   })
 })
 

@@ -847,7 +847,10 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     workspaceTrust,
     summarise: (sessionId) => sessions.get(sessionId),
     activeTasksOnChain: (repoId, branch) =>
-      taskStoreForRemoval?.countActiveTasksOnChain(repoId, branch) ?? 0
+      taskStoreForRemoval?.countActiveTasksOnChain(repoId, branch) ?? 0,
+    activeTasksInWorktree: (worktreePath) =>
+      taskStoreForRemoval?.active().filter((task) => task.worktreePath === worktreePath).length ??
+      0
   })
 
   // The repository list asks a distro about its own checkout; without this the

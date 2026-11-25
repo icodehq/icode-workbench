@@ -17,6 +17,25 @@ export const es = {
   'session.remove.unsaved.one': "Se perderá {count} archivo sin guardar en Archivos.",
   'session.remove.unsaved.other': "Se perderán {count} archivos sin guardar en Archivos.",
   'session.remove.confirm': "Eliminar sesión",
+  'worktree.remove.title': "¿Quitar el worktree?",
+  'worktree.remove.bodySessions.one':
+    "El checkout de {branch} se elimina del disco. Su {count} sesión se detendrá y se eliminará. Los cambios sin confirmar impiden la eliminación.",
+  'worktree.remove.bodySessions.other':
+    "El checkout de {branch} se elimina del disco. Sus {count} sesiones se detendrán y se eliminarán. Los cambios sin confirmar impiden la eliminación.",
+  'worktree.remove.repo': "proyecto",
+  'worktree.remove.path': "ruta",
+  'worktree.remove.sessions': "sesiones",
+  'worktree.remove.confirm': "Quitar worktree",
+  'worktree.remove.discardTitle': "Descartar los cambios y quitar el worktree",
+  'worktree.remove.discardTitleDeleteBranch':
+    "Descartar los cambios, eliminar la rama y quitar el worktree",
+  'worktree.remove.discard': "Eliminar los cambios y quitar el worktree",
+  'worktree.remove.discardDeleteBranch': "Eliminar los cambios, la rama y el worktree",
+  'worktree.remove.checkoutTitle': "Quitar el checkout del worktree",
+  'worktree.remove.checkoutTitleDeleteBranch':
+    "Quitar el checkout del worktree y eliminar su rama",
+  'worktree.remove.missingBody':
+    "El directorio del worktree ya no existe, así que no se eliminará nada. Vuelve a crearlo desde una sesión de este espacio de trabajo.",
   'common.system': 'Sistema',
   'common.dark': 'Oscuro',
   'common.light': 'Claro',
@@ -355,6 +374,9 @@ export const es = {
   'workspace.bootFailed': "No se pudieron cargar los repositorios registrados.",
   'workspace.notice.retryingFirstCommit': "Reintentando el primer commit de {project}.",
   'workspace.notice.sessionRemoved': "Sesión eliminada.",
+  'workspace.notice.worktreeRemoved': "Worktree eliminado.",
+  'workspace.notice.worktreeHostUnavailable':
+    "El host del terminal no está disponible, así que el worktree no se eliminó.",
   'workspace.notice.sessionStillRunning': "Esta sesión sigue en ejecución. Inténtalo de nuevo en un momento.",
   'workspace.notice.terminalUnavailable': "No se pudo eliminar la sesión porque el servicio de terminal no está disponible.",
   'workspace.notice.discarded': "Árbol de trabajo descartado. Se conservó la rama {branch}.",
@@ -2394,6 +2416,8 @@ export const es = {
   'newSession.worktreeUnavailable': "no disponible",
   'session.remove.bodyShared': "¿Eliminar {title}? Solo se quita esta sesión; {branch} y las demás sesiones que se ejecutan allí siguen activas.",
   'sidebar.worktreeMenu': "Acciones del worktree",
+  'sidebar.removeWorktree': "Quitar worktree…",
+  'sidebar.worktreeCreating': "Este espacio de trabajo aún se está creando.",
   'sidebar.collapseWorktree': "Contraer worktree",
   'sidebar.expandWorktree': "Expandir worktree",
   'sidebar.defaultCheckout': "Carpeta del proyecto",

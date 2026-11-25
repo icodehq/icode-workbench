@@ -80,6 +80,7 @@ export type WorkspaceAction =
   | { type: 'selectSession'; sessionId: string }
   | { type: 'sessionUpserted'; session: SessionSummary }
   | { type: 'sessionRemoved'; sessionId: string }
+  | { type: 'sessionsRemoved'; sessionIds: readonly string[] }
   | {
       type: 'activityUpdated'
       sessionId: string
@@ -135,6 +136,35 @@ function firstSessionForRepo(
 ): SessionSummary | null {
   if (repoId === null) return null
   return sessions.find((session) => session.repoId === repoId) ?? null
+}
+
+/** Drops removed sessions and reconciles selection and prompts in one pass. */
+function withoutSessions(
+  state: WorkspaceState,
+  removed: ReadonlySet<string>
+): WorkspaceState {
+  const sessions = state.sessions.filter((session) => !removed.has(session.id))
+  const activeSessionId =
+    state.activeSessionId !== null && removed.has(state.activeSessionId)
+      ? (firstSessionForRepo(sessions, state.activeRepoId)?.id ?? null)
+      : state.activeSessionId
+  const pending = { ...state.pending }
+  const recovery = { ...state.recovery }
+  for (const sessionId of removed) {
+    delete pending[sessionId]
+    delete recovery[sessionId]
+  }
+  return {
+    ...state,
+    sessions,
+    activeSessionId,
+    pending,
+    recovery,
+    sessionCleanup:
+      state.sessionCleanup !== null && removed.has(state.sessionCleanup.sessionId)
+        ? null
+        : state.sessionCleanup
+  }
 }
 
 function sameActivity(
@@ -294,26 +324,12 @@ export function workspaceReducer(
       delete recovery[action.session.id]
       return { ...state, sessions, pending, recovery }
     }
-    case 'sessionRemoved': {
-      const sessions = state.sessions.filter((session) => session.id !== action.sessionId)
-      const activeSessionId =
-        state.activeSessionId === action.sessionId
-          ? (firstSessionForRepo(sessions, state.activeRepoId)?.id ?? null)
-          : state.activeSessionId
-      const pending = { ...state.pending }
-      delete pending[action.sessionId]
-      const recovery = { ...state.recovery }
-      delete recovery[action.sessionId]
-      return {
-        ...state,
-        sessions,
-        activeSessionId,
-        pending,
-        recovery,
-        sessionCleanup:
-          state.sessionCleanup?.sessionId === action.sessionId ? null : state.sessionCleanup
-      }
-    }
+    case 'sessionRemoved':
+      return withoutSessions(state, new Set([action.sessionId]))
+    case 'sessionsRemoved':
+      return action.sessionIds.length === 0
+        ? state
+        : withoutSessions(state, new Set(action.sessionIds))
     case 'pendingSet':
       return {
         ...state,

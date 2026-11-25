@@ -17,6 +17,25 @@ export const ptBR = {
   'session.remove.unsaved.one': "{count} arquivo não salvo em Arquivos será perdido.",
   'session.remove.unsaved.other': "{count} arquivos não salvos em Arquivos serão perdidos.",
   'session.remove.confirm': "Remover sessão",
+  'worktree.remove.title': "Remover o worktree?",
+  'worktree.remove.bodySessions.one':
+    "O checkout de {branch} é removido do disco. Sua {count} sessão será parada e removida. Alterações não confirmadas impedem a remoção.",
+  'worktree.remove.bodySessions.other':
+    "O checkout de {branch} é removido do disco. Suas {count} sessões serão paradas e removidas. Alterações não confirmadas impedem a remoção.",
+  'worktree.remove.repo': "projeto",
+  'worktree.remove.path': "caminho",
+  'worktree.remove.sessions': "sessões",
+  'worktree.remove.confirm': "Remover worktree",
+  'worktree.remove.discardTitle': "Descartar as alterações e remover o worktree",
+  'worktree.remove.discardTitleDeleteBranch':
+    "Descartar as alterações, excluir a branch e remover o worktree",
+  'worktree.remove.discard': "Excluir as alterações e remover o worktree",
+  'worktree.remove.discardDeleteBranch': "Excluir as alterações, a branch e o worktree",
+  'worktree.remove.checkoutTitle': "Remover o checkout do worktree",
+  'worktree.remove.checkoutTitleDeleteBranch':
+    "Remover o checkout do worktree e excluir sua branch",
+  'worktree.remove.missingBody':
+    "O diretório do worktree sumiu, então nada será excluído. Recrie-o primeiro a partir de uma sessão deste workspace.",
   'common.system': 'Sistema',
   'common.dark': 'Escuro',
   'common.light': 'Claro',
@@ -355,6 +374,9 @@ export const ptBR = {
   'workspace.bootFailed': "Não foi possível carregar os repositórios registrados.",
   'workspace.notice.retryingFirstCommit': "Tentando novamente o primeiro commit de {project}.",
   'workspace.notice.sessionRemoved': "Sessão removida.",
+  'workspace.notice.worktreeRemoved': "Worktree removido.",
+  'workspace.notice.worktreeHostUnavailable':
+    "O host do terminal está inacessível, então o worktree não foi removido.",
   'workspace.notice.sessionStillRunning': "Esta sessão ainda está em execução. Tente novamente em instantes.",
   'workspace.notice.terminalUnavailable': "A sessão não pôde ser removida porque o serviço de terminal está indisponível.",
   'workspace.notice.discarded': "Árvore de trabalho descartada. A branch {branch} foi mantida.",
@@ -2394,6 +2416,8 @@ export const ptBR = {
   'newSession.worktreeUnavailable': "indisponível",
   'session.remove.bodyShared': "Remover {title}? Apenas esta sessão será removida; {branch} e as outras sessões em execução ali continuam.",
   'sidebar.worktreeMenu': "Ações do worktree",
+  'sidebar.removeWorktree': "Remover worktree…",
+  'sidebar.worktreeCreating': "Este workspace ainda está sendo criado.",
   'sidebar.collapseWorktree': "Recolher worktree",
   'sidebar.expandWorktree': "Expandir worktree",
   'sidebar.defaultCheckout': "Pasta do projeto",

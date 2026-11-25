@@ -17,6 +17,25 @@ export const de = {
   'session.remove.unsaved.one': "{count} ungespeicherte Datei in Dateien geht verloren.",
   'session.remove.unsaved.other': "{count} ungespeicherte Dateien in Dateien gehen verloren.",
   'session.remove.confirm': "Sitzung entfernen",
+  'worktree.remove.title': "Worktree entfernen?",
+  'worktree.remove.bodySessions.one':
+    "Der Checkout für {branch} wird vom Datenträger entfernt. Die {count} Sitzung darin wird beendet und entfernt. Nicht committete Änderungen verhindern das Entfernen.",
+  'worktree.remove.bodySessions.other':
+    "Der Checkout für {branch} wird vom Datenträger entfernt. Die {count} Sitzungen darin werden beendet und entfernt. Nicht committete Änderungen verhindern das Entfernen.",
+  'worktree.remove.repo': "Projekt",
+  'worktree.remove.path': "Pfad",
+  'worktree.remove.sessions': "Sitzungen",
+  'worktree.remove.confirm': "Worktree entfernen",
+  'worktree.remove.discardTitle': "Änderungen verwerfen und den Worktree entfernen",
+  'worktree.remove.discardTitleDeleteBranch':
+    "Änderungen verwerfen, den Branch löschen und den Worktree entfernen",
+  'worktree.remove.discard': "Änderungen löschen und Worktree entfernen",
+  'worktree.remove.discardDeleteBranch': "Änderungen, Branch und Worktree löschen",
+  'worktree.remove.checkoutTitle': "Den Worktree-Checkout entfernen",
+  'worktree.remove.checkoutTitleDeleteBranch':
+    "Den Worktree-Checkout entfernen und seinen Branch löschen",
+  'worktree.remove.missingBody':
+    "Das Worktree-Verzeichnis ist verschwunden, es wird nichts gelöscht. Erstelle es zuerst über eine Sitzung in diesem Arbeitsbereich neu.",
   'common.system': 'System',
   'common.dark': 'Dunkel',
   'common.light': 'Hell',
@@ -355,6 +374,9 @@ export const de = {
   'workspace.bootFailed': "Registrierte Repositories konnten nicht geladen werden.",
   'workspace.notice.retryingFirstCommit': "Erster Commit für {project} wird erneut versucht.",
   'workspace.notice.sessionRemoved': "Sitzung entfernt.",
+  'workspace.notice.worktreeRemoved': "Worktree entfernt.",
+  'workspace.notice.worktreeHostUnavailable':
+    "Der Terminal-Host ist nicht erreichbar, daher wurde der Worktree nicht entfernt.",
   'workspace.notice.sessionStillRunning': "Diese Sitzung läuft noch. Versuche es gleich noch einmal.",
   'workspace.notice.terminalUnavailable': "Die Sitzung konnte nicht entfernt werden, weil der Terminaldienst nicht verfügbar ist.",
   'workspace.notice.discarded': "Worktree verworfen. Branch {branch} wurde behalten.",
@@ -2393,6 +2415,8 @@ export const de = {
   'newSession.worktreeUnavailable': "nicht verfügbar",
   'session.remove.bodyShared': "Sitzung {title} entfernen? Nur diese Sitzung wird entfernt; {branch} und die anderen dort laufenden Sitzungen bleiben erhalten.",
   'sidebar.worktreeMenu': "Worktree-Aktionen",
+  'sidebar.removeWorktree': "Worktree entfernen…",
+  'sidebar.worktreeCreating': "Dieser Arbeitsbereich wird noch erstellt.",
   'sidebar.collapseWorktree': "Worktree einklappen",
   'sidebar.expandWorktree': "Worktree ausklappen",
   'sidebar.defaultCheckout': "Projektordner",

@@ -407,6 +407,164 @@ describe('ordinary session removal', () => {
   }, 20_000)
 })
 
+describe('worktree removal', () => {
+  async function sharedCheckout(f: Fixture): Promise<{
+    first: SessionSummary
+    second: SessionSummary
+  }> {
+    const first = await f.createSession()
+    const second = await f.sessions.create({
+      repoId: f.repoId,
+      harness: 'claude',
+      worktreeId: first.worktree!.id,
+      cols: 100,
+      rows: 30
+    })
+    f.finish(first.id)
+    f.finish(second.id)
+    return { first, second }
+  }
+
+  it('stops live sessions and removes the checkout with every attached session', async () => {
+    const f = await setup()
+    const first = await f.createSession()
+    const second = await f.sessions.create({
+      repoId: f.repoId,
+      harness: 'claude',
+      worktreeId: first.worktree!.id,
+      cols: 100,
+      rows: 30
+    })
+    const worktree = first.worktree!
+
+    const result = await f.removals.removeWorktree(worktree.id)
+    expect(result.status).toBe('removed')
+    if (result.status === 'removed') {
+      expect(new Set(result.sessionIds)).toEqual(new Set([first.id, second.id]))
+      expect(result.branchRetained).toBe(true)
+    }
+    expect(f.host.calls.kill.some((entry) => entry.sessionId === first.id)).toBe(true)
+    expect(f.host.calls.kill.some((entry) => entry.sessionId === second.id)).toBe(true)
+    expect(existsSync(worktree.path)).toBe(false)
+    expect(f.sessionStore.findById(first.id as never)).toBeNull()
+    expect(f.sessionStore.findById(second.id as never)).toBeNull()
+    expect(f.worktrees.findById(worktree.id)).toBeNull()
+    await expect(f.git.branchExists(f.repoPath, worktree.branch)).resolves.toBe(true)
+  })
+
+  it('deletes the branch even when several sessions shared the checkout', async () => {
+    const f = await setup()
+    const { first } = await sharedCheckout(f)
+    const worktree = first.worktree!
+
+    const result = await f.removals.removeWorktree(worktree.id, { deleteBranch: true })
+    expect(result.status).toBe('removed')
+    if (result.status === 'removed') expect(result.branchRetained).toBe(false)
+    await expect(f.git.branchExists(f.repoPath, worktree.branch)).resolves.toBe(false)
+    expect(f.worktrees.findBranch(worktree.branch)).toBeNull()
+  })
+
+  it('blocks on uncommitted changes and keeps the sessions and checkout', async () => {
+    const f = await setup()
+    const { first, second } = await sharedCheckout(f)
+    writeFileSync(join(first.worktree!.path, 'agent.txt'), 'work in progress\n')
+
+    const result = await f.removals.removeWorktree(first.worktree!.id)
+    expect(result.status).toBe('blocked_worktree')
+    if (result.status === 'blocked_worktree') {
+      expect(result.blocker.kind).toBe('dirty')
+      expect(result.blocker.files).toContain('agent.txt')
+    }
+    expect(existsSync(first.worktree!.path)).toBe(true)
+    expect(f.worktrees.findBySession(first.id)).not.toBeNull()
+    expect(f.worktrees.findBySession(second.id)).not.toBeNull()
+  })
+
+  it('blocks a missing checkout without deleting session rows', async () => {
+    const f = await setup()
+    const session = await f.createSession()
+    f.finish(session.id)
+    execFileSync('rm', ['-rf', session.worktree!.path])
+
+    const result = await f.removals.removeWorktree(session.worktree!.id)
+    expect(result.status).toBe('blocked_worktree')
+    if (result.status === 'blocked_worktree') expect(result.blocker.kind).toBe('missing')
+    expect(f.sessionStore.findById(session.id as never)).not.toBeNull()
+  }, 20_000)
+
+  it('refuses while an active task still runs in the checkout', async () => {
+    const f = await setup()
+    const session = await f.createSession()
+    f.finish(session.id)
+    const guarded = f.removalsWith({ activeTasksInWorktree: () => 1 })
+
+    await expect(guarded.removeWorktree(session.worktree!.id)).rejects.toSatisfy(
+      (error: unknown) => codeOf(error) === 'GIT_BRANCH_IN_USE'
+    )
+    expect(existsSync(session.worktree!.path)).toBe(true)
+    expect(f.worktrees.findBySession(session.id)).not.toBeNull()
+  })
+
+  it('refuses branch deletion while an active task uses the chain', async () => {
+    const f = await setup()
+    const session = await f.createSession()
+    f.finish(session.id)
+    const guarded = f.removalsWith({ activeTasksOnChain: () => 1 })
+
+    await expect(
+      guarded.removeWorktree(session.worktree!.id, { deleteBranch: true })
+    ).rejects.toSatisfy((error: unknown) => codeOf(error) === 'GIT_BRANCH_IN_USE')
+    expect(existsSync(session.worktree!.path)).toBe(true)
+    await expect(f.git.branchExists(f.repoPath, session.worktree!.branch)).resolves.toBe(true)
+  })
+
+  it('requires the exact branch name to discard', async () => {
+    const f = await setup()
+    const session = await f.createSession()
+    f.finish(session.id)
+    writeFileSync(join(session.worktree!.path, 'agent.txt'), 'work\n')
+
+    await expect(
+      f.removals.discardWorktree(session.worktree!.id, 'wrong')
+    ).rejects.toSatisfy((error: unknown) => codeOf(error) === 'INVALID_ARGUMENT')
+    expect(existsSync(session.worktree!.path)).toBe(true)
+    expect(f.sessionStore.findById(session.id as never)).not.toBeNull()
+  })
+
+  it('discards a dirty worktree and every session in it', async () => {
+    const f = await setup()
+    const { first, second } = await sharedCheckout(f)
+    writeFileSync(join(first.worktree!.path, 'agent.txt'), 'work\n')
+    const worktree = first.worktree!
+
+    const result = await f.removals.discardWorktree(worktree.id, worktree.branch)
+    expect(result.status).toBe('discarded')
+    if (result.status === 'discarded') {
+      expect(new Set(result.sessionIds)).toEqual(new Set([first.id, second.id]))
+      expect(result.files).toContain('agent.txt')
+      expect(result.branchRetained).toBe(true)
+    }
+    expect(existsSync(worktree.path)).toBe(false)
+    expect(f.sessionStore.findById(first.id as never)).toBeNull()
+    expect(f.sessionStore.findById(second.id as never)).toBeNull()
+    await expect(f.git.branchExists(f.repoPath, worktree.branch)).resolves.toBe(true)
+  })
+
+  it('refuses to discard a missing checkout', async () => {
+    const f = await setup()
+    const session = await f.createSession()
+    f.finish(session.id)
+    execFileSync('rm', ['-rf', session.worktree!.path])
+
+    const result = await f.removals.discardWorktree(
+      session.worktree!.id,
+      session.worktree!.branch
+    )
+    expect(result.status).toBe('blocked_worktree')
+    if (result.status === 'blocked_worktree') expect(result.blocker.kind).toBe('missing')
+  }, 20_000)
+})
+
 describe('explicit discard', () => {
   it('requires the exact branch name', async () => {
     const f = await setup()

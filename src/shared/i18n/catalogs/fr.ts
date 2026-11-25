@@ -17,6 +17,25 @@ export const fr = {
   'session.remove.unsaved.one': "{count} fichier non enregistré dans Fichiers sera perdu.",
   'session.remove.unsaved.other': "{count} fichiers non enregistrés dans Fichiers seront perdus.",
   'session.remove.confirm': "Supprimer la session",
+  'worktree.remove.title': "Supprimer le worktree ?",
+  'worktree.remove.bodySessions.one':
+    "Le checkout de {branch} est supprimé du disque. Sa {count} session sera arrêtée et supprimée. Les modifications non validées empêchent la suppression.",
+  'worktree.remove.bodySessions.other':
+    "Le checkout de {branch} est supprimé du disque. Ses {count} sessions seront arrêtées et supprimées. Les modifications non validées empêchent la suppression.",
+  'worktree.remove.repo': "projet",
+  'worktree.remove.path': "chemin",
+  'worktree.remove.sessions': "sessions",
+  'worktree.remove.confirm': "Supprimer le worktree",
+  'worktree.remove.discardTitle': "Supprimer les modifications et le worktree",
+  'worktree.remove.discardTitleDeleteBranch':
+    "Supprimer les modifications, la branche et le worktree",
+  'worktree.remove.discard': "Supprimer les modifications et le worktree",
+  'worktree.remove.discardDeleteBranch': "Supprimer les modifications, la branche et le worktree",
+  'worktree.remove.checkoutTitle': "Supprimer le checkout du worktree",
+  'worktree.remove.checkoutTitleDeleteBranch':
+    "Supprimer le checkout du worktree et sa branche",
+  'worktree.remove.missingBody':
+    "Le dossier du worktree a disparu, rien ne sera supprimé. Recréer d'abord le worktree depuis une session de cet espace de travail.",
   'common.system': 'Système',
   'common.dark': 'Sombre',
   'common.light': 'Clair',
@@ -355,6 +374,9 @@ export const fr = {
   'workspace.bootFailed': "Impossible de charger les dépôts enregistrés.",
   'workspace.notice.retryingFirstCommit': "Nouvelle tentative pour le premier commit de {project}.",
   'workspace.notice.sessionRemoved': "Session supprimée.",
+  'workspace.notice.worktreeRemoved': "Worktree supprimé.",
+  'workspace.notice.worktreeHostUnavailable':
+    "L'hôte du terminal est injoignable, le worktree n'a pas été supprimé.",
   'workspace.notice.sessionStillRunning': "Cette session est encore en cours. Réessayez dans un instant.",
   'workspace.notice.terminalUnavailable': "La session n’a pas pu être supprimée car le service de terminal est indisponible.",
   'workspace.notice.discarded': "Worktree abandonné. La branche {branch} a été conservée.",
@@ -2394,6 +2416,8 @@ export const fr = {
   'newSession.worktreeUnavailable': "indisponible",
   'session.remove.bodyShared': "Supprimer {title} ? Seule cette session est retirée ; {branch} et les autres sessions qui y tournent continuent.",
   'sidebar.worktreeMenu': "Actions du worktree",
+  'sidebar.removeWorktree': "Supprimer le worktree…",
+  'sidebar.worktreeCreating': "Cet espace de travail est encore en cours de création.",
   'sidebar.collapseWorktree': "Réduire le worktree",
   'sidebar.expandWorktree': "Développer le worktree",
   'sidebar.defaultCheckout': "Dossier du projet",
