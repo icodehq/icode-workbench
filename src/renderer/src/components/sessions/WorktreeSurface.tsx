@@ -743,17 +743,6 @@ export default function WorktreeSurface({
                   : { kind: 'worktree', worktreeId: descriptor.worktreeId }
             )
           }
-          onNewTerminal={() => {
-            void onCreateSession({
-              repoId: repo.id,
-              harness: 'shell',
-              ...(descriptor.isDefault
-                ? { checkout: 'default' as const }
-                : descriptor.worktreeId === null
-                  ? { checkout: 'default' as const }
-                  : { worktreeId: descriptor.worktreeId })
-            })
-          }}
           onSplit={() =>
             split.root.kind === 'split' ? split.unsplit() : split.splitPane('right')
           }

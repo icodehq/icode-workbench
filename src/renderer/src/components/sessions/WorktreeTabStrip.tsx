@@ -66,7 +66,6 @@ type Props = {
   onCloseAll: () => void
   onSaveAll?: () => void
   onNewAgent: () => void
-  onNewTerminal: () => void
   onSplit: () => void
   onToggleZoom: () => void
   onCloseOthers?: (key: string) => void
@@ -131,7 +130,6 @@ export default function WorktreeTabStrip({
   onCloseAll,
   onSaveAll,
   onNewAgent,
-  onNewTerminal,
   onSplit,
   onToggleZoom,
   onCloseOthers,
@@ -140,7 +138,6 @@ export default function WorktreeTabStrip({
   onUnsplit
 }: Props): React.JSX.Element {
   const t = useT()
-  const [newMenu, setNewMenu] = useState<{ anchor: MenuAnchor; opener: HTMLElement } | null>(null)
   const dragging = useRef<string | null>(null)
   const [draggingKey, setDraggingKey] = useState<string | null>(null)
   const [dropKey, setDropKey] = useState<string | null>(null)
@@ -290,37 +287,6 @@ export default function WorktreeTabStrip({
     const next = buttons[(index + delta + buttons.length) % buttons.length]
     next?.focus()
   }
-
-  const openNewMenu = (element: HTMLElement): void => {
-    const rect = element.getBoundingClientRect()
-    setNewMenu({
-      anchor: { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom },
-      opener: element
-    })
-  }
-
-  const newItems: ContextMenuItem[] = [
-    {
-      id: 'new-agent',
-      label: t('newSession.codingAgent'),
-      icon: <Sparkles size={12} />,
-      testId: 'workspace-tab-new-agent',
-      onSelect: () => {
-        setNewMenu(null)
-        onNewAgent()
-      }
-    },
-    {
-      id: 'new-terminal',
-      label: t('newSession.terminal'),
-      icon: <TerminalSquare size={12} />,
-      testId: 'workspace-tab-new-terminal',
-      onSelect: () => {
-        setNewMenu(null)
-        onNewTerminal()
-      }
-    }
-  ]
 
   return (
     <>
@@ -562,15 +528,13 @@ export default function WorktreeTabStrip({
 
         <button
           type="button"
-          className="ml-1 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
-          onClick={(event) => openNewMenu(event.currentTarget)}
+          className="my-auto ml-2 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+          onClick={onNewAgent}
           aria-label={t('newSession.title')}
-          aria-haspopup="menu"
-          aria-expanded={newMenu !== null}
           title={t('newSession.title')}
           data-testid="workspace-tab-new"
         >
-          <Plus size={12} />
+          <Plus size={14} />
         </button>
 
         <div className="ml-auto flex shrink-0 items-center gap-1">
@@ -627,18 +591,6 @@ export default function WorktreeTabStrip({
           ) : null}
         </div>
       </nav>
-      {newMenu !== null ? (
-        <ContextMenu
-          items={newItems}
-          ariaLabel={t('newSession.title')}
-          testId="workspace-tab-new-menu"
-          width={190}
-          anchor={newMenu.anchor}
-          returnFocus={newMenu.opener}
-          opener={newMenu.opener}
-          onClose={() => setNewMenu(null)}
-        />
-      ) : null}
       {tabMenu !== null && menuTab !== null ? (
         <ContextMenu
           items={menuItems}

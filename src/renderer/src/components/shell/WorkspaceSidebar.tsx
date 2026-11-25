@@ -941,7 +941,6 @@ export default function WorkspaceSidebar({
       })
     }
     const defaultCollapsed = collapsedDefaultCheckouts.has(repo.id)
-    const canAddDefault = !hostUnreachable && repo.availability !== 'missing'
     const menuOpen = projectMenu?.repo.id === repo.id
     const defaultMenuOpen =
       checkoutMenu?.repo.id === repo.id && checkoutMenu.group === null
@@ -1185,21 +1184,6 @@ export default function WorkspaceSidebar({
                   </span>
                   <span>{groups.defaultCheckout.length}</span>
                 </button>
-                <button
-                  type="button"
-                  className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded opacity-0 hover:bg-muted hover:text-foreground focus-visible:opacity-100 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-30 group-hover/dc:opacity-100 group-hover/dc:disabled:opacity-30"
-                  aria-label={t('sidebar.newSessionInDefaultCheckout')}
-                  title={
-                    canAddDefault
-                      ? t('sidebar.newSessionInDefaultCheckout')
-                      : t('newSession.checkoutUnavailable')
-                  }
-                  disabled={!canAddDefault}
-                  data-testid={`sidebar-default-checkout-new-session-${repo.id}`}
-                  onClick={() => onNewSessionInDefaultCheckout(repo.id)}
-                >
-                  <Plus size={9} />
-                </button>
               </div>
               {defaultCollapsed ? null : (
                 <div className="pl-1">
@@ -1210,9 +1194,6 @@ export default function WorkspaceSidebar({
               )}
             </div>
             {orderedWorktrees.map((group) => {
-              const status = group.sessions[0]?.worktree?.status
-              // A checkout Git cannot hand to a PTY must not offer a session.
-              const canAdd = status === 'ready-to-start' || status === 'active'
               // A header exists when it has a job: grouping several sessions,
               // or carrying the drag affordance that orders workspaces. A
               // project's only workspace needs neither.
@@ -1322,21 +1303,6 @@ export default function WorkspaceSidebar({
                             (shared ? t('sidebar.sharedWorkspace') : t('sidebar.workspaceGroup'))}
                         </span>
                         <span>{group.sessions.length}</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded opacity-0 hover:bg-muted hover:text-foreground focus-visible:opacity-100 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-30 group-hover/wt:opacity-100 group-hover/wt:disabled:opacity-30"
-                        aria-label={t('sidebar.newSessionHere')}
-                        title={
-                          canAdd
-                            ? t('sidebar.newSessionHere')
-                            : t('newSession.worktreeUnavailable')
-                        }
-                        disabled={!canAdd}
-                        data-testid={`sidebar-worktree-new-session-${group.worktreeId}`}
-                        onClick={() => onNewSessionInWorktree(repo.id, group.worktreeId)}
-                      >
-                        <Plus size={9} />
                       </button>
                     </div>
                   ) : null}
