@@ -6,18 +6,27 @@ import type { GitWorktreeService } from '../worktrees/git-worktree-service'
 import type { HostGateway } from './host-gateway'
 import type {
   DiscardSessionResult,
+  DiscardWorktreeResult,
   OwnedBranchSummary,
   RemoveBranchResult,
   RemoveSessionResult,
+  RemoveWorktreeResult,
   SessionSummary,
   WorktreeBlocker
 } from '../../shared/schemas/ipc'
-import { parseRepoId, parseSessionId, type RepoId } from '../../shared/domain/ids'
+import {
+  parseRepoId,
+  parseSessionId,
+  parseWorktreeId,
+  type RepoId,
+  type SessionId,
+  type WorktreeId
+} from '../../shared/domain/ids'
 import type { ExecutionTarget } from '../../shared/domain/repository'
 import type { StoredSession } from '../persistence/rows'
 import type { AppError } from '../../shared/domain/errors'
 import { makeAppError } from '../../shared/domain/errors'
-import type { SessionWorktreeRecord } from '../../shared/domain/worktree'
+import type { SessionWorktreeRecord, WorktreeRecord } from '../../shared/domain/worktree'
 import { samePathResolved } from '../worktrees/worktree-status'
 import { SessionServiceError, errorFromHost } from './session-errors'
 import { hostTargetFor } from '../wsl/terminal/path-a'
@@ -35,6 +44,11 @@ export type SessionRemovalOptions = {
   deleteBranch?: boolean
 }
 
+export type WorktreeRemovalOptions = {
+  /** Delete the worktree's owned branch once its checkout is gone. */
+  deleteBranch?: boolean
+}
+
 export type SessionRemovalDeps = {
   database: Database
   sessions: SessionStore
@@ -46,6 +60,8 @@ export type SessionRemovalDeps = {
   summarise: (sessionId: string) => Promise<SessionSummary>
   /** Active tasks that still share a chain branch; deleting it would strand them. */
   activeTasksOnChain?: (repoId: RepoId, branch: string) => number
+  /** Active tasks still running in this checkout; removing it would strand them. */
+  activeTasksInWorktree?: (worktreePath: string) => number
 }
 
 type Liveness = { ok: true; live: boolean } | { ok: false; error: ReturnType<typeof errorFromHost> }
@@ -344,6 +360,319 @@ export class SessionRemovalService {
     }
   }
 
+  /**
+   * Removes a checkout with every session attached to it.
+   *
+   * This is the worktree-first counterpart to `remove`: the checkout is the
+   * unit the user picked, so live sessions are stopped rather than blocking the
+   * action. The same fail-closed Git checks apply — a dirty, unmerged, missing
+   * or inconsistent checkout returns a blocker and nothing is deleted.
+   */
+  async removeWorktree(
+    worktreeIdInput: string,
+    options: WorktreeRemovalOptions = {}
+  ): Promise<RemoveWorktreeResult> {
+    const worktreeId = this.parseWorktreeId(worktreeIdInput)
+    const record = this.requireWorktree(worktreeIdInput, worktreeId)
+    const repository = this.requireRepository(record)
+    const sessionIds = this.deps.worktrees.sessionIdsForWorktree(worktreeId)
+    this.assertNoActiveTaskInWorktree(record.path)
+    const deleteBranch = options.deleteBranch === true
+    if (deleteBranch) await this.assertWorktreeBranchDeletable(record)
+    const hostFailure = await this.stopSessionsForWorktreeRemoval(sessionIds)
+    if (hostFailure !== null) return hostFailure
+    const blocker = await this.worktreeBlocker(
+      record.path,
+      record.branch,
+      repository.path,
+      record.state,
+      repository.executionTarget,
+      deleteBranch
+    )
+    if (blocker !== null) return { status: 'blocked_worktree', sessionIds, blocker }
+    const removalBlocker = await this.removeCheckout(record, repository)
+    if (removalBlocker !== null) {
+      return { status: 'blocked_worktree', sessionIds, blocker: removalBlocker }
+    }
+    await this.removeWorkspaceTrustForSessions(sessionIds, record.path)
+    const deleted = deleteBranch ? await this.deleteOwnedBranch(record) : null
+    const branchDeleted = deleted?.branchDeleted === true
+    this.deps.database.transaction(() => {
+      for (const sessionId of sessionIds) {
+        this.deps.worktrees.unlinkSession(sessionId)
+        this.deps.sessions.delete(sessionId)
+      }
+      this.deps.worktrees.deleteWorktree(record.id)
+      if (branchDeleted) this.deps.worktrees.deleteBranch(record.branch)
+    })
+    return {
+      status: 'removed',
+      sessionIds,
+      branch: record.branch,
+      branchRetained: !branchDeleted,
+      ...(deleted?.branchDeleteError !== undefined
+        ? { branchDeleteError: deleted.branchDeleteError }
+        : {})
+    }
+  }
+
+  /**
+   * Destructive worktree removal for a checkout that cannot pass the ordinary
+   * checks. The exact branch name is the guard; uncommitted files are lost.
+   */
+  async discardWorktree(
+    worktreeIdInput: string,
+    confirmBranch: string,
+    options: WorktreeRemovalOptions = {}
+  ): Promise<DiscardWorktreeResult> {
+    const worktreeId = this.parseWorktreeId(worktreeIdInput)
+    const record = this.requireWorktree(worktreeIdInput, worktreeId)
+    const repository = this.requireRepository(record)
+    if (confirmBranch !== record.branch) {
+      throw new SessionServiceError(
+        makeAppError('INVALID_ARGUMENT', 'Type the exact branch name to confirm discard.', {
+          context: { worktreeId: record.id, branch: record.branch }
+        })
+      )
+    }
+    const sessionIds = this.deps.worktrees.sessionIdsForWorktree(worktreeId)
+    this.assertNoActiveTaskInWorktree(record.path)
+    const deleteBranch = options.deleteBranch === true
+    if (deleteBranch) await this.assertWorktreeBranchDeletable(record)
+    const hostFailure = await this.stopSessionsForWorktreeRemoval(sessionIds)
+    if (hostFailure !== null) return hostFailure
+    const inspection = await this.deps.gitWorktrees
+      .inspect({
+        primaryRoot: repository.path,
+        path: record.path,
+        branch: record.branch,
+        target: repository.executionTarget
+      })
+      .catch(() => null)
+    if (inspection === null) {
+      return {
+        status: 'blocked_worktree',
+        sessionIds,
+        blocker: { kind: 'inconsistent', detail: 'The worktree could not be inspected.' }
+      }
+    }
+    if (!inspection.pathExists) {
+      return {
+        status: 'blocked_worktree',
+        sessionIds,
+        blocker: { kind: 'missing', detail: record.path }
+      }
+    }
+    if (!inspection.registered) {
+      return {
+        status: 'blocked_worktree',
+        sessionIds,
+        blocker: {
+          kind: 'inconsistent',
+          detail: 'The worktree directory is not registered with Git.'
+        }
+      }
+    }
+    try {
+      await this.deps.gitWorktrees.remove({
+        primaryRoot: repository.path,
+        path: record.path,
+        force: true,
+        target: repository.executionTarget
+      })
+    } catch (error) {
+      throw new SessionServiceError(
+        makeAppError('WORKTREE_DIRTY', 'The worktree could not be discarded.', {
+          detail: error instanceof Error ? error.message : String(error)
+        })
+      )
+    }
+    await this.removeWorkspaceTrustForSessions(sessionIds, record.path)
+    const deleted = deleteBranch ? await this.deleteOwnedBranch(record) : null
+    const branchDeleted = deleted?.branchDeleted === true
+    this.deps.database.transaction(() => {
+      for (const sessionId of sessionIds) {
+        this.deps.worktrees.unlinkSession(sessionId)
+        this.deps.sessions.delete(sessionId)
+      }
+      this.deps.worktrees.deleteWorktree(record.id)
+      if (branchDeleted) this.deps.worktrees.deleteBranch(record.branch)
+    })
+    return {
+      status: 'discarded',
+      sessionIds,
+      branch: record.branch,
+      files: inspection.dirtyFiles.slice(0, 200),
+      commits: inspection.unmergedCommits ?? 0,
+      branchRetained: !branchDeleted,
+      ...(deleted?.branchDeleteError !== undefined
+        ? { branchDeleteError: deleted.branchDeleteError }
+        : {})
+    }
+  }
+
+  private parseWorktreeId(value: string): WorktreeId {
+    const parsed = parseWorktreeId(value)
+    if (!parsed) {
+      throw new SessionServiceError(
+        makeAppError('INVALID_ARGUMENT', 'Invalid worktree ID.', { context: { worktreeId: value } })
+      )
+    }
+    return parsed
+  }
+
+  private requireWorktree(value: string, worktreeId: WorktreeId): WorktreeRecord {
+    const record = this.deps.worktrees.findById(worktreeId)
+    if (!record) {
+      throw new SessionServiceError(
+        makeAppError('INVALID_ARGUMENT', 'That worktree is not registered.', {
+          context: { worktreeId: value }
+        })
+      )
+    }
+    return record
+  }
+
+  private requireRepository(record: WorktreeRecord): {
+    path: string
+    executionTarget: ExecutionTarget
+  } {
+    const repository = this.deps.repositories.findById(record.repoId)
+    if (!repository) {
+      throw new SessionServiceError(
+        makeAppError('DB_CORRUPT', 'The worktree repository is missing.', {
+          context: { repoId: record.repoId }
+        })
+      )
+    }
+    return repository
+  }
+
+  private assertNoActiveTaskInWorktree(worktreePath: string): void {
+    const activeTasks = this.deps.activeTasksInWorktree?.(worktreePath) ?? 0
+    if (activeTasks > 0) {
+      throw new SessionServiceError(
+        makeAppError('GIT_BRANCH_IN_USE', 'Tasks are still using this worktree.', {
+          detail: `Finish or cancel ${String(activeTasks)} active task(s) before removing it.`,
+          context: { worktreePath }
+        })
+      )
+    }
+  }
+
+  /**
+   * Stops every live session that shares the checkout. Returns a
+   * `host_unavailable` result instead of throwing so the caller can answer
+   * before any Git command runs.
+   */
+  private async stopSessionsForWorktreeRemoval(
+    sessionIds: readonly SessionId[]
+  ): Promise<{ status: 'host_unavailable'; error: AppError } | null> {
+    for (const sessionId of sessionIds) {
+      const row = this.deps.sessions.findById(sessionId)
+      if (!row) continue
+      const target = this.targetForSession(row)
+      const liveness = await this.liveness(sessionId, target)
+      if (!liveness.ok) return { status: 'host_unavailable', error: liveness.error }
+      if (liveness.live) await this.stopForRemoval(sessionId, target)
+    }
+    return null
+  }
+
+  /** Removes the checkout itself; a Git refusal is reported as a dirty blocker. */
+  private async removeCheckout(
+    record: WorktreeRecord,
+    repository: { path: string; executionTarget: ExecutionTarget }
+  ): Promise<WorktreeBlocker | null> {
+    try {
+      const hostFs = await this.deps.gitWorktrees.hostFsFor(repository.executionTarget)
+      if (await hostFs.exists(record.path)) {
+        await this.deps.gitWorktrees.remove({
+          primaryRoot: repository.path,
+          path: record.path,
+          force: false,
+          target: repository.executionTarget
+        })
+      }
+      return null
+    } catch (error) {
+      return {
+        kind: 'dirty',
+        detail: error instanceof SessionServiceError ? error.appError.message : String(error)
+      }
+    }
+  }
+
+  private async removeWorkspaceTrustForSessions(
+    sessionIds: readonly SessionId[],
+    worktreePath: string
+  ): Promise<void> {
+    for (const sessionId of sessionIds) {
+      const row = this.deps.sessions.findById(sessionId)
+      if (!row) continue
+      await this.deps.workspaceTrust
+        ?.remove({
+          harness: row.harness,
+          target: this.targetForSession(row),
+          worktreePath
+        })
+        .catch(() => undefined)
+    }
+  }
+
+  /**
+   * Branch deletion for a whole-worktree removal.
+   *
+   * Unlike the session-level guard, sharing the checkout with other sessions is
+   * not a refusal: every session attached to it leaves in the same operation.
+   */
+  private async assertWorktreeBranchDeletable(record: WorktreeRecord): Promise<void> {
+    const owned = this.deps.worktrees.findBranch(record.branch)
+    if (!owned || owned.worktreeId !== record.id) {
+      throw new SessionServiceError(
+        makeAppError('BRANCH_NOT_OWNED', 'That branch is not owned by this worktree.', {
+          context: { worktreeId: record.id, branch: record.branch }
+        })
+      )
+    }
+    const activeTasks = this.deps.activeTasksOnChain?.(record.repoId, record.branch) ?? 0
+    if (activeTasks > 0) {
+      throw new SessionServiceError(
+        makeAppError('GIT_BRANCH_IN_USE', 'This chain branch is still used by active tasks.', {
+          detail: `Finish or cancel ${String(activeTasks)} active task(s) on this chain before deleting the branch.`,
+          context: { branch: record.branch }
+        })
+      )
+    }
+    const repository = this.deps.repositories.findById(record.repoId)
+    if (!repository) {
+      throw new SessionServiceError(
+        makeAppError('DB_CORRUPT', 'The worktree repository is missing.', {
+          context: { repoId: record.repoId }
+        })
+      )
+    }
+    const registered = await this.deps.gitWorktrees
+      .listWorktrees(repository.path, repository.executionTarget)
+      .catch(() => null)
+    if (registered === null) {
+      throw new SessionServiceError(
+        makeAppError('INTERNAL', 'Git worktrees could not be inspected; nothing was deleted.')
+      )
+    }
+    const inUse = registered.find(
+      (entry) => entry.branch === record.branch && !samePathResolved(entry.path, record.path)
+    )
+    if (inUse) {
+      throw new SessionServiceError(
+        makeAppError('GIT_BRANCH_IN_USE', 'Another worktree still uses this branch.', {
+          detail: `The branch is checked out at ${inUse.path}.`,
+          context: { branch: record.branch, path: inUse.path }
+        })
+      )
+    }
+  }
+
   async listBranches(repoIdInput: string): Promise<OwnedBranchSummary[]> {
     const repoId = parseRepoId(repoIdInput)
     if (!repoId) {
@@ -519,7 +848,7 @@ export class SessionRemovalService {
    * the branch, so Project maintenance can finish the deletion later.
    */
   private async deleteOwnedBranch(
-    record: SessionWorktreeRecord
+    record: Pick<SessionWorktreeRecord, 'repoId' | 'branch'>
   ): Promise<{ branchDeleted: boolean; branchDeleteError?: AppError }> {
     const repository = this.deps.repositories.findById(record.repoId)
     if (!repository) {

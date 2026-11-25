@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createIcodeApi } from './api'
 import { IPC_CHANNELS } from '../shared/schemas/ipc'
-import { newRepoId, newSessionId } from '../shared/domain/ids'
+import { newRepoId, newSessionId, newWorktreeId } from '../shared/domain/ids'
 
 const repoId = newRepoId()
 const sessionId = newSessionId()
+const worktreeId = newWorktreeId()
 const incarnationId = 'abcdef1234567890'
 
 function setup(): {
@@ -69,6 +70,7 @@ describe('preload API surface', () => {
         'updates',
         'window',
         // Distro discovery for the repository dialog: named, no channel strings.
+        'worktrees',
         'wsl'
       ].sort()
     )
@@ -285,6 +287,21 @@ describe('preload API surface', () => {
       sessionId,
       incarnationId,
       data: 'ls\r'
+    })
+  })
+
+  it('routes worktree removal operations', async () => {
+    const { api, invoke } = setup()
+    await api.worktrees.remove({ worktreeId, deleteBranch: true })
+    await api.worktrees.discard({ worktreeId, confirmBranch: 'icode/ses_a' })
+
+    expect(invoke.mock.calls.map((call) => call[0])).toEqual([
+      IPC_CHANNELS.worktreesRemove,
+      IPC_CHANNELS.worktreesDiscard
+    ])
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.worktreesRemove, {
+      worktreeId,
+      deleteBranch: true
     })
   })
 

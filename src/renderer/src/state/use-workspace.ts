@@ -7,7 +7,7 @@ import type {
 import { makeAppError, type AppError } from '../../../shared/domain/errors'
 import type { HarnessId } from '../../../shared/domain/harness'
 import type { ExecutionTarget } from '../../../shared/domain/repository'
-import type { SessionSummary } from '../../../shared/schemas/ipc'
+import type { SessionSummary, WorktreeBlocker } from '../../../shared/schemas/ipc'
 import { isActiveSessionState, isTerminalSessionState } from '../../../shared/domain/session'
 import { wakeDescription, wakePlan } from '../../../shared/domain/session-sleep'
 import { callApi, errorNotice, isAbsolutePathLike } from '../lib/api'
@@ -20,7 +20,11 @@ import {
   type Notice,
   type WorkspaceState
 } from './workspace'
-import type { SessionRemovalOptions, WorktreeRecoveryOptions } from './session-actions'
+import type {
+  SessionRemovalOptions,
+  WorktreeRecoveryOptions,
+  WorktreeRemovalOptions
+} from './session-actions'
 
 const REPO_STORAGE_KEY = 'icode.activeRepoId'
 const SESSION_STORAGE_KEY = 'icode.activeSessionId'
@@ -66,6 +70,17 @@ export type CreateSessionOutcome =
   | { ok: true; session: SessionSummary }
   | { ok: false; error: AppError }
 
+/**
+ * How a worktree removal ended.
+ *
+ * A blocker keeps the dialog open so the user can review the files or commits
+ * that stopped removal; failures are already surfaced as a notice.
+ */
+export type WorktreeRemovalOutcome =
+  | { status: 'removed'; sessionIds: string[] }
+  | { status: 'blocked'; blocker: WorktreeBlocker }
+  | { status: 'failed' }
+
 export type AddRepositoryRequest = {
   path: string
   /** The execution target to persist. Always explicit: local is a choice too. */
@@ -103,6 +118,15 @@ export function useWorkspace(): {
     sessionId: string,
     confirmBranch: string,
     options?: SessionRemovalOptions
+  ) => Promise<boolean>
+  requestRemoveWorktree: (
+    worktreeId: string,
+    options?: WorktreeRemovalOptions
+  ) => Promise<WorktreeRemovalOutcome>
+  discardWorktree: (
+    worktreeId: string,
+    confirmBranch: string,
+    options?: WorktreeRemovalOptions
   ) => Promise<boolean>
   recoverWorktree: (
     sessionId: string,
@@ -695,6 +719,125 @@ export function useWorkspace(): {
     [notify, refreshBranches, refreshSessions, state.sessions]
   )
 
+  const requestRemoveWorktree = useCallback(
+    async (
+      worktreeId: string,
+      options?: WorktreeRemovalOptions
+    ): Promise<WorktreeRemovalOutcome> => {
+      const deleteBranch = options?.deleteBranch === true
+      const result = await callApi(
+        window.icode.worktrees.remove({
+          worktreeId,
+          ...(deleteBranch ? { deleteBranch: true } : {})
+        })
+      )
+      if (!result.ok) {
+        notify(errorNotice(result.error))
+        return { status: 'failed' }
+      }
+      const outcome = result.value
+      if (outcome.status === 'removed') {
+        dispatch({ type: 'sessionsRemoved', sessionIds: outcome.sessionIds })
+        if (outcome.branchDeleteError !== undefined) {
+          const localized = localizeAppError(outcome.branchDeleteError, getLocale())
+          notify({
+            tone: 'error',
+            message: translate('workspace.notice.branchDeleteFailed'),
+            detail: localized.detail ?? localized.message
+          })
+        } else {
+          notify({
+            tone: 'success',
+            message: translate('workspace.notice.worktreeRemoved'),
+            ...(outcome.branchRetained === false && outcome.branch !== null
+              ? { detail: translate('workspace.notice.branchDeleted', { branch: outcome.branch }) }
+              : {})
+          })
+        }
+        void Promise.all([refreshSessions(), refreshBranches()])
+        return { status: 'removed', sessionIds: outcome.sessionIds }
+      }
+      if (outcome.status === 'host_unavailable') {
+        notify({
+          tone: 'error',
+          message: translate('workspace.notice.worktreeHostUnavailable'),
+          detail: outcome.error.message
+        })
+        return { status: 'failed' }
+      }
+      // Live sessions were stopped before the blocker was found, so the rows
+      // must be re-read even though the checkout itself survived.
+      await refreshSessions()
+      return { status: 'blocked', blocker: outcome.blocker }
+    },
+    [notify, refreshBranches, refreshSessions]
+  )
+
+  const discardWorktree = useCallback(
+    async (
+      worktreeId: string,
+      confirmBranch: string,
+      options?: WorktreeRemovalOptions
+    ): Promise<boolean> => {
+      const deleteBranch = options?.deleteBranch === true
+      const result = await callApi(
+        window.icode.worktrees.discard({
+          worktreeId,
+          confirmBranch,
+          ...(deleteBranch ? { deleteBranch: true } : {})
+        })
+      )
+      if (!result.ok) {
+        notify(errorNotice(result.error))
+        return false
+      }
+      const outcome = result.value
+      if (outcome.status === 'discarded') {
+        dispatch({ type: 'sessionsRemoved', sessionIds: outcome.sessionIds })
+        if (outcome.branchDeleteError !== undefined) {
+          const localized = localizeAppError(outcome.branchDeleteError, getLocale())
+          notify({
+            tone: 'error',
+            message: translate('workspace.notice.branchDeleteFailed'),
+            detail: localized.detail ?? localized.message
+          })
+        } else {
+          notify({
+            tone: 'success',
+            message: translate(
+              outcome.branchRetained
+                ? 'workspace.notice.discarded'
+                : 'workspace.notice.discardedWithBranch',
+              { branch: outcome.branch }
+            ),
+            detail: translate('workspace.discard.summary', {
+              files: translatePlural('workspace.discard.files', outcome.files.length),
+              commits: translatePlural('workspace.discard.commits', outcome.commits)
+            })
+          })
+        }
+        await Promise.all([refreshSessions(), refreshBranches()])
+        return true
+      }
+      if (outcome.status === 'host_unavailable') {
+        notify({
+          tone: 'error',
+          message: translate('workspace.notice.hostUnreachableNothingDiscarded'),
+          detail: outcome.error.message
+        })
+        return false
+      }
+      notify({
+        tone: 'error',
+        message: translate('workspace.notice.discardBlocked'),
+        detail: outcome.blocker.detail ?? outcome.blocker.kind
+      })
+      await refreshSessions()
+      return false
+    },
+    [notify, refreshBranches, refreshSessions]
+  )
+
   const recoverWorktree = useCallback(
     async (
       sessionId: string,
@@ -1048,6 +1191,8 @@ export function useWorkspace(): {
     recheckSession,
     requestRemoveSession,
     discardSession,
+    requestRemoveWorktree,
+    discardWorktree,
     recoverWorktree,
     dismissSessionCleanup,
     requestRemoveBranch,

@@ -271,6 +271,22 @@ describe('session updates', () => {
     expect(state.sessionCleanup).toBeNull()
   })
 
+  it('removes every session of a removed worktree in one update', () => {
+    let state = loaded({ activeSessionId: 'ses_two' })
+    state = workspaceReducer(state, {
+      type: 'pendingSet',
+      sessionId: 'ses_two',
+      action: 'removing'
+    })
+    state = workspaceReducer(state, {
+      type: 'sessionsRemoved',
+      sessionIds: ['ses_one', 'ses_two']
+    })
+    expect(state.sessions.map((entry) => entry.id)).toEqual(['ses_three'])
+    expect(activeSession(state)).toBeNull()
+    expect(pendingAction(state, 'ses_two')).toBeNull()
+  })
+
   it('starts an explicit restart marker and clears it on request completion', () => {
     let state = loaded()
     state = workspaceReducer(state, {

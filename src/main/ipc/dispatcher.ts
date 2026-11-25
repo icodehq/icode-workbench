@@ -19,6 +19,8 @@ import {
   removeBranchInputSchema,
   removeRepositoryInputSchema,
   removeSessionInputSchema,
+  discardWorktreeInputSchema,
+  removeWorktreeInputSchema,
   recoverWorktreeInputSchema,
   sessionTargetInputSchema,
   supervisorOpenInputSchema,
@@ -165,6 +167,12 @@ export type DispatcherServices = {
   sessionsRecoverWorktree: (input: {
     sessionId: string
     keepExistingAsAside?: boolean
+  }) => Promise<unknown>
+  worktreesRemove: (input: { worktreeId: string; deleteBranch?: boolean }) => Promise<unknown>
+  worktreesDiscard: (input: {
+    worktreeId: string
+    confirmBranch: string
+    deleteBranch?: boolean
   }) => Promise<unknown>
   branchesList: (input: { repoId: string }) => Promise<unknown>
   branchesRefs: (input: { repoId: string }) => Promise<unknown>
@@ -520,6 +528,18 @@ export function createDispatcher(services: DispatcherServices): Dispatcher {
         const input = parse(recoverWorktreeInputSchema, rawInput)
         if ('code' in input) return { ok: false, error: input }
         return run(() => services.sessionsRecoverWorktree(input))
+      }
+
+      case IPC_CHANNELS.worktreesRemove: {
+        const input = parse(removeWorktreeInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.worktreesRemove(input))
+      }
+
+      case IPC_CHANNELS.worktreesDiscard: {
+        const input = parse(discardWorktreeInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.worktreesDiscard(input))
       }
 
       case IPC_CHANNELS.branchesList: {

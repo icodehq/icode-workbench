@@ -62,6 +62,7 @@ export type SidebarMenuContext = {
   onNewSessionInDefaultCheckout: (repoId: string) => void
   onQueueTaskInRepo: (repoId: string) => void
   onNewSessionInWorktree: (repoId: string, worktreeId: string) => void
+  onRequestRemoveWorktree: (repo: RepositorySummary, group: WorktreeSessionGroup) => void
   onRecoverWorktree: (sessionId: string) => void
   onNewSession: () => void
   onQueueTask: () => void
@@ -185,12 +186,23 @@ export function createSidebarMenuItems(context: SidebarMenuContext) {
         icon: <ChevronRight size={12} className={collapsed ? '' : 'rotate-90'} />,
         testId: `sidebar-worktree-${group.worktreeId}-toggle`,
         onSelect: () => context.toggleWorktreeCollapsed(group.worktreeId)
+      }),
+      remove: () => ({
+        id: 'remove',
+        label: t('sidebar.removeWorktree'),
+        icon: <Trash2 size={12} />,
+        danger: true,
+        testId: `sidebar-worktree-${group.worktreeId}-remove`,
+        onSelect: () => context.onRequestRemoveWorktree(repo, group)
       })
     }
     return withPlan(
       worktreeMenuEntries({
         status,
-        unavailableReason: t('newSession.worktreeUnavailable')
+        unavailableReason: t('newSession.worktreeUnavailable'),
+        creatingReason: t('sidebar.worktreeCreating'),
+        hostUnreachable: context.hostUnreachable,
+        hostUnreachableReason: context.hostUnreachableReason
       }),
       build
     )

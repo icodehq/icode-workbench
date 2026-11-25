@@ -20,6 +20,10 @@ import type {
   harnessListInputSchema,
   removeRepositoryInputSchema,
   removeSessionInputSchema,
+  discardWorktreeInputSchema,
+  discardWorktreeResultSchema,
+  removeWorktreeInputSchema,
+  removeWorktreeResultSchema,
   recoverWorktreeInputSchema,
   recoverWorktreeResultSchema,
   sessionTargetInputSchema,
@@ -364,6 +368,22 @@ export type IcodeProductApi = {
     recoverWorktree: (
       input: z.infer<typeof recoverWorktreeInputSchema>
     ) => Promise<IpcResult<z.infer<typeof recoverWorktreeResultSchema>>>
+  }
+  /**
+   * Checkout-level removal.
+   *
+   * A worktree may hold several sessions; removing it stops them, removes the
+   * checkout, and deletes every attached session as one operation. Normal
+   * removal fails closed on uncommitted or unmerged work; `discard` is the
+   * explicit, name-confirmed escape hatch.
+   */
+  worktrees: {
+    remove: (
+      input: z.infer<typeof removeWorktreeInputSchema>
+    ) => Promise<IpcResult<z.infer<typeof removeWorktreeResultSchema>>>
+    discard: (
+      input: z.infer<typeof discardWorktreeInputSchema>
+    ) => Promise<IpcResult<z.infer<typeof discardWorktreeResultSchema>>>
   }
   branches: {
     list: (input: z.infer<typeof listBranchesInputSchema>) => Promise<IpcResult<OwnedBranchSummary[]>>

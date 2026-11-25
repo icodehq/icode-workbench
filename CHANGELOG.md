@@ -5,6 +5,16 @@ All notable changes to iCode are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.31.0] - 2026-11-25
+
+### Added
+
+- Worktree rows in the sidebar now offer **Remove worktree…** in their context
+  menu. Removal stops every session running in the checkout, removes it from
+  disk, and deletes all sessions attached to it in one operation, with an
+  optional branch deletion. Uncommitted or unmerged work still blocks removal;
+  the dialog then names the files or commits and offers a deliberate discard.
+
 ## [0.30.2] - 2026-11-25
 
 ### Changed

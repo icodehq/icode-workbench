@@ -107,6 +107,10 @@ export function createIcodeApi(
       discard: (input) => call(IPC_CHANNELS.sessionsDiscard, input),
       recoverWorktree: (input) => call(IPC_CHANNELS.sessionsRecoverWorktree, input)
     },
+    worktrees: {
+      remove: (input) => call(IPC_CHANNELS.worktreesRemove, input),
+      discard: (input) => call(IPC_CHANNELS.worktreesDiscard, input)
+    },
     branches: {
       list: (input) => call(IPC_CHANNELS.branchesList, input),
       refs: (input) => call(IPC_CHANNELS.branchesRefs, input),
@@ -312,6 +316,7 @@ export function createIcodeApi(
   Object.freeze(api.sidebarOrder)
   Object.freeze(api.repos)
   Object.freeze(api.sessions)
+  Object.freeze(api.worktrees)
   Object.freeze(api.network)
   Object.freeze(api.updates)
   Object.freeze(api.assistant)

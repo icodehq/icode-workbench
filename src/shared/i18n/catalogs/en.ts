@@ -19,6 +19,25 @@ export const en = {
   'session.remove.unsaved.one': "{count} unsaved file in Files will be lost.",
   'session.remove.unsaved.other': "{count} unsaved files in Files will be lost.",
   'session.remove.confirm': "Remove session",
+  'worktree.remove.title': "Remove worktree?",
+  'worktree.remove.bodySessions.one':
+    "The checkout for {branch} is removed from disk. Its {count} session is stopped and removed. Uncommitted changes block removal.",
+  'worktree.remove.bodySessions.other':
+    "The checkout for {branch} is removed from disk. Its {count} sessions are stopped and removed. Uncommitted changes block removal.",
+  'worktree.remove.repo': "project",
+  'worktree.remove.path': "path",
+  'worktree.remove.sessions': "sessions",
+  'worktree.remove.confirm': "Remove worktree",
+  'worktree.remove.discardTitle': "Discard changes and remove the worktree",
+  'worktree.remove.discardTitleDeleteBranch':
+    "Discard changes, delete the branch, and remove the worktree",
+  'worktree.remove.discard': "Delete changes and remove worktree",
+  'worktree.remove.discardDeleteBranch': "Delete changes, branch, and worktree",
+  'worktree.remove.checkoutTitle': "Remove the worktree checkout",
+  'worktree.remove.checkoutTitleDeleteBranch':
+    "Remove the worktree checkout and delete its branch",
+  'worktree.remove.missingBody':
+    "The worktree directory is gone, so nothing will be deleted. Re-create it from a session in this workspace first.",
   'common.system': 'System',
   'common.dark': 'Dark',
   'common.light': 'Light',
@@ -360,6 +379,9 @@ export const en = {
   'workspace.bootFailed': "Could not load registered repositories.",
   'workspace.notice.retryingFirstCommit': "Retrying the first commit for {project}.",
   'workspace.notice.sessionRemoved': "Session removed.",
+  'workspace.notice.worktreeRemoved': "Worktree removed.",
+  'workspace.notice.worktreeHostUnavailable':
+    "The terminal host is unreachable, so the worktree was not removed.",
   'workspace.notice.sessionStillRunning': "This session is still running. Try again in a moment.",
   'workspace.notice.terminalUnavailable': "The session could not be removed because the terminal service is unavailable.",
   'workspace.notice.discarded': "Worktree discarded. Branch {branch} was retained.",
@@ -2392,6 +2414,8 @@ export const en = {
   'newSession.worktreeUnavailable': "unavailable",
   'session.remove.bodyShared': "Remove {title}? Only this session leaves; {branch} and the other sessions running there keep working.",
   'sidebar.worktreeMenu': "Worktree actions",
+  'sidebar.removeWorktree': "Remove worktree…",
+  'sidebar.worktreeCreating': "This workspace is still being created.",
   'sidebar.collapseWorktree': "Collapse worktree",
   'sidebar.expandWorktree': "Expand worktree",
   'sidebar.defaultCheckout': "Project folder",

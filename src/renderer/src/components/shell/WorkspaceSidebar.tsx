@@ -26,7 +26,8 @@ import { isActiveSessionState } from '../../../../shared/domain/session'
 import { isAgentHarness } from '../../../../shared/domain/harness'
 import { openFilesStore } from '../../files/open-files'
 import type { Notice, PendingAction } from '../../state/workspace'
-import type { SidebarSessionActions } from '../../state/session-actions'
+import type { SidebarSessionActions, WorktreeRemovalOptions } from '../../state/session-actions'
+import type { WorktreeRemovalOutcome } from '../../state/use-workspace'
 import type { MenuAnchor } from '../ContextMenu'
 import type { TaskAction } from '../TaskWorkbench'
 import AssistantAvatar from '../AssistantAvatar'
@@ -114,6 +115,17 @@ type Props = {
   onOpenTask: (task: TaskRecordPayload) => void
   onTaskAction: (task: TaskRecordPayload, action: TaskAction) => void
   sessionActions: SidebarSessionActions
+  /** Remove a worktree checkout and every session attached to it. */
+  onRemoveWorktree: (
+    worktreeId: string,
+    options?: WorktreeRemovalOptions
+  ) => Promise<WorktreeRemovalOutcome>
+  /** Name-confirmed force removal for a blocked worktree. */
+  onDiscardWorktree: (
+    worktreeId: string,
+    confirmBranch: string,
+    options?: WorktreeRemovalOptions
+  ) => Promise<boolean>
   onNewSession: () => void
   onNewSessionInRepo: (repoId: string) => void
   /** Start a session in the project's shared primary checkout. */
@@ -204,6 +216,8 @@ export default function WorkspaceSidebar({
   onOpenTask,
   onTaskAction,
   sessionActions,
+  onRemoveWorktree,
+  onDiscardWorktree,
   onNewSession,
   onNewSessionInRepo,
   onNewSessionInDefaultCheckout,
@@ -269,6 +283,10 @@ export default function WorkspaceSidebar({
   const [detailsSession, setDetailsSession] = useState<SessionSummary | null>(null)
   const [sleepSession, setSleepSession] = useState<SessionSummary | null>(null)
   const [removeSession, setRemoveSession] = useState<SessionSummary | null>(null)
+  const [removeWorktree, setRemoveWorktree] = useState<{
+    repo: RepositorySummary
+    group: WorktreeSessionGroup
+  } | null>(null)
   const [newMenu, setNewMenu] = useState<{
     anchor: MenuAnchor
     returnFocus: HTMLElement | null
@@ -696,6 +714,7 @@ export default function WorkspaceSidebar({
     onNewSessionInDefaultCheckout,
     onQueueTaskInRepo,
     onNewSessionInWorktree,
+    onRequestRemoveWorktree: (repo, group) => setRemoveWorktree({ repo, group }),
     onRecoverWorktree: sessionActions.recoverWorktree,
     onNewSession,
     onQueueTask,
@@ -1911,6 +1930,21 @@ export default function WorkspaceSidebar({
                   setRemoveSession(null)
                   sessionActions.remove(sessionId, { deleteBranch })
                 }
+              }
+        }
+        removeWorktree={
+          removeWorktree === null
+            ? null
+            : {
+                repo: removeWorktree.repo,
+                group: removeWorktree.group,
+                onClose: () => setRemoveWorktree(null),
+                onRemove: (deleteBranch) =>
+                  onRemoveWorktree(removeWorktree.group.worktreeId, { deleteBranch }),
+                onDiscard: (confirmBranch, deleteBranch) =>
+                  onDiscardWorktree(removeWorktree.group.worktreeId, confirmBranch, {
+                    deleteBranch
+                  })
               }
         }
       />

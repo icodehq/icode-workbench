@@ -17,6 +17,25 @@ export const ko = {
   'session.remove.unsaved.one': "파일의 저장되지 않은 파일 {count}개가 손실됩니다.",
   'session.remove.unsaved.other': "파일의 저장되지 않은 파일 {count}개가 손실됩니다.",
   'session.remove.confirm': "세션 제거",
+  'worktree.remove.title': "워크트리를 제거할까요?",
+  'worktree.remove.bodySessions.one':
+    "{branch}의 체크아웃을 디스크에서 제거합니다. 안의 {count}개 세션은 중지되고 제거됩니다. 커밋되지 않은 변경 사항이 있으면 제거할 수 없습니다.",
+  'worktree.remove.bodySessions.other':
+    "{branch}의 체크아웃을 디스크에서 제거합니다. 안의 {count}개 세션은 중지되고 제거됩니다. 커밋되지 않은 변경 사항이 있으면 제거할 수 없습니다.",
+  'worktree.remove.repo': "프로젝트",
+  'worktree.remove.path': "경로",
+  'worktree.remove.sessions': "세션",
+  'worktree.remove.confirm': "워크트리 제거",
+  'worktree.remove.discardTitle': "변경 사항을 버리고 워크트리 제거",
+  'worktree.remove.discardTitleDeleteBranch':
+    "변경 사항을 버리고 브랜치를 삭제한 뒤 워크트리 제거",
+  'worktree.remove.discard': "변경 사항을 삭제하고 워크트리 제거",
+  'worktree.remove.discardDeleteBranch': "변경 사항, 브랜치, 워크트리 삭제",
+  'worktree.remove.checkoutTitle': "워크트리 체크아웃 제거",
+  'worktree.remove.checkoutTitleDeleteBranch':
+    "워크트리 체크아웃을 제거하고 브랜치도 삭제",
+  'worktree.remove.missingBody':
+    "워크트리 디렉터리가 사라졌으므로 아무것도 삭제되지 않습니다. 먼저 이 워크스페이스의 세션에서 다시 생성하세요.",
   'common.system': '시스템',
   'common.dark': '다크',
   'common.light': '라이트',
@@ -355,6 +374,9 @@ export const ko = {
   'workspace.bootFailed': "등록된 저장소를 불러오지 못했습니다.",
   'workspace.notice.retryingFirstCommit': "{project}의 첫 커밋을 다시 시도하는 중입니다.",
   'workspace.notice.sessionRemoved': "세션을 제거했습니다.",
+  'workspace.notice.worktreeRemoved': "워크트리를 제거했습니다.",
+  'workspace.notice.worktreeHostUnavailable':
+    "터미널 호스트에 연결할 수 없어 워크트리를 제거하지 못했습니다.",
   'workspace.notice.sessionStillRunning': "이 세션이 아직 실행 중입니다. 잠시 후 다시 시도하세요.",
   'workspace.notice.terminalUnavailable': "터미널 서비스를 사용할 수 없어 세션을 제거하지 못했습니다.",
   'workspace.notice.discarded': "워크트리를 삭제했습니다. 브랜치 {branch}은(는) 유지되었습니다.",
@@ -2391,6 +2413,8 @@ export const ko = {
   'newSession.worktreeUnavailable': "사용할 수 없음",
   'session.remove.bodyShared': "{title} 세션을 제거할까요? 이 세션만 제거되며 {branch}와 그곳에서 실행 중인 다른 세션은 계속 유지됩니다.",
   'sidebar.worktreeMenu': "워크트리 작업",
+  'sidebar.removeWorktree': "워크트리 제거…",
+  'sidebar.worktreeCreating': "이 워크스페이스는 아직 생성 중입니다.",
   'sidebar.collapseWorktree': "워크트리 접기",
   'sidebar.expandWorktree': "워크트리 펼치기",
   'sidebar.defaultCheckout': "프로젝트 폴더",

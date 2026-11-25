@@ -64,6 +64,8 @@ export const IPC_CHANNELS = {
   sessionsRemove: 'icode:sessions:remove',
   sessionsDiscard: 'icode:sessions:discard',
   sessionsRecoverWorktree: 'icode:sessions:recover-worktree',
+  worktreesRemove: 'icode:worktrees:remove',
+  worktreesDiscard: 'icode:worktrees:discard',
   branchesList: 'icode:branches:list',
   branchesRefs: 'icode:branches:refs',
   branchesCurrent: 'icode:branches:current',
@@ -687,6 +689,63 @@ export const discardSessionInputSchema = z.strictObject({
   deleteBranch: z.boolean().optional()
 })
 
+const removedSessionIdsSchema = z.array(sessionIdSchema).max(500)
+
+/**
+ * Worktree-level removal: every session attached to the checkout leaves with
+ * it. Live sessions are stopped first; a dirty or unmerged checkout still
+ * blocks the operation so no uncommitted work is ever deleted implicitly.
+ */
+export const removeWorktreeInputSchema = z.strictObject({
+  worktreeId: worktreeIdSchema,
+  /** Delete the worktree's owned branch once its checkout is gone. */
+  deleteBranch: z.boolean().optional()
+})
+
+export const removeWorktreeResultSchema = z.discriminatedUnion('status', [
+  z.strictObject({
+    status: z.literal('removed'),
+    sessionIds: removedSessionIdsSchema,
+    branch: z.string().min(1).max(255).nullable(),
+    branchRetained: z.boolean(),
+    /** Present when branch deletion was requested but Git refused it. */
+    branchDeleteError: appErrorSchema.optional()
+  }),
+  z.strictObject({ status: z.literal('host_unavailable'), error: appErrorSchema }),
+  z.strictObject({
+    status: z.literal('blocked_worktree'),
+    sessionIds: removedSessionIdsSchema,
+    blocker: worktreeBlockerSchema
+  })
+])
+
+export const discardWorktreeInputSchema = z.strictObject({
+  worktreeId: worktreeIdSchema,
+  /** The exact branch name, typed by the user. Never a boolean acknowledgement. */
+  confirmBranch: z.string().min(1).max(255),
+  /** Also delete the owned branch once the checkout is gone. */
+  deleteBranch: z.boolean().optional()
+})
+
+export const discardWorktreeResultSchema = z.discriminatedUnion('status', [
+  z.strictObject({
+    status: z.literal('discarded'),
+    sessionIds: removedSessionIdsSchema,
+    branch: z.string().min(1).max(255),
+    files: worktreeFileListSchema,
+    commits: z.number().int().nonnegative(),
+    branchRetained: z.boolean(),
+    /** Present when branch deletion was requested but Git refused it. */
+    branchDeleteError: appErrorSchema.optional()
+  }),
+  z.strictObject({ status: z.literal('host_unavailable'), error: appErrorSchema }),
+  z.strictObject({
+    status: z.literal('blocked_worktree'),
+    sessionIds: removedSessionIdsSchema,
+    blocker: worktreeBlockerSchema
+  })
+])
+
 export const ownedBranchSummarySchema = z.strictObject({
   branch: z.string().min(1).max(255),
   repoId: repoIdSchema,
@@ -864,6 +923,10 @@ export type WorktreeBlocker = z.infer<typeof worktreeBlockerSchema>
 export type RemoveSessionResult = z.infer<typeof removeSessionResultSchema>
 export type DiscardSessionResult = z.infer<typeof discardSessionResultSchema>
 export type DiscardSessionInput = z.infer<typeof discardSessionInputSchema>
+export type RemoveWorktreeResult = z.infer<typeof removeWorktreeResultSchema>
+export type RemoveWorktreeInput = z.infer<typeof removeWorktreeInputSchema>
+export type DiscardWorktreeResult = z.infer<typeof discardWorktreeResultSchema>
+export type DiscardWorktreeInput = z.infer<typeof discardWorktreeInputSchema>
 export type OwnedBranchSummary = z.infer<typeof ownedBranchSummarySchema>
 export type RemoveBranchResult = z.infer<typeof removeBranchResultSchema>
 export type RemoveBranchInput = z.infer<typeof removeBranchInputSchema>
