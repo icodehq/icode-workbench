@@ -22,3 +22,6 @@ artifacts/
 /build/
 /index.js
 /C:*Temp/
+
+# Documentation (not versioned)
+docs/

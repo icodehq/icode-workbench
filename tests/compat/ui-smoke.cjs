@@ -813,7 +813,9 @@ async function main() {
     assert(text.includes('Project folder'), 'Project folder container label is missing')
     assert((await sessions()).length === 0, 'Adding a project must not auto-create a session')
 
-    await click(`[data-testid="sidebar-default-checkout-new-session-${repoId}"]`)
+    await rightClick(`[data-testid="sidebar-default-checkout-select-${repoId}"]`)
+    await waitForSelector('[data-testid="sidebar-default-checkout-menu"]', 5000)
+    await click(`[data-testid="sidebar-default-checkout-${repoId}-new-session"]`)
     await waitForSelector('[data-testid="new-session-worktree"]', 5000)
     const choice = await cdp.evaluate(
       `document.querySelector('[data-testid="new-session-worktree"]')?.value ?? null`
@@ -1058,6 +1060,28 @@ async function main() {
     )
     await screenshot('04-first-session-output')
     return { session: firstSession, pid: firstPid }
+  })
+
+  await step('open the New Session dialog directly from the worktree bar', async () => {
+    await click('[data-testid="workspace-tab-new"]')
+    await waitForSelector('[data-testid="new-session-worktree"]', 5000)
+    assert(
+      await cdp.evaluate(`!document.querySelector('[data-testid="workspace-tab-new-menu"]')`),
+      'The worktree bar plus opened a menu instead of the New Session dialog'
+    )
+    const selected = await cdp.evaluate(
+      `document.querySelector('[data-testid="new-session-worktree"]')?.value ?? null`
+    )
+    assert(
+      selected === firstSession.worktree.id,
+      `The worktree bar plus did not preselect the active worktree (${selected})`
+    )
+    await click('[data-testid="new-session-cancel"]')
+    await waitFor(
+      `!document.querySelector('[data-testid="new-session-worktree"]')`,
+      'New Session dialog closed',
+      5000
+    )
   })
 
   await step('open terminal find and the pane context menu', async () => {
@@ -1466,6 +1490,8 @@ async function main() {
           return rect.left < barRect.left - 1 || rect.right > barRect.right + 1 ||
             rect.top < barRect.top - 1 || rect.bottom > barRect.bottom + 1;
         });
+        const add = bar.querySelector('[data-testid="workspace-tab-new"]');
+        const addRect = add ? add.getBoundingClientRect() : null;
         return {
           viewport: { width: window.innerWidth, height: window.innerHeight },
           barHeight: Math.round(barRect.height),
@@ -1475,6 +1501,12 @@ async function main() {
             height: Math.round(terminal.getBoundingClientRect().height)
           },
           buttonCount: buttons.length,
+          newTabCenterDelta: addRect
+            ? Math.abs(
+                addRect.top + addRect.height / 2 - (barRect.top + barRect.height / 2)
+              )
+            : null,
+          newTabSize: addRect ? [Math.round(addRect.width), Math.round(addRect.height)] : null,
           clippedButtons: clipped.map((button) => button.getAttribute('data-testid'))
         };
       })()`)
@@ -1491,6 +1523,14 @@ async function main() {
       normal.terminal.height >= 560,
       `The terminal is still short at 1180x760 (${normal.terminal.height}px)`
     )
+    assert(
+      normal.newTabCenterDelta !== null && normal.newTabCenterDelta <= 1.5,
+      `The new-tab button is not vertically centered: ${JSON.stringify(normal)}`
+    )
+    assert(
+      normal.newTabSize !== null && normal.newTabSize[0] === 28 && normal.newTabSize[1] === 28,
+      `The new-tab button is not the expected 28px square: ${JSON.stringify(normal.newTabSize)}`
+    )
     await screenshot('04c-compact-header')
 
     const narrow = await measure(760, 480)
@@ -1499,6 +1539,10 @@ async function main() {
     assert(
       narrow.clippedButtons.length === 0,
       `Worktree bar controls overflow at 760x480: ${JSON.stringify(narrow.clippedButtons)}`
+    )
+    assert(
+      narrow.newTabCenterDelta !== null && narrow.newTabCenterDelta <= 1.5,
+      `The new-tab button is not vertically centered at 760x480: ${JSON.stringify(narrow)}`
     )
 
     await cdp.send('Emulation.clearDeviceMetricsOverride')
@@ -1770,7 +1814,7 @@ async function main() {
      * on the add-session button and the row padding, the areas that used to
      * swallow it. A synthetic contextmenu bubbles to the row's handler.
      */
-    const defaultAction = `[data-testid="sidebar-default-checkout-new-session-${repoId}"]`
+    const defaultAction = `[data-testid="sidebar-default-checkout-select-${repoId}"]`
     await rightClick(defaultAction)
     await waitForSelector('[data-testid="sidebar-default-checkout-menu"]', 5000)
     assert(
@@ -1809,10 +1853,10 @@ async function main() {
 
     const worktreeAction = await cdp.evaluate(`(() => {
       const root = document.querySelector('[data-testid="sidebar-sessions-${repoId}"]');
-      const action = root?.querySelector('[data-testid^="sidebar-worktree-new-session-"]');
+      const action = root?.querySelector('[data-testid^="sidebar-worktree-select-"]');
       return action?.getAttribute('data-testid') ?? null;
     })()`)
-    assert(worktreeAction, 'No worktree add-session button in the sidebar')
+    assert(worktreeAction, 'No worktree row in the sidebar')
     await rightClick(`[data-testid="${worktreeAction}"]`)
     await waitForSelector('[data-testid="sidebar-worktree-menu"]', 5000)
     assert(

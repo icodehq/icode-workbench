@@ -5,7 +5,19 @@ All notable changes to iCode are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.30.2] - 2026-11-25
+
+### Changed
+
+- Removed the redundant + buttons on sidebar workspace rows. New tabs are
+  created from the worktree bar's + or the row's context menu.
+- The worktree bar's + now opens the New Session dialog directly instead of a
+  dropdown menu, so an agent or terminal is chosen in one step.
+
+### Fixed
+
+- The worktree bar's new-tab button is now a centered 28px control with a
+  14px icon, matching the tab row instead of sitting top-aligned and small.
 
 ## [0.30.1] - 2026-11-25
 
