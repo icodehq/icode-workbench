@@ -22,6 +22,9 @@ import type {
   RepositorySummary,
   SessionSummary
 } from '../../../../shared/schemas/ipc'
+import { isActiveSessionState } from '../../../../shared/domain/session'
+import { isAgentHarness } from '../../../../shared/domain/harness'
+import { openFilesStore } from '../../files/open-files'
 import type { Notice, PendingAction } from '../../state/workspace'
 import type { SidebarSessionActions } from '../../state/session-actions'
 import type { MenuAnchor } from '../ContextMenu'
@@ -597,6 +600,33 @@ export default function WorkspaceSidebar({
     () => [...tasks, ...archivedTasks].filter((task) => pins.tasks.includes(task.id)),
     [archivedTasks, pins.tasks, tasks]
   )
+  const activeSession = useMemo(
+    () => sessions.find((session) => session.id === activeSessionId) ?? null,
+    [activeSessionId, sessions]
+  )
+  const activeGroupKey =
+    activeSession === null
+      ? null
+      : sessionGroupKey(activeSession.repoId, activeSession.worktree?.path ?? null)
+  const openWorkspace = (
+    repoId: string,
+    groupKey: string,
+    groupSessions: readonly SessionSummary[]
+  ): void => {
+    if (activeGroupKey === groupKey) {
+      // Keep the current tab when the workspace still has a session tab. If X
+      // closed the last one, selecting the workspace reopens its session
+      // instead of leaving the row inert.
+      const state = openFilesStore.get(groupKey)
+      if (state.tabs.some((tab) => tab.kind === 'session')) return
+    }
+    const preferred =
+      groupSessions.find((session) => session.id === activeSession?.id) ??
+      groupSessions.find((session) => isActiveSessionState(session.state)) ??
+      groupSessions[0]
+    if (preferred !== undefined) onOpenSession(preferred.id)
+    else onOpenProject(repoId, 'sessions')
+  }
   const taskGroups = useMemo(
     () =>
       buildSidebarTaskGroups(
@@ -890,6 +920,7 @@ export default function WorkspaceSidebar({
       (session) => session.id
     )
     const orderedDefaultIds = orderedDefaultSessions.map((session) => session.id)
+    const defaultHasAgents = orderedDefaultSessions.some((session) => isAgentHarness(session.harness))
     const orderedWorktrees = orderByStoredIds(
       groups.worktrees,
       rowOrder.worktrees[repo.id] ?? [],
@@ -1107,13 +1138,38 @@ export default function WorkspaceSidebar({
                   })
                 }}
               >
+                {defaultHasAgents ? (
+                  <button
+                    type="button"
+                    className="inline-flex h-5 w-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+                    aria-expanded={!defaultCollapsed}
+                    aria-label={
+                      defaultCollapsed
+                        ? t('sidebar.expandProject', { name: t('sidebar.defaultCheckout') })
+                        : t('sidebar.collapseProject', { name: t('sidebar.defaultCheckout') })
+                    }
+                    data-testid={`sidebar-default-checkout-toggle-${repo.id}`}
+                    onClick={() => toggleDefaultCheckoutCollapsed(repo.id)}
+                  >
+                    <ChevronRight
+                      size={8}
+                      className={`shrink-0 transition-transform ${defaultCollapsed ? '' : 'rotate-90'}`}
+                    />
+                  </button>
+                ) : (
+                  <span className="h-5 w-4 shrink-0" aria-hidden="true" />
+                )}
                 <button
                   type="button"
-                  className="flex h-full min-w-0 flex-1 items-center gap-1 text-left hover:text-foreground focus-visible:text-foreground"
-                  aria-expanded={!defaultCollapsed}
-                  aria-label={t('sidebar.defaultCheckout')}
-                  data-testid={`sidebar-default-checkout-toggle-${repo.id}`}
-                  onClick={() => toggleDefaultCheckoutCollapsed(repo.id)}
+                  className={`flex h-full min-w-0 flex-1 items-center gap-1 rounded text-left ${
+                    activeGroupKey === defaultGroupKey
+                      ? 'bg-sel text-foreground'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                  aria-current={activeGroupKey === defaultGroupKey ? 'page' : undefined}
+                  data-testid={`sidebar-default-checkout-select-${repo.id}`}
+                  data-active={activeGroupKey === defaultGroupKey ? 'true' : 'false'}
+                  onClick={() => openWorkspace(repo.id, defaultGroupKey, groups.defaultCheckout)}
                   onKeyDown={(event) =>
                     openRowMenuFromKey(event, (anchor) =>
                       requestCheckoutMenu(repo, null, {
@@ -1123,10 +1179,6 @@ export default function WorkspaceSidebar({
                     )
                   }
                 >
-                  <ChevronRight
-                    size={8}
-                    className={`shrink-0 transition-transform ${defaultCollapsed ? '' : 'rotate-90'}`}
-                  />
                   <Folder size={8} className="shrink-0" />
                   <span className="min-w-0 flex-1 truncate">
                     {t('sidebar.defaultCheckout')}
@@ -1151,9 +1203,9 @@ export default function WorkspaceSidebar({
               </div>
               {defaultCollapsed ? null : (
                 <div className="pl-1">
-                  {orderedDefaultSessions.map((session) =>
-                    sessionRow(session, defaultGroupKey, orderedDefaultIds)
-                  )}
+                  {orderedDefaultSessions
+                    .filter((session) => isAgentHarness(session.harness))
+                    .map((session) => sessionRow(session, defaultGroupKey, orderedDefaultIds))}
                 </div>
               )}
             </div>
@@ -1165,7 +1217,8 @@ export default function WorkspaceSidebar({
               // or carrying the drag affordance that orders workspaces. A
               // project's only workspace needs neither.
               const shared = group.sessions.length > 1
-              const showHeader = shared || orderedWorktrees.length > 1
+              // Every worktree is a workspace row, even when it holds one tab.
+              const showHeader = true
               const collapsed = showHeader && collapsedWorktrees.has(group.worktreeId)
               const menuOpen =
                 checkoutMenu?.repo.id === repo.id &&
@@ -1177,6 +1230,7 @@ export default function WorkspaceSidebar({
                 (session) => session.id
               )
               const orderedGroupIds = orderedGroupSessions.map((session) => session.id)
+              const hasAgents = orderedGroupSessions.some((session) => isAgentHarness(session.harness))
               const dragTarget: SidebarDragSource = {
                 kind: 'worktree',
                 groupKey: repo.id,
@@ -1207,21 +1261,53 @@ export default function WorkspaceSidebar({
                         })
                       }}
                     >
+                      {hasAgents ? (
+                        <button
+                          type="button"
+                          className="inline-flex h-5 w-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+                          aria-expanded={!collapsed}
+                          aria-label={
+                            collapsed
+                              ? t('sidebar.expandProject', { name: group.path })
+                              : t('sidebar.collapseProject', { name: group.path })
+                          }
+                          data-testid={`sidebar-worktree-toggle-${group.worktreeId}`}
+                          draggable
+                          onDragStart={(event) => startRowDrag(event, dragTarget)}
+                          onDragEnd={resetRowDrag}
+                          onDragOver={(event) => rowDragOver(event, dragTarget)}
+                          onDragLeave={(event) => rowDragLeave(event, dragTarget)}
+                          onDrop={(event) => rowDrop(event, dragTarget, applyWorktreeDrop)}
+                          onClick={() => toggleWorktreeCollapsed(group.worktreeId)}
+                        >
+                          <ChevronRight
+                            size={8}
+                            className={`shrink-0 transition-transform ${collapsed ? '' : 'rotate-90'}`}
+                          />
+                        </button>
+                      ) : (
+                        <span className="h-5 w-4 shrink-0" aria-hidden="true" />
+                      )}
                       <button
                         type="button"
-                        className="flex h-full min-w-0 flex-1 items-center gap-1 text-left hover:text-foreground focus-visible:text-foreground"
-                        aria-expanded={!collapsed}
+                        className={`flex h-full min-w-0 flex-1 items-center gap-1 rounded text-left ${
+                          activeGroupKey === groupKey
+                            ? 'bg-sel text-foreground'
+                            : 'text-muted-foreground hover:text-foreground'
+                        }`}
                         aria-label={
                           shared ? t('sidebar.sharedWorkspace') : t('sidebar.workspaceGroup')
                         }
-                        data-testid={`sidebar-worktree-toggle-${group.worktreeId}`}
+                        aria-current={activeGroupKey === groupKey ? 'page' : undefined}
+                        data-testid={`sidebar-worktree-select-${group.worktreeId}`}
+                        data-active={activeGroupKey === groupKey ? 'true' : 'false'}
                         draggable
                         onDragStart={(event) => startRowDrag(event, dragTarget)}
                         onDragEnd={resetRowDrag}
                         onDragOver={(event) => rowDragOver(event, dragTarget)}
                         onDragLeave={(event) => rowDragLeave(event, dragTarget)}
                         onDrop={(event) => rowDrop(event, dragTarget, applyWorktreeDrop)}
-                        onClick={() => toggleWorktreeCollapsed(group.worktreeId)}
+                        onClick={() => openWorkspace(repo.id, groupKey, group.sessions)}
                         onKeyDown={(event) =>
                           openRowMenuFromKey(event, (anchor) =>
                             requestCheckoutMenu(repo, group, {
@@ -1231,12 +1317,9 @@ export default function WorkspaceSidebar({
                           )
                         }
                       >
-                        <ChevronRight
-                          size={8}
-                          className={`shrink-0 transition-transform ${collapsed ? '' : 'rotate-90'}`}
-                        />
-                        <span className="min-w-0 flex-1 truncate">
-                          {shared ? t('sidebar.sharedWorkspace') : t('sidebar.workspaceGroup')}
+                        <span className="min-w-0 flex-1 truncate" title={group.path}>
+                          {group.sessions[0]?.worktree?.branch ??
+                            (shared ? t('sidebar.sharedWorkspace') : t('sidebar.workspaceGroup'))}
                         </span>
                         <span>{group.sessions.length}</span>
                       </button>
@@ -1259,9 +1342,9 @@ export default function WorkspaceSidebar({
                   ) : null}
                   {collapsed ? null : (
                     <div className="pl-1">
-                      {orderedGroupSessions.map((session) =>
-                        sessionRow(session, groupKey, orderedGroupIds)
-                      )}
+                      {orderedGroupSessions
+                        .filter((session) => isAgentHarness(session.harness))
+                        .map((session) => sessionRow(session, groupKey, orderedGroupIds))}
                     </div>
                   )}
                 </div>

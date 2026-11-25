@@ -378,7 +378,9 @@ export function useAppNavigation({
       workspace.selectSession(sessionId)
       setSurface('sessions')
       setTaskSession(null)
-      setViewRequest(null)
+      // Selecting a session always brings its terminal tab forward, even when
+      // it was already the active session or its tab was hidden.
+      setViewRequest({ view: 'terminal', nonce: Date.now() })
     },
     [state.sessions, tasks.archivedTasks, tasks.tasks, workspace]
   )

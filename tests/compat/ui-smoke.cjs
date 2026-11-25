@@ -193,14 +193,16 @@ async function pressF11() {
   })
 }
 
-async function sessionAction(action) {
-  const activeId = await cdp.evaluate(
-    `document.querySelector('[data-session-id][data-active="true"]')?.getAttribute('data-session-id') ?? null`
-  )
-  assert(activeId, 'No active session row for the session action')
-  await rightClick(`[data-testid="session-item-${activeId}"]`)
-  await waitForSelector('[data-testid="sidebar-session-menu"]', 10_000)
-  await click(`[data-testid="sidebar-session-${activeId}-${action}"]`)
+async function sessionAction(action, sessionId = null) {
+  const activeId =
+    sessionId ??
+    (await cdp.evaluate(
+      `document.querySelector('[data-tab-kind="session"][aria-selected="true"]')?.getAttribute('data-session-id') ?? document.querySelector('[data-tab-kind="session"]')?.getAttribute('data-session-id') ?? null`
+    ))
+  assert(activeId, 'No session tab for the session action')
+  await rightClick(`[data-testid="session-tab-${activeId}"]`)
+  await waitForSelector('[data-testid="session-tab-menu"]', 10_000)
+  await click(`[data-testid="session-tab-menu-${action}"]`)
 }
 
 async function setInput(selector, value) {
@@ -236,6 +238,18 @@ async function notice() {
   })()`)
 }
 
+
+async function waitForSessionCount(count, label, comparator = '===', timeout = 20000) {
+  await waitFor(
+    `(async () => {
+      const result = await window.icode.sessions.list({ repoId: ${JSON.stringify(repoId)} });
+      return result.ok && result.value.sessions.length ${comparator} ${count};
+    })()`,
+    label,
+    timeout
+  )
+}
+
 async function waitForNotice(needle, timeoutMs = 15000) {
   await waitFor(
     `(() => { const n = document.querySelector('[data-testid="notice"]'); return Boolean(n && n.innerText.includes(${JSON.stringify(needle)})); })()`,
@@ -246,20 +260,45 @@ async function waitForNotice(needle, timeoutMs = 15000) {
 }
 
 async function sessions() {
-  return cdp.evaluate(`(() => {
-    const byId = new Map();
-    for (const element of document.querySelectorAll('[data-session-id]')) {
-      const id = element.dataset.sessionId;
-      if (!id || byId.has(id)) continue;
-      byId.set(id, {
-        id,
-        state: element.dataset.sessionState,
-        incarnation: element.dataset.sessionIncarnation,
-        text: element.innerText
-      });
-    }
-    return Array.from(byId.values());
+  const result = await cdp.evaluate(
+    `window.icode.sessions.list({ repoId: ${JSON.stringify(repoId)} })`
+  )
+  if (!result || !result.ok) return []
+  return result.value.sessions.map((session) => ({
+    id: session.id,
+    state: session.state,
+    incarnation: session.incarnationId,
+    title: session.title,
+    worktree: session.worktree,
+    text: session.title
+  }))
+}
+
+/** Select a session whether its worktree already shows a tab or needs opening. */
+async function selectSession(sessionId) {
+  if (
+    await cdp.evaluate(
+      `Boolean(document.querySelector('[data-testid="session-tab-${sessionId}"]'))`
+    )
+  ) {
+    await click(`[data-testid="session-tab-${sessionId}"]`)
+    return
+  }
+  const info = await cdp.evaluate(`(async () => {
+    const result = await window.icode.sessions.get({ sessionId: ${JSON.stringify(sessionId)} });
+    return result.ok ? { repoId: result.value.repoId, worktreeId: result.value.worktree?.id ?? null } : null;
   })()`)
+  assert(info, `Session ${sessionId} is not available to select`)
+  const selector =
+    info.worktreeId === null
+      ? `[data-testid="sidebar-default-checkout-select-${info.repoId}"]`
+      : `[data-testid="sidebar-worktree-select-${info.worktreeId}"]`
+  if (!(await cdp.evaluate(`Boolean(document.querySelector(${JSON.stringify(selector)}))`))) {
+    await click(`[data-testid="sidebar-project-toggle-${info.repoId}"]`)
+  }
+  await waitForSelector(selector, 10000)
+  await click(selector)
+  await waitForSelector(`[data-testid="session-tab-${sessionId}"]`, 10000)
 }
 
 async function sessionByTitle(title) {
@@ -822,8 +861,8 @@ async function main() {
     // sidebar before asserting the row is gone.
     await click('[data-testid="sidebar-refresh"]')
     await waitFor(
-      `!document.querySelector('[data-session-id="${created.id}"]')`,
-      'default checkout session removed',
+      `!document.querySelector('[data-testid="session-tab-${created.id}"]')`,
+      'default checkout session tab removed',
       15000
     )
     const remaining = await cdp.evaluate(
@@ -1494,10 +1533,12 @@ async function main() {
     await click('[data-testid="harness-option-shell"]')
     await setInput('[data-testid="session-title-input"]', secondTitle)
     await click('[data-testid="create-session-submit"]')
-    await waitFor(
-      `new Set(Array.from(document.querySelectorAll('[data-session-id]')).map((el) => el.dataset.sessionId)).size === 2`,
-      'two sessions',
-      20000
+    await waitForSessionCount(2, 'two sessions')
+    assert(
+      await cdp.evaluate(
+        `document.querySelectorAll('[data-testid^="sidebar-project-group-"] [data-session-id]').length === 0`
+      ),
+      'Raw terminal sessions must not render as sidebar rows'
     )
     await waitFor(
       `document.querySelector('[data-testid="session-title"]')?.innerText === ${JSON.stringify(secondTitle)}`,
@@ -1520,7 +1561,7 @@ async function main() {
       'the second command completion'
     )
 
-    await click(`[data-testid="session-item-${firstSession.id}"]`)
+    await selectSession(firstSession.id)
     await sleep(400)
     await typeInSession(
       firstSession.id,
@@ -1649,11 +1690,7 @@ async function main() {
     await click('[data-testid="harness-option-shell"]')
     await setInput('[data-testid="session-title-input"]', 'Smoke worktree two')
     await click('[data-testid="create-session-submit"]')
-    await waitFor(
-      `new Set(Array.from(document.querySelectorAll('[data-session-id]')).map((el) => el.dataset.sessionId)).size === 3`,
-      'third session in a new worktree',
-      20000
-    )
+    await waitForSessionCount(3, 'third session in a new worktree')
 
     /*
      * The drag is dispatched in one task, so the reorder cannot depend on a
@@ -1665,7 +1702,7 @@ async function main() {
       const root = document.querySelector('[data-testid="sidebar-sessions-${repoId}"]');
       if (!root) return null;
       return Array.from(root.querySelectorAll('[data-testid^="sidebar-worktree-"]'))
-        .filter((el) => /^sidebar-worktree-(?!toggle-|new-session-)/.test(el.getAttribute('data-testid')))
+        .filter((el) => /^sidebar-worktree-(?!toggle-|select-|new-session-)/.test(el.getAttribute('data-testid')))
         .map((el) => el.getAttribute('data-testid'));
     })()`
     await waitFor(`(${groupsExpression} || []).length >= 2`, 'two sidebar worktrees', 10000)
@@ -1676,9 +1713,9 @@ async function main() {
       const accepted = await cdp.evaluate(`(() => {
         const root = document.querySelector('[data-testid="sidebar-sessions-${repoId}"]');
         const groups = Array.from(root.querySelectorAll('[data-testid^="sidebar-worktree-"]'))
-          .filter((el) => /^sidebar-worktree-(?!toggle-|new-session-)/.test(el.getAttribute('data-testid')));
-        const source = groups[0].querySelector('[data-testid^="sidebar-worktree-toggle-"]');
-        const target = groups[1].querySelector('[data-testid^="sidebar-worktree-toggle-"]');
+          .filter((el) => /^sidebar-worktree-(?!toggle-|select-|new-session-)/.test(el.getAttribute('data-testid')));
+        const source = groups[0].querySelector('[data-testid^="sidebar-worktree-select-"]');
+        const target = groups[1].querySelector('[data-testid^="sidebar-worktree-select-"]');
         const data = new DataTransfer();
         const rect = target.getBoundingClientRect();
         const point = { clientX: rect.left + rect.width / 2, clientY: rect.bottom - 2 };
@@ -1723,11 +1760,7 @@ async function main() {
     )
     assert(removedThird && removedThird.ok, 'The extra worktree session could not be removed')
     await click('[data-testid="sidebar-refresh"]')
-    await waitFor(
-      `new Set(Array.from(document.querySelectorAll('[data-session-id]')).map((el) => el.dataset.sessionId)).size === 2`,
-      'extra worktree session removed',
-      15000
-    )
+    await waitForSessionCount(2, 'extra worktree session removed', '===', 15000)
     return { before, after: expected }
   })
 
@@ -1755,7 +1788,7 @@ async function main() {
 
     // The Menu key opens the same menu without a pointer.
     await cdp.evaluate(`(() => {
-      const toggle = document.querySelector('[data-testid="sidebar-default-checkout-toggle-${repoId}"]');
+      const toggle = document.querySelector('[data-testid="sidebar-default-checkout-select-${repoId}"]');
       if (!toggle) return false;
       toggle.focus();
       toggle.dispatchEvent(new KeyboardEvent('keydown', {
@@ -1798,7 +1831,7 @@ async function main() {
   })
 
   await step('exit a live shell and keep its session record', async () => {
-    await click(`[data-testid="session-item-${firstSession.id}"]`)
+    await selectSession(firstSession.id)
     await typeInSession(firstSession.id, 'exit')
     await waitForState('exited', 15000)
     const final = await activeState()
@@ -1862,11 +1895,7 @@ async function main() {
     port = await allocatePort()
     await launch('relaunch', hostEnv(), port)
     await openProjectSessions()
-    await waitFor(
-      `new Set(Array.from(document.querySelectorAll('[data-session-id]')).map((el) => el.dataset.sessionId)).size === 2`,
-      'sessions restored from persistence',
-      20000
-    )
+    await waitForSessionCount(2, 'sessions restored from persistence')
     const afterQuit = await sessions()
     const firstAfter = afterQuit.find((entry) => entry.id === firstSession.id)
     assert(firstAfter, 'First session was lost across relaunch')
@@ -1880,7 +1909,7 @@ async function main() {
       'reattached terminal pane',
       20000
     )
-    await click(`[data-testid="session-item-${firstSession.id}"]`)
+    await selectSession(firstSession.id)
     await sleep(400)
     await typeInSession(firstSession.id, 'echo RELAUNCH_OK')
     await waitForTerminalLine(
@@ -1914,14 +1943,10 @@ async function main() {
       30000
     )
     await openProjectSessions()
-    await waitFor(
-      `new Set(Array.from(document.querySelectorAll('[data-session-id]')).map((el) => el.dataset.sessionId)).size >= 1`,
-      'sessions restored while the Host is unreachable',
-      20000
-    )
+    await waitForSessionCount(1, 'sessions restored while the Host is unreachable', '>=')
     const firstVisible = (await sessions())[0]
     assert(firstVisible, 'No session row while the Host is unreachable')
-    await click(`[data-testid="session-item-${firstVisible.id}"]`)
+    await selectSession(firstVisible.id)
     await sleep(400)
     const state = await activeState()
     assert(
@@ -1966,15 +1991,11 @@ async function main() {
       30000
     )
     await openProjectSessions()
-    await waitFor(
-      `new Set(Array.from(document.querySelectorAll('[data-session-id]')).map((el) => el.dataset.sessionId)).size === 2`,
-      'sessions back after the Host became reachable',
-      20000
-    )
+    await waitForSessionCount(2, 'sessions back after the Host became reachable')
     const restored = await sessions()
     assert(restored.length === 2, 'Sessions did not return after the Host became reachable')
     for (const session of restored) {
-      await click(`[data-testid="session-item-${session.id}"]`)
+      await selectSession(session.id)
       await sleep(300)
       const current = await activeState()
       if (current && (current.state === 'live' || current.state === 'starting')) {

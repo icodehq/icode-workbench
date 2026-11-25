@@ -2,11 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import type { AppError } from '../../../../shared/domain/errors'
 import { harnessLabel } from '../../../../shared/domain/harness'
+import { isActiveSessionState } from '../../../../shared/domain/session'
 import type { RepositorySummary, SessionSummary } from '../../../../shared/schemas/ipc'
 import type { AgentSendResult } from '../../lib/agent-send'
 import type { WorkbenchDraftStore } from '../../review/drafts'
 import {
   diffTabKey,
+  findTab,
   isDirty,
   openFilesStore,
   tabKey,
@@ -38,6 +40,8 @@ import { registerSplitCommand } from '../../state/split-commands'
 import { useT } from '../../i18n/use-i18n'
 import { isMacPlatform } from '../../lib/platform'
 import { useElementWidth } from '../../lib/use-element-width'
+import SessionDetailsDrawer from '../SessionDetailsDrawer'
+import SessionRemoveConfirm from '../shell/SessionRemoveConfirm'
 import SessionInspector from './SessionInspector'
 import SessionStatusStrip from './SessionStatusStrip'
 import SessionWorkspace from '../SessionWorkspace'
@@ -48,7 +52,8 @@ import WorktreePane, {
   type PaneTabActions,
   type WorktreeTabRequest
 } from './WorktreePane'
-import WorktreeTabStrip from './WorktreeTabStrip'
+import WorktreeTabStrip, { type SessionTabAction } from './WorktreeTabStrip'
+import StopSessionDialog from './StopSessionDialog'
 import WorktreeFilesWatchHost from './WorktreeFilesWatchHost'
 import WorkspaceSplitTreeView from './WorkspaceSplitTreeView'
 
@@ -197,6 +202,9 @@ export default function WorktreeSurface({
     nonce: number
   } | null>(null)
   const [centerRequest, setCenterRequest] = useState<WorktreeTabRequest | null>(null)
+  const [stopPrompt, setStopPrompt] = useState<SessionSummary | null>(null)
+  const [detailsSession, setDetailsSession] = useState<SessionSummary | null>(null)
+  const [removePrompt, setRemovePrompt] = useState<SessionSummary | null>(null)
   const [surfaceRowRef, surfaceRowWidth] = useElementWidth<HTMLDivElement>()
   const inspectorExpandedRef = useRef(!inspectorCollapsed)
   const autoCollapsedInspectorRef = useRef(false)
@@ -232,12 +240,16 @@ export default function WorktreeSurface({
 
   useEffect(() => {
     if (!viewRequest) return
-    if (viewRequest.view !== 'terminal') {
+    if (viewRequest.view === 'terminal') {
+      // A hidden session tab is recreated by the sidebar's selection request.
+      openFilesStore.showSession(workspaceKey, activeSession.id)
+      split.activateTab(sessionTabKey(activeSession.id))
+    } else {
       setInspectorCollapsed(false)
       setPaneRequest({ pane: viewRequest.view, nonce: Date.now() })
     }
     onClearViewRequest()
-  }, [viewRequest, onClearViewRequest])
+  }, [activeSession.id, onClearViewRequest, split, viewRequest, workspaceKey])
 
   const openFileInCenter = useCallback(
     (path: string, line: number, options?: { preview?: boolean }): void => {
@@ -305,11 +317,73 @@ export default function WorktreeSurface({
   )
   const requestCloseTab = useCallback(
     (key: string): void => {
+      const tab = findTab(scopeState, key)
+      if (tab?.kind === 'session') {
+        const session = sessionById.get(tab.sessionId) ?? null
+        // A running session is a process: X stops it. A stopped/failed row has
+        // nothing to kill, so its tab just goes away.
+        if (session !== null && isActiveSessionState(session.state)) {
+          setStopPrompt(session)
+          return
+        }
+        openFilesStore.hideSession(workspaceKey, tab.sessionId)
+        return
+      }
       const actions = actionsForTab(key)
       if (actions !== undefined) actions.requestClose(key)
       else openFilesStore.closeTab(workspaceKey, key)
     },
-    [actionsForTab, workspaceKey]
+    [actionsForTab, scopeState, sessionById, workspaceKey]
+  )
+
+  const confirmStopSession = useCallback((): void => {
+    if (stopPrompt === null) return
+    const session = stopPrompt
+    setStopPrompt(null)
+    // Kill first, then close the tab. The row stays in the sidebar as stopped.
+    sessionActions.stop(session.id)
+    openFilesStore.hideSession(workspaceKey, session.id)
+  }, [sessionActions, stopPrompt, workspaceKey])
+
+  const handleSessionTabAction = useCallback(
+    (session: SessionSummary, action: SessionTabAction): void => {
+      switch (action) {
+        case 'details':
+          setDetailsSession(session)
+          break
+        case 'sleep':
+          sessionActions.sleep(session.id)
+          break
+        case 'wake':
+          sessionActions.wake(session.id)
+          break
+        case 'restart':
+          sessionActions.restart(session.id)
+          break
+        case 'resume':
+          sessionActions.resume(session.id)
+          break
+        case 'remove':
+          setRemovePrompt(session)
+          break
+      }
+    },
+    [sessionActions]
+  )
+
+  /** Bulk closes must not silently stop several running sessions at once. */
+  const closeTabWithoutStopping = useCallback(
+    (key: string): void => {
+      const tab = findTab(scopeState, key)
+      if (tab?.kind === 'session') {
+        openFilesStore.hideSession(workspaceKey, tab.sessionId)
+        return
+      }
+      const actions = actionsForTab(key)
+      if (actions !== undefined) actions.requestClose(key)
+      else openFilesStore.closeTab(workspaceKey, key)
+    },
+    [actionsForTab, scopeState, workspaceKey]
   )
 
   const closeAllTabs = useCallback((): void => {
@@ -327,19 +401,19 @@ export default function WorktreeSurface({
     (keepKey: string): void => {
       for (const tab of tabs) {
         const key = tabKey(tab)
-        if (key !== keepKey) requestCloseTab(key)
+        if (key !== keepKey) closeTabWithoutStopping(key)
       }
     },
-    [tabs, requestCloseTab]
+    [closeTabWithoutStopping, tabs]
   )
 
   const closeTabsRight = useCallback(
     (key: string): void => {
       const index = tabs.findIndex((tab) => tabKey(tab) === key)
       if (index < 0) return
-      for (const tab of tabs.slice(index + 1)) requestCloseTab(tabKey(tab))
+      for (const tab of tabs.slice(index + 1)) closeTabWithoutStopping(tabKey(tab))
     },
-    [tabs, requestCloseTab]
+    [closeTabWithoutStopping, tabs]
   )
 
   const splitWithTab = useCallback(
@@ -411,6 +485,10 @@ export default function WorktreeSurface({
     }
     return map
   }, [paneRects])
+  const displayedTabKeys = useMemo(
+    () => new Set(displayedPaneByKey.keys()),
+    [displayedPaneByKey]
+  )
   const renderedPanes = useMemo(
     () =>
       split.zoomedPaneId === null
@@ -433,6 +511,7 @@ export default function WorktreeSurface({
       key={leaf.paneId}
       leaf={leaf}
       tabs={tabs}
+      displayedTabKeys={displayedTabKeys}
       sessions={sessionById}
       scopeKey={workspaceKey}
       ownerSessionId={owner.id}
@@ -641,6 +720,7 @@ export default function WorktreeSurface({
           workspaceKind={descriptor.isDefault ? 'default' : 'worktree'}
           tabs={tabs}
           sessions={sessionById}
+          onSessionAction={handleSessionTabAction}
           focusedTabKey={split.focusedTabKey}
           displayedPaneByKey={displayedPaneByKey}
           focusedPaneId={split.focusedPaneId}
@@ -762,6 +842,32 @@ export default function WorktreeSurface({
             {renderSession(session, false)}
           </div>
         ))}
+      {stopPrompt !== null ? (
+        <StopSessionDialog
+          session={stopPrompt}
+          onCancel={() => setStopPrompt(null)}
+          onConfirm={confirmStopSession}
+        />
+      ) : null}
+      {detailsSession !== null ? (
+        <SessionDetailsDrawer
+          session={detailsSession}
+          repo={repo}
+          onClose={() => setDetailsSession(null)}
+        />
+      ) : null}
+      {removePrompt !== null ? (
+        <SessionRemoveConfirm
+          session={removePrompt}
+          sessions={sessions}
+          onClose={() => setRemovePrompt(null)}
+          onConfirm={(deleteBranch) => {
+            const sessionId = removePrompt.id
+            setRemovePrompt(null)
+            sessionActions.remove(sessionId, { deleteBranch })
+          }}
+        />
+      ) : null}
     </div>
   )
 }

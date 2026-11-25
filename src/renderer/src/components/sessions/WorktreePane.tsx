@@ -48,6 +48,8 @@ export type PaneTabActions = {
 type Props = {
   leaf: SplitLeaf
   tabs: readonly CenterTab[]
+  /** Tab keys already shown in another pane (excluded from this picker). */
+  displayedTabKeys: ReadonlySet<string>
   sessions: ReadonlyMap<string, SessionSummary>
   scopeKey: string
   ownerSessionId: string | null
@@ -89,6 +91,7 @@ function diffLabel(tab: DiffTab): string {
 export default function WorktreePane({
   leaf,
   tabs,
+  displayedTabKeys,
   sessions,
   scopeKey,
   ownerSessionId,
@@ -163,7 +166,7 @@ export default function WorktreePane({
       ? activeKey.slice('session:'.length)
       : null
   const session = sessionId === null ? null : sessions.get(sessionId) ?? null
-  const undisplayed = tabs.filter((tab) => tabKey(tab) !== activeKey)
+  const undisplayed = tabs.filter((tab) => !displayedTabKeys.has(tabKey(tab)))
 
   let content: ReactNode = null
   if (session !== null) {

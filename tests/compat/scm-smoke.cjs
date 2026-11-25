@@ -290,7 +290,7 @@ async function reopenSession() {
     // expanded invariant before clicking the session row below.
     await expandAllProjects()
   }
-  await click(`[data-testid="session-item-${sessionId}"]`)
+  await click(`[data-testid="session-tab-${sessionId}"]`)
   await waitForSelector('[data-testid="session-title"]', 20000)
 }
 
