@@ -18,6 +18,7 @@
   <a href="https://github.com/icodehq/icode-workbench/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/icodehq/icode-workbench/total?style=flat&color=08C"></a>
   <a href="LICENSE"><img alt="License: AGPL-3.0" src="https://img.shields.io/github/license/icodehq/icode-workbench?style=flat&color=08C"></a>
   <img alt="44 CLI agents" src="https://img.shields.io/badge/CLI%20agents-44-08C?style=flat">
+  <img alt="Telemetry: none" src="https://img.shields.io/badge/telemetry-none-08C?style=flat">
   <img alt="Pre-1.0" src="https://img.shields.io/badge/status-pre--1.0-orange?style=flat">
 </p>
 
@@ -25,6 +26,12 @@
   <strong>Run a fleet of agents. One workbench. Keep the judgment.</strong><br/>
   The open-source agent development environment for Claude Code, Codex, OpenCode, and 40+ more CLI agents.<br/>
   Isolated Git worktrees by default; every change reviewed in the checkout where it was made.
+</p>
+
+<p align="center">
+  <strong>No telemetry. No account. No analytics.</strong><br/>
+  T3 Code currently hashes your OpenAI and Claude account IDs and a stable install ID, then forwards them to PostHog by default.
+  iCode has no account to hash — there is nothing to send. <a href="PRIVACY.md">Verify it →</a>
 </p>
 
 <h3 align="center">
@@ -42,6 +49,23 @@
 <p align="center">
   <sub>Pre-1.0 · Windows x64 · Linux x64 (WSL2/WSLg) · macOS x64 / arm64</sub>
 </p>
+
+## Privacy by default
+
+iCode is local-first. The app itself collects **no analytics, no telemetry, no usage events, no account or install IDs, and no device IDs**. Prompts, code, file paths, and conversation IDs never leave your machine through iCode.
+
+| Call | When | What leaves | Where |
+|---|---|---|---|
+| Update check | On launch and periodically | App version and platform in a standard update request | GitHub Releases |
+| Agent CLI | When you run a harness | Whatever that CLI sends to its vendor and the provider you configured | Your CLI's vendor / your provider |
+| Git | When you fetch or push | Repository data | The remote you configured |
+| Diagnostics | Only when you choose to copy or export | Exactly what the view shows | Wherever you send it |
+
+**T3 Code comparison:** T3 Code's telemetry docs (November 2026) describe hashed T3 Connect / OpenAI / Claude account IDs, a stable install ID, per-device IDs, and forwarding to PostHog — on by default, with an env-var opt-out. iCode has none of these: no account, no install ID, no analytics endpoint. [Side-by-side →](PRIVACY.md#how-t3-code-compares)
+
+**Verify it:** [PRIVACY.md](PRIVACY.md) lists every outbound call; `scripts/audit-telemetry.sh` runs in CI and fails if an analytics SDK or endpoint is ever added.
+
+**Policy:** iCode will never add telemetry. If that ever changes, it will be opt-in, off by default, and announced in the changelog.
 
 ## Start here
 

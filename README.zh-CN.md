@@ -21,8 +21,31 @@
 </p>
 
 <p align="center">
+  <strong>无遥测。无账号。无分析。</strong><br/>
+  T3 Code 目前会将你的 OpenAI 和 Claude 账号 ID 哈希后连同稳定的安装 ID 转发给 PostHog。
+  iCode 没有账号可哈希——没有任何东西可发送。<a href="PRIVACY.md">自行验证 →</a>
+</p>
+
+<p align="center">
   <img src=".github/assets/workbench-0916-shell.png" alt="iCode Workbench 工作台：项目与任务侧边栏、应用与会话标签页、实时终端，以及检查器中的 Source Control 差异" width="960" />
 </p>
+
+## 隐私默认
+
+iCode 是本地优先的。应用本身不收集任何分析、遥测、使用事件、账号 ID、安装 ID 或设备 ID；提示词、代码、文件路径和会话 ID 不会经由 iCode 离开你的机器。
+
+| 调用 | 何时 | 发送什么 | 发往哪里 |
+|---|---|---|---|
+| 更新检查 | 启动时和定期 | 标准更新请求中的应用版本和平台 | GitHub Releases |
+| 智能体 CLI | 运行 harness 时 | 该 CLI 发给其厂商和你配置的 provider 的内容 | CLI 厂商 / 你的 provider |
+| Git | fetch / push 时 | 仓库数据 | 你配置的 remote |
+| 诊断 | 仅当你选择复制或导出 | 诊断视图显示的内容 | 你发送到的地方 |
+
+**与 T3 Code 的对比：** T3 Code 的遥测文档（2026 年 11 月）描述了哈希后的 T3 Connect / OpenAI / Claude 账号 ID、稳定的安装 ID、每设备 ID，以及向 PostHog 转发——默认开启，可用环境变量关闭。iCode 没有这些：没有账号、没有安装 ID、没有分析端点。[逐项对比 →](PRIVACY.md#how-t3-code-compares)
+
+**自行验证：** [PRIVACY.md](PRIVACY.md) 列出了每一次对外调用；`scripts/audit-telemetry.sh` 在 CI 中运行，一旦加入分析 SDK 或端点就会失败。
+
+**承诺：** iCode 永远不会加入遥测。如果未来改变，一定会是 opt-in、默认关闭，并在 changelog 中公告。
 
 ## 为什么选择 iCode Workbench？
 
