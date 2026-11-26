@@ -60,6 +60,7 @@ describe('preload API surface', () => {
         'onTaskEvent',
         'onViewCommand',
         'opencodeIntegration',
+        'permissions',
         'providers',
         'remotes',
         'repos',
@@ -117,6 +118,19 @@ describe('preload API surface', () => {
     expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.aiCancelCommitMessage, {
       requestId: 'request-123'
     })
+  })
+
+  it('routes permission requests to their named channels', async () => {
+    const { api, invoke } = setup()
+    await api.permissions.list({ groupId: 'group_1' })
+    await api.permissions.respond({
+      id: 'permission_1',
+      decision: { behavior: 'allow' }
+    })
+    expect(invoke.mock.calls.map((call) => call[0])).toEqual([
+      IPC_CHANNELS.permissionsList,
+      IPC_CHANNELS.permissionsRespond
+    ])
   })
 
   it('routes the sidebar order to its channels', async () => {
@@ -243,6 +257,7 @@ describe('preload API surface', () => {
     await api.sessions.restart({ sessionId })
     await api.sessions.resume({ sessionId })
     await api.terminal.attach({ sessionId })
+    await api.terminal.preview({ sessionId })
     await api.terminal.write({ sessionId, incarnationId, data: 'ls\r' })
     await api.terminal.resize({ sessionId, incarnationId, cols: 120, rows: 40 })
     await api.harness.list()
@@ -255,6 +270,7 @@ describe('preload API surface', () => {
       IPC_CHANNELS.sessionsRestart,
       IPC_CHANNELS.sessionsResume,
       IPC_CHANNELS.terminalAttach,
+      IPC_CHANNELS.terminalPreview,
       IPC_CHANNELS.terminalWrite,
       IPC_CHANNELS.terminalResize,
       IPC_CHANNELS.harnessList

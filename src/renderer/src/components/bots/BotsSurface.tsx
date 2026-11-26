@@ -152,6 +152,7 @@ export default function BotsSurface({
   tasks,
   notify,
   onOpenTask,
+  onOpenSession,
   onTaskAction
 }: {
   state: BotsWorkspaceState
@@ -159,6 +160,7 @@ export default function BotsSurface({
   tasks: TaskRecordPayload[]
   notify: (notice: Notice) => void
   onOpenTask: (taskId: string) => void
+  onOpenSession: (sessionId: string) => void
   onTaskAction: (action: AssistantTaskAction, taskId: string) => void
 }): React.JSX.Element {
   const t = useT()
@@ -180,6 +182,7 @@ export default function BotsSurface({
             repos={repos}
             notify={notify}
             onOpenTask={onOpenTask}
+            onOpenSession={onOpenSession}
             onTaskAction={onTaskAction}
             onSelectThread={state.selectThread}
             onNewThread={() => state.createThread(state.group!.id)}
@@ -221,7 +224,6 @@ export default function BotsSurface({
           <BotSettingsDialog
             bot={bot}
             state={state}
-            repos={repos}
             notify={notify}
             groups={state.groups.filter((group) => group.memberBotIds.includes(bot.id))}
             onClose={() => setSettingsOpen(false)}

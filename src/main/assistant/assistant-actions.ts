@@ -2,7 +2,8 @@ import { createHash } from 'node:crypto'
 import type { AssistantActionPayload } from './assistant-envelope'
 import type { AssistantPolicy } from './assistant-policy'
 import type { AssistantStore } from '../persistence/assistant-store'
-import type { BotMemoryStore } from '../persistence/bot-memory-store'
+import type { MemoryService } from '../memory/memory-service'
+import type { PeerMailService } from '../bots/peer-mail-service'
 import type { RepositoryStore } from '../persistence/repository-store'
 import type { TaskService } from '../tasks/task-service'
 import type { TaskStore } from '../tasks/task-store'
@@ -20,10 +21,13 @@ import {
 import type { TaskStatus } from '../../shared/domain/task'
 import type { HarnessId } from '../../shared/domain/harness'
 import type { RepoId } from '../../shared/domain/ids'
-import type { MemoryTarget } from '../../shared/domain/memory'
 import { buildAgentPromptPaste, AGENT_SUBMIT_DELAY_MS } from '../../shared/agent-prompt'
 
 const MAX_DIFF_BYTES = 200_000
+
+function normalizeMemoryFact(text: string): string {
+  return text.replace(/\s+/g, ' ').trim()
+}
 
 export type AssistantActionResult = {
   op: string
@@ -57,8 +61,10 @@ export type AssistantActionDeps = {
   group?: { isMember(groupId: string, botId: string): boolean }
   /** Resolve per-bot assistant settings (harness priority, auto-dispatch). */
   botSettings?: (botId: string) => AssistantSettings
-  /** Scoped memory; absent makes memory actions unavailable. */
-  memoryStore?: BotMemoryStore
+  /** The bot's MEMORY.md; absent makes memory actions unavailable. */
+  memoryFiles?: MemoryService
+  /** Local mail to another bot; absent makes peer mail unavailable. */
+  peerMail?: Pick<PeerMailService, 'send'>
   /** Owner-facing item conversation; absent means item actions are unavailable. */
   items?: ItemService
   /** Only the Chief may create tasks for another bot. */
@@ -126,6 +132,8 @@ function compactSession(session: {
  * never receives a task/session handle it can use outside this executor.
  */
 export class AssistantActions {
+  private peerMailsSent = 0
+
   constructor(private readonly deps: AssistantActionDeps) {}
 
   private actor(): string {
@@ -142,23 +150,6 @@ export class AssistantActions {
 
   private currentGroupId(): string | null {
     return this.deps.groupId ?? null
-  }
-
-  private memoryTarget(input: {
-    scope?: 'bot' | 'project' | 'team'
-    repoId?: string
-    teamId?: string
-  }): MemoryTarget | null {
-    const scope = input.scope ?? 'bot'
-    if (scope === 'bot') {
-      const botId = this.deps.botId
-      return botId === undefined ? null : { scope: 'bot', botId }
-    }
-    if (scope === 'project') {
-      return input.repoId === undefined ? null : { scope: 'project', repoId: input.repoId }
-    }
-    const teamId = input.teamId ?? this.currentGroupId()
-    return teamId === null ? null : { scope: 'team', teamId }
   }
 
   async execute(action: AssistantActionPayload): Promise<AssistantActionResult> {
@@ -196,16 +187,12 @@ export class AssistantActions {
           return this.reviewRecommend(action.taskId, action.decision, action.note)
         case 'notify':
           return this.notify(action.text, action.kind, action.priority)
-        case 'memory.set':
-          return this.memorySet(
-            action.key,
-            action.value,
-            action.scope,
-            action.repoId,
-            action.teamId
-          )
+        case 'memory.add':
+          return this.memoryAdd(action.text)
         case 'memory.forget':
-          return this.memoryForget(action.key, action.scope, action.repoId, action.teamId)
+          return this.memoryForget(action.fact)
+        case 'peers.message':
+          return this.peersMessage(action.to, action.text)
         case 'items.comment':
           return this.itemsComment(action.taskId, action.text)
         case 'items.ask':
@@ -749,102 +736,144 @@ export class AssistantActions {
     }
   }
 
-  private memorySet(
-    key: string,
-    value: string,
-    scope?: 'bot' | 'project' | 'team',
-    repoId?: string,
-    teamId?: string
-  ): AssistantActionResult {
-    const target = this.memoryTarget({ scope, repoId, teamId })
-    if (this.deps.memoryStore === undefined || target === null) {
-      this.audit('memory.set', false, 'unavailable', { key })
+  private async memoryAdd(text: string): Promise<AssistantActionResult> {
+    const botId = this.deps.botId
+    if (this.deps.memoryFiles === undefined || botId === undefined) {
+      this.audit('memory.add', false, 'unavailable', { text })
       return {
-        op: 'memory.set',
+        op: 'memory.add',
         ok: false,
         message: 'Memory is not available in this context.',
-        value: { key }
+        value: { text }
       }
     }
-    const active = this.deps.memoryStore.find(target, key, 'active')
-    if (active?.value === value) {
+    if (await this.deps.memoryFiles.tidiedOut(botId, text)) {
+      this.audit('memory.add', true, 'kept-out', { text })
       return {
-        op: 'memory.set',
+        op: 'memory.add',
         ok: true,
-        message: `I already remember "${key}".`,
-        value: { key, proposed: false }
+        message:
+          'A recent tidy-up moved that fact out of MEMORY.md; it stays in memory/archive.md.',
+        value: { text, added: false }
       }
     }
-    const existing = this.deps.memoryStore.find(target, key, 'proposed')
-    if (existing !== null) {
-      this.deps.memoryStore.updateValue(existing.id, value, this.deps.now())
-    } else {
-      const now = this.deps.now()
-      const proposer = this.deps.botId ?? MIRA_ACTOR_ID
-      this.deps.memoryStore.insert({
-        id: `mem_${proposer}_${String(now)}_${key.slice(0, 20)}`,
-        scope: target.scope,
-        botId: target.scope === 'bot' ? target.botId : null,
-        repoId: target.scope === 'project' ? target.repoId : null,
-        teamId: target.scope === 'team' ? target.teamId : null,
-        proposedByBotId: proposer,
-        key,
-        value,
-        status: 'proposed',
-        sourceTaskId: null,
-        createdAt: now,
-        updatedAt: now
-      })
+    const fact = await this.deps.memoryFiles.add(botId, text, {
+      kind: 'bot',
+      botId,
+      name: this.displayName()
+    })
+    if (fact === null) {
+      return {
+        op: 'memory.add',
+        ok: true,
+        message: 'I already remember that.',
+        value: { text, added: false }
+      }
     }
-    this.audit('memory.set', true, 'proposed', { key, scope: target.scope })
+    this.audit('memory.add', true, 'ok', { text })
     return {
-      op: 'memory.set',
+      op: 'memory.add',
       ok: true,
-      message: `Suggested a memory for "${key}"; the user must approve it.`,
-      value: { key, proposed: true }
+      message: `Remembered: ${fact.text}`,
+      value: { text: fact.text, added: true }
     }
   }
 
-  private memoryForget(
-    key: string,
-    scope?: 'bot' | 'project' | 'team',
-    repoId?: string,
-    teamId?: string
-  ): AssistantActionResult {
-    const target = this.memoryTarget({ scope, repoId, teamId })
-    if (this.deps.memoryStore === undefined || target === null) {
-      this.audit('memory.forget', false, 'unavailable', { key })
+  private async peersMessage(to: string, text: string): Promise<AssistantActionResult> {
+    const fromBotId = this.deps.botId
+    if (this.deps.peerMail === undefined || fromBotId === undefined) {
+      this.audit('peers.message', false, 'unavailable', { to })
+      return {
+        op: 'peers.message',
+        ok: false,
+        message: 'Bot mail is not available in this context.',
+        value: { to }
+      }
+    }
+    const latestUser = this.deps.store
+      .listMessages(this.deps.threadId, { limit: 5 })
+      .find((message) => message.role === 'user')
+    if (latestUser?.body.startsWith('[Bot mail') === true) {
+      this.audit('peers.message', false, 'mail-turn', { to })
+      return {
+        op: 'peers.message',
+        ok: false,
+        message: 'A turn started by bot mail cannot send more bot mail.',
+        value: { to }
+      }
+    }
+    if (this.peerMailsSent >= 2) {
+      this.audit('peers.message', false, 'capped', { to })
+      return {
+        op: 'peers.message',
+        ok: false,
+        message: 'This turn already asked two bots; finish the answer first.',
+        value: { to }
+      }
+    }
+    try {
+      const mail = this.deps.peerMail.send({ fromBotId, to, body: text })
+      this.peerMailsSent += 1
+      this.audit('peers.message', true, 'queued', { to })
+      return {
+        op: 'peers.message',
+        ok: true,
+        message: `Sent to ${to}; its answer will arrive in this chat.`,
+        value: { mailId: mail.id, to: mail.toBotId }
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message === 'PEER_NOT_FOUND'
+          ? 'No bot by that name exists.'
+          : error instanceof Error && error.message === 'PEER_PAUSED'
+            ? 'That bot is paused.'
+            : error instanceof Error && error.message === 'PEER_SELF'
+              ? 'A bot cannot mail itself.'
+              : error instanceof Error && error.message === 'PEER_BODY'
+                ? 'That message is empty or too long.'
+                : error instanceof Error
+                  ? error.message
+                  : String(error)
+      this.audit('peers.message', false, 'error', { to, message })
+      return {
+        op: 'peers.message',
+        ok: false,
+        message,
+        value: { to }
+      }
+    }
+  }
+
+  private async memoryForget(fact: string): Promise<AssistantActionResult> {
+    const botId = this.deps.botId
+    if (this.deps.memoryFiles === undefined || botId === undefined) {
+      this.audit('memory.forget', false, 'unavailable', { fact })
       return {
         op: 'memory.forget',
         ok: false,
         message: 'Memory is not available in this context.',
-        value: { key, removed: false }
+        value: { fact, removed: false }
       }
     }
-    const proposed = this.deps.memoryStore.find(target, key, 'proposed')
-    if (proposed !== null) {
-      this.deps.memoryStore.remove(proposed.id)
-      this.audit('memory.forget', true, 'ok', { key, scope: target.scope })
+    const wanted = normalizeMemoryFact(fact)
+    const read = await this.deps.memoryFiles.read(botId)
+    const found = read.facts.find((entry) => normalizeMemoryFact(entry.text) === wanted)
+    if (found === undefined) {
+      this.audit('memory.forget', true, 'noop', { fact })
       return {
         op: 'memory.forget',
         ok: true,
-        message: `Removed the proposed memory "${key}".`,
-        value: { key, removed: true }
+        message: `I did not have "${fact}" in memory.`,
+        value: { fact, removed: false }
       }
     }
-    const active = this.deps.memoryStore.find(target, key, 'active')
-    this.audit('memory.forget', true, active === null ? 'noop' : 'blocked', {
-      key,
-      scope: target.scope
-    })
+    const removed = await this.deps.memoryFiles.forget(botId, found)
+    this.audit('memory.forget', removed, removed ? 'ok' : 'noop', { fact })
     return {
       op: 'memory.forget',
       ok: true,
-      message:
-        active === null
-          ? `I did not know "${key}".`
-          : `"${key}" is active memory; ask the user to archive it in the Memory tab.`,
-      value: { key, removed: false }
+      message: removed ? `Forgot: ${found.text}` : `I did not have "${fact}" in memory.`,
+      value: { fact: found.text, removed }
     }
   }
 

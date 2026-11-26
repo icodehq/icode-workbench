@@ -1514,6 +1514,18 @@ export class SessionService {
   }
 
   async attach(sessionId: string): Promise<TerminalAttachPayload> {
+    return this.attachOrPeek(sessionId, true)
+  }
+
+  /** Read a session's snapshot without marking it observed or emitting recovery. */
+  async preview(sessionId: string): Promise<TerminalAttachPayload> {
+    return this.attachOrPeek(sessionId, false)
+  }
+
+  private async attachOrPeek(
+    sessionId: string,
+    observe: boolean
+  ): Promise<TerminalAttachPayload> {
     const row = this.requireRow(sessionId)
     const checkout = await this.resolveCheckout(row, { allowFreshCheckout: true })
     const target = this.targetForSession(row)
@@ -1524,7 +1536,7 @@ export class SessionService {
         (await this.requirePathATerminal(target, checkout.path)))
       : null
 
-    this.emitRecovery(sessionId, 'starting')
+    if (observe) this.emitRecovery(sessionId, 'starting')
     let attached: CreateOrAttachPayload
     try {
       attached = await this.deps.host.createOrAttach(
@@ -1586,16 +1598,18 @@ export class SessionService {
       )
     }
 
-    this.currentIncarnations.set(sessionId, attached.incarnationId)
-    this.deps.onIncarnation?.(sessionId, attached.incarnationId)
-    const observation: PersistedSessionObservation = {
-      lastObservedState: attached.status === 'starting' ? 'starting' : attached.status === 'live' ? 'live' : attached.status === 'failed' ? 'failed' : 'exited',
-      lastObservedExitCode: attached.exitCode,
-      lastObservedError: attached.status === 'failed' ? row.observation.lastObservedError : null,
-      lastObservedIncarnationId: toPtyIncarnationId(attached.incarnationId),
-      lastObservedAt: this.now()
+    if (observe) {
+      this.currentIncarnations.set(sessionId, attached.incarnationId)
+      this.deps.onIncarnation?.(sessionId, attached.incarnationId)
+      const observation: PersistedSessionObservation = {
+        lastObservedState: attached.status === 'starting' ? 'starting' : attached.status === 'live' ? 'live' : attached.status === 'failed' ? 'failed' : 'exited',
+        lastObservedExitCode: attached.exitCode,
+        lastObservedError: attached.status === 'failed' ? row.observation.lastObservedError : null,
+        lastObservedIncarnationId: toPtyIncarnationId(attached.incarnationId),
+        lastObservedAt: this.now()
+      }
+      this.deps.sessions.recordObservation(sessionIdParse(sessionId), observation)
     }
-    this.deps.sessions.recordObservation(sessionIdParse(sessionId), observation)
 
     return {
       sessionId: attached.sessionId,

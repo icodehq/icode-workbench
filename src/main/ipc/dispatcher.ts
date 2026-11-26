@@ -90,6 +90,15 @@ import {
   botSetPausedInputSchema,
   botConversationsInputSchema,
   botFocusInputSchema,
+  botAutomationCreateInputSchema,
+  botAutomationRemoveInputSchema,
+  botAutomationUpdateInputSchema,
+  botAutomationsInputSchema,
+  botHomeInputSchema,
+  botSkillDeleteInputSchema,
+  botSkillReadInputSchema,
+  botSkillSaveInputSchema,
+  botSkillsInputSchema,
   botMarkReadInputSchema,
   botMessagesInputSchema,
   botNewConversationInputSchema,
@@ -100,12 +109,18 @@ import {
   botStateInputSchema,
   botStopInputSchema,
   botUpdateInputSchema,
-  botCreateInputSchema,
-  botMemoryApproveInputSchema,
-  botMemoryDeleteInputSchema,
-  botMemoryListInputSchema,
-  botMemorySetInputSchema
+  botCreateInputSchema
 } from '../../shared/schemas/bots'
+import {
+  memoryAddInputSchema,
+  memoryEditInputSchema,
+  memoryForgetInputSchema,
+  memoryReadInputSchema,
+  memoryTidyUpInputSchema,
+  memoryTopicInputSchema,
+  memoryUndoInputSchema,
+  type MemoryFactPayload
+} from '../../shared/schemas/memory'
 import {
   groupCreateInputSchema,
   groupMessagesInputSchema,
@@ -133,6 +148,10 @@ import {
   itemsSetStatusInputSchema
 } from '../../shared/schemas/items'
 import { networkSetSettingsInputSchema } from '../../shared/schemas/network'
+import {
+  permissionsListInputSchema,
+  permissionsRespondInputSchema
+} from '../../shared/schemas/permissions'
 import {
   sidebarOrderPayloadSchema,
   type SidebarOrderPayload
@@ -344,26 +363,44 @@ export type DispatcherServices = {
   botsStop: (input: { botId: string }) => Promise<unknown>
   botsNewConversation: (input: { botId: string }) => Promise<unknown>
   botsFocus: (input: { botId: string; messageId: string }) => Promise<unknown>
+  botsHome: (input: { botId: string }) => Promise<unknown>
+  botsAutomationsList: (input: { botId: string }) => Promise<unknown>
+  botsAutomationsCreate: (input: {
+    botId: string
+    name: string
+    prompt: string
+    intervalMinutes: number
+    enabled?: boolean
+  }) => Promise<unknown>
+  botsAutomationsUpdate: (input: {
+    id: string
+    name?: string
+    prompt?: string
+    intervalMinutes?: number
+    enabled?: boolean
+  }) => Promise<unknown>
+  botsAutomationsRemove: (input: { id: string }) => Promise<unknown>
+  botsSkillsList: (input: { botId: string }) => Promise<unknown>
+  botsSkillsRead: (input: { botId: string; folder: string }) => Promise<unknown>
+  botsSkillsSave: (input: {
+    botId: string
+    folder: string
+    text: string
+  }) => Promise<unknown>
+  botsSkillsDelete: (input: { botId: string; folder: string }) => Promise<unknown>
   botsSettingsGet: (input: { botId: string }) => Promise<unknown>
   botsSettingsSet: (input: { botId: string; settings: unknown }) => Promise<unknown>
-  botsMemoryList: (input: {
+  botsMemoryRead: (input: { botId: string }) => Promise<unknown>
+  botsMemoryAdd: (input: { botId: string; text: string }) => Promise<unknown>
+  botsMemoryEdit: (input: {
     botId: string
-    scope: 'bot' | 'project' | 'team'
-    repoId?: string
-    teamId?: string
-    status?: 'proposed' | 'active' | 'archived'
+    fact: MemoryFactPayload
+    text: string
   }) => Promise<unknown>
-  botsMemorySet: (input: {
-    botId: string
-    scope: 'bot' | 'project' | 'team'
-    key: string
-    value: string
-    repoId?: string
-    teamId?: string
-    status?: 'proposed' | 'active'
-  }) => Promise<unknown>
-  botsMemoryDelete: (input: { botId: string; memoryId: string }) => Promise<unknown>
-  botsMemoryApprove: (input: { botId: string; memoryId: string }) => Promise<unknown>
+  botsMemoryForget: (input: { botId: string; fact: MemoryFactPayload }) => Promise<unknown>
+  botsMemoryUndo: (input: { botId: string; rowId: string }) => Promise<unknown>
+  botsMemoryTopic: (input: { botId: string; name: string }) => Promise<unknown>
+  botsMemoryTidyUp: (input: { botId: string }) => Promise<unknown>
   groupsList: () => Promise<unknown>
   groupsCreate: (input: {
     name: string
@@ -407,6 +444,8 @@ export type DispatcherServices = {
   itemsLinkRemove: (input: z.infer<typeof itemsLinkRemoveInputSchema>) => Promise<unknown>
   itemsAttach: (input: z.infer<typeof itemsAttachInputSchema>) => Promise<unknown>
   itemsRemoveAttachment: (input: z.infer<typeof itemsRemoveAttachmentInputSchema>) => Promise<unknown>
+  permissionsList: (input: z.infer<typeof permissionsListInputSchema>) => Promise<unknown>
+  permissionsRespond: (input: z.infer<typeof permissionsRespondInputSchema>) => Promise<unknown>
   networkSettingsGet: () => Promise<unknown>
   networkSetSettings: (input: { settings: unknown }) => Promise<unknown>
   updatesGet: () => Promise<unknown>
@@ -452,6 +491,7 @@ export type DispatcherServices = {
   providersTest: (input: ProviderTestInput) => Promise<unknown>
   wslListDistros: () => Promise<unknown>
   terminalAttach: (input: { sessionId: string }) => Promise<unknown>
+  terminalPreview: (input: { sessionId: string }) => Promise<unknown>
   terminalWrite: (input: { sessionId: string; incarnationId: string; data: string }) => Promise<unknown>
   terminalResize: (input: {
     sessionId: string
@@ -1091,6 +1131,60 @@ export function createDispatcher(services: DispatcherServices): Dispatcher {
         return run(() => services.botsFocus(input))
       }
 
+      case IPC_CHANNELS.botsHome: {
+        const input = parse(botHomeInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.botsHome(input))
+      }
+
+      case IPC_CHANNELS.botsAutomationsList: {
+        const input = parse(botAutomationsInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.botsAutomationsList(input))
+      }
+
+      case IPC_CHANNELS.botsAutomationsCreate: {
+        const input = parse(botAutomationCreateInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.botsAutomationsCreate(input))
+      }
+
+      case IPC_CHANNELS.botsAutomationsUpdate: {
+        const input = parse(botAutomationUpdateInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.botsAutomationsUpdate(input))
+      }
+
+      case IPC_CHANNELS.botsAutomationsRemove: {
+        const input = parse(botAutomationRemoveInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.botsAutomationsRemove(input))
+      }
+
+      case IPC_CHANNELS.botsSkillsList: {
+        const input = parse(botSkillsInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.botsSkillsList(input))
+      }
+
+      case IPC_CHANNELS.botsSkillsRead: {
+        const input = parse(botSkillReadInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.botsSkillsRead(input))
+      }
+
+      case IPC_CHANNELS.botsSkillsSave: {
+        const input = parse(botSkillSaveInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.botsSkillsSave(input))
+      }
+
+      case IPC_CHANNELS.botsSkillsDelete: {
+        const input = parse(botSkillDeleteInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.botsSkillsDelete(input))
+      }
+
       case IPC_CHANNELS.botsSettingsGet: {
         const input = parse(botSettingsInputSchema, rawInput)
         if ('code' in input) return { ok: false, error: input }
@@ -1103,28 +1197,46 @@ export function createDispatcher(services: DispatcherServices): Dispatcher {
         return run(() => services.botsSettingsSet(input))
       }
 
-      case IPC_CHANNELS.botsMemoryList: {
-        const input = parse(botMemoryListInputSchema, rawInput)
+      case IPC_CHANNELS.botsMemoryRead: {
+        const input = parse(memoryReadInputSchema, rawInput)
         if ('code' in input) return { ok: false, error: input }
-        return run(() => services.botsMemoryList(input))
+        return run(() => services.botsMemoryRead(input))
       }
 
-      case IPC_CHANNELS.botsMemorySet: {
-        const input = parse(botMemorySetInputSchema, rawInput)
+      case IPC_CHANNELS.botsMemoryAdd: {
+        const input = parse(memoryAddInputSchema, rawInput)
         if ('code' in input) return { ok: false, error: input }
-        return run(() => services.botsMemorySet(input))
+        return run(() => services.botsMemoryAdd(input))
       }
 
-      case IPC_CHANNELS.botsMemoryDelete: {
-        const input = parse(botMemoryDeleteInputSchema, rawInput)
+      case IPC_CHANNELS.botsMemoryEdit: {
+        const input = parse(memoryEditInputSchema, rawInput)
         if ('code' in input) return { ok: false, error: input }
-        return run(() => services.botsMemoryDelete(input))
+        return run(() => services.botsMemoryEdit(input))
       }
 
-      case IPC_CHANNELS.botsMemoryApprove: {
-        const input = parse(botMemoryApproveInputSchema, rawInput)
+      case IPC_CHANNELS.botsMemoryForget: {
+        const input = parse(memoryForgetInputSchema, rawInput)
         if ('code' in input) return { ok: false, error: input }
-        return run(() => services.botsMemoryApprove(input))
+        return run(() => services.botsMemoryForget(input))
+      }
+
+      case IPC_CHANNELS.botsMemoryUndo: {
+        const input = parse(memoryUndoInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.botsMemoryUndo(input))
+      }
+
+      case IPC_CHANNELS.botsMemoryTopic: {
+        const input = parse(memoryTopicInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.botsMemoryTopic(input))
+      }
+
+      case IPC_CHANNELS.botsMemoryTidyUp: {
+        const input = parse(memoryTidyUpInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.botsMemoryTidyUp(input))
       }
 
       case IPC_CHANNELS.groupsList:
@@ -1254,6 +1366,18 @@ export function createDispatcher(services: DispatcherServices): Dispatcher {
         const input = parse(itemsRemoveAttachmentInputSchema, rawInput)
         if ('code' in input) return { ok: false, error: input }
         return run(() => services.itemsRemoveAttachment(input))
+      }
+
+      case IPC_CHANNELS.permissionsList: {
+        const input = parse(permissionsListInputSchema, rawInput ?? {})
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.permissionsList(input))
+      }
+
+      case IPC_CHANNELS.permissionsRespond: {
+        const input = parse(permissionsRespondInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.permissionsRespond(input))
       }
 
       case IPC_CHANNELS.itemsLinkAdd: {
@@ -1417,6 +1541,12 @@ export function createDispatcher(services: DispatcherServices): Dispatcher {
         const input = parse(terminalAttachInputSchema, rawInput)
         if ('code' in input) return { ok: false, error: input }
         return run(() => services.terminalAttach(input))
+      }
+
+      case IPC_CHANNELS.terminalPreview: {
+        const input = parse(terminalAttachInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.terminalPreview(input))
       }
 
       case IPC_CHANNELS.terminalWrite: {

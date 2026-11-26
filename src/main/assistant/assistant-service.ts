@@ -411,7 +411,7 @@ export class AssistantService {
     return unread
   }
 
-  async send(input: { text: string; repoId?: string }): Promise<{
+  async send(input: { text: string; repoId?: string; role?: 'user' | 'system' }): Promise<{
     message: AssistantMessageRecord
     runId: string
   }> {
@@ -429,7 +429,7 @@ export class AssistantService {
       id: this.deps.newId('msg'),
       threadId: thread.id,
       runId,
-      role: 'user',
+      role: input.role ?? 'user',
       kind: 'text',
       body: input.text,
       createdAt: now

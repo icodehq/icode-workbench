@@ -18,7 +18,7 @@ import type { SessionService } from '../sessions/session-service'
 import type { AssistantConversation, AssistantSettings } from '../../shared/domain/assistant'
 import { ASSISTANT_LIMITS } from '../../shared/domain/assistant'
 import type { BotProfile } from '../../shared/domain/bot'
-import type { MemoryEntry } from '../../shared/domain/memory'
+import type { MemoryPrompt } from '../memory/memory-service'
 import type { WslDistroListPayload } from '../../shared/schemas/ipc'
 import type {
   AssistantRunEvent,
@@ -57,8 +57,8 @@ export type AssistantRunnerDeps = {
   botProfile?: BotProfile
   /** Home uses the bot id; a room session adds its assistant-thread id. */
   sandboxKey?: string
-  /** Scoped active memory for this bot. */
-  botMemory?: (repoId?: string) => MemoryEntry[]
+  /** The MEMORY.md lines and topic notes this bot's session loads. */
+  botMemory?: (repoId?: string) => Promise<MemoryPrompt>
   detectHarness: (
     harness: HarnessId,
     target: ExecutionTarget
@@ -275,7 +275,7 @@ export class AssistantRunner implements AssistantRunnerLike {
             .map((message) => ({ kind: message.kind, body: message.body }))
         : []
     const bot = this.deps.botProfile
-    const memory = this.deps.botMemory?.(input.repoId)
+    const memory = await this.deps.botMemory?.(input.repoId)
     const built = buildAssistantPrompt({
       personaName: settings.personaName,
       settings,

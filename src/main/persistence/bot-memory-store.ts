@@ -64,10 +64,12 @@ function targetWhere(target: MemoryTarget): { sql: string; params: string[] } {
 }
 
 /**
- * Scoped bot memory.
+ * Scoped bot memory from before MEMORY.md.
  *
- * Active rows are the only ones injected into prompts. Proposed rows wait for
- * a human in the Memory tab; archived rows are history.
+ * No longer injected into prompts or shown in Settings: bot memory now lives in
+ * each bot's MEMORY.md. This store is kept to move active bot-scoped rows into
+ * that file once (`legacy-memory-migration.ts`); project and group rows remain
+ * readable here as history.
  */
 export class BotMemoryStore {
   constructor(private readonly db: Database) {}

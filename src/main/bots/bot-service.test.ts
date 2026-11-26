@@ -3,7 +3,6 @@ import { makeTempRoot, openTempDatabase } from '../persistence/persistence-test-
 import { AssistantStore } from '../persistence/assistant-store'
 import { BotStore } from '../persistence/bot-store'
 import { GroupStore } from '../persistence/group-store'
-import { BotMemoryStore } from '../persistence/bot-memory-store'
 import { TaskStore } from '../tasks/task-store'
 import { BotService } from './bot-service'
 import type { Database } from '../persistence/database'
@@ -19,7 +18,6 @@ function fixture(): {
   assistants: AssistantStore
   bots: BotStore
   groups: GroupStore
-  memory: BotMemoryStore
   service: BotService
 } {
   const root = makeTempRoot()
@@ -29,7 +27,6 @@ function fixture(): {
   const assistants = new AssistantStore(db)
   const bots = new BotStore(db)
   const groups = new GroupStore(db)
-  const memory = new BotMemoryStore(db)
   const tasks = new TaskStore(db)
   let sequence = 0
   const service = new BotService({
@@ -37,12 +34,11 @@ function fixture(): {
     assistants,
     bots,
     groups,
-    memory,
     tasks,
     newId: (prefix) => `${prefix}_${String(++sequence)}`,
     now: () => 1_000
   })
-  return { db, assistants, bots, groups, memory, service }
+  return { db, assistants, bots, groups, service }
 }
 
 describe('bot service', () => {

@@ -63,20 +63,19 @@ const notify = z.strictObject({
   kind: z.enum(ASSISTANT_NOTIFICATION_KINDS).optional(),
   priority: z.enum(['high', 'normal', 'low']).optional()
 })
-const memorySet = z.strictObject({
-  op: z.literal('memory.set'),
-  key: z.string().min(1).max(ASSISTANT_LIMITS.maxMemoryKeyLength),
-  value: z.string().min(1).max(ASSISTANT_LIMITS.maxMemoryValueLength),
-  scope: z.enum(['bot', 'project', 'team']).optional(),
-  repoId: repoIdSchema.optional(),
-  teamId: z.string().min(1).max(120).optional()
+const memoryAdd = z.strictObject({
+  op: z.literal('memory.add'),
+  text: z.string().trim().min(1).max(ASSISTANT_LIMITS.maxMemoryValueLength)
 })
 const memoryForget = z.strictObject({
   op: z.literal('memory.forget'),
-  key: z.string().min(1).max(ASSISTANT_LIMITS.maxMemoryKeyLength),
-  scope: z.enum(['bot', 'project', 'team']).optional(),
-  repoId: repoIdSchema.optional(),
-  teamId: z.string().min(1).max(120).optional()
+  fact: z.string().trim().min(1).max(ASSISTANT_LIMITS.maxMemoryValueLength)
+})
+const peersMessage = z.strictObject({
+  op: z.literal('peers.message'),
+  /** A bot id or a name, as the owner's roster shows it. */
+  to: z.string().trim().min(1).max(200),
+  text: z.string().trim().min(1).max(ASSISTANT_LIMITS.maxMessageLength)
 })
 const itemsComment = z.strictObject({
   op: z.literal('items.comment'),
@@ -113,8 +112,9 @@ export const assistantActionSchema = z.discriminatedUnion('op', [
   supervisorMessage,
   reviewRecommend,
   notify,
-  memorySet,
+  memoryAdd,
   memoryForget,
+  peersMessage,
   itemsComment,
   itemsAsk,
   itemsLink

@@ -49,6 +49,8 @@ describe('database initialization', () => {
       'assistant_runs',
       'assistant_settings',
       'assistant_threads',
+      // v37: recurring prompts a bot runs in its home chat.
+      'bot_automations',
       // v24: bot groups, their threads and per-member turns.
       'bot_group_members',
       'bot_group_messages',
@@ -58,6 +60,8 @@ describe('database initialization', () => {
       'bot_groups',
       // v22: persistent bots, teams and scoped memory.
       'bot_memory',
+      // v36: durable mail between bots outside a group room.
+      'bot_peer_mail',
       'bots',
       // v13: per-harness provider configuration and its selection.
       'harness_provider_selection',
@@ -755,6 +759,9 @@ describe('migrations', () => {
       'assistant_threads_main_idx',
       'assistant_threads_room_idx',
       'assistant_threads_updated_idx',
+      // v37: due automations and their bot.
+      'bot_automations_bot_idx',
+      'bot_automations_due_idx',
       // v24: group rooms, threads, per-member sessions and turns.
       'bot_group_members_bot_idx',
       'bot_group_messages_dedupe_idx',
@@ -773,6 +780,7 @@ describe('migrations', () => {
       'bot_memory_bot_idx',
       'bot_memory_project_idx',
       'bot_memory_team_idx',
+      'bot_peer_mail_to_idx',
       'bots_name_idx',
       'bots_updated_idx',
       // v16: durable merge claims and audit trail.

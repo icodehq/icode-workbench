@@ -24,6 +24,7 @@ import AssistantAvatar from '../AssistantAvatar'
 import AssistantCardView, { type AssistantTaskAction } from '../AssistantCardView'
 import GroupSettingsDialog from './GroupSettingsDialog'
 import ItemsRail from './ItemsRail'
+import GroupNeedsDock from './GroupNeedsDock'
 import Markdown from '../Markdown'
 import { useT } from '../../i18n/use-i18n'
 
@@ -78,6 +79,7 @@ export default function GroupRoomPage({
   repos,
   notify,
   onOpenTask,
+  onOpenSession,
   onTaskAction,
   onSelectThread,
   onNewThread,
@@ -91,6 +93,7 @@ export default function GroupRoomPage({
   repos: RepositorySummary[]
   notify: (notice: Notice) => void
   onOpenTask: (taskId: string) => void
+  onOpenSession: (sessionId: string) => void
   onTaskAction: (action: AssistantTaskAction, taskId: string) => void
   onSelectThread: (threadId: string) => void
   onNewThread: () => Promise<GroupThreadPayload | null>
@@ -564,6 +567,14 @@ export default function GroupRoomPage({
             </div>
           )}
         </div>
+
+        <GroupNeedsDock
+          group={group}
+          notify={notify}
+          onOpenTask={onOpenTask}
+          onOpenSession={onOpenSession}
+          onTaskAction={onTaskAction}
+        />
 
         <div className="relative shrink-0 border-t border-border bg-card p-3">
           {mentionMenu !== null ? (

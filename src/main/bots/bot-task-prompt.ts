@@ -1,10 +1,20 @@
 import type { BotRecord } from '../../shared/domain/bot'
-import type { MemoryEntry } from '../../shared/domain/memory'
 
-function memoryBlock(entries: MemoryEntry[]): string {
-  if (entries.length === 0) return ''
-  const lines = entries.map((entry) => `- [${entry.scope}] ${entry.key}: ${entry.value}`)
-  return `<memory>\n${lines.join('\n')}\n</memory>\n`
+function memoryBlock(memory: {
+  lines: string[]
+  omitted: number
+  topics?: Array<{ name: string; text: string }>
+}): string {
+  if (memory.lines.length === 0 && (memory.topics?.length ?? 0) === 0) return ''
+  const omitted = memory.omitted > 0 ? `\n(+${memory.omitted} more lines in MEMORY.md)` : ''
+  const topicBlocks = (memory.topics ?? []).map(
+    (topic) => `<memory-topic name="${topic.name}">\n${topic.text.trim()}\n</memory-topic>`
+  )
+  return [
+    `<memory file="MEMORY.md">\n${memory.lines.join('\n')}${omitted}\n</memory>`,
+    ...topicBlocks,
+    ''
+  ].join('\n')
 }
 
 /**
@@ -15,7 +25,11 @@ function memoryBlock(entries: MemoryEntry[]): string {
  */
 export function buildBotTaskPrompt(input: {
   bot: BotRecord
-  memory: MemoryEntry[]
+  memory: {
+    lines: string[]
+    omitted: number
+    topics?: Array<{ name: string; text: string }>
+  }
   prompt: string
   acceptanceCriteria?: string | null
 }): string {

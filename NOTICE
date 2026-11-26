@@ -21,8 +21,10 @@ Adapted code
 ------------
 Terminal link detection, wrapped-line reconstruction, URL boundary handling,
 link gesture policy, bot-group mention addressing, keyed per-group turn
-serialization, and the per-thread room turn model are adapted from an
-MIT-licensed reference implementation, Copyright (c) 2026 Lovecast Inc.
+serialization, the per-thread room turn model, the bot home layout, the
+MEMORY.md line format with its change history and tidy-up, and local mail
+between bots are adapted from an MIT-licensed reference implementation,
+Copyright (c) 2026 Lovecast Inc.
 
 MIT License
 -----------

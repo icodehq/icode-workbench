@@ -5,6 +5,56 @@ All notable changes to iCode are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.34.0] - 2026-11-27
+
+### Added
+
+- The New Bot dialog now has a **Run on** selector (Auto, this computer, or a
+  WSL distro), matching bot settings. A template bot can be created on the same
+  target as the project it supports instead of starting on Auto.
+- **Bot memory is a file.** Each bot now owns a `MEMORY.md` with one fact per
+  line, plus a `memory/` folder for topic notes. The Memory tab in bot settings
+  shows what the bot knows, lets you add, reword and forget facts, lists topic
+  files, and keeps a change history with Undo. Bot turns and task sessions load
+  the newest 200 lines; `memory.add` and `memory.forget` write the file directly
+  and mark the source as the bot. Existing bot-scoped memory moves into
+  `MEMORY.md` on the first start after upgrading.
+- **Group room approvals.** Claude permission requests from a group task's
+  worker session now appear in the room's Needs you dock, where they can be
+  allowed or denied without leaving the room.
+- **Live worker preview.** The Needs you dock polls the waiting task's session
+  and shows its latest output, with a reply box that writes to the same session.
+- Waiting group tasks now post their own notification instead of being folded
+  into the earlier started message.
+- **Bot home folders.** Every bot gets `SOUL.md`, `AGENTS.md`, `CLAUDE.md`,
+  `bot.json`, `MEMORY.md`, `memory/` and `skills/` under the app's data folder.
+  The Memory tab can open the folder.
+- **Memory upkeep.** Completed and canceled work leaves a dated line in
+  `memory/journal/YYYY-MM.md`; an over-long `MEMORY.md` moves its oldest facts
+  to `memory/archive.md` (at startup, every six hours, or from Tidy up in
+  settings), and Undo restores them. A lost `MEMORY.md` is rebuilt from its
+  change history, and a bot cannot quietly re-add a fact a recent tidy-up
+  moved out.
+- **Bot mail.** A bot can ask another bot directly with `peers.message`; the
+  message runs in the recipient's home chat and its answer comes back to the
+  sender. Mail is durable across restarts, waits for a busy recipient, and
+  stops after one answer so bots cannot loop.
+- **Bot skills.** A Skills tab in bot settings lists `skills/<name>/SKILL.md`,
+  with create, edit and delete; each skill's text is loaded into the bot's
+  prompts within the memory budget.
+- **Bot automations.** An Automations tab schedules a recurring prompt in a
+  bot's home chat (every 1 minute to 7 days), with pause and delete. Runs are
+  durable, a busy bot retries in a minute, and a paused bot is not woken.
+
+### Changed
+
+- Memory no longer has proposed/active/archived states, per-bot approval, or
+  project and group scopes; the bot's own file is the whole memory. Facts are
+  marked with where they came from rather than requiring approval.
+- Memory actions changed to `memory.add` (`text`) and `memory.forget` (`fact`).
+- Schema v36 adds the durable bot-mail queue (`bot_peer_mail`); v37 adds
+  scheduled bot automations (`bot_automations`).
+
 ## [0.33.0] - 2026-11-26
 
 ### Added

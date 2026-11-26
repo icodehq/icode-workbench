@@ -29,21 +29,26 @@ export const GUEST_SETTINGS_NAME = 'settings.wsl.json'
  * object to the activity socket, and exits 0 — always, and quickly.
  *
  * Rules encoded here on purpose:
- * - writes nothing to stdout (Claude consumes hook stdout),
+ * - writes only a PermissionRequest decision to stdout; every other event is silent,
  * - exits 0 even when iCode is unreachable, so an iCode failure cannot block Claude,
- * - reads stdin for at most 100 ms and never waits more than a second for the
- *   ingress to close the connection, so the process cannot linger.
+ * - reads stdin for at most 100 ms; a permission waits up to 126 s for a decision
+ *   and then prints `{}` so Claude asks in the terminal as usual.
  */
 const HOOK_SCRIPT = `#!/usr/bin/env node
 'use strict'
 const net = require('node:net')
 const MAX_BYTES = 8 * 1024
 const DEADLINE_MS = 100
+const PERMISSION_HOLD_MS = 126000
 const eventName = process.argv[2] || ''
+const isPermission = eventName === 'PermissionRequest'
 const socketPath = process.env.ICODE_ACTIVITY_SOCKET || ''
 const sessionId = process.env.ICODE_SESSION_ID || ''
 const incarnationId = process.env.ICODE_SESSION_INCARNATION || ''
 function done() { process.exit(0) }
+function reply(text) {
+  try { process.stdout.write((text || '{}') + '\\n') } catch {}
+}
 const timer = setTimeout(done, DEADLINE_MS)
 timer.unref()
 if (!eventName || !socketPath || !sessionId || !incarnationId) done()
@@ -61,21 +66,37 @@ function finish(payload) {
   } catch {
     done()
   }
-  // The ingress destroys the connection once it has the payload. The guard is
-  // a safety net for a server that accepts the pipe and then stalls; a hook
-  // must never hold a Claude turn open.
-  const guard = setTimeout(done, 1000)
+  // A normal event closes as soon as the ingress has the payload. A
+  // PermissionRequest keeps the connection open for the person's decision;
+  // after the budget it prints an empty decision so the terminal asks as usual.
+  const guard = setTimeout(function () {
+    if (isPermission) reply('{}')
+    done()
+  }, isPermission ? PERMISSION_HOLD_MS : 1000)
   guard.unref()
-  socket.on('error', function () { clearTimeout(guard); done() })
+  let answer = ''
+  socket.on('data', function (chunk) {
+    if (isPermission) answer += String(chunk)
+  })
+  socket.on('error', function () {
+    clearTimeout(guard)
+    if (isPermission) reply(answer)
+    done()
+  })
   socket.on('connect', function () {
     try {
-      socket.end(JSON.stringify(payload))
+      socket.write(JSON.stringify(payload) + '\\n')
     } catch {
       clearTimeout(guard)
+      if (isPermission) reply('{}')
       done()
     }
   })
-  socket.on('close', function () { clearTimeout(guard); done() })
+  socket.on('close', function () {
+    clearTimeout(guard)
+    if (isPermission) reply(answer)
+    done()
+  })
 }
 process.stdin.on('data', function (chunk) {
   if (finished) return
@@ -90,6 +111,14 @@ process.stdin.on('end', function () {
   function text(value, limit) {
     return typeof value === 'string' && value.length > 0 && value.length <= limit ? value : null
   }
+  let toolInput = null
+  try {
+    if (input.tool_input !== undefined) {
+      toolInput = JSON.stringify(input.tool_input).slice(0, 3500)
+    }
+  } catch {
+    toolInput = null
+  }
   finish({
     event: eventName,
     sessionId: sessionId,
@@ -97,6 +126,8 @@ process.stdin.on('end', function () {
     claudeSessionId: text(input.session_id, 128),
     promptId: text(input.prompt_id, 128),
     toolName: text(input.tool_name, 64),
+    toolInput: isPermission ? toolInput : null,
+    permissionHold: isPermission,
     sentAt: Date.now()
   })
 })
@@ -203,6 +234,8 @@ function buildSettings(
     if (event === 'PreToolUse' || event === 'PostToolUse' || event === 'PostToolUseFailure') {
       entry.matcher = '*'
     }
+    // PermissionRequest holds the hook until a person answers or the budget ends.
+    if (event === 'PermissionRequest') entry.timeout = 130
     hooks[event] = [entry]
   }
   return `${JSON.stringify({ hooks }, null, 2)}\n`

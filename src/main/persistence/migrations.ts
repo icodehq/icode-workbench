@@ -1856,5 +1856,57 @@ export const MIGRATIONS: readonly Migration[] = [
              updated_at = CAST(strftime('%s', 'now') AS INTEGER) * 1000
        WHERE kind = 'main' AND archived_at IS NULL`
     ]
+  },
+  {
+    version: 36,
+    name: 'bot-peer-mail',
+    /**
+     * One bot asking another a question outside a group room. The queue is
+     * durable so a restart, or a target that is mid-turn, does not lose it.
+     */
+    statements: [
+      `CREATE TABLE bot_peer_mail (
+         id TEXT PRIMARY KEY,
+         from_bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+         to_bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+         body TEXT NOT NULL CHECK (length(body) > 0 AND length(body) <= 4000),
+         depth INTEGER NOT NULL DEFAULT 0 CHECK (depth >= 0 AND depth <= 2),
+         status TEXT NOT NULL DEFAULT 'queued'
+           CHECK (status IN ('queued', 'delivering', 'delivered', 'failed')),
+         error TEXT,
+         message_id TEXT,
+         created_at INTEGER NOT NULL,
+         delivered_at INTEGER
+       ) STRICT`,
+      `CREATE INDEX bot_peer_mail_to_idx
+         ON bot_peer_mail (to_bot_id, status, created_at)`
+    ]
+  },
+  {
+    version: 37,
+    name: 'bot-automations',
+    /**
+     * A recurring prompt a bot runs in its home chat. The next run is stored
+     * so a restart does not fire a backlog and a busy bot retries later.
+     */
+    statements: [
+      `CREATE TABLE bot_automations (
+         id TEXT PRIMARY KEY,
+         bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+         name TEXT NOT NULL CHECK (length(name) > 0 AND length(name) <= 120),
+         prompt TEXT NOT NULL CHECK (length(prompt) > 0 AND length(prompt) <= 4000),
+         interval_minutes INTEGER NOT NULL
+           CHECK (interval_minutes >= 1 AND interval_minutes <= 10080),
+         enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+         last_run_at INTEGER,
+         next_run_at INTEGER NOT NULL,
+         created_at INTEGER NOT NULL,
+         updated_at INTEGER NOT NULL
+       ) STRICT`,
+      `CREATE INDEX bot_automations_due_idx
+         ON bot_automations (enabled, next_run_at)`,
+      `CREATE INDEX bot_automations_bot_idx
+         ON bot_automations (bot_id, created_at)`
+    ]
   }
 ]

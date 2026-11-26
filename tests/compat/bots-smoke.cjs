@@ -186,6 +186,22 @@ async function main() {
     )
     assert(
       (await cdp.evaluate(
+        `document.querySelector('[data-testid="new-bot-target"]')?.value`
+      )) === 'auto',
+      'Expected the New Bot target to default to Auto'
+    )
+    await cdp.evaluate(`(() => {
+      const select = document.querySelector('[data-testid="new-bot-target"]')
+      select.value = 'local'
+      select.dispatchEvent(new Event('change', { bubbles: true }))
+      return true
+    })()`)
+    await waitFor(
+      `document.querySelector('[data-testid="new-bot-target"]')?.value === 'local'`,
+      'New Bot target selection'
+    )
+    assert(
+      (await cdp.evaluate(
         `document.querySelectorAll('[data-testid^="new-bot-template-"]:not([data-testid="new-bot-template-search"])').length`
       )) === 26,
       'Expected 25 templates and a blank option on first run'
@@ -630,7 +646,129 @@ async function main() {
       `Boolean(document.querySelector('[data-testid="bot-memory-pane"]'))`,
       'memory pane'
     )
+    await waitFor(
+      `Boolean(document.querySelector('[data-testid="memory-value"]'))`,
+      'memory facts loaded'
+    )
+    await cdp.evaluate(`(() => {
+      const input = document.querySelector('[data-testid="memory-value"]')
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLTextAreaElement.prototype,
+        'value'
+      ).set
+      setter.call(input, 'Ships on Fridays')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })()`)
+    await waitFor(
+      `!document.querySelector('[data-testid="memory-add"]')?.disabled`,
+      'memory add ready'
+    )
+    await cdp.evaluate(
+      `document.querySelector('[data-testid="memory-add"]').click()`
+    )
+    await waitFor(
+      `document.body.innerText.includes('Ships on Fridays')`,
+      'the memory fact'
+    )
+    await cdp.evaluate(
+      `document.querySelector('[data-testid="memory-tab-history"]').click()`
+    )
+    await waitFor(
+      `Boolean(document.querySelector('[data-testid^="memory-history-"]'))`,
+      'memory history'
+    )
+    await cdp.evaluate(
+      `document.querySelector('[data-testid^="memory-undo-"]').click()`
+    )
+    await waitFor(
+      `document.body.innerText.includes('Undone')`,
+      'memory undo'
+    )
     await screenshot('04-bot-memory')
+    await cdp.evaluate(
+      `document.querySelector('[data-testid="bot-settings-tab-skills"]').click()`
+    )
+    await waitFor(
+      `Boolean(document.querySelector('[data-testid="bot-skills-pane"]'))`,
+      'skills pane'
+    )
+    await cdp.evaluate(
+      `document.querySelector('[data-testid="skills-new"]').click()`
+    )
+    await waitFor(
+      `Boolean(document.querySelector('[data-testid="skills-name"]'))`,
+      'new skill form'
+    )
+    await cdp.evaluate(`(() => {
+      const input = document.querySelector('[data-testid="skills-name"]')
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        'value'
+      ).set
+      setter.call(input, 'release-notes')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      const textarea = document.querySelector('[data-testid="skills-text"]')
+      const textSetter = Object.getOwnPropertyDescriptor(
+        window.HTMLTextAreaElement.prototype,
+        'value'
+      ).set
+      textSetter.call(textarea, '# Release notes\\n\\nHow to write them.')
+      textarea.dispatchEvent(new Event('input', { bubbles: true }))
+    })()`)
+    await waitFor(
+      `!document.querySelector('[data-testid="skills-save"]')?.disabled`,
+      'skill save ready'
+    )
+    await cdp.evaluate(
+      `document.querySelector('[data-testid="skills-save"]').click()`
+    )
+    await waitFor(
+      `Boolean(document.querySelector('[data-testid="skills-row-release-notes"]'))`,
+      'saved skill'
+    )
+    await screenshot('04a-bot-skills')
+    await cdp.evaluate(
+      `document.querySelector('[data-testid="bot-settings-tab-automations"]').click()`
+    )
+    await waitFor(
+      `Boolean(document.querySelector('[data-testid="bot-automations-pane"]'))`,
+      'automations pane'
+    )
+    await cdp.evaluate(
+      `document.querySelector('[data-testid="automations-new"]').click()`
+    )
+    await waitFor(
+      `Boolean(document.querySelector('[data-testid="automation-name"]'))`,
+      'new automation form'
+    )
+    await cdp.evaluate(`(() => {
+      const input = document.querySelector('[data-testid="automation-name"]')
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        'value'
+      ).set
+      setter.call(input, 'Morning check')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      const prompt = document.querySelector('[data-testid="automation-prompt"]')
+      const textSetter = Object.getOwnPropertyDescriptor(
+        window.HTMLTextAreaElement.prototype,
+        'value'
+      ).set
+      textSetter.call(prompt, 'Review the queue.')
+      prompt.dispatchEvent(new Event('input', { bubbles: true }))
+    })()`)
+    await waitFor(
+      `!document.querySelector('[data-testid="automation-save"]')?.disabled`,
+      'automation save ready'
+    )
+    await cdp.evaluate(
+      `document.querySelector('[data-testid="automation-save"]').click()`
+    )
+    await waitFor(
+      `Boolean(document.querySelector('[data-testid^="automation-row-"]'))`,
+      'saved automation'
+    )
+    await screenshot('04b-bot-automations')
     await cdp.evaluate(
       `document.querySelector('[data-testid="bot-settings-tab-agent"]').click()`
     )

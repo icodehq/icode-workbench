@@ -31,6 +31,8 @@ export const activityHookPayloadSchema = z.strictObject({
   claudeSessionId: z.string().min(1).max(128).nullable(),
   promptId: z.string().min(1).max(128).nullable(),
   toolName: z.string().min(1).max(64).nullable(),
+  toolInput: z.string().max(4_000).nullable().default(null),
+  permissionHold: z.boolean().default(false),
   sentAt: timestampSchema
 })
 

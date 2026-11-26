@@ -21,6 +21,8 @@ function event(overrides: Partial<ActivityHookEvent> = {}): ActivityHookEvent {
     claudeSessionId: 'claude-1',
     promptId: 'prompt-1',
     toolName: null,
+    toolInput: null,
+    permissionHold: false,
     sentAt: 1_000,
     ...overrides
   }

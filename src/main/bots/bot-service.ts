@@ -1,8 +1,9 @@
 import type { Database } from '../persistence/database'
 import type { AssistantStore } from '../persistence/assistant-store'
 import type { BotStore } from '../persistence/bot-store'
-import type { BotMemoryStore } from '../persistence/bot-memory-store'
 import type { GroupStore } from '../persistence/group-store'
+import { seedBotMemorySync } from '../memory/memory-service'
+import { botHomeFolder, ensureBotHomeSync, refreshBotHomeSync } from './bot-home'
 import type { TaskStore } from '../tasks/task-store'
 import type { BotRecord, BotStatus, BotSummary } from '../../shared/domain/bot'
 import type { AssistantSettings, AssistantStatus } from '../../shared/domain/assistant'
@@ -15,7 +16,8 @@ export type BotServiceDeps = {
   assistants: AssistantStore
   bots: BotStore
   groups: GroupStore
-  memory: BotMemoryStore
+  /** iCode's user-data folder; when present, a new bot's seeded memory is written there. */
+  dataDir?: string
   tasks: TaskStore
   newId: (prefix: string) => string
   now: () => number
@@ -63,6 +65,19 @@ export class BotService {
 
   settingsFor(botId: string): AssistantSettings {
     return this.deps.bots.getSettings(botId)
+  }
+
+  /** The bot's home folder, created first when this is the first use. */
+  ensureHome(botId: string): string | null {
+    if (this.deps.dataDir === undefined) return null
+    const bot = this.deps.bots.findById(botId)
+    if (bot === null) return null
+    ensureBotHomeSync({
+      dataDir: this.deps.dataDir,
+      bot,
+      settings: this.settingsFor(botId)
+    })
+    return botHomeFolder(this.deps.dataDir, botId)
   }
 
   createBot(input: BotCreateInput): BotRecord {
@@ -126,21 +141,22 @@ export class BotService {
       createdAt: now
     })
     if (welcome) this.deps.assistants.markRead(threadId, welcome.seq, now)
-    if (input.seedMemory !== undefined && input.seedMemory.trim().length > 0) {
-      this.deps.memory.insert({
-        id: this.deps.newId('mem'),
-        scope: 'bot',
-        botId,
-        repoId: null,
-        teamId: null,
-        proposedByBotId: null,
-        key: 'seed',
-        value: input.seedMemory.trim(),
-        status: 'active',
-        sourceTaskId: null,
-        createdAt: now,
-        updatedAt: now
-      })
+    if (this.deps.dataDir !== undefined) {
+      if (input.seedMemory !== undefined && input.seedMemory.trim().length > 0) {
+        seedBotMemorySync({
+          dataDir: this.deps.dataDir,
+          botId,
+          text: input.seedMemory.trim()
+        })
+      }
+      const created = this.deps.bots.findById(botId)
+      if (created !== null) {
+        ensureBotHomeSync({
+          dataDir: this.deps.dataDir,
+          bot: created,
+          settings: this.settingsFor(botId)
+        })
+      }
     }
     this.emit({ type: 'changed', botId })
     return this.deps.bots.findById(botId)!
@@ -182,8 +198,20 @@ export class BotService {
         this.saveSettings(bot.id, { ...settings, personaName: input.name })
       }
     }
+    this.refreshHome(bot.id)
     this.emit({ type: 'changed', botId: bot.id })
     return updated
+  }
+
+  private refreshHome(botId: string): void {
+    if (this.deps.dataDir === undefined) return
+    const bot = this.deps.bots.findById(botId)
+    if (bot === null) return
+    refreshBotHomeSync({
+      dataDir: this.deps.dataDir,
+      bot,
+      settings: this.settingsFor(botId)
+    })
   }
 
   saveSettings(botId: string, settings: AssistantSettings): AssistantSettings {
@@ -199,6 +227,7 @@ export class BotService {
       }
       this.emit({ type: 'changed', botId })
     }
+    this.refreshHome(botId)
     return saved
   }
 
@@ -211,6 +240,7 @@ export class BotService {
       this.deps.now()
     )
     if (updated === null) throw new Error('That bot no longer exists.')
+    this.refreshHome(bot.id)
     this.emit({ type: 'changed', botId: bot.id })
     return updated
   }
@@ -219,7 +249,10 @@ export class BotService {
     const bot = this.deps.bots.findById(botId)
     if (bot === null) return false
     const archived = this.deps.bots.archive(botId, this.deps.now())
-    if (archived) this.emit({ type: 'removed', botId })
+    if (archived) {
+      this.refreshHome(botId)
+      this.emit({ type: 'removed', botId })
+    }
     return archived
   }
 

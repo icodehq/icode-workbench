@@ -87,8 +87,8 @@ export type AssistantPromptInput = {
   snapshot: AssistantSnapshot
   /** The bot whose thread this is. Absent for the legacy assistant prompt. */
   bot?: BotProfile
-  /** Scoped active memory resolved by the bot runtime. */
-  memory?: Array<{ key: string; value: string; scope?: string }>
+  /** The MEMORY.md lines and topic notes a session loads, newest first. */
+  memory?: { lines: string[]; omitted: number; topics?: Array<{ name: string; text: string }> }
   history: Array<{ role: string; body: string }>
   userText: string
   repoId?: string
@@ -115,8 +115,9 @@ const ACTION_HELP = `Actions you may return (JSON objects with an "op"):
 - {"op":"supervisor.message","repoId":"...","text":"..."}
 - {"op":"review.recommend","taskId":"...","decision":"accept"|"reject","note":"..."}
 - {"op":"notify","text":"...","kind":"approval-needed"|"task-failed"|"plan-ready"|"custom","priority":"high"|"normal"|"low"}
-- {"op":"memory.set","key":"...","value":"...","scope":"bot"|"project"|"team","repoId":"...","teamId":"..."}
-- {"op":"memory.forget","key":"...","scope":"bot"|"project"|"team","repoId":"...","teamId":"..."}
+- {"op":"memory.add","text":"..."} — keep one durable fact as a line in your MEMORY.md
+- {"op":"memory.forget","fact":"..."} — remove a remembered line, by its words
+- {"op":"peers.message","to":"<bot name or id>","text":"..."} — ask another bot directly; its answer comes back to this chat
 - {"op":"items.comment","taskId":"...","text":"..."} — add an owner-visible update to an Item
 - {"op":"items.ask","taskId":"...","text":"...","options":["..."]} — ask the owner a blocking question; the Item moves to Needs you until answered
 - {"op":"items.link","taskId":"...","kind":"url"|"file"|"pr","ref":"..."} — attach evidence to an Item
@@ -156,7 +157,8 @@ You are not a supervisor who owns the project; you work for the user. Be concise
 ${ACTION_HELP}
 
 ${protectedText}
-Use memory.set only for durable, useful preferences. Never store secrets.
+Use memory.add only for durable, useful facts and preferences, one line each. Never store secrets.
+Use peers.message only when another bot owns information or work you need; do not use it to hand back your own job.
 For proactive messages, use notify only when the user needs to know now.`
 
   const context = JSON.stringify(
@@ -167,7 +169,7 @@ For proactive messages, use notify only when the user needs to know now.`
       projects: snapshot.projects,
       tasks: snapshot.tasks,
       sessions: snapshot.sessions,
-      memory: input.memory ?? [],
+      memory: input.memory ?? { lines: [], omitted: 0, topics: [] },
       currentProject: input.repoId ?? null
     },
     null,
