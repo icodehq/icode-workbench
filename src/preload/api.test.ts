@@ -60,6 +60,7 @@ describe('preload API surface', () => {
         'onTaskEvent',
         'onViewCommand',
         'opencodeIntegration',
+        'pathForFile',
         'permissions',
         'providers',
         'remotes',

@@ -292,6 +292,8 @@ export type AssistantState = {
   status: AssistantStatus
   harness: string | null
   target: string | null
+  /** Characters in the last run's prompt; null before the first run. */
+  contextChars: number | null
   /** Present while a turn is running, including after a renderer reload. */
   activeRun: AssistantActiveRun | null
   settings: AssistantSettings

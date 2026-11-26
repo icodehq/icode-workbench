@@ -169,6 +169,8 @@ export const assistantStateSchema = z.strictObject({
   status: assistantStatusSchema,
   harness: z.string().max(40).nullable(),
   target: z.string().max(240).nullable(),
+  /** Characters in the last run's prompt; null before the first run. */
+  contextChars: z.number().int().min(0).nullable(),
   activeRun: z
     .strictObject({
       id: z.string().min(1).max(120),

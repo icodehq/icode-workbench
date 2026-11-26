@@ -796,6 +796,17 @@ export class AssistantStore {
     return row ? runFromRow(row) : null
   }
 
+  /** The newest run of a thread, for the prompt-size ring its composer shows. */
+  latestRunForThread(threadId: string): AssistantRun | null {
+    const row = this.db.raw
+      .prepare(
+        `SELECT ${RUN_COLUMNS} FROM assistant_runs
+         WHERE thread_id = ? ORDER BY started_at DESC, id DESC LIMIT 1`
+      )
+      .get(threadId) as RunRow | undefined
+    return row ? runFromRow(row) : null
+  }
+
   updateRun(
     id: string,
     patch: {

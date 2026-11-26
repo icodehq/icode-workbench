@@ -4,7 +4,6 @@ import {
   Loader2,
   MessageSquare,
   Plus,
-  Send,
   Settings,
   Square,
   Users
@@ -27,6 +26,13 @@ import ItemsRail from './ItemsRail'
 import GroupNeedsDock from './GroupNeedsDock'
 import Markdown from '../Markdown'
 import { useT } from '../../i18n/use-i18n'
+import {
+  filesToAttachments,
+  messageWithAttachments,
+  usePersistentDraft,
+  type ComposerAttachment
+} from '../../lib/composer-input'
+import ChatComposer from '../composer/ChatComposer'
 
 function formatDuration(ms: number): string {
   const seconds = Math.max(1, Math.round(ms / 1000))
@@ -103,8 +109,11 @@ export default function GroupRoomPage({
 }): React.JSX.Element {
   const t = useT()
   const room = useGroupRoom(group.id, thread.id, notify)
-  const [draft, setDraft] = useState('')
+  const [draft, setDraft] = usePersistentDraft(`group:${group.id}:${thread.id}`)
   const [caret, setCaret] = useState(0)
+  const [mentionIndex, setMentionIndex] = useState(0)
+  const [mentionDismissed, setMentionDismissed] = useState(false)
+  const [attachments, setAttachments] = useState<ComposerAttachment[]>([])
   const [creatingThread, setCreatingThread] = useState(false)
   const [updatingMode, setUpdatingMode] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -148,10 +157,25 @@ export default function GroupRoomPage({
     return { start, items: items.slice(0, 6), everyone }
   }, [caret, draft, members])
 
+  const mentionOptions = useMemo(
+    () =>
+      mentionMenu === null
+        ? []
+        : [
+            ...mentionMenu.items.map((bot) => ({ key: bot.id, name: bot.name })),
+            ...(mentionMenu.everyone
+              ? [{ key: 'everyone', name: 'everyone' }]
+              : [])
+          ],
+    [mentionMenu]
+  )
+
   useEffect(() => {
-    setDraft('')
-    setCaret(0)
+    setCaret(draft.length)
+    setMentionIndex(0)
+    setMentionDismissed(false)
     stickBottom.current = true
+    // A thread switch restores that thread's own draft; the caret follows it.
   }, [thread.id])
 
   useEffect(() => {
@@ -181,6 +205,7 @@ export default function GroupRoomPage({
     if (mentionMenu === null) return
     const next = `${draft.slice(0, mentionMenu.start)}@${name} ${draft.slice(caret)}`
     setDraft(next)
+    setMentionDismissed(true)
     const position = mentionMenu.start + name.length + 2
     setCaret(position)
     requestAnimationFrame(() => {
@@ -192,14 +217,45 @@ export default function GroupRoomPage({
   }
 
   const send = async (): Promise<void> => {
-    const text = draft.trim()
+    const text = messageWithAttachments(draft, attachments)
     if (text.length === 0 || audience === 'invalid') return
     stickBottom.current = true
     const ok = await room.send(text)
     if (ok) {
       setDraft('')
       setCaret(0)
+      setAttachments([])
     }
+  }
+
+  const addFiles = (files: File[]): void => {
+    void filesToAttachments(files).then((added) => {
+      if (added.length > 0) setAttachments((current) => [...current, ...added])
+    })
+  }
+
+  const composerKeys = (event: React.KeyboardEvent<HTMLTextAreaElement>): boolean => {
+    if (mentionMenu === null || mentionDismissed) return false
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault()
+      const step = event.key === 'ArrowDown' ? 1 : -1
+      setMentionIndex(
+        (current) => (current + step + mentionOptions.length) % mentionOptions.length
+      )
+      return true
+    }
+    if (event.key === 'Enter' || event.key === 'Tab') {
+      event.preventDefault()
+      const option = mentionOptions[Math.min(mentionIndex, mentionOptions.length - 1)]
+      if (option !== undefined) insertMention(option.name)
+      return true
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      setMentionDismissed(true)
+      return true
+    }
+    return false
   }
 
   const changeReplyMode = async (value: string): Promise<void> => {
@@ -576,85 +632,88 @@ export default function GroupRoomPage({
           onTaskAction={onTaskAction}
         />
 
-        <div className="relative shrink-0 border-t border-border bg-card p-3">
-          {mentionMenu !== null ? (
-            <div className="absolute bottom-full left-3 z-20 mb-1 w-64 overflow-hidden rounded-md border border-border bg-card py-1 shadow-xl">
-              {mentionMenu.items.map((bot) => (
-                <button
-                  key={bot.id}
-                  type="button"
-                  className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-[11px] hover:bg-muted"
-                  onMouseDown={(event) => {
-                    event.preventDefault()
-                    insertMention(bot.name)
-                  }}
-                >
-                  <AssistantAvatar
-                    name={bot.name}
-                    status={bot.status}
-                    size="sm"
-                    color={bot.avatarColor}
-                    image={bot.avatarImage}
-            mascot={bot.avatarMascot}
-            outfit={bot.avatarOutfit}
-                  />
-                  <span className="truncate">{bot.name}</span>
-                </button>
-              ))}
-              {mentionMenu.everyone ? (
-                <button
-                  type="button"
-                  className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-[11px] hover:bg-muted"
-                  onMouseDown={(event) => {
-                    event.preventDefault()
-                    insertMention('everyone')
-                  }}
-                >
-                  <Users size={12} className="text-muted-foreground" />
-                  <span>everyone</span>
-                </button>
-              ) : null}
-            </div>
-          ) : null}
-          <textarea
-            ref={composerRef}
-            className="max-h-40 min-h-[56px] w-full resize-none rounded-md border border-border bg-background px-2.5 py-2 text-[12px] leading-relaxed outline-none focus:border-line-strong"
-            value={draft}
-            placeholder={t('bots.composer.placeholder')}
-            onChange={(event) => {
-              setDraft(event.target.value)
-              setCaret(event.target.selectionStart)
-            }}
-            onSelect={(event) => setCaret(event.currentTarget.selectionStart)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault()
-                void send()
-              }
-            }}
-            data-testid="bots-composer"
-          />
-          <div className="mt-1.5 flex items-center gap-2">
+        <ChatComposer
+          textareaRef={composerRef}
+          value={draft}
+          onChange={(value) => {
+            setDraft(value)
+            setCaret(value.length)
+            setMentionIndex(0)
+            setMentionDismissed(false)
+          }}
+          onSelect={(event) => setCaret(event.currentTarget.selectionStart)}
+          onSend={() => void send()}
+          onKeyDown={composerKeys}
+          sending={room.sending}
+          blocked={audience === 'invalid'}
+          placeholder={t('bots.composer.placeholder')}
+          footerLeft={
             <span
-              className={`min-w-0 flex-1 truncate text-[9.5px] ${
+              className={`truncate text-[9.5px] ${
                 audience === 'invalid' ? 'text-destructive' : 'text-muted-foreground'
               }`}
               data-testid="bots-audience"
             >
               {audienceLabel}
             </span>
-            <button
-              type="button"
-              className="inline-flex h-7 items-center gap-1.5 rounded bg-accent px-2.5 text-[10.5px] font-medium text-accent-ink hover:opacity-90 disabled:opacity-40"
-              onClick={() => void send()}
-              disabled={room.sending || draft.trim().length === 0 || audience === 'invalid'}
-              data-testid="bots-send"
-            >
-              {room.sending ? <Loader2 size={10} className="animate-spin" /> : <Send size={10} />}
-              {t('bots.composer.send')}
-            </button>
-          </div>
-        </div>
+          }
+          attachments={attachments}
+          onAttachFiles={addFiles}
+          onRemoveAttachment={(id) =>
+            setAttachments((current) => current.filter((file) => file.id !== id))
+          }
+          commands={[
+            { name: '/thread', run: () => void onNewThread() },
+            { name: '/stop', run: () => void room.stop() },
+            { name: '/settings', run: () => setSettingsOpen(true) }
+          ]}
+          testIds={{ textarea: 'bots-composer', send: 'bots-send' }}
+          menu={
+            mentionMenu !== null && !mentionDismissed ? (
+              <div className="w-64 overflow-hidden rounded-md border border-border bg-card py-1 shadow-xl">
+                {mentionMenu.items.map((bot, index) => (
+                  <button
+                    key={bot.id}
+                    type="button"
+                    className={`flex w-full items-center gap-2 px-2 py-1.5 text-left text-[11px] ${
+                      mentionIndex === index ? 'bg-muted' : 'hover:bg-muted'
+                    }`}
+                    onMouseDown={(event) => {
+                      event.preventDefault()
+                      insertMention(bot.name)
+                    }}
+                  >
+                    <AssistantAvatar
+                      name={bot.name}
+                      status={bot.status}
+                      size="sm"
+                      color={bot.avatarColor}
+                      image={bot.avatarImage}
+                      mascot={bot.avatarMascot}
+                      outfit={bot.avatarOutfit}
+                    />
+                    <span className="truncate">{bot.name}</span>
+                  </button>
+                ))}
+                {mentionMenu.everyone ? (
+                  <button
+                    type="button"
+                    className={`flex w-full items-center gap-2 px-2 py-1.5 text-left text-[11px] ${
+                      mentionIndex === mentionMenu.items.length ? 'bg-muted' : 'hover:bg-muted'
+                    }`}
+                    onMouseDown={(event) => {
+                      event.preventDefault()
+                      insertMention('everyone')
+                    }}
+                  >
+                    <Users size={12} className="text-muted-foreground" />
+                    <span>everyone</span>
+                  </button>
+                ) : null}
+              </div>
+            ) : undefined
+          }
+        />
       </div>
 
       <ItemsRail

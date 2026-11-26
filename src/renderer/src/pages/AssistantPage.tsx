@@ -1,6 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { ArrowUp, Loader2, Plus, Settings2, Square } from 'lucide-react'
+import { Loader2, Plus, Settings2, Square } from 'lucide-react'
 import type { AssistantRunStage } from '../../../shared/domain/assistant'
+import { ASSISTANT_LIMITS } from '../../../shared/domain/assistant'
+import { MODEL_HARNESSES } from '../../../shared/domain/harness'
 import type { RepositorySummary } from '../../../shared/schemas/ipc'
 import type { TaskRecordPayload } from '../../../shared/icode-api'
 import type { AssistantCardPayload } from '../../../shared/schemas/assistant'
@@ -13,6 +15,13 @@ import AssistantAvatar from '../components/AssistantAvatar'
 import AssistantCardView, { type AssistantTaskAction } from '../components/AssistantCardView'
 import Markdown from '../components/Markdown'
 import { useT } from '../i18n/use-i18n'
+import ChatComposer from '../components/composer/ChatComposer'
+import {
+  filesToAttachments,
+  messageWithAttachments,
+  usePersistentDraft,
+  type ComposerAttachment
+} from '../lib/composer-input'
 import { getLocale } from '../i18n/i18n-store'
 import { formatDateTime } from '../../../shared/i18n'
 
@@ -91,6 +100,7 @@ export default function AssistantPage({
   image,
   mascot,
   outfit,
+  draftScope,
   onOpenTask,
   onTaskAction,
   onOpenSettings
@@ -110,12 +120,19 @@ export default function AssistantPage({
   image?: string | null
   mascot?: string | null
   outfit?: string | null
+  /** Stable key for this chat's unsent draft; defaults to its assistant thread. */
+  draftScope?: string
   onOpenTask?: (taskId: string) => void
   onTaskAction?: (action: AssistantTaskAction, taskId: string) => void
   onOpenSettings?: () => void
 }): React.JSX.Element {
   const t = useT()
-  const [draft, setDraft] = useState('')
+  const [draft, setDraft] = usePersistentDraft(
+    `${draftScope ?? assistant.threadId ?? 'assistant'}:${assistant.selectedConversationId ?? 'latest'}`
+  )
+  const [queued, setQueued] = useState<string[]>([])
+  const [attachments, setAttachments] = useState<ComposerAttachment[]>([])
+  const queueBusy = useRef(false)
   const [focusedId, setFocusedId] = useState<string | null>(null)
   const threadRef = useRef<HTMLDivElement | null>(null)
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
@@ -183,7 +200,7 @@ export default function AssistantPage({
     void assistant.selectConversation(conversationId)
   }
 
-  const send = async (text: string): Promise<void> => {
+  const submit = async (text: string): Promise<void> => {
     const value = text.trim()
     if (value.length === 0 || assistant.status === 'working') return
     setDraft('')
@@ -193,6 +210,39 @@ export default function AssistantPage({
     if (!ok) setDraft(value)
     inputRef.current?.focus()
   }
+
+  const send = async (text: string): Promise<void> => {
+    const value = messageWithAttachments(text, attachments)
+    if (value.length === 0) return
+    setAttachments([])
+    if (assistant.status === 'working') {
+      setQueued((current) => [...current, value])
+      setDraft('')
+      inputRef.current?.focus()
+      return
+    }
+    await submit(value)
+  }
+
+  const addFiles = (files: File[]): void => {
+    void filesToAttachments(files).then((added) => {
+      if (added.length > 0) setAttachments((current) => [...current, ...added])
+    })
+  }
+
+  useEffect(() => {
+    if (assistant.status === 'working') queueBusy.current = false
+  }, [assistant.status])
+
+  useEffect(() => {
+    if (assistant.status === 'working' || queued.length === 0 || queueBusy.current) return
+    const [next, ...rest] = queued
+    if (next === undefined) return
+    queueBusy.current = true
+    setQueued(rest)
+    void submit(next)
+    // submit reads the current status; queued drains one turn at a time.
+  }, [assistant.status, queued])
 
   const working = assistant.status === 'working'
   const live = assistant.live
@@ -445,42 +495,76 @@ export default function AssistantPage({
         </div>
       </div>
 
-      <div className="shrink-0 border-t border-border bg-card px-5 py-3">
-        <div className="mx-auto flex w-full max-w-3xl items-end gap-2">
-          <textarea
-            ref={inputRef}
-            className="min-h-[38px] max-h-32 flex-1 resize-none rounded-md border border-border bg-background px-3 py-2 text-[12px] text-foreground outline-none placeholder:text-muted-foreground focus:border-line-strong"
-            placeholder={
-              working
-                ? t('assistant.workingPlaceholder', { name: assistant.personaName })
-                : followingLatest
-                  ? t('assistant.placeholder', { name: assistant.personaName })
-                  : 'Viewing an earlier conversation — sending returns to the current one'
-            }
-            rows={1}
-            value={draft}
-            disabled={working}
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault()
-                void send(draft)
-              }
+      <ChatComposer
+        textareaRef={inputRef}
+        value={draft}
+        onChange={setDraft}
+        onSend={() => void send(draft)}
+        onStop={() => void assistant.stop()}
+        working={working}
+        placeholder={
+          working
+            ? t('assistant.workingPlaceholder', { name: assistant.personaName })
+            : followingLatest
+              ? t('assistant.placeholder', { name: assistant.personaName })
+              : 'Viewing an earlier conversation — sending returns to the current one'
+        }
+        queued={queued.length}
+        queuedLabel={
+          queued.length > 0
+            ? t('assistant.composer.queued', { count: String(queued.length) })
+            : undefined
+        }
+        attachments={attachments}
+        commands={[
+          { name: '/new', run: () => void assistant.newConversation() },
+          { name: '/stop', run: () => void assistant.stop() },
+          ...(onOpenSettings === undefined
+            ? []
+            : [{ name: '/settings', run: onOpenSettings }])
+        ]}
+        contextUsage={
+          assistant.contextChars === null
+            ? null
+            : { used: assistant.contextChars, max: ASSISTANT_LIMITS.maxPromptChars }
+        }
+        onAttachFiles={addFiles}
+        onRemoveAttachment={(id) =>
+          setAttachments((current) => current.filter((file) => file.id !== id))
+        }
+        footerRight={
+          <select
+            className="h-6 max-w-24 shrink-0 rounded border border-border bg-background px-1 text-[9px] text-muted-foreground outline-none hover:text-foreground focus:border-line-strong"
+            value={assistant.settings.harnessPriority[0]}
+            onChange={(event) => {
+              const harness = event.target.value as (typeof MODEL_HARNESSES)[number]
+              void assistant.saveSettings({
+                ...assistant.settings,
+                harnessPriority: [
+                  harness,
+                  ...assistant.settings.harnessPriority.filter(
+                    (entry) => entry !== harness
+                  )
+                ]
+              })
             }}
-            data-testid="assistant-composer"
-          />
-          <button
-            type="button"
-            className="inline-flex h-[38px] w-[38px] items-center justify-center rounded-md bg-accent text-accent-ink hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-            disabled={working || draft.trim().length === 0}
-            onClick={() => void send(draft)}
-            aria-label={t('assistant.send')}
-            data-testid="assistant-send"
+            title="Agent"
+            aria-label="Agent"
+            data-testid="assistant-agent"
           >
-            <ArrowUp size={15} />
-          </button>
-        </div>
-      </div>
+            {MODEL_HARNESSES.map((harness) => (
+              <option key={harness} value={harness}>
+                {harness === 'claude'
+                  ? 'Claude'
+                  : harness === 'codex'
+                    ? 'Codex'
+                    : 'OpenCode'}
+              </option>
+            ))}
+          </select>
+        }
+        testIds={{ textarea: 'assistant-composer', send: 'assistant-send' }}
+      />
     </div>
   )
 }

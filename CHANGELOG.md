@@ -5,6 +5,23 @@ All notable changes to iCode are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.35.0] - 2026-11-27
+
+### Changed
+
+- Bot home and group rooms share one composer: a rounded card that grows to
+  eight lines, keeps a separate draft per chat across reloads, never sends on
+  Enter while an IME is composing, queues messages while the bot is working,
+  turns the primary button into Stop when nothing is typed, and gives the
+  group mention picker arrow-key navigation with Enter/Tab and Escape.
+- The composer attaches files by path (picker, drop or paste), shows chips
+  with image previews, and offers dictation where the system speech
+  recognizer exists.
+- Slash commands: `/new`, `/stop` and `/settings` in a bot home; `/thread`,
+  `/stop` and `/settings` in a group room.
+- The bot composer shows an agent picker and a context ring for the last
+  prompt against the prompt budget.
+
 ## [0.34.0] - 2026-11-27
 
 ### Added
