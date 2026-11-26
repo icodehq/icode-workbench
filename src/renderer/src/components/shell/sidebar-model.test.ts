@@ -3,13 +3,9 @@ import type { TaskRecordPayload } from '../../../../shared/icode-api'
 import type { RepositorySummary, SessionSummary } from '../../../../shared/schemas/ipc'
 import {
   attentionTaskCount,
-  buildSidebarTaskGroups,
-  directSessionsByRepo,
   groupDirectSessions,
   pinnedProjectsFirst,
-  repositoryRemovalImpact,
-  sidebarTaskRank,
-  sortSidebarTasks
+  repositoryRemovalImpact
 } from './sidebar-model'
 
 function repo(id: string): RepositorySummary {
@@ -106,14 +102,6 @@ describe('repository removal impact', () => {
 })
 
 describe('sidebar model', () => {
-  it('excludes task-owned sessions from the direct-session map', () => {
-    const map = directSessionsByRepo(
-      [session('direct', 'demo'), session('task', 'demo')],
-      new Set(['task'])
-    )
-    expect(map.get('demo')?.map((entry) => entry.id)).toEqual(['direct'])
-  })
-
   it('groups default-checkout sessions and worktrees by checkout and keeps order', () => {
     const groups = groupDirectSessions([
       session('root-1', 'demo'),
@@ -138,60 +126,8 @@ describe('sidebar model', () => {
     expect(groups.worktrees[0]?.sessions.map((entry) => entry.id)).toEqual(['wt-1', 'wt-2'])
   })
 
-  it('ranks attention before running, queued and finished', () => {
-    expect(sidebarTaskRank(task('review', 'demo', 'completed', { reviewDecision: 'pending' }))).toBe(4)
-    expect(sidebarTaskRank(task('run', 'demo', 'running'))).toBe(5)
-    expect(sidebarTaskRank(task('queue', 'demo', 'queued'))).toBe(6)
-    expect(sidebarTaskRank(task('done', 'demo', 'completed', { reviewDecision: 'accepted' }))).toBe(7)
-  })
-
-  it('groups tasks by repository and filters Needs-you while excluding archives', () => {
-    const groups = buildSidebarTaskGroups(
-      [
-        task('needs', 'demo', 'failed', { updatedAt: 2 }),
-        task('running', 'demo', 'running', { updatedAt: 1 }),
-        task('archived', 'api', 'failed', { archivedAt: 1 }),
-        task('api-review', 'api', 'completed', { reviewDecision: 'pending' })
-      ],
-      [repo('demo'), repo('api')],
-      true
-    )
-    expect(groups.map((group) => group.repo.id)).toEqual(['demo', 'api'])
-    expect(groups[0]?.tasks.map((entry) => entry.id)).toEqual(['needs'])
-    expect(groups[1]?.tasks.map((entry) => entry.id)).toEqual(['api-review'])
-  })
-
-  it('keeps history mode separate from the active queue', () => {
-    const groups = buildSidebarTaskGroups(
-      [
-        task('active', 'demo', 'running'),
-        task('archived', 'demo', 'completed', { archivedAt: 1 })
-      ],
-      [repo('demo')],
-      false,
-      true
-    )
-    expect(groups[0]?.tasks.map((entry) => entry.id)).toEqual(['archived'])
-  })
-
-  it('preserves repo order and counts attention', () => {
-    const demo = repo('demo')
-    const api = repo('api')
-    const groups = buildSidebarTaskGroups(
-      [task('one', 'api', 'running'), task('two', 'demo', 'queued')],
-      [demo, api]
-    )
-    expect(groups.map((group) => group.repo.id)).toEqual(['demo', 'api'])
+  it('counts attention tasks', () => {
     expect(attentionTaskCount([task('a', 'demo', 'failed'), task('b', 'demo', 'running')])).toBe(1)
-  })
-
-  it('sorts tasks deterministically within a group', () => {
-    const sorted = sortSidebarTasks([
-      task('old', 'demo', 'queued', { updatedAt: 1 }),
-      task('new', 'demo', 'queued', { updatedAt: 3 }),
-      task('needs', 'demo', 'failed', { updatedAt: 0 })
-    ])
-    expect(sorted.map((entry) => entry.id)).toEqual(['needs', 'new', 'old'])
   })
 
   it('splits pinned projects from the rest without changing order', () => {

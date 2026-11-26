@@ -188,7 +188,6 @@ describe('project directory model', () => {
     })
     expect(stats.activity).toMatchObject({ state: 'unknown' })
     expect(stats.lastActivityAt).toBe(80)
-    expect(stats.openMode).toBe('sessions')
     expect(needsLabel(stats.needs)).toBe('Answer 1 · Review 1')
 
     const taskOnly = projectStats(
@@ -198,10 +197,9 @@ describe('project directory model', () => {
     )
     expect(taskOnly.load).toEqual({ live: 0, running: 1, queued: 0, total: 1 })
     expect(taskOnly.needs.waiting).toBe(0)
-    expect(taskOnly.openMode).toBe('tasks')
 
     const empty = projectStats(repo('empty'), [], [])
-    expect(empty.openMode).toBe('sessions')
+    expect(empty.load).toEqual({ live: 0, running: 0, queued: 0, total: 0 })
   })
 
   it('orders cross-project attention by kind, then oldest first', () => {

@@ -20,6 +20,8 @@ export type TaskOverviewProps = {
   projectTasks: TaskRecordPayload[]
   notify: (notice: Notice) => void
   session: SessionSummary | null
+  /** The assigned bot's display name, when this task belongs to one. */
+  botName?: string
   onOpenTerminal: () => void
   onOpenFullSession: () => void
   onOpenChanges: () => void
@@ -118,6 +120,7 @@ export default function TaskOverview({
   projectTasks,
   notify,
   session,
+  botName,
   onOpenTerminal,
   onOpenFullSession,
   onOpenChanges,
@@ -136,6 +139,11 @@ export default function TaskOverview({
   const blockerSelectRef = useRef<HTMLSelectElement | null>(null)
 
   const active = ACTIVE.has(task.status)
+  const reviewState =
+    task.reviewState ??
+    (task.changesRequestedAt !== null && task.changesRequestedAt !== undefined
+      ? 'changes_requested'
+      : task.reviewDecision)
 
   const loadChanges = useCallback(async (): Promise<void> => {
     setLoadingChanges(true)
@@ -195,6 +203,30 @@ export default function TaskOverview({
   const acceptAndMerge = async (): Promise<void> => {
     if (onMerge === undefined) return
     if (await decide('accepted')) onMerge()
+  }
+
+  const requestChanges = async (): Promise<void> => {
+    if (busy || !task.canRequestChanges) return
+    setBusy(true)
+    try {
+      const result = await callApi<TaskRecordPayload>(
+        window.icode.tasks.requestChanges({
+          taskId: task.id,
+          note: note.trim().length > 0 ? note.trim() : null
+        })
+      )
+      if (!result.ok) {
+        notify(errorNotice(result.error))
+        return
+      }
+      notify({
+        tone: 'info',
+        message: t('taskOverview.changesRequestedNotice')
+      })
+      onChanged()
+    } finally {
+      setBusy(false)
+    }
   }
 
   const setArchived = async (archived: boolean): Promise<void> => {
@@ -405,7 +437,7 @@ export default function TaskOverview({
             <Card title={t('taskOverview.proposal')}>
               <p className="text-[11.5px] leading-relaxed text-muted-foreground" data-testid="task-proposal-state">
                 {task.createdByActor === 'mira'
-                  ? t('taskOverview.proposedByMira')
+                  ? t('taskOverview.proposedByAssistant')
                   : t('taskOverview.proposedBySupervisor')}
               </p>
               <div className="mt-2 flex items-center gap-2">
@@ -504,19 +536,29 @@ export default function TaskOverview({
             )}
           </Card>
 
+          {task.acceptanceCriteria ? (
+            <Card title={t('taskOverview.acceptance')}>
+              <p className="whitespace-pre-wrap text-[11px] leading-relaxed text-foreground" data-testid="task-acceptance-criteria">
+                {task.acceptanceCriteria}
+              </p>
+            </Card>
+          ) : null}
+
           <Card title={t('taskOverview.reviewDecision')}>
             <p className="text-[11.5px] text-muted-foreground" data-testid="task-detail-review-state">
-              {task.reviewDecision === 'pending'
-                ? active
-                  ? t('taskOverview.reviewPendingActive')
-                  : t('taskOverview.reviewPending')
-                : task.reviewDecision === 'accepted'
-                  ? task.reviewedAt
-                    ? t('taskOverview.reviewAcceptedOn', { time: formatTime(task.reviewedAt) })
-                    : t('taskOverview.accepted')
-                  : task.reviewedAt
-                    ? t('taskOverview.reviewRejectedOn', { time: formatTime(task.reviewedAt) })
-                    : t('taskOverview.rejected')}
+              {reviewState === 'changes_requested'
+                ? t('taskOverview.changesRequested')
+                : task.reviewDecision === 'pending'
+                  ? active
+                    ? t('taskOverview.reviewPendingActive')
+                    : t('taskOverview.reviewPending')
+                  : task.reviewDecision === 'accepted'
+                    ? task.reviewedAt
+                      ? t('taskOverview.reviewAcceptedOn', { time: formatTime(task.reviewedAt) })
+                      : t('taskOverview.accepted')
+                    : task.reviewedAt
+                      ? t('taskOverview.reviewRejectedOn', { time: formatTime(task.reviewedAt) })
+                      : t('taskOverview.rejected')}
             </p>
             {task.reviewRecommendation ? (
               <div
@@ -600,6 +642,15 @@ export default function TaskOverview({
                   </button>
                   <button
                     type="button"
+                    className="inline-flex h-7 items-center gap-1 rounded-md border border-border px-2.5 text-[10.5px] text-foreground hover:bg-muted disabled:opacity-40"
+                    onClick={() => void requestChanges()}
+                    disabled={busy || task.canRequestChanges !== true}
+                    data-testid="task-review-request-changes"
+                  >
+                    {t('taskOverview.requestChanges')}
+                  </button>
+                  <button
+                    type="button"
                     className={`inline-flex h-7 items-center gap-1 rounded-md border px-2.5 text-[10.5px] disabled:opacity-40 ${
                       task.reviewDecision === 'rejected'
                         ? 'border-destructive/60 bg-destructive/15 text-destructive'
@@ -629,6 +680,7 @@ export default function TaskOverview({
 
         <div className="flex min-w-0 flex-col gap-4">
           <Card title={t('taskOverview.details')}>
+            {botName ? <Row label={t('taskOverview.bot')}>{botName}</Row> : null}
             <Row label={t('taskOverview.row.harness')}>{task.harness}</Row>
             <Row label={t('taskOverview.row.attempt')}>{task.attempt}</Row>
             <Row label={t('taskOverview.row.started')}>

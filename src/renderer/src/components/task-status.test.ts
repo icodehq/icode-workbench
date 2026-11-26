@@ -1,12 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import type { TaskRecordPayload } from '../../../shared/icode-api'
 import {
-  sortFinishedTasks,
-  sortQueuedTasks,
   taskAttention,
   taskAttentionCounts,
   taskCanCancel,
-  taskGroup,
   taskStatusLabel
 } from './task-status'
 
@@ -61,7 +58,7 @@ describe('task attention and lifecycle', () => {
     ).toBeNull()
   })
 
-  it('counts the overlay and keeps lifecycle groups disjoint', () => {
+  it('counts the attention overlay', () => {
     const tasks = [
       task({ id: 'waiting', status: 'waiting' }),
       task({ id: 'failed', status: 'failed' }),
@@ -77,7 +74,6 @@ describe('task attention and lifecycle', () => {
       blocked: 0,
       total: 3
     })
-    expect(tasks.map((entry) => taskGroup(entry))).toEqual(['running', 'finished', 'finished', 'finished', 'queued'])
   })
 
   it('treats a queued proposal as approval work, not queued work', () => {
@@ -88,7 +84,6 @@ describe('task attention and lifecycle', () => {
       origin: 'supervisor'
     })
     expect(taskAttention(proposal)).toBe('Approval')
-    expect(taskGroup(proposal)).toBe('proposal')
     expect(taskStatusLabel(proposal)).toBe('Proposed')
     expect(taskAttentionCounts([proposal])).toEqual({
       approval: 1,
@@ -133,26 +128,7 @@ describe('task attention and lifecycle', () => {
     expect(taskAttention(merelyWaiting)).toBeNull()
   })
 
-  it('orders finished work review-first, then failed, then decided work', () => {
-    const review = task({ id: 'review', status: 'completed', updatedAt: 3 })
-    const failed = task({ id: 'failed', status: 'failed', updatedAt: 2 })
-    const accepted = task({ id: 'accepted', status: 'completed', reviewDecision: 'accepted', updatedAt: 1 })
-    const cancelled = task({ id: 'cancelled', status: 'cancelled', updatedAt: 0 })
-    expect(sortFinishedTasks([cancelled, accepted, failed, review]).map((entry) => entry.id)).toEqual([
-      'review',
-      'failed',
-      'accepted',
-      'cancelled'
-    ])
-  })
-
-  it('keeps queued work oldest first and gives waiting a human-readable label', () => {
-    expect(
-      sortQueuedTasks([
-        task({ id: 'new', createdAt: 20 }),
-        task({ id: 'old', createdAt: 10 })
-      ]).map((entry) => entry.id)
-    ).toEqual(['old', 'new'])
+  it('gives waiting and review work a human-readable label', () => {
     expect(taskStatusLabel(task({ status: 'waiting' }))).toBe('Needs input')
     expect(taskStatusLabel(task({ status: 'completed', reviewDecision: 'pending' }))).toBe('Review')
   })

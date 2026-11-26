@@ -8,6 +8,7 @@ import {
   TerminalSquare
 } from 'lucide-react'
 import type { TaskRecordPayload } from '../../../shared/icode-api'
+import type { BotSummaryPayload } from '../../../shared/schemas/bots'
 import type { AppError } from '../../../shared/domain/errors'
 import { isAgentHarness } from '../../../shared/domain/harness'
 import type { RepositorySummary, SessionSummary } from '../../../shared/schemas/ipc'
@@ -66,6 +67,8 @@ type Props = {
   viewRequest?: { tab: 'terminal' | 'changes' | 'files'; nonce: number } | null
   onViewRequestHandled?: () => void
   onTaskAction?: (action: TaskAction) => void
+  /** Bots, so an assigned task can show who is on it. */
+  bots?: BotSummaryPayload[]
   /** Focus mode drops the task header and shows the terminal. */
   focusActive?: boolean
 }
@@ -118,11 +121,13 @@ export default function TaskWorkbench({
   viewRequest = null,
   onViewRequestHandled,
   onTaskAction,
+  bots = [],
   focusActive = false
 }: Props): React.JSX.Element {
   const [tab, setTab] = useState<Tab>('overview')
   const [mergeRequest, setMergeRequest] = useState<ScmMergeRequest | null>(null)
   const t = useT()
+  const botName = task.botId ? bots.find((bot) => bot.id === task.botId)?.name : undefined
   const [visited, setVisited] = useState<Set<Tab>>(() => new Set<Tab>(['overview']))
   const [filesRequest, setFilesRequest] = useState<{
     path: string
@@ -303,6 +308,12 @@ export default function TaskWorkbench({
             </div>
             <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 text-[10.5px] text-muted-foreground">
               <span>{task.harness}</span>
+              {botName ? (
+                <>
+                  <span className="h-2.5 w-px shrink-0 bg-border" />
+                  <span className="text-foreground" data-testid="task-workbench-bot">{botName}</span>
+                </>
+              ) : null}
               <span className="h-2.5 w-px shrink-0 bg-border" />
               <span>{t('task.attempt', { count: task.attempt })}</span>
               {duration ? (
@@ -393,6 +404,7 @@ export default function TaskWorkbench({
             projectTasks={projectTasks}
             notify={notify}
             session={session}
+            botName={botName}
             onOpenTerminal={() => selectTab('terminal')}
             onOpenFullSession={() => {
               if (session) onOpenSession(session.id)

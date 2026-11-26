@@ -16,6 +16,7 @@
 
 import type { HarnessId } from './harness'
 import type { RepoId, SessionId, WorkspaceId } from './ids'
+import type { ItemStatus } from './item'
 import type { MergeState } from './merge'
 
 /**
@@ -92,6 +93,27 @@ export const REVIEW_DECISIONS = ['pending', 'accepted', 'rejected'] as const
 export type ReviewDecision = (typeof REVIEW_DECISIONS)[number]
 
 /**
+ * The human-facing review state.
+ *
+ * `changes_requested` is derived from `changesRequestedAt`, not stored in the
+ * `review_decision` column: the existing CHECK constraint only admits the
+ * three durable verdicts, and widening it would require rebuilding the whole
+ * tasks table. A task can be `pending` plus changes requested, which is
+ * different from a fresh pending result.
+ */
+export const REVIEW_STATES = ['pending', 'changes_requested', 'accepted', 'rejected'] as const
+export type ReviewState = (typeof REVIEW_STATES)[number]
+
+export function taskReviewState(
+  task: Pick<TaskRecord, 'reviewDecision' | 'changesRequestedAt'>
+): ReviewState {
+  if (task.reviewDecision === 'accepted') return 'accepted'
+  if (task.reviewDecision === 'rejected') return 'rejected'
+  if (task.changesRequestedAt !== null) return 'changes_requested'
+  return 'pending'
+}
+
+/**
  * A non-binding recommendation from a supervisor.
  *
  * It deliberately does not reuse `ReviewDecision`: `accepted`/`rejected` are
@@ -161,6 +183,18 @@ export type TaskRecord = {
    * Mira tasks use `'mira'` and leave `createdBySessionId` null.
    */
   createdByActor: string | null
+  /** The bot this task is assigned to, when it belongs to a group bot. */
+  botId: string | null
+  /** The group that requested the task, used to route group-room events. */
+  groupId: string | null
+  /** The group thread this task came from, used to route group-room milestones. */
+  groupThreadId: string | null
+  /** Hidden from active items until this time; the task itself is untouched. */
+  snoozedUntil: number | null
+  /** A manual owner-facing item status; null keeps the derived status. */
+  itemStatusOverride: ItemStatus | null
+  /** Human-readable acceptance criteria shown beside the review. */
+  acceptanceCriteria: string | null
   /** The assistant run that created the task, when applicable. */
   assistantRunId: string | null
   /** The policy that approved the task automatically, when applicable. */
@@ -189,6 +223,12 @@ export type TaskRecord = {
   reviewDecision: ReviewDecision
   reviewedAt: number | null
   reviewNote: string | null
+  /**
+   * Set when a human asks the bot to address review feedback. The task's
+   * `reviewDecision` stays `pending`; this timestamp is the derived
+   * `changes_requested` state, and the successor attempt carries the work.
+   */
+  changesRequestedAt: number | null
   /** A supervisor's non-binding recommendation. Never sets `reviewDecision`. */
   reviewRecommendation: ReviewRecommendation | null
   reviewRecommendationNote: string | null
@@ -300,6 +340,10 @@ export type TaskView = TaskRecord & {
    * still producing one, so the UI must not offer Accept/Reject for it.
    */
   canDecideReview: boolean
+  /** The derived human-facing review state, including changes requested. */
+  reviewState: ReviewState
+  /** True when the result can be sent back for changes right now. */
+  canRequestChanges: boolean
   /** True when a previous decision must be explicitly replaced to change it. */
   reviewDecisionFinal: boolean
 }

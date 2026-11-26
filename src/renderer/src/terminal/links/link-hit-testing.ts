@@ -1,7 +1,7 @@
 /**
  * Maps terminal pointer events to buffer cells and tests URL link ranges.
  *
- * Adapted from Orca (MIT, Copyright (c) 2026 Lovecast Inc.),
+ * Adapted from an MIT-licensed reference implementation (Copyright (c) 2026 Lovecast Inc.),
  * `terminal-mouse-buffer-position.ts` and the HTTP link hit-testing helpers.
  */
 

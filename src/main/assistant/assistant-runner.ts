@@ -17,6 +17,8 @@ import type { TaskStore } from '../tasks/task-store'
 import type { SessionService } from '../sessions/session-service'
 import type { AssistantConversation, AssistantSettings } from '../../shared/domain/assistant'
 import { ASSISTANT_LIMITS } from '../../shared/domain/assistant'
+import type { BotProfile } from '../../shared/domain/bot'
+import type { MemoryEntry } from '../../shared/domain/memory'
 import type { WslDistroListPayload } from '../../shared/schemas/ipc'
 import type {
   AssistantRunEvent,
@@ -51,6 +53,12 @@ export type AssistantRunnerDeps = {
   repositories: RepositoryStore
   sessions: SessionService
   settings: () => AssistantSettings
+  /** The bot whose thread this runner serves; absent for legacy Mira tests. */
+  botProfile?: BotProfile
+  /** Home uses the bot id; a room session adds its assistant-thread id. */
+  sandboxKey?: string
+  /** Scoped active memory for this bot. */
+  botMemory?: (repoId?: string) => MemoryEntry[]
   detectHarness: (
     harness: HarnessId,
     target: ExecutionTarget
@@ -133,7 +141,10 @@ export class AssistantRunner implements AssistantRunnerLike {
           {
             role: 'system',
             kind: 'error',
-            body: mainT('assistant.failed', { detail: message })
+            body: mainT('assistant.failed', {
+              name: this.deps.settings().personaName,
+              detail: message
+            })
           }
         ],
         status: 'error',
@@ -160,7 +171,9 @@ export class AssistantRunner implements AssistantRunnerLike {
     const settings = this.deps.settings()
     const selected = await this.selectHarness(settings)
     if (!selected) {
-      throw new Error(mainT('assistant.noHarnessAvailable'))
+      throw new Error(
+        mainT('assistant.noHarnessAvailable', { name: settings.personaName })
+      )
     }
     emit({
       type: 'progress',
@@ -212,6 +225,7 @@ export class AssistantRunner implements AssistantRunnerLike {
       store: this.deps.store,
       threadId: input.threadId,
       selection,
+      personaName: settings.personaName,
       startSeq: userSeq,
       now: this.deps.now(),
       newId
@@ -225,6 +239,7 @@ export class AssistantRunner implements AssistantRunnerLike {
         activeConversationId: conversation.id,
         reason: 'resume-unsupported',
         selection,
+        personaName: settings.personaName,
         startSeq: userSeq,
         now: this.deps.now(),
         newId
@@ -259,10 +274,14 @@ export class AssistantRunner implements AssistantRunnerLike {
             .listDigestMessages(input.threadId, lastPromptSeq, 10)
             .map((message) => ({ kind: message.kind, body: message.body }))
         : []
+    const bot = this.deps.botProfile
+    const memory = this.deps.botMemory?.(input.repoId)
     const built = buildAssistantPrompt({
       personaName: settings.personaName,
       settings,
       snapshot,
+      ...(bot === undefined ? {} : { bot }),
+      ...(memory === undefined ? {} : { memory }),
       history,
       userText: input.text,
       ...(input.repoId === undefined ? {} : { repoId: input.repoId }),
@@ -273,6 +292,8 @@ export class AssistantRunner implements AssistantRunnerLike {
       personaName: settings.personaName,
       settings,
       snapshot,
+      ...(bot === undefined ? {} : { bot }),
+      ...(memory === undefined ? {} : { memory }),
       history,
       userText: input.text,
       ...(input.repoId === undefined ? {} : { repoId: input.repoId }),
@@ -434,6 +455,7 @@ export class AssistantRunner implements AssistantRunnerLike {
             activeConversationId: conversation.id,
             reason: kind === 'unsupported' ? 'resume-unsupported' : 'resume-failed',
             selection,
+            personaName: settings.personaName,
             startSeq: userSeq,
             now: this.deps.now(),
             newId
@@ -641,8 +663,15 @@ Return only the JSON object described above.`
     cwd: string
     target: ExecutionTarget
   }> {
+    const key = (this.deps.sandboxKey ?? this.deps.botProfile?.id ?? 'mira').replace(
+      /[^a-zA-Z0-9_-]/g,
+      '_'
+    )
     if (selected.target.kind === 'local') {
-      const cwd = join(this.deps.userDataDir, 'assistant', 'sandbox')
+      const cwd =
+        key === 'mira'
+          ? join(this.deps.userDataDir, 'assistant', 'sandbox')
+          : join(this.deps.userDataDir, 'assistant', 'sandbox', key)
       mkdirSync(cwd, { recursive: true })
       await this.deps.workspaceTrust
         .prepare({ harness: selected.harness, target: selected.target, worktreePath: cwd })
@@ -651,7 +680,13 @@ Return only the JSON object described above.`
     }
     const home = await this.deps.readGuestHome(selected.target.distro)
     if (!home) throw new Error(mainT('assistant.wslHomeUnreadable'))
-    const cwd = posix.join(home, '.icode', 'assistant', 'sandbox', 'default')
+    const cwd = posix.join(
+      home,
+      '.icode',
+      'assistant',
+      'sandbox',
+      key === 'mira' ? 'default' : key
+    )
     const created = await this.deps.wslRunner.run({
       scope: 'guest',
       distro: selected.target.distro,

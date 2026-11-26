@@ -942,7 +942,7 @@ async function main() {
       if (button) button.click();
     })()`)
     await waitFor(
-      `document.querySelectorAll('[data-harness-state]').length === 46`,
+      `document.querySelectorAll('[data-harness-state]').length === 45`,
       'all Harness detections',
       20000
     )
@@ -2086,7 +2086,7 @@ async function main() {
     )
     await openProjectSessions()
     await waitFor(
-      `document.querySelector('[data-testid="harness-summary"]')?.innerText.includes('0/46')`,
+      `document.querySelector('[data-testid="harness-summary"]')?.innerText.includes('0/45')`,
       'no available Harnesses',
       30000
     )
@@ -2097,7 +2097,7 @@ async function main() {
     await waitForSelector('[data-testid="harness-more"]', 20000)
     await click('[data-testid="harness-more"]')
     await waitFor(
-      `document.querySelectorAll('[data-harness-state]').length === 46`,
+      `document.querySelectorAll('[data-harness-state]').length === 45`,
       'all unavailable detections',
       20000
     )
@@ -2116,7 +2116,7 @@ async function main() {
       `document.querySelector('[role="dialog"]').innerText`
     )
     assert(
-      dialogText.includes('0 of 46 Harnesses available'),
+      dialogText.includes('0 of 45 Harnesses available'),
       'No-available-Harness guidance is missing'
     )
     const createDisabled = await cdp.evaluate(

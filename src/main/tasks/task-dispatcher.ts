@@ -1,7 +1,11 @@
 import type { SessionService } from '../sessions/session-service'
 import type { AppError } from '../../shared/domain/errors'
 import type { SessionId } from '../../shared/domain/ids'
-import type { ActivitySource, ActivitySummary } from '../../shared/domain/activity'
+import type {
+  ActivityAttentionKind,
+  ActivitySource,
+  ActivitySummary
+} from '../../shared/domain/activity'
 import {
   isActiveTaskStatus,
   isTerminalTaskStatus,
@@ -13,7 +17,7 @@ import {
   AGENT_SUBMIT_DELAY_MS,
   buildAgentPromptPaste
 } from '../../shared/agent-prompt'
-import { buildContinuationPrompt } from './task-continuation'
+import { buildContinuationPrompt, buildReviewChangesPrompt } from './task-continuation'
 
 /**
  * A program/title turn end may be a transient milestone; wait this long before
@@ -41,6 +45,19 @@ export type TaskDispatcherDeps = {
   submitDelayMs?: number
   /** Live activity, used to resend an Enter and to re-check a held turn end. */
   activity?: { get: (sessionId: string) => ActivitySummary }
+  /** A worker stopped on a question; the item layer raises it to the owner. */
+  onWorkerQuestion?: (question: {
+    task: TaskRecord
+    body: string
+    dedupeKey: string
+  }) => void
+  /**
+   * Composes the instruction actually typed into the harness.
+   *
+   * Role, instructions and scoped memory belong here, not in `tasks.prompt`:
+   * the row must stay the user's original request for review and retries.
+   */
+  composePrompt?: (task: TaskRecord) => Promise<string>
   /** Resolves the chain/start-from commit before the worktree is created. */
   resolveTaskBase?: (task: TaskRecord) => Promise<{ baseRef: string | null; baseOid: string }>
 }
@@ -67,6 +84,8 @@ export type TaskDispatcherDeps = {
 export class TaskDispatcher {
   private pumpRunning = false
   private pumpAgain = false
+  /** Set by stop(); an in-flight pump must not touch the store afterwards. */
+  private stopped = false
   private unsubscribe: (() => void) | null = null
   /** Sessions whose PTY is being deliberately stopped and respawned. */
   private readonly restarting = new Set<string>()
@@ -85,12 +104,14 @@ export class TaskDispatcher {
    */
   start(): void {
     if (this.unsubscribe) return
+    this.stopped = false
     this.unsubscribe = this.deps.sessions.subscribe((event) => {
       void this.onSessionEvent(event)
     })
   }
 
   stop(): void {
+    this.stopped = true
     this.unsubscribe?.()
     this.unsubscribe = null
     for (const timer of this.completionTimers.values()) clearTimeout(timer)
@@ -101,6 +122,7 @@ export class TaskDispatcher {
 
   /** Asks for a dispatch pass. Coalesced: a burst of task creations scans once. */
   kick(): void {
+    if (this.stopped) return
     if (this.pumpRunning) {
       this.pumpAgain = true
       return
@@ -110,6 +132,7 @@ export class TaskDispatcher {
 
   /** One dispatch pass. Public for tests and for the boot sequence. */
   async pump(): Promise<void> {
+    if (this.stopped) return
     if (this.pumpRunning) {
       this.pumpAgain = true
       return
@@ -117,6 +140,8 @@ export class TaskDispatcher {
     this.pumpRunning = true
     try {
       do {
+        // stop() may have run while this pass was awaiting a launch.
+        if (this.stopped) break
         this.pumpAgain = false
         const max = this.deps.tasks.maxConcurrent()
         const perProject = Math.min(this.deps.tasks.maxConcurrentPerProject(), max)
@@ -137,6 +162,7 @@ export class TaskDispatcher {
           if (!claimed) continue // someone else won the claim; the next row is ours
           active += 1
           await this.dispatchOne(this.deps.tasks.findById(next.id) ?? next)
+          if (this.stopped) break
         }
       } while (this.pumpAgain)
     } finally {
@@ -212,10 +238,11 @@ export class TaskDispatcher {
       // The PTY is live before the TUI has drawn its composer. Paste early and
       // the Enter can be lost, leaving the task sitting in the input box.
       await this.delay(this.deps.promptStartupDelayMs ?? 2_500)
+      const basePrompt = (await this.deps.composePrompt?.(task)) ?? task.prompt
       await this.deps.sessions.write(
         sessionId,
         incarnation,
-        buildAgentPromptPaste(task.prompt)
+        buildAgentPromptPaste(basePrompt)
       )
       await this.delay(this.deps.submitDelayMs ?? AGENT_SUBMIT_DELAY_MS)
       await this.deps.sessions.write(sessionId, incarnation, '\r')
@@ -305,11 +332,18 @@ export class TaskDispatcher {
 
     const previous =
       task.previousTaskId !== null ? this.deps.tasks.findById(task.previousTaskId) : null
-    const prompt = buildContinuationPrompt({
-      originalPrompt: task.prompt,
-      previousError: previous?.error ?? null,
-      previousErrorDetail: previous?.errorDetail ?? null
-    })
+    const basePrompt = (await this.deps.composePrompt?.(task)) ?? task.prompt
+    const prompt =
+      previous !== null && previous.changesRequestedAt !== null
+        ? buildReviewChangesPrompt({
+            originalPrompt: basePrompt,
+            feedback: previous.reviewNote
+          })
+        : buildContinuationPrompt({
+            originalPrompt: basePrompt,
+            previousError: previous?.error ?? null,
+            previousErrorDetail: previous?.errorDetail ?? null
+          })
 
     const now = this.deps.now()
     const advanced = this.deps.tasks.updateIfStatus(
@@ -481,7 +515,15 @@ export class TaskDispatcher {
    */
   onActivity(
     sessionId: string,
-    activity: { state: string; outcome: string | null; source?: ActivitySource }
+    activity: {
+      state: string
+      outcome: string | null
+      source?: ActivitySource
+      attentionKind?: ActivityAttentionKind | null
+      message?: string | null
+      promptId?: string | null
+      since?: number
+    }
   ): void {
     this.cancelDerivedCompletion(sessionId)
     if (this.restarting.has(sessionId)) return
@@ -506,6 +548,13 @@ export class TaskDispatcher {
         },
         now
       )
+      if (activity.attentionKind === 'question') {
+        this.deps.onWorkerQuestion?.({
+          task: this.deps.tasks.findById(task.id) ?? task,
+          body: (activity.message?.trim() || mainT('tasks.result.waitingInput')).slice(0, 3_900),
+          dedupeKey: `worker-question:${task.id}:${activity.promptId ?? activity.since ?? now}`
+        })
+      }
       this.deps.onChange()
       return
     }

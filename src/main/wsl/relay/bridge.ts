@@ -213,7 +213,7 @@ export function attachBridge(
    * The hand-rolled `pause()`/`resume()` version of this deadlocked on large
    * payloads: a duplex socket is one object, so pausing the read direction while
    * waiting for the write direction to drain can stall both. `pipe()` handles the
-   * same backpressure without that coupling, and it is what Orca's bridge uses.
+   * same backpressure without that coupling, and it is what the reference implementation's bridge uses.
    */
   const onStdout = (chunk: Buffer): void => {
     if (closed) return

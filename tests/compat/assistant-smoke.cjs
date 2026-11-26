@@ -1,14 +1,14 @@
 'use strict'
 
 /**
- * Packaged Mira acceptance.
+ * Packaged assistant acceptance.
  *
  * Drives the real packaged app over CDP with an isolated profile and a fake
  * Claude shim. It verifies the rail order, the global thread, one full
  * headless-planning turn, and that the conversation survives a relaunch.
  *
  * Usage:
- *   node tests/compat/mira-smoke.cjs [--dir <win-unpacked>]
+ *   node tests/compat/assistant-smoke.cjs [--dir <win-unpacked>]
  */
 
 const { execFileSync, spawn } = require('node:child_process')
@@ -18,7 +18,7 @@ const path = require('node:path')
 const { connect, sleep } = require('./ui-cdp.cjs')
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..')
-const ARTIFACT_DIR = path.join(REPO_ROOT, 'artifacts', 'mira-smoke')
+const ARTIFACT_DIR = path.join(REPO_ROOT, 'artifacts', 'assistant-smoke')
 
 function parseArgs(argv) {
   const index = argv.indexOf('--dir')
@@ -197,7 +197,7 @@ async function stop(child, executable) {
   stopDetachedHosts(executable)
 }
 
-async function openMira(cdp) {
+async function openAssistant(cdp) {
   await waitFor(
     cdp,
     `Boolean(document.querySelector('[data-testid="workspace-sidebar"]'))`,
@@ -213,8 +213,8 @@ async function openMira(cdp) {
   )
   await waitFor(
     cdp,
-    `document.querySelector('[data-testid="assistant-thread"]').innerText.includes("Hi, I'm Mira")`,
-    'Mira welcome'
+    `document.querySelector('[data-testid="assistant-thread"]').innerText.includes("Hi, I'm Yarcy")`,
+    'assistant welcome'
   )
 }
 
@@ -224,7 +224,7 @@ async function main() {
   if (executable === null) {
     throw new Error(`no packaged executable in ${packagedDir}; run "pnpm package:win" first`)
   }
-  const work = fs.mkdtempSync(path.join(os.tmpdir(), 'icode-mira-smoke-'))
+  const work = fs.mkdtempSync(path.join(os.tmpdir(), 'icode-assistant-smoke-'))
   const profile = path.join(work, 'profile')
   const fakeBin = path.join(work, 'fake-bin')
   const port = 9800 + (process.pid % 150)
@@ -235,7 +235,7 @@ async function main() {
   let child = launch(executable, work, profile, fakeBin, port)
   let cdp = await connect(port)
   try {
-    await openMira(cdp)
+    await openAssistant(cdp)
 
     const order = await cdp.evaluate(`(() => {
       return Array.from(document.querySelectorAll('[data-testid="app-tabs"] [role="tab"]'))
@@ -250,7 +250,7 @@ async function main() {
     const welcome = await cdp.evaluate(
       `document.querySelector('[data-testid="assistant-thread"]').innerText`
     )
-    assert(welcome.includes("Hi, I'm Mira"), 'the welcome message is missing')
+    assert(welcome.includes("Hi, I'm Yarcy"), 'the welcome message is missing')
 
     await cdp.evaluate(`(() => {
       const element = document.querySelector('[data-testid="assistant-composer"]');
@@ -335,7 +335,7 @@ async function main() {
     await waitFor(
       cdp,
       `Boolean(document.querySelector('[data-testid="empty-workspace"]')) || Boolean(document.querySelector('[data-testid^="project-row-"]'))`,
-      'workspace after leaving Mira'
+      'workspace after leaving the assistant'
     )
 
     await cdp.evaluate(`document.querySelector('[data-testid="sidebar-settings"]').click()`)
@@ -347,7 +347,7 @@ async function main() {
     await waitFor(
       cdp,
       `Boolean(document.querySelector('[data-testid="settings-mira-target"]'))`,
-      'Mira target setting'
+      'assistant target setting'
     )
     const targets = await cdp.evaluate(`(() => {
       const select = document.querySelector('[data-testid="settings-mira-target"]');
@@ -355,7 +355,7 @@ async function main() {
     })()`)
     assert(
       targets.some((label) => label.includes('This computer')),
-      `Mira target options are incomplete: ${JSON.stringify(targets)}`
+      `assistant target options are incomplete: ${JSON.stringify(targets)}`
     )
     await cdp.screenshot(path.join(ARTIFACT_DIR, 'settings.png'))
   } finally {
@@ -374,7 +374,7 @@ async function main() {
   child = launch(executable, work, profile, fakeBin, port + 1)
   cdp = await connect(port + 1)
   try {
-    await openMira(cdp)
+    await openAssistant(cdp)
     await waitFor(
       cdp,
       `document.querySelector('[data-testid="assistant-thread"]').innerText.includes('REAL_OK')`,
@@ -391,10 +391,10 @@ async function main() {
     fs.rmSync(work, { recursive: true, force: true })
   }
 
-  process.stdout.write(`[mira-smoke] PASS ${executable}\n`)
+  process.stdout.write(`[assistant-smoke] PASS ${executable}\n`)
 }
 
 main().catch((error) => {
-  process.stderr.write(`[mira-smoke] ${error instanceof Error ? error.message : String(error)}\n`)
+  process.stderr.write(`[assistant-smoke] ${error instanceof Error ? error.message : String(error)}\n`)
   process.exit(1)
 })

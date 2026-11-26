@@ -114,7 +114,7 @@ const INITIAL_STATUS: TerminalStatus = {
 
 /** Ordinary coalescing window for xterm grid changes. */
 const PTY_RESIZE_DEBOUNCE_MS = 50
-/** Drag cadence for visual fits; Orca and Termio settle on the same order. */
+/** Drag cadence for visual fits; the reference implementation and Termio settle on the same order. */
 const PANEL_DRAG_FIT_INTERVAL_MS = 150
 
 export class TerminalInstance implements TerminalInstanceLike {

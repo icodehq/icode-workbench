@@ -4,6 +4,7 @@ import type { TaskRecordPayload } from '../../../shared/icode-api'
 import type { SessionSummary } from '../../../shared/schemas/ipc'
 import type { AssistantMessagePayload } from '../../../shared/schemas/assistant'
 import type { AssistantTarget } from '../router/routes'
+import type { OpenBotsTab } from '../state/use-bots'
 import {
   activityDotClass,
   activityLabel,
@@ -23,9 +24,20 @@ export type NeedsYouEntry = {
   repoName: string
 }
 
+/** One unread bot home or group room in the notification centre. */
+export type BotsNotificationEntry = {
+  key: string
+  kind: 'group' | 'bot'
+  tab: OpenBotsTab
+  label: string
+  unread: number
+  needs: number
+}
+
 type Props = {
   open: boolean
   needsTasks: NeedsYouEntry[]
+  bots: BotsNotificationEntry[]
   activity: ActivityEntry[]
   assistantName: string
   assistantMessages: AssistantMessagePayload[]
@@ -34,6 +46,7 @@ type Props = {
   onOpenTask: (task: TaskRecordPayload) => void
   onOpenSession: (sessionId: string) => void
   onOpenAssistant: (target: AssistantTarget) => void
+  onOpenBots: (tab: OpenBotsTab) => void
   onMarkRead: () => void
 }
 
@@ -51,7 +64,7 @@ function attentionText(task: TaskRecordPayload): string {
   if (taskAttention(task) === 'Blocked') return translate('notifications.blocked')
   if (task.approval === 'pending' && task.status === 'queued') {
     return task.createdByActor === 'mira'
-      ? translate('notifications.proposedByMira')
+      ? translate('notifications.proposedByAssistant')
       : translate('notifications.proposedBySupervisor')
   }
   if (task.status === 'waiting') return translate('notifications.waitingInput')
@@ -91,6 +104,7 @@ function notificationKindLabel(kind: AssistantMessagePayload['notificationKind']
 export default function NotificationsDrawer({
   open,
   needsTasks,
+  bots,
   activity,
   assistantName,
   assistantMessages,
@@ -99,6 +113,7 @@ export default function NotificationsDrawer({
   onOpenTask,
   onOpenSession,
   onOpenAssistant,
+  onOpenBots,
   onMarkRead
 }: Props): React.JSX.Element | null {
   const t = useT()
@@ -149,6 +164,56 @@ export default function NotificationsDrawer({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
+          {bots.length > 0 ? (
+            <section className="mb-2" data-testid="notifications-bots">
+              <h3 className="px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.09em] text-muted-foreground">
+                {t('bots.label')} · {bots.length}
+              </h3>
+              <ul className="space-y-0.5">
+                {bots.map((entry) => (
+                  <li key={entry.key}>
+                    <button
+                      type="button"
+                      className="flex w-full items-start gap-2 rounded-md px-2 py-2 text-left hover:bg-muted/60"
+                      onClick={() => {
+                        onClose()
+                        onOpenBots(entry.tab)
+                      }}
+                      data-testid={`notification-bots-${entry.key}`}
+                    >
+                      <span
+                        className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
+                          entry.needs > 0 ? 'bg-signal' : 'bg-info'
+                        }`}
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[11.5px] font-medium text-foreground">
+                          {entry.label}
+                        </span>
+                        <span className="block truncate text-[10px] text-muted-foreground">
+                          {entry.kind === 'group' ? t('bots.groups') : t('bots.bots')}
+                          {entry.needs > 0
+                            ? ` · ${t('notifications.needsYou', { count: entry.needs })}`
+                            : ''}
+                        </span>
+                      </span>
+                      {entry.needs > 0 ? (
+                        <span className="shrink-0 rounded bg-signal-weak px-1 text-[9px] font-medium text-signal">
+                          {entry.needs}
+                        </span>
+                      ) : null}
+                      {entry.unread > 0 ? (
+                        <span className="shrink-0 rounded-full bg-signal-weak px-1 text-[9px] font-medium text-signal">
+                          {entry.unread > 9 ? '9+' : entry.unread}
+                        </span>
+                      ) : null}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+
           <section className="mb-2" data-testid="notifications-assistant">
             <h3 className="px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.09em] text-muted-foreground">
               {assistantName} · {assistantMessages.length}

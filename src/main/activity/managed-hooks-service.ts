@@ -51,7 +51,7 @@ type GuestTrackedState = {
 /**
  * Default-on managed status hooks for the supported provider CLIs.
  *
- * Installation is gated on CLI presence, like Orca's startup reconciler: iCode
+ * Installation is gated on CLI presence, like the reference implementation's startup reconciler: iCode
  * does not write a config for an agent the user does not have. Turning the
  * setting off removes only marker-owned entries; user hooks remain untouched.
  * The setting is persisted, so a restart cannot silently re-enable files the

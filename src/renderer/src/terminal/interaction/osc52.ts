@@ -1,7 +1,7 @@
 /**
  * OSC 52 — clipboard writes from terminal programs.
  *
- * Adapted from Orca's `shared/terminal/clipboard/osc52-clipboard.ts`
+ * Adapted from the reference implementation's `shared/terminal/clipboard/osc52-clipboard.ts`
  * (MIT, Copyright (c) 2026 Lovecast Inc.), trimmed to iCode's renderer-only
  * clipboard boundary. Queries are deliberately refused so a program cannot
  * read the clipboard; writes are gated by settings and capped.

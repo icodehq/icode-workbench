@@ -2,14 +2,16 @@ import { createHash } from 'node:crypto'
 import type { AssistantActionPayload } from './assistant-envelope'
 import type { AssistantPolicy } from './assistant-policy'
 import type { AssistantStore } from '../persistence/assistant-store'
+import type { BotMemoryStore } from '../persistence/bot-memory-store'
 import type { RepositoryStore } from '../persistence/repository-store'
 import type { TaskService } from '../tasks/task-service'
 import type { TaskStore } from '../tasks/task-store'
+import type { ItemService } from '../items/item-service'
 import type { SessionService } from '../sessions/session-service'
 import type { SupervisorService } from '../supervisor/supervisor-service'
 import type { GitWorkspaceService } from '../git/git-workspace-service'
 import type { HarnessDetectionResult } from '../harness/harness-detector'
-import type { AssistantCard } from '../../shared/domain/assistant'
+import type { AssistantCard, AssistantSettings } from '../../shared/domain/assistant'
 import {
   MIRA_ACTOR_ID,
   MIRA_POLICY_APPROVER
@@ -17,6 +19,7 @@ import {
 import type { TaskStatus } from '../../shared/domain/task'
 import type { HarnessId } from '../../shared/domain/harness'
 import type { RepoId } from '../../shared/domain/ids'
+import type { MemoryTarget } from '../../shared/domain/memory'
 import { buildAgentPromptPaste, AGENT_SUBMIT_DELAY_MS } from '../../shared/agent-prompt'
 
 const MAX_DIFF_BYTES = 200_000
@@ -42,6 +45,23 @@ export type AssistantActionDeps = {
   threadId: string
   runId: string
   now: () => number
+  /** The bot executing this run; defaults to Mira for legacy callers. */
+  botId?: string
+  /** The bot's configured display name, for user-facing errors. */
+  botName?: string
+  /** The bot's group id for this turn, if any. */
+  groupId?: string | null
+  /** The group thread this turn came from, attached to created tasks for milestones. */
+  groupThreadId?: string | null
+  group?: { isMember(groupId: string, botId: string): boolean }
+  /** Resolve per-bot assistant settings (harness priority, auto-dispatch). */
+  botSettings?: (botId: string) => AssistantSettings
+  /** Scoped memory; absent means the legacy global Mira memory. */
+  memoryStore?: BotMemoryStore
+  /** Owner-facing item conversation; absent means item actions are unavailable. */
+  items?: ItemService
+  /** Only the Chief may create tasks for another bot. */
+  canAssignOthers?: boolean
 }
 
 function compactTask(task: {
@@ -107,6 +127,39 @@ function compactSession(session: {
 export class AssistantActions {
   constructor(private readonly deps: AssistantActionDeps) {}
 
+  private actor(): string {
+    return this.deps.botId ?? MIRA_ACTOR_ID
+  }
+
+  private displayName(): string {
+    return this.deps.botName ?? 'The assistant'
+  }
+
+  private settingsFor(botId: string): AssistantSettings {
+    return this.deps.botSettings?.(botId) ?? this.deps.store.getSettings()
+  }
+
+  private currentGroupId(): string | null {
+    return this.deps.groupId ?? null
+  }
+
+  private memoryTarget(input: {
+    scope?: 'bot' | 'project' | 'team'
+    repoId?: string
+    teamId?: string
+  }): MemoryTarget | null {
+    const scope = input.scope ?? 'bot'
+    if (scope === 'bot') {
+      const botId = this.deps.botId
+      return botId === undefined ? null : { scope: 'bot', botId }
+    }
+    if (scope === 'project') {
+      return input.repoId === undefined ? null : { scope: 'project', repoId: input.repoId }
+    }
+    const teamId = input.teamId ?? this.currentGroupId()
+    return teamId === null ? null : { scope: 'team', teamId }
+  }
+
   async execute(action: AssistantActionPayload): Promise<AssistantActionResult> {
     try {
       switch (action.op) {
@@ -143,9 +196,21 @@ export class AssistantActions {
         case 'notify':
           return this.notify(action.text, action.kind, action.priority)
         case 'memory.set':
-          return this.memorySet(action.key, action.value)
+          return this.memorySet(
+            action.key,
+            action.value,
+            action.scope,
+            action.repoId,
+            action.teamId
+          )
         case 'memory.forget':
-          return this.memoryForget(action.key)
+          return this.memoryForget(action.key, action.scope, action.repoId, action.teamId)
+        case 'items.comment':
+          return this.itemsComment(action.taskId, action.text)
+        case 'items.ask':
+          return this.itemsAsk(action.taskId, action.text, action.options)
+        case 'items.link':
+          return this.itemsLink(action.taskId, action.kind, action.ref)
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -299,16 +364,46 @@ export class AssistantActions {
   ): Promise<AssistantActionResult> {
     const repo = this.deps.repositories.findById(action.repoId as RepoId)
     if (!repo) return this.error('tasks.create', 'That repository is not registered.')
-    const harness = await this.resolveHarness(action.repoId as RepoId, action.harness)
+    const actor = this.actor()
+    const targetBotId = action.botId ?? this.deps.botId ?? null
+    if (
+      targetBotId !== null &&
+      this.deps.botId !== undefined &&
+      targetBotId !== this.deps.botId &&
+      this.deps.canAssignOthers !== true
+    ) {
+      return this.error('tasks.create', 'Only the Chief can assign work to another bot.')
+    }
+    const targetGroupId = action.groupId ?? this.currentGroupId()
+    if (
+      targetBotId !== null &&
+      targetGroupId !== null &&
+      this.deps.groupId !== null &&
+      this.deps.groupId !== undefined &&
+      targetGroupId === this.deps.groupId &&
+      this.deps.group !== undefined &&
+      !this.deps.group.isMember(targetGroupId, targetBotId)
+    ) {
+      return this.error('tasks.create', 'That bot is not a member of the group.')
+    }
+    const settings =
+      targetBotId !== null && targetBotId !== this.deps.botId
+        ? this.settingsFor(targetBotId)
+        : this.settingsFor(actor)
+    const harness = await this.resolveHarness(
+      action.repoId as RepoId,
+      action.harness,
+      settings
+    )
     if (!harness) {
       return this.error('tasks.create', 'No agent harness is available in that project.')
     }
-    const settings = this.deps.store.getSettings()
     const decision = this.deps.policy.classify({
       repoId: action.repoId as RepoId,
       title: action.title ?? null,
       prompt: action.prompt,
-      settings: settings.autoDispatch
+      settings: settings.autoDispatch,
+      actor
     })
     const key =
       action.idempotencyKey ??
@@ -318,14 +413,23 @@ export class AssistantActions {
       title: action.title,
       prompt: action.prompt,
       harness,
+      botId: targetBotId,
+      groupId: targetGroupId,
+      groupThreadId:
+        targetGroupId !== null && targetGroupId === this.deps.groupId
+          ? (this.deps.groupThreadId ?? null)
+          : null,
+      acceptanceCriteria: action.acceptanceCriteria ?? null,
       origin: 'supervisor',
-      createdByActor: MIRA_ACTOR_ID,
+      createdByActor: actor,
       createdBySessionId: null,
       assistantRunId: this.deps.runId,
-      approvalPolicy: decision.autoApprove ? 'mira-low-risk' : 'mira-human-approval',
+      approvalPolicy: decision.autoApprove ? `${actor}-low-risk` : `${actor}-human-approval`,
       approval: decision.autoApprove ? 'approved' : 'pending',
-      ...(decision.autoApprove ? { approvedBy: MIRA_POLICY_APPROVER } : {}),
-      dedupeKey: `mira:${this.deps.runId}:${key}`
+      ...(decision.autoApprove
+        ? { approvedBy: actor === MIRA_ACTOR_ID ? MIRA_POLICY_APPROVER : `${actor}-policy` }
+        : {}),
+      dedupeKey: `${actor}:${this.deps.runId}:${key}`
     })
     if (!result.ok) {
       return this.error('tasks.create', result.error.message)
@@ -365,7 +469,7 @@ export class AssistantActions {
     if (!this.canOperate(task)) {
       return this.error(
         'tasks.cancel',
-        'That task was created by a person. Mira can suggest a change instead of cancelling it.'
+        `That task was created by a person. ${this.displayName()} can suggest a change instead of cancelling it.`
       )
     }
     const result = await this.deps.tasks.cancel(taskId)
@@ -393,7 +497,7 @@ export class AssistantActions {
     if (!this.canOperate(task)) {
       return this.error(
         'tasks.retry',
-        'That task was created by a person. Mira can suggest a fix task instead of retrying it.'
+        `That task was created by a person. ${this.displayName()} can suggest a fix task instead of retrying it.`
       )
     }
     const result = this.deps.tasks.retry(taskId, { assistantRunId: this.deps.runId })
@@ -431,7 +535,7 @@ export class AssistantActions {
     if (!this.canOperate(task)) {
       return this.error(
         'tasks.resume',
-        'That task was created by a person. Mira can suggest a fix task instead of continuing it.'
+        `That task was created by a person. ${this.displayName()} can suggest a fix task instead of continuing it.`
       )
     }
     const result = this.deps.tasks.resume(taskId, { assistantRunId: this.deps.runId })
@@ -548,6 +652,69 @@ export class AssistantActions {
     }
   }
 
+  private itemsComment(taskId: string, text: string): AssistantActionResult {
+    if (this.deps.items === undefined) return this.error('items.comment', 'Items are unavailable.')
+    if (this.deps.taskStore.findById(taskId) === null) {
+      return this.error('items.comment', 'That item could not be found.')
+    }
+    const comment = this.deps.items.comment({
+      taskId,
+      body: text,
+      authorKind: 'bot',
+      authorBotId: this.deps.botId ?? null,
+      authorName: this.deps.botName ?? null
+    })
+    return {
+      op: 'items.comment',
+      ok: true,
+      message: 'Comment added.',
+      value: comment
+    }
+  }
+
+  private itemsAsk(
+    taskId: string,
+    text: string,
+    options: readonly string[] | undefined
+  ): AssistantActionResult {
+    if (this.deps.items === undefined) return this.error('items.ask', 'Items are unavailable.')
+    if (this.deps.taskStore.findById(taskId) === null) {
+      return this.error('items.ask', 'That item could not be found.')
+    }
+    const question = this.deps.items.ask({
+      taskId,
+      body: text,
+      ...(options === undefined ? {} : { options }),
+      authorKind: 'bot',
+      authorBotId: this.deps.botId ?? null,
+      authorName: this.deps.botName ?? null
+    })
+    return {
+      op: 'items.ask',
+      ok: true,
+      message: 'Question posted.',
+      value: question
+    }
+  }
+
+  private itemsLink(
+    taskId: string,
+    kind: 'url' | 'file' | 'pr',
+    ref: string
+  ): AssistantActionResult {
+    if (this.deps.items === undefined) return this.error('items.link', 'Items are unavailable.')
+    if (this.deps.taskStore.findById(taskId) === null) {
+      return this.error('items.link', 'That item could not be found.')
+    }
+    const link = this.deps.items.linkAdd({ taskId, kind, ref })
+    return {
+      op: 'items.link',
+      ok: true,
+      message: 'Link added.',
+      value: link
+    }
+  }
+
   private notify(
     text: string,
     kind: Extract<AssistantActionPayload, { op: 'notify' }>['kind'],
@@ -581,29 +748,124 @@ export class AssistantActions {
     }
   }
 
-  private memorySet(key: string, value: string): AssistantActionResult {
-    this.deps.store.setMemory(key, value, this.deps.now())
-    this.audit('memory.set', true, 'ok', { key })
-    return { op: 'memory.set', ok: true, message: `Remembered "${key}".`, value: { key } }
-  }
-
-  private memoryForget(key: string): AssistantActionResult {
-    const removed = this.deps.store.forgetMemory(key)
-    this.audit('memory.forget', true, removed ? 'ok' : 'noop', { key })
+  private memorySet(
+    key: string,
+    value: string,
+    scope?: 'bot' | 'project' | 'team',
+    repoId?: string,
+    teamId?: string
+  ): AssistantActionResult {
+    const target = this.memoryTarget({ scope, repoId, teamId })
+    if (this.deps.memoryStore === undefined || target === null) {
+      this.deps.store.setMemory(key, value, this.deps.now())
+      this.audit('memory.set', true, 'ok', { key })
+      return { op: 'memory.set', ok: true, message: `Remembered "${key}".`, value: { key } }
+    }
+    if (this.actor() === MIRA_ACTOR_ID && target.scope === 'bot') {
+      this.deps.store.setMemory(key, value, this.deps.now())
+      this.audit('memory.set', true, 'ok', { key, scope: target.scope })
+      return { op: 'memory.set', ok: true, message: `Remembered "${key}".`, value: { key } }
+    }
+    const active = this.deps.memoryStore.find(target, key, 'active')
+    if (active?.value === value) {
+      return {
+        op: 'memory.set',
+        ok: true,
+        message: `I already remember "${key}".`,
+        value: { key, proposed: false }
+      }
+    }
+    const existing = this.deps.memoryStore.find(target, key, 'proposed')
+    if (existing !== null) {
+      this.deps.memoryStore.updateValue(existing.id, value, this.deps.now())
+    } else {
+      const now = this.deps.now()
+      const proposer = this.deps.botId ?? MIRA_ACTOR_ID
+      this.deps.memoryStore.insert({
+        id: `mem_${proposer}_${String(now)}_${key.slice(0, 20)}`,
+        scope: target.scope,
+        botId: target.scope === 'bot' ? target.botId : null,
+        repoId: target.scope === 'project' ? target.repoId : null,
+        teamId: target.scope === 'team' ? target.teamId : null,
+        proposedByBotId: proposer,
+        key,
+        value,
+        status: 'proposed',
+        sourceTaskId: null,
+        createdAt: now,
+        updatedAt: now
+      })
+    }
+    this.audit('memory.set', true, 'proposed', { key, scope: target.scope })
     return {
-      op: 'memory.forget',
+      op: 'memory.set',
       ok: true,
-      message: removed ? `Forgot "${key}".` : `I did not know "${key}".`,
-      value: { key, removed }
+      message: `Suggested a memory for "${key}"; the user must approve it.`,
+      value: { key, proposed: true }
     }
   }
 
-  private canOperate(task: { createdByActor: string | null; origin: string }): boolean {
-    return task.createdByActor === MIRA_ACTOR_ID || task.origin === 'supervisor'
+  private memoryForget(
+    key: string,
+    scope?: 'bot' | 'project' | 'team',
+    repoId?: string,
+    teamId?: string
+  ): AssistantActionResult {
+    const target = this.memoryTarget({ scope, repoId, teamId })
+    if (this.deps.memoryStore === undefined || target === null) {
+      const removed = this.deps.store.forgetMemory(key)
+      this.audit('memory.forget', true, removed ? 'ok' : 'noop', { key })
+      return {
+        op: 'memory.forget',
+        ok: true,
+        message: removed ? `Forgot "${key}".` : `I did not know "${key}".`,
+        value: { key, removed }
+      }
+    }
+    const proposed = this.deps.memoryStore.find(target, key, 'proposed')
+    if (proposed !== null) {
+      this.deps.memoryStore.remove(proposed.id)
+      this.audit('memory.forget', true, 'ok', { key, scope: target.scope })
+      return {
+        op: 'memory.forget',
+        ok: true,
+        message: `Removed the proposed memory "${key}".`,
+        value: { key, removed: true }
+      }
+    }
+    const active = this.deps.memoryStore.find(target, key, 'active')
+    this.audit('memory.forget', true, active === null ? 'noop' : 'blocked', {
+      key,
+      scope: target.scope
+    })
+    return {
+      op: 'memory.forget',
+      ok: true,
+      message:
+        active === null
+          ? `I did not know "${key}".`
+          : `"${key}" is active memory; ask the user to archive it in the Memory tab.`,
+      value: { key, removed: false }
+    }
   }
 
-  private async resolveHarness(repoId: RepoId, requested?: string): Promise<HarnessId | null> {
-    const settings = this.deps.store.getSettings()
+  private canOperate(task: {
+    createdByActor: string | null
+    origin: string
+    botId?: string | null
+  }): boolean {
+    return (
+      task.createdByActor === this.actor() ||
+      (this.deps.botId !== undefined && task.botId === this.deps.botId) ||
+      task.createdByActor === MIRA_ACTOR_ID
+    )
+  }
+
+  private async resolveHarness(
+    repoId: RepoId,
+    requested?: string,
+    settings: AssistantSettings = this.deps.store.getSettings()
+  ): Promise<HarnessId | null> {
     const detection = await this.deps.listHarnesses({ repoId })
     const available = new Set(
       detection.filter((entry) => entry.state === 'available').map((entry) => entry.harness)
@@ -624,7 +886,8 @@ export class AssistantActions {
     this.deps.store.recordAction({
       threadId: this.deps.threadId,
       runId: this.deps.runId,
-      actor: 'mira',
+      actor: this.actor() === MIRA_ACTOR_ID ? 'mira' : 'system',
+      botId: this.deps.botId ?? null,
       op,
       repoId: typeof detail.repoId === 'string' ? detail.repoId : null,
       taskId: typeof detail.taskId === 'string' ? detail.taskId : null,

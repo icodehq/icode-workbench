@@ -96,7 +96,7 @@ export async function createGuestHarnessDetector(
  * target (the host inherits the same environment). In a guest it is not enough:
  * the managed Host is started without a login shell, so a harness installed by
  * nvm/asdf would run without its interpreter on `PATH`. Wrapping it in the login
- * shell is Orca's answer to the same problem, and `exec` keeps the PTY's process
+ * shell is the reference implementation's answer to the same problem, and `exec` keeps the PTY's process
  * the harness itself.
  */
 export function withGuestLaunchCommand(

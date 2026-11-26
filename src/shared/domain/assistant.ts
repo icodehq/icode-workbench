@@ -151,7 +151,7 @@ export type AssistantSettings = {
 }
 
 export const DEFAULT_ASSISTANT_SETTINGS: AssistantSettings = {
-  personaName: 'Mira',
+  personaName: 'Yarcy',
   target: { kind: 'auto' },
   harnessPriority: [...MODEL_HARNESSES],
   opencodeAgent: 'build',
@@ -187,8 +187,12 @@ export const DEFAULT_ASSISTANT_SETTINGS: AssistantSettings = {
 
 export type AssistantThread = {
   id: string
-  kind: 'main' | 'system'
+  kind: 'main' | 'system' | 'bot' | 'room'
   title: string
+  /** The bot that owns this thread. Null for the global main/system threads. */
+  botId: string | null
+  /** The group thread a room session belongs to; null for a bot's home chat. */
+  groupThreadId: string | null
   createdAt: number
   updatedAt: number
   lastMessageAt: number | null

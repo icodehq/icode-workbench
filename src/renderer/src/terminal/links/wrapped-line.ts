@@ -1,7 +1,7 @@
 /**
  * Soft-wrapped logical lines and logical-index to buffer-range mapping.
  *
- * Adapted from Orca (MIT, Copyright (c) 2026 Lovecast Inc.),
+ * Adapted from an MIT-licensed reference implementation (Copyright (c) 2026 Lovecast Inc.),
  * `src/shared/terminal/links/wrapped-terminal-link-ranges.ts`. This slice keeps
  * only soft wraps; hard/edge-wrap heuristics arrive with file links.
  */

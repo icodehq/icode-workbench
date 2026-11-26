@@ -36,8 +36,11 @@ export class AssistantPolicy {
     title?: string | null
     prompt: string
     settings: AssistantAutoDispatchSettings
+    /** The bot whose daily caps apply; defaults to Mira. */
+    actor?: string
   }): AssistantRiskDecision {
     const { settings } = input
+    const actor = input.actor ?? MIRA_ACTOR_ID
     if (settings.mode === 'off') {
       return { autoApprove: false, reasons: ['auto-dispatch is off'], risk: 'low' }
     }
@@ -61,12 +64,8 @@ export class AssistantPolicy {
     }
     if (settings.mode === 'low-risk') {
       const since = localDayStart(this.deps.now())
-      const repoCount = this.deps.tasks.countAutoDispatchedSince(
-        MIRA_ACTOR_ID,
-        since,
-        input.repoId
-      )
-      const totalCount = this.deps.tasks.countAutoDispatchedSince(MIRA_ACTOR_ID, since)
+      const repoCount = this.deps.tasks.countAutoDispatchedSince(actor, since, input.repoId)
+      const totalCount = this.deps.tasks.countAutoDispatchedSince(actor, since)
       if (repoCount >= settings.dailyCapPerProject) {
         reasons.push(`daily cap for this project reached (${String(settings.dailyCapPerProject)})`)
       }

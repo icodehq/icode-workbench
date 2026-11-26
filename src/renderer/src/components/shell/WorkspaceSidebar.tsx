@@ -1,12 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import {
   Bell,
   ChevronRight,
-  Filter,
   Folder,
   FolderGit2,
   GitBranch,
-  History,
   MoreHorizontal,
   Pin,
   Plus,
@@ -29,7 +28,6 @@ import type { Notice, PendingAction } from '../../state/workspace'
 import type { SidebarSessionActions, WorktreeRemovalOptions } from '../../state/session-actions'
 import type { WorktreeRemovalOutcome } from '../../state/use-workspace'
 import type { MenuAnchor } from '../ContextMenu'
-import type { TaskAction } from '../TaskWorkbench'
 import AssistantAvatar from '../AssistantAvatar'
 import { repositoryPreparationView } from '../../lib/repository-preparation'
 import { isMacPlatform, shortcutLabel } from '../../lib/platform'
@@ -42,7 +40,6 @@ import {
 } from './sidebar-pins'
 import {
   attentionTaskCount,
-  buildSidebarTaskGroups,
   groupDirectSessions,
   pinnedProjectsFirst,
   repositoryRemovalImpact,
@@ -64,23 +61,15 @@ import WorkspaceSidebarDialogs from './WorkspaceSidebarDialogs'
 import { createSidebarMenuItems } from './sidebar-menu-items'
 import { sidebarBrandInset } from './window-chrome'
 import {
-  SIDEBAR_SECTION_SEAM,
-  SIDEBAR_TASKS_MIN,
   SIDEBAR_WIDTH_DEFAULT,
   SIDEBAR_WIDTH_MAX,
   SIDEBAR_WIDTH_MIN,
-  clampSidebarTasksHeight,
   clampSidebarWidth,
-  loadSidebarTasksHeight,
   loadSidebarWidth,
-  saveSidebarTasksHeight,
   saveSidebarWidth,
-  sidebarTasksMax
 } from '../../state/sidebar-layout'
 import { usePanelResize } from '../../lib/use-panel-resize'
-import { useElementHeight } from '../../lib/use-element-size'
 import { toggleProjectExpanded, useExpandedProjectIds } from '../../state/sidebar-expansion'
-import { taskAttention, taskStatusLabel } from '../task-status'
 import {
   activityDotClass,
   activitySuffix,
@@ -100,20 +89,18 @@ type Props = {
   archivedTasks: TaskRecordPayload[]
   activeRepoId: string | null
   activeSessionId: string | null
-  activeTaskId: string | null
   branches: OwnedBranchSummary[]
   orphans: OrphanedHostSession[]
   /** Per-session in-flight action, so the row and its menu match the header. */
   pending: Record<string, PendingAction>
   assistantName: string
   assistantUnread: number
+  botsUnread: number
   assistantStatus: 'working' | 'idle' | 'offline' | 'error'
   hostUnreachable: boolean
   platform: string | null
   onOpenProject: (repoId: string, mode?: 'sessions' | 'tasks') => void
   onOpenSession: (sessionId: string) => void
-  onOpenTask: (task: TaskRecordPayload) => void
-  onTaskAction: (task: TaskRecordPayload, action: TaskAction) => void
   sessionActions: SidebarSessionActions
   /** Remove a worktree checkout and every session attached to it. */
   onRemoveWorktree: (
@@ -146,6 +133,8 @@ type Props = {
   onRemoveRepository: (repoId: string) => void
   onRemoveBranch: (branch: string) => void
   onNotify: (notice: Notice) => void
+  /** The Bots roster, embedded above Projects. */
+  botsSection?: ReactNode
   footerStatus?: React.ReactNode
 }
 
@@ -175,20 +164,7 @@ type CheckoutMenuRequest = RowMenuRequest & {
   group: WorktreeSessionGroup | null
 }
 
-type TaskMenuRequest = RowMenuRequest & { task: TaskRecordPayload }
-
 type SessionMenuRequest = RowMenuRequest & { session: SessionSummary }
-
-function taskDotClass(task: TaskRecordPayload): string {
-  const attention = taskAttention(task)
-  if (attention === 'Review') return 'bg-info'
-  if (attention === 'Retry') return 'bg-destructive'
-  if (attention !== null) return 'bg-signal'
-  if (task.status === 'running' || task.status === 'dispatching') return 'bg-add'
-  if (task.status === 'completed') return task.reviewDecision === 'pending' ? 'bg-info' : 'bg-add'
-  if (task.status === 'failed') return 'bg-destructive'
-  return 'bg-muted-foreground'
-}
 
 function menuAnchor(element: Element): MenuAnchor {
   const rect = element.getBoundingClientRect()
@@ -202,19 +178,17 @@ export default function WorkspaceSidebar({
   archivedTasks,
   activeRepoId,
   activeSessionId,
-  activeTaskId,
   branches,
   orphans,
   pending,
   assistantName,
   assistantUnread,
+  botsUnread,
   assistantStatus,
   hostUnreachable,
   platform,
   onOpenProject,
   onOpenSession,
-  onOpenTask,
-  onTaskAction,
   sessionActions,
   onRemoveWorktree,
   onDiscardWorktree,
@@ -235,6 +209,7 @@ export default function WorkspaceSidebar({
   onRemoveRepository,
   onRemoveBranch,
   onNotify,
+  botsSection,
   footerStatus
 }: Props): React.JSX.Element {
   const t = useT()
@@ -246,27 +221,8 @@ export default function WorkspaceSidebar({
   const widthRef = useRef(width)
   const asideRef = useRef<HTMLElement | null>(null)
   const resizerRef = useRef<HTMLDivElement | null>(null)
-  const [tasksHeight, setTasksHeight] = useState<number | null>(() =>
-    loadSidebarTasksHeight()
-  )
-  const [tasksDragging, setTasksDragging] = useState(false)
-  const tasksDraggingRef = useRef(false)
-  const tasksPaneRef = useRef<HTMLElement | null>(null)
-  const seamRef = useRef<HTMLDivElement | null>(null)
-  const [setProjectsPane, projectsMeasuredHeight] = useElementHeight<HTMLDivElement>()
-  const [setTasksElement, tasksMeasuredHeight] = useElementHeight<HTMLElement>()
-  const setTasksPane = useCallback(
-    (element: HTMLElement | null) => {
-      tasksPaneRef.current = element
-      setTasksElement(element)
-    },
-    [setTasksElement]
-  )
   const [pins, setPins] = useState<SidebarPins>(() => readSidebarPins())
   const [projectsCollapsed, setProjectsCollapsed] = useState(false)
-  const [tasksCollapsed, setTasksCollapsed] = useState(false)
-  const [tasksNeedsOnly, setTasksNeedsOnly] = useState(false)
-  const [tasksHistory, setTasksHistory] = useState(false)
   // Every project starts collapsed; the store survives the focus-mode unmount.
   const expandedRepos = useExpandedProjectIds()
   const [collapsedWorktrees, setCollapsedWorktrees] = useState<Set<string>>(() => new Set())
@@ -278,7 +234,6 @@ export default function WorkspaceSidebar({
   const [removeRepo, setRemoveRepo] = useState<RepositorySummary | null>(null)
   const [projectMenu, setProjectMenu] = useState<ProjectMenuRequest | null>(null)
   const [checkoutMenu, setCheckoutMenu] = useState<CheckoutMenuRequest | null>(null)
-  const [taskMenu, setTaskMenu] = useState<TaskMenuRequest | null>(null)
   const [sessionMenu, setSessionMenu] = useState<SessionMenuRequest | null>(null)
   const [detailsSession, setDetailsSession] = useState<SessionSummary | null>(null)
   const [sleepSession, setSleepSession] = useState<SessionSummary | null>(null)
@@ -329,7 +284,7 @@ export default function WorkspaceSidebar({
         current,
         repos.map((repo) => repo.id),
         sessions.map((session) => session.id),
-        [...tasks, ...archivedTasks].map((task) => task.id)
+        []
       )
       if (
         next.projects.length === current.projects.length &&
@@ -341,7 +296,7 @@ export default function WorkspaceSidebar({
       writeSidebarPins(next)
       return next
     })
-  }, [archivedTasks, repos, sessions, tasks])
+  }, [repos, sessions])
 
   useEffect(() => {
     widthRef.current = width
@@ -374,76 +329,6 @@ export default function WorkspaceSidebar({
     },
     onCommit: persistWidth
   })
-
-  const splitMeasured = projectsMeasuredHeight > 0 && tasksMeasuredHeight > 0
-  const splitHeight = splitMeasured
-    ? projectsMeasuredHeight + tasksMeasuredHeight + SIDEBAR_SECTION_SEAM
-    : 0
-  const tasksMaxHeight = splitHeight > 0 ? sidebarTasksMax(splitHeight) : undefined
-  const renderedTasksHeight =
-    tasksHeight === null || splitHeight <= 0
-      ? null
-      : clampSidebarTasksHeight(tasksHeight, splitHeight)
-  const tasksPaneStyle: CSSProperties = tasksCollapsed
-    ? { height: 'auto' }
-    : tasksDragging
-      ? {}
-      : renderedTasksHeight !== null
-        ? {
-            height: `${renderedTasksHeight}px`,
-            minHeight: SIDEBAR_TASKS_MIN,
-            maxHeight:
-              tasksMaxHeight !== undefined ? `${tasksMaxHeight}px` : undefined
-          }
-        : { maxHeight: '38%' }
-
-  const persistTasksHeight = (next: number): void => {
-    setTasksHeight(next)
-    saveSidebarTasksHeight(next)
-  }
-
-  const nudgeTasksHeight = (delta: number): void => {
-    if (splitHeight <= 0) return
-    const current = renderedTasksHeight ?? tasksMeasuredHeight
-    persistTasksHeight(clampSidebarTasksHeight(current + delta, splitHeight))
-  }
-
-  const resetTasksHeight = (): void => {
-    setTasksHeight(null)
-    saveSidebarTasksHeight(null)
-    tasksPaneRef.current?.style.removeProperty('height')
-  }
-
-  const { handleProps: tasksHandleProps } = usePanelResize({
-    kind: 'sidebar',
-    panelRef: tasksPaneRef,
-    clamp: (candidate) =>
-      splitHeight > 0 ? clampSidebarTasksHeight(candidate, splitHeight) : candidate,
-    direction: -1,
-    axis: 'y',
-    disabled: tasksCollapsed,
-    cursor: 'row-resize',
-    onLive: (next) => {
-      if (!tasksDraggingRef.current) {
-        tasksDraggingRef.current = true
-        setTasksDragging(true)
-      }
-      seamRef.current?.setAttribute('aria-valuenow', String(Math.round(next)))
-    },
-    onCommit: (next) => {
-      tasksDraggingRef.current = false
-      setTasksDragging(false)
-      persistTasksHeight(next)
-    }
-  })
-
-  // A collapsed Tasks pane must not keep an imperative drag height around.
-  useEffect(() => {
-    if (!tasksCollapsed) return
-    tasksDraggingRef.current = false
-    setTasksDragging(false)
-    tasksPaneRef.current?.style.removeProperty('height')
-  }, [tasksCollapsed])
 
   const orderedRepos = useMemo(() => {
     const byId = new Map(repos.map((repo) => [repo.id, repo]))
@@ -614,10 +499,6 @@ export default function WorkspaceSidebar({
     () => sessions.filter((session) => pins.sessions.includes(session.id)),
     [pins.sessions, sessions]
   )
-  const pinnedTasks = useMemo(
-    () => [...tasks, ...archivedTasks].filter((task) => pins.tasks.includes(task.id)),
-    [archivedTasks, pins.tasks, tasks]
-  )
   const activeSession = useMemo(
     () => sessions.find((session) => session.id === activeSessionId) ?? null,
     [activeSessionId, sessions]
@@ -645,17 +526,7 @@ export default function WorkspaceSidebar({
     if (preferred !== undefined) onOpenSession(preferred.id)
     else onOpenProject(repoId, 'sessions')
   }
-  const taskGroups = useMemo(
-    () =>
-      buildSidebarTaskGroups(
-        tasksHistory ? archivedTasks : tasks,
-        repos,
-        tasksHistory ? false : tasksNeedsOnly,
-        tasksHistory
-      ),
-    [archivedTasks, repos, tasks, tasksHistory, tasksNeedsOnly]
-  )
-  const attention = attentionTaskCount(tasks)
+  const attention = attentionTaskCount(tasks) + botsUnread
   const directSessionCount = useMemo(() => {
     const count = new Map<string, number>()
     for (const session of sessions) count.set(session.repoId, (count.get(session.repoId) ?? 0) + 1)
@@ -695,9 +566,6 @@ export default function WorkspaceSidebar({
   const toggleSessionPin = (sessionId: string): void => {
     updatePins((current) => ({ ...current, sessions: togglePin(current.sessions, sessionId) }))
   }
-  const toggleTaskPin = (taskId: string): void => {
-    updatePins((current) => ({ ...current, tasks: togglePin(current.tasks, taskId) }))
-  }
 
   const menuItems = createSidebarMenuItems({
     t,
@@ -720,12 +588,10 @@ export default function WorkspaceSidebar({
     onQueueTask,
     onAddProject,
     onOpenSchedules,
-    onTaskAction,
     onWakeSession: sessionActions.wake,
     onResumeSession: sessionActions.resume,
     onRestartSession: sessionActions.restart,
     toggleProjectPin,
-    toggleTaskPin,
     toggleSessionPin,
     toggleWorktreeCollapsed,
     toggleDefaultCheckoutCollapsed,
@@ -748,8 +614,6 @@ export default function WorkspaceSidebar({
     request: RowMenuRequest
   ): void => setCheckoutMenu({ repo, group, ...request })
 
-  const requestTaskMenu = (task: TaskRecordPayload, request: RowMenuRequest): void =>
-    setTaskMenu({ task, ...request })
 
   const requestSessionMenu = (session: SessionSummary, request: RowMenuRequest): void =>
     setSessionMenu({ session, ...request })
@@ -922,7 +786,9 @@ export default function WorkspaceSidebar({
     const repoSessions = sessions.filter((session) => session.repoId === repo.id)
     const hasActiveSession = repoSessions.some((session) => session.id === activeSessionId)
     const isActive = repo.id === activeRepoId && !hasActiveSession
-    const needs = attentionTaskCount(tasks.filter((task) => task.repoId === repo.id))
+    const needs = attentionTaskCount(
+      tasks.filter((task) => task.repoId === repo.id && task.botId === null)
+    )
     const preparation = repositoryPreparationView(repo)
     const sessionCount = directSessionCount.get(repo.id) ?? 0
     const expanded = expandedRepos.has(repo.id)
@@ -1423,326 +1289,122 @@ export default function WorkspaceSidebar({
         </button>
       </div>
 
-      <div ref={setProjectsPane} className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
-        {pinned.length + pinnedSessions.length + pinnedTasks.length > 0 ? (
-          <section aria-label={t('sidebar.pinned')} data-testid="sidebar-pinned">
-            <div className="flex h-8 items-center gap-1 px-1 font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
-              <Pin size={9} />
-              {t('sidebar.pinned')}
-            </div>
-            <div className="space-y-0.5">
-              {pinned.map((repo) => projectRow(repo, true, true))}
-              {pinnedSessions.map((session) => {
-                const repo = repos.find((entry) => entry.id === session.repoId)
-                const active = session.id === activeSessionId
-                const menuOpen = sessionMenu?.session.id === session.id
-                return (
-                  <div
-                    key={`pin-session-${session.id}`}
-                    className={`flex min-h-9 items-center rounded-md ${menuOpen ? 'bg-hover' : ''}`}
-                    data-menu-open={menuOpen ? 'true' : undefined}
-                  >
-                    <button
-                      type="button"
-                      className={`flex min-h-9 min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 py-1 text-left ${
-                        active ? 'bg-sel text-foreground' : 'text-muted-foreground hover:bg-hover hover:text-foreground'
-                      }`}
-                      onClick={() => onOpenSession(session.id)}
-                      onContextMenu={(event) => {
-                        event.preventDefault()
-                        requestSessionMenu(session, {
-                          x: event.clientX,
-                          y: event.clientY,
-                          returnFocus: event.currentTarget
-                        })
-                      }}
-                      onKeyDown={(event) =>
-                        openRowMenuFromKey(event, (anchor) =>
-                          requestSessionMenu(session, { anchor, returnFocus: event.currentTarget })
-                        )
-                      }
-                      aria-haspopup="menu"
-                      aria-expanded={menuOpen}
-                      title={session.title}
-                      data-testid={`pinned-session-${session.id}`}
-                      data-session-pending={pendingFor(session) ?? ''}
-                    >
-                      <span
-                        className={`h-1.5 w-1.5 shrink-0 rounded-full ${sessionStateDotClass(session, pendingFor(session))}`}
-                      />
-                      <span className="min-w-0 flex-1 truncate text-[13px]">{session.title}</span>
-                      <span className="max-w-[110px] shrink-0 truncate text-[11px] text-muted-foreground">
-                        {repo?.displayName ?? session.repoId}
-                      </span>
-                    </button>
-                  </div>
-                )
-              })}
-              {pinnedTasks.map((task) => {
-                const repo = repos.find((entry) => entry.id === task.repoId)
-                const active = task.id === activeTaskId
-                const menuOpen = taskMenu?.task.id === task.id
-                return (
-                  <div
-                    key={`pin-task-${task.id}`}
-                    className={`flex min-h-9 items-center rounded-md ${menuOpen ? 'bg-hover' : ''}`}
-                    data-menu-open={menuOpen ? 'true' : undefined}
-                  >
-                    <button
-                      type="button"
-                      className={`flex min-h-9 min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 py-1 text-left ${
-                        active ? 'bg-sel text-foreground' : 'text-muted-foreground hover:bg-hover hover:text-foreground'
-                      }`}
-                      onClick={() => onOpenTask(task)}
-                      onContextMenu={(event) => {
-                        event.preventDefault()
-                        requestTaskMenu(task, {
-                          x: event.clientX,
-                          y: event.clientY,
-                          returnFocus: event.currentTarget
-                        })
-                      }}
-                      onKeyDown={(event) =>
-                        openRowMenuFromKey(event, (anchor) =>
-                          requestTaskMenu(task, { anchor, returnFocus: event.currentTarget })
-                        )
-                      }
-                      aria-haspopup="menu"
-                      aria-expanded={menuOpen}
-                      title={task.title}
-                      data-testid={`pinned-task-${task.id}`}
-                    >
-                      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${taskDotClass(task)}`} />
-                      <span className="min-w-0 flex-1 truncate text-[13px]">{task.title}</span>
-                      <span className="max-w-[110px] shrink-0 truncate font-mono text-[11px] text-muted-foreground">
-                        {repo?.displayName ?? task.repoId}
-                      </span>
-                    </button>
-                  </div>
-                )
-              })}
-            </div>
-          </section>
-        ) : null}
-
-        <section aria-label={t('sidebar.projects')} data-testid="sidebar-projects" className="mt-1">
-          <div className="flex h-8 items-center gap-1 px-1">
-            <button
-              type="button"
-              className="flex min-w-0 flex-1 items-center gap-1 font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground hover:text-foreground"
-              onClick={() => setProjectsCollapsed((current) => !current)}
-              aria-expanded={!projectsCollapsed}
-              data-testid="sidebar-projects-toggle"
-            >
-              <ChevronRight
-                size={9}
-                className={projectsCollapsed ? '' : 'rotate-90'}
-              />
-              {t('sidebar.projects')}
-              <span className="text-muted-foreground/70">{repos.length}</span>
-            </button>
-            <button
-              type="button"
-              className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
-              onClick={onAddProject}
-              aria-label={t('projects.addProject')}
-              title={t('projects.addProject')}
-              data-testid="sidebar-add-project"
-            >
-              <Plus size={11} />
-            </button>
+      <div className="flex min-h-0 flex-1 flex-col px-2 py-2">
+        {botsSection !== undefined ? (
+          <div className="shrink-0" data-testid="sidebar-bots-slot">
+            {botsSection}
           </div>
-          {!projectsCollapsed ? (
-            <div className="space-y-0.5" data-testid="sidebar-project-rows">
-              {repos.length === 0 ? (
-                <button
-                  type="button"
-                  className="w-full rounded-md px-2 py-2 text-left text-[12px] leading-relaxed text-muted-foreground hover:bg-hover hover:text-foreground"
-                  onClick={onAddProject}
-                  data-testid="sidebar-empty-add-project"
-                >
-                  {t('projects.empty.title')}
-                </button>
-              ) : (
-                orderedRepos.map((repo) => projectRow(repo, false))
-              )}
-            </div>
-          ) : null}
-        </section>
-      </div>
-
-      <div
-        ref={seamRef}
-        role="separator"
-        aria-orientation="horizontal"
-        aria-label={t('sidebar.resizeSections')}
-        aria-valuemin={SIDEBAR_TASKS_MIN}
-        aria-valuemax={tasksMaxHeight}
-        aria-valuenow={
-          tasksCollapsed ? undefined : Math.round(renderedTasksHeight ?? tasksMeasuredHeight)
-        }
-        aria-disabled={tasksCollapsed || undefined}
-        tabIndex={tasksCollapsed ? -1 : 0}
-        className={`h-[3px] shrink-0 transition-colors focus-visible:outline-none ${
-          tasksCollapsed
-            ? 'cursor-default bg-border/70'
-            : 'cursor-row-resize bg-border/70 hover:bg-accent/60 focus-visible:bg-accent'
-        }`}
-        data-testid="sidebar-sections-resizer"
-        {...tasksHandleProps}
-        onKeyDown={(event) => {
-          if (tasksCollapsed) return
-          if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
-          event.preventDefault()
-          nudgeTasksHeight(event.key === 'ArrowUp' ? 16 : -16)
-        }}
-        onDoubleClick={() => {
-          if (!tasksCollapsed) resetTasksHeight()
-        }}
-      />
-
-      <section
-        ref={setTasksPane}
-        className="flex min-h-0 shrink-0 flex-col px-2 pb-2 pt-1"
-        style={tasksPaneStyle}
-        aria-label={t('sidebar.tasks')}
-        data-testid="sidebar-tasks"
-      >
-        <div className="flex h-8 shrink-0 items-center gap-1 px-1">
-          <button
-            type="button"
-            className="flex min-w-0 flex-1 items-center gap-1 font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground hover:text-foreground"
-            onClick={() => setTasksCollapsed((current) => !current)}
-            aria-expanded={!tasksCollapsed}
-            data-testid="sidebar-tasks-toggle"
-          >
-            <ChevronRight size={9} className={tasksCollapsed ? '' : 'rotate-90'} />
-            {t('sidebar.tasks')}
-            <span className="text-muted-foreground/70">
-              {tasksHistory ? archivedTasks.length : tasks.length}
-            </span>
-            {attention > 0 ? (
-              <span className="inline-flex items-center gap-1 text-signal" data-testid="sidebar-tasks-needs">
-                <span className="h-1 w-1 rounded-full bg-signal" />
-                {attention}
-              </span>
-            ) : null}
-          </button>
-          <button
-            type="button"
-            className={`inline-flex h-6 w-6 items-center justify-center rounded hover:bg-muted ${
-              tasksHistory ? 'text-accent' : 'text-muted-foreground hover:text-foreground'
-            }`}
-            onClick={() => setTasksHistory((current) => !current)}
-            aria-pressed={tasksHistory}
-            aria-label={t('tasks.history')}
-            title={t('tasks.history')}
-            data-testid="sidebar-tasks-history"
-          >
-            <History size={10} />
-          </button>
-          <button
-            type="button"
-            className={`inline-flex h-6 w-6 items-center justify-center rounded hover:bg-muted ${
-              tasksNeedsOnly ? 'text-signal' : 'text-muted-foreground hover:text-foreground'
-            }`}
-            onClick={() => {
-              if (!tasksHistory) setTasksNeedsOnly((current) => !current)
-            }}
-            disabled={tasksHistory}
-            aria-pressed={tasksNeedsOnly}
-            aria-label={t('sidebar.tasksFilter')}
-            title={t('sidebar.tasksFilter')}
-            data-testid="sidebar-tasks-filter"
-          >
-            <Filter size={10} />
-          </button>
-          <button
-            type="button"
-            className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
-            onClick={onQueueTask}
-            aria-label={t('topbar.queueTask')}
-            title={t('topbar.queueTask')}
-            data-testid="sidebar-queue-task"
-          >
-            <Plus size={11} />
-          </button>
-        </div>
-
-        {!tasksCollapsed ? (
-          <div className="min-h-0 flex-1 overflow-y-auto" data-testid="sidebar-task-rows">
-            {taskGroups.length === 0 ? (
-              <p className="px-2 py-2 text-[12px] leading-relaxed text-muted-foreground">
-                {tasksHistory
-                  ? t('tasks.emptyHistory')
-                  : tasksNeedsOnly
-                    ? t('tasks.emptyNeeds')
-                    : t('tasks.empty')}
-              </p>
-            ) : (
-              taskGroups.map((group) => (
-                <div key={group.repo.id} className="mb-1" data-testid={`sidebar-task-group-${group.repo.id}`}>
-                  <div className="flex h-7 items-center gap-1 px-1 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
-                    <span className="min-w-0 flex-1 truncate">{group.repo.displayName}</span>
-                    <span>{group.tasks.length}</span>
-                  </div>
-                  {group.tasks.map((task) => {
-                    const active = task.id === activeTaskId
-                    const menuOpen = taskMenu?.task.id === task.id
-                    return (
-                      <div
-                        key={task.id}
-                        className={`flex min-h-10 items-center rounded-md ${menuOpen ? 'bg-hover' : ''}`}
-                        data-menu-open={menuOpen ? 'true' : undefined}
+        ) : null}
+        <div
+          className={`min-h-[96px] flex-1 overflow-y-auto ${
+            botsSection !== undefined ? 'pt-1' : ''
+          }`}
+          data-testid="sidebar-projects-scroll"
+        >
+          {pinned.length + pinnedSessions.length > 0 ? (
+            <section aria-label={t('sidebar.pinned')} data-testid="sidebar-pinned">
+              <div className="flex h-8 items-center gap-1 px-1 font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+                <Pin size={9} />
+                {t('sidebar.pinned')}
+              </div>
+              <div className="space-y-0.5">
+                {pinned.map((repo) => projectRow(repo, true, true))}
+                {pinnedSessions.map((session) => {
+                  const repo = repos.find((entry) => entry.id === session.repoId)
+                  const active = session.id === activeSessionId
+                  const menuOpen = sessionMenu?.session.id === session.id
+                  return (
+                    <div
+                      key={`pin-session-${session.id}`}
+                      className={`flex min-h-9 items-center rounded-md ${menuOpen ? 'bg-hover' : ''}`}
+                      data-menu-open={menuOpen ? 'true' : undefined}
+                    >
+                      <button
+                        type="button"
+                        className={`flex min-h-9 min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 py-1 text-left ${
+                          active ? 'bg-sel text-foreground' : 'text-muted-foreground hover:bg-hover hover:text-foreground'
+                        }`}
+                        onClick={() => onOpenSession(session.id)}
+                        onContextMenu={(event) => {
+                          event.preventDefault()
+                          requestSessionMenu(session, {
+                            x: event.clientX,
+                            y: event.clientY,
+                            returnFocus: event.currentTarget
+                          })
+                        }}
+                        onKeyDown={(event) =>
+                          openRowMenuFromKey(event, (anchor) =>
+                            requestSessionMenu(session, { anchor, returnFocus: event.currentTarget })
+                          )
+                        }
+                        aria-haspopup="menu"
+                        aria-expanded={menuOpen}
+                        title={session.title}
+                        data-testid={`pinned-session-${session.id}`}
+                        data-session-pending={pendingFor(session) ?? ''}
                       >
-                        <button
-                          type="button"
-                          className={`flex min-h-10 min-w-0 flex-1 items-start gap-1.5 rounded-md px-1.5 py-1 text-left ${
-                            active ? 'bg-sel text-foreground shadow-[inset_2px_0_0_var(--icode-accent)]' : 'text-muted-foreground hover:bg-hover hover:text-foreground'
-                          }`}
-                          onClick={() => onOpenTask(task)}
-                          onContextMenu={(event) => {
-                            event.preventDefault()
-                            requestTaskMenu(task, {
-                              x: event.clientX,
-                              y: event.clientY,
-                              returnFocus: event.currentTarget
-                            })
-                          }}
-                          onKeyDown={(event) =>
-                            openRowMenuFromKey(event, (anchor) =>
-                              requestTaskMenu(task, {
-                                anchor,
-                                returnFocus: event.currentTarget
-                              })
-                            )
-                          }
-                          aria-haspopup="menu"
-                          aria-expanded={menuOpen}
-                          title={task.title}
-                          data-testid={`sidebar-task-${task.id}`}
-                          aria-current={active ? 'true' : undefined}
-                        >
-                          <span
-                            className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${taskDotClass(task)}`}
-                          />
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate text-[13px]">{task.title}</span>
-                            <span className="block truncate font-mono text-[11px] text-muted-foreground">
-                              {taskStatusLabel(task)}
-                              {task.attempt ? ` · ${t('task.attempt', { count: task.attempt })}` : ''}
-                            </span>
-                          </span>
-                        </button>
-                      </div>
-                    )
-                  })}
-                </div>
-              ))
-            )}
-          </div>
-        ) : null}
-      </section>
+                        <span
+                          className={`h-1.5 w-1.5 shrink-0 rounded-full ${sessionStateDotClass(session, pendingFor(session))}`}
+                        />
+                        <span className="min-w-0 flex-1 truncate text-[13px]">{session.title}</span>
+                        <span className="max-w-[110px] shrink-0 truncate text-[11px] text-muted-foreground">
+                          {repo?.displayName ?? session.repoId}
+                        </span>
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            </section>
+          ) : null}
+
+          <section aria-label={t('sidebar.projects')} data-testid="sidebar-projects" className="mt-1">
+            <div className="flex h-8 items-center gap-1 px-1">
+              <button
+                type="button"
+                className="flex min-w-0 flex-1 items-center gap-1 font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground hover:text-foreground"
+                onClick={() => setProjectsCollapsed((current) => !current)}
+                aria-expanded={!projectsCollapsed}
+                data-testid="sidebar-projects-toggle"
+              >
+                <ChevronRight
+                  size={9}
+                  className={projectsCollapsed ? '' : 'rotate-90'}
+                />
+                {t('sidebar.projects')}
+                <span className="text-muted-foreground/70">{repos.length}</span>
+              </button>
+              <button
+                type="button"
+                className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+                onClick={onAddProject}
+                aria-label={t('projects.addProject')}
+                title={t('projects.addProject')}
+                data-testid="sidebar-add-project"
+              >
+                <Plus size={11} />
+              </button>
+            </div>
+            {!projectsCollapsed ? (
+              <div className="space-y-0.5" data-testid="sidebar-project-rows">
+                {repos.length === 0 ? (
+                  <button
+                    type="button"
+                    className="w-full rounded-md px-2 py-2 text-left text-[12px] leading-relaxed text-muted-foreground hover:bg-hover hover:text-foreground"
+                    onClick={onAddProject}
+                    data-testid="sidebar-empty-add-project"
+                  >
+                    {t('projects.empty.title')}
+                  </button>
+                ) : (
+                  orderedRepos.map((repo) => projectRow(repo, false))
+                )}
+              </div>
+            ) : null}
+          </section>
+        </div>
+      </div>
 
       {footerStatus ?? null}
 
@@ -1813,22 +1475,6 @@ export default function WorkspaceSidebar({
                 align: 'start',
                 returnFocus: checkoutMenu.returnFocus,
                 onClose: () => setCheckoutMenu(null)
-              }
-        }
-        taskMenu={
-          taskMenu === null
-            ? null
-            : {
-                items: menuItems.task(taskMenu.task),
-                ariaLabel: t('task.actions'),
-                testId: 'sidebar-task-menu',
-                width: 208,
-                x: taskMenu.x,
-                y: taskMenu.y,
-                anchor: taskMenu.anchor,
-                align: 'start',
-                returnFocus: taskMenu.returnFocus,
-                onClose: () => setTaskMenu(null)
               }
         }
         sessionMenu={

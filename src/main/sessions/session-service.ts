@@ -728,7 +728,7 @@ export class SessionService {
     // string. A guest path and a Windows path are both "just strings".
     const target = repository.executionTarget
     // Path A owns its own shell resolution: the distro's login shell is what a
-    // terminal must run, and Orca probes nothing for it (`wsl.exe` is the shell).
+    // terminal must run, and the reference implementation probes nothing for it (`wsl.exe` is the shell).
     const pathA = this.isPathATerminal(input.harness, target)
     /*
      * The WSL host/relay ensure is independent of the worktree. Start it now so
@@ -1010,7 +1010,7 @@ export class SessionService {
     this.deps.worktrees.updateState(sessionId, 'created', null, this.now())
 
     try {
-      // Orca parity: only a branch whose name matches the remote branch adopts
+      // the reference implementation parity: only a branch whose name matches the remote branch adopts
       // its upstream. Generated session branches stay untracked.
       if (remoteTracking !== null && branch === remoteTracking.branch) {
         await this.deps.gitWorktrees.setBranchUpstream({

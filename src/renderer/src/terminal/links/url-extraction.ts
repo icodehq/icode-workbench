@@ -1,7 +1,7 @@
 /**
  * HTTP(S) URL detection in terminal text.
  *
- * Adapted from Orca (MIT, Copyright (c) 2026 Lovecast Inc.):
+ * Adapted from an MIT-licensed reference implementation (Copyright (c) 2026 Lovecast Inc.):
  * `shared/terminal/links/terminal-http-url-extraction.ts`,
  * `terminal-http-link-limits.ts`, and `shared/text/prose-url-boundary.ts`.
  */

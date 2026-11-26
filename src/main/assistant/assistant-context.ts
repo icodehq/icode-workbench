@@ -5,6 +5,7 @@ import type { AssistantStore } from '../persistence/assistant-store'
 import type { TaskService } from '../tasks/task-service'
 import type { AssistantSettings } from '../../shared/domain/assistant'
 import { ASSISTANT_LIMITS } from '../../shared/domain/assistant'
+import type { BotProfile } from '../../shared/domain/bot'
 
 export type AssistantSnapshot = {
   now: number
@@ -86,6 +87,10 @@ export type AssistantPromptInput = {
   personaName: string
   settings: AssistantSettings
   snapshot: AssistantSnapshot
+  /** The bot whose thread this is. Absent for the legacy Mira prompt. */
+  bot?: BotProfile
+  /** Scoped active memory; falls back to the snapshot's global Mira memory. */
+  memory?: Array<{ key: string; value: string; scope?: string }>
   history: Array<{ role: string; body: string }>
   userText: string
   repoId?: string
@@ -103,7 +108,7 @@ const ACTION_HELP = `Actions you may return (JSON objects with an "op"):
 - {"op":"tasks.changes","taskId":"..."}
 - {"op":"tasks.diff","taskId":"...","path":"..."}
 - {"op":"sessions.list","repoId":"..."}
-- {"op":"tasks.create","repoId":"...","title":"...","prompt":"...","harness":"claude"|"codex"|"opencode"}
+- {"op":"tasks.create","repoId":"...","title":"...","prompt":"...","harness":"claude"|"codex"|"opencode","botId":"...","groupId":"...","acceptanceCriteria":"..."}
 - {"op":"tasks.cancel","taskId":"..."}
 - {"op":"tasks.retry","taskId":"..."}
 - {"op":"tasks.resume","taskId":"..."} — continue a failed or cancelled attempt in its existing session and worktree; prefer this after quota, auth, network or harness interruptions, because it keeps the uncommitted work
@@ -112,12 +117,16 @@ const ACTION_HELP = `Actions you may return (JSON objects with an "op"):
 - {"op":"supervisor.message","repoId":"...","text":"..."}
 - {"op":"review.recommend","taskId":"...","decision":"accept"|"reject","note":"..."}
 - {"op":"notify","text":"...","kind":"approval-needed"|"task-failed"|"plan-ready"|"custom","priority":"high"|"normal"|"low"}
-- {"op":"memory.set","key":"...","value":"..."}
-- {"op":"memory.forget","key":"..."}
+- {"op":"memory.set","key":"...","value":"...","scope":"bot"|"project"|"team","repoId":"...","teamId":"..."}
+- {"op":"memory.forget","key":"...","scope":"bot"|"project"|"team","repoId":"...","teamId":"..."}
+- {"op":"items.comment","taskId":"...","text":"..."} — add an owner-visible update to an Item
+- {"op":"items.ask","taskId":"...","text":"...","options":["..."]} — ask the owner a blocking question; the Item moves to Needs you until answered
+- {"op":"items.link","taskId":"...","kind":"url"|"file"|"pr","ref":"..."} — attach evidence to an Item
 
 You may return read actions in one round. Their results will come back to you.
 Do not return reads and writes in the same round. When you have enough
-information, return only writes with a short intent reply.`
+information, return only writes with a short intent reply. A write round ends
+your turn, so include every write you want executed in that one round.`
 
 function truncate(value: string, limit: number): string {
   return value.length <= limit ? value : `${value.slice(0, limit)}\n…[truncated]`
@@ -135,8 +144,14 @@ export function buildAssistantPrompt(input: AssistantPromptInput): {
       ? 'Auto-dispatch is set to all: your tasks are approved automatically, but review and merge are still human.'
       : 'Auto-dispatch is off: every task you create needs human approval.'
 
-  const header = `You are ${personaName}, the user's cross-project personal assistant inside iCode.
-You can see every project, task, session, review and diff. You can act only through the typed actions below.
+  const identity = input.bot
+    ? `You are ${input.bot.name}, ${input.bot.role} on the user's iCode bot team.
+${input.bot.instructions.trim().length > 0 ? `Role instructions:\n${input.bot.instructions.trim()}\n` : ''}You share the bot team's projects, tasks, sessions, reviews and diffs.`
+    : `You are ${personaName}, the user's cross-project personal assistant inside iCode.
+You can see every project, task, session, review and diff.`
+
+  const header = `${identity}
+You can act only through the typed actions below.
 You cannot run shell commands, edit files, merge, push, or decide a review. You must never claim an action happened unless its result says so.
 You are not a supervisor who owns the project; you work for the user. Be concise, direct, and honest. Reply in the user's language.
 
@@ -154,7 +169,7 @@ For proactive messages, use notify only when the user needs to know now.`
       projects: snapshot.projects,
       tasks: snapshot.tasks,
       sessions: snapshot.sessions,
-      memory: snapshot.memory,
+      memory: input.memory ?? snapshot.memory,
       currentProject: input.repoId ?? null
     },
     null,

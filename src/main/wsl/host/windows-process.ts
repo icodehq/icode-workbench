@@ -71,7 +71,7 @@ export function parseCimProcessOutput(stdout: string): WindowsProcessEvidence {
   }
 }
 
-/** The holder's identifying token, mirrored in Orca's holder command line. */
+/** The holder's identifying token, mirrored in the reference implementation's holder command line. */
 export const WSL_HOLDER_MARKER = 'icode-wsl-holder'
 
 function escapeRegExp(value: string): string {

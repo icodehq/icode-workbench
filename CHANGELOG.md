@@ -5,6 +5,48 @@ All notable changes to iCode are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.32.0] - 2026-11-26
+
+### Added
+
+- **Bots.** Persistent teammates with their own home chat, role, instructions,
+  memory and agent settings. Create one from 24 official templates across
+  coding, releases, support, planning, ops and personal work, or start blank.
+  Bots support uploaded pictures or mascot/outfit avatars, pause/resume,
+  archive, read/unread state, notification mute and per-bot unread badges.
+- **Bot groups.** Shared rooms with threads, member management, reply modes
+  (a chosen bot, all bots, or mentions only), @mention hand-offs, Stop,
+  per-bot room sessions and quoted room context.
+- **Items.** The task queue gains an owner-facing item view with derived
+  statuses, comments, questions and answers, snooze, manual status overrides,
+  attachments, links and worker reports.
+- **Scoped memory.** Bot, project and group memory with proposed, active and
+  archived states and explicit approval; only active entries enter prompts.
+- **Bots in the main sidebar.** Groups and bots share one manual order with
+  drag reorder, a resizable section, search, sort and filters (manual, agent,
+  recent, name), hover cards, a collapsed preview and row context menus.
+- **Dynamic center tabs** for bot home chats, group rooms and threads, and bot
+  settings, with unread badges and per-tab close.
+- New bot and group dialogs, bot settings (identity, agent, access, memory),
+  group settings (members, default replier, reply mode, archive, delete), and
+  group mute/read actions.
+- Notification drawer sections for bots and groups.
+
+### Changed
+
+- The main sidebar is now Bots plus Projects and their workspaces. The old
+  Team surface, Team tab, team sidebar and team IPC/store are removed; existing
+  teams migrate to groups with a default thread and their messages preserved.
+- Tasks are the worker layer behind Items. Task creation can target a bot and a
+  group thread; task milestones appear in the room, and owner answers resume
+  the worker.
+- The global assistant is Yarcy throughout the README and UI. Its profile is no
+  longer an owner-visible bot: a fresh install starts with an empty Bots roster
+  and creates the first bot from a template.
+- The harness catalog is trimmed to the supported entries (44 providers plus
+  the shell).
+- Databases migrate forward automatically through schema v33 on first launch.
+
 ## [0.31.0] - 2026-11-25
 
 ### Added

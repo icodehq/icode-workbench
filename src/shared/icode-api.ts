@@ -76,6 +76,73 @@ import type {
   assistantSetSettingsInputSchema
 } from './schemas/assistant'
 import type {
+  botArchiveInputSchema,
+  botSetPausedInputSchema,
+  botCreateInputSchema,
+  botUpdateInputSchema,
+  botFocusInputSchema,
+  botMarkReadInputSchema,
+  botMessagesInputSchema,
+  botConversationsInputSchema,
+  botNewConversationInputSchema,
+  botNotificationsInputSchema,
+  botSendInputSchema,
+  botSetSettingsInputSchema,
+  botSettingsInputSchema,
+  botStateInputSchema,
+  botStopInputSchema,
+  botMemoryApproveInputSchema,
+  botMemoryDeleteInputSchema,
+  botMemoryListInputSchema,
+  botMemorySetInputSchema,
+  BotEventPayload,
+  BotMemoryEntryPayload,
+  BotRecordPayload,
+  BotSummaryPayload
+} from './schemas/bots'
+import type {
+  groupCreateInputSchema,
+  groupArchiveInputSchema,
+  groupDeleteInputSchema,
+  groupMarkReadInputSchema,
+  groupSetReadInputSchema,
+  groupSetMutedInputSchema,
+  groupMarkReadResultSchema,
+  groupSetReadResultSchema,
+  groupSetMutedResultSchema,
+  groupMessagesInputSchema,
+  groupMessagesResultSchema,
+  groupSendInputSchema,
+  groupSendResultSchema,
+  groupStopInputSchema,
+  groupStopResultSchema,
+  groupThreadCreateInputSchema,
+  groupThreadCreateResultSchema,
+  groupUpdateInputSchema,
+  GroupEventPayload,
+  GroupSummaryPayload,
+  GroupThreadPayload
+} from './schemas/groups'
+import type {
+  itemsAskInputSchema,
+  itemsAnswerInputSchema,
+  itemsCommentInputSchema,
+  itemsGetInputSchema,
+  itemsGetResultSchema,
+  itemsLinkAddInputSchema,
+  itemsAttachInputSchema,
+  itemsRemoveAttachmentInputSchema,
+  itemsLinkRemoveInputSchema,
+  itemsListInputSchema,
+  itemsListResultSchema,
+  itemsSnoozeInputSchema,
+  itemsSetStatusInputSchema,
+  ItemPayload,
+  TaskAttachmentPayload,
+  TaskCommentPayload,
+  TaskLinkPayload
+} from './schemas/items'
+import type {
   NetworkProxySettingsPayload,
   networkSetSettingsInputSchema
 } from './schemas/network'
@@ -115,6 +182,7 @@ import type {
   taskChangesPayloadSchema,
   taskCreateInputSchema,
   taskDecideReviewInputSchema,
+  taskRequestChangesInputSchema,
   taskDependencyInputSchema,
   taskHoldDependentsInputSchema,
   taskIdInputSchema,
@@ -618,6 +686,10 @@ export type IcodeProductApi = {
       decideReview: (
         input: z.infer<typeof taskDecideReviewInputSchema>
       ) => Promise<IpcResult<TaskRecordPayload>>
+      /** Sends a finished result back for changes; creates a successor attempt. */
+      requestChanges: (
+        input: z.infer<typeof taskRequestChangesInputSchema>
+      ) => Promise<IpcResult<TaskRecordPayload>>
       archive: (input: z.infer<typeof taskIdInputSchema>) => Promise<IpcResult<TaskRecordPayload>>
       unarchive: (input: z.infer<typeof taskIdInputSchema>) => Promise<IpcResult<TaskRecordPayload>>
       archiveFinished: (
@@ -663,6 +735,121 @@ export type IcodeProductApi = {
         input: z.infer<typeof assistantSetSettingsInputSchema>
       ) => Promise<IpcResult<AssistantSettingsPayload>>
       onEvent: (listener: (event: AssistantEventPayload) => void) => () => void
+    }
+    /** Persistent bots: identities, their chat, settings and scoped memory. */
+    bots: {
+      list: () => Promise<IpcResult<BotSummaryPayload[]>>
+      create: (input: z.infer<typeof botCreateInputSchema>) => Promise<IpcResult<BotRecordPayload>>
+      update: (input: z.infer<typeof botUpdateInputSchema>) => Promise<IpcResult<BotRecordPayload>>
+      archive: (input: z.infer<typeof botArchiveInputSchema>) => Promise<IpcResult<boolean>>
+      setPaused: (
+        input: z.infer<typeof botSetPausedInputSchema>
+      ) => Promise<IpcResult<BotRecordPayload>>
+      state: (input: z.infer<typeof botStateInputSchema>) => Promise<IpcResult<AssistantStatePayload>>
+      messages: (
+        input: z.infer<typeof botMessagesInputSchema>
+      ) => Promise<IpcResult<AssistantMessagePayload[]>>
+      conversations: (
+        input: z.infer<typeof botConversationsInputSchema>
+      ) => Promise<IpcResult<AssistantConversationPayload[]>>
+      notifications: (
+        input: z.infer<typeof botNotificationsInputSchema>
+      ) => Promise<IpcResult<AssistantMessagePayload[]>>
+      send: (input: z.infer<typeof botSendInputSchema>) => Promise<IpcResult<AssistantSendResult>>
+      markRead: (input: z.infer<typeof botMarkReadInputSchema>) => Promise<IpcResult<number>>
+      stop: (input: z.infer<typeof botStopInputSchema>) => Promise<IpcResult<null>>
+      newConversation: (
+        input: z.infer<typeof botNewConversationInputSchema>
+      ) => Promise<IpcResult<AssistantNewConversationResult>>
+      focus: (input: z.infer<typeof botFocusInputSchema>) => Promise<IpcResult<null>>
+      settings: (
+        input: z.infer<typeof botSettingsInputSchema>
+      ) => Promise<IpcResult<AssistantSettingsPayload>>
+      setSettings: (
+        input: z.infer<typeof botSetSettingsInputSchema>
+      ) => Promise<IpcResult<AssistantSettingsPayload>>
+      memory: {
+        list: (
+          input: z.infer<typeof botMemoryListInputSchema>
+        ) => Promise<IpcResult<BotMemoryEntryPayload[]>>
+        set: (
+          input: z.infer<typeof botMemorySetInputSchema>
+        ) => Promise<IpcResult<BotMemoryEntryPayload>>
+        remove: (input: z.infer<typeof botMemoryDeleteInputSchema>) => Promise<IpcResult<boolean>>
+        approve: (
+          input: z.infer<typeof botMemoryApproveInputSchema>
+        ) => Promise<IpcResult<BotMemoryEntryPayload | null>>
+      }
+      onEvent: (listener: (event: BotEventPayload) => void) => () => void
+    }
+    groups: {
+      list: () => Promise<IpcResult<GroupSummaryPayload[]>>
+      create: (
+        input: z.infer<typeof groupCreateInputSchema>
+      ) => Promise<IpcResult<GroupSummaryPayload>>
+      update: (
+        input: z.infer<typeof groupUpdateInputSchema>
+      ) => Promise<IpcResult<GroupSummaryPayload>>
+      archive: (
+        input: z.infer<typeof groupArchiveInputSchema>
+      ) => Promise<IpcResult<GroupSummaryPayload>>
+      remove: (input: z.infer<typeof groupDeleteInputSchema>) => Promise<IpcResult<boolean>>
+      threads: (
+        input: z.infer<typeof groupThreadCreateInputSchema>
+      ) => Promise<IpcResult<GroupThreadPayload[]>>
+      threadCreate: (
+        input: z.infer<typeof groupThreadCreateInputSchema>
+      ) => Promise<IpcResult<z.infer<typeof groupThreadCreateResultSchema>>>
+      messages: (
+        input: z.infer<typeof groupMessagesInputSchema>
+      ) => Promise<IpcResult<z.infer<typeof groupMessagesResultSchema>>>
+      send: (
+        input: z.infer<typeof groupSendInputSchema>
+      ) => Promise<IpcResult<z.infer<typeof groupSendResultSchema>>>
+      markRead: (
+        input: z.infer<typeof groupMarkReadInputSchema>
+      ) => Promise<IpcResult<z.infer<typeof groupMarkReadResultSchema>>>
+      setRead: (
+        input: z.infer<typeof groupSetReadInputSchema>
+      ) => Promise<IpcResult<z.infer<typeof groupSetReadResultSchema>>>
+      setMuted: (
+        input: z.infer<typeof groupSetMutedInputSchema>
+      ) => Promise<IpcResult<z.infer<typeof groupSetMutedResultSchema>>>
+      stop: (
+        input: z.infer<typeof groupStopInputSchema>
+      ) => Promise<IpcResult<z.infer<typeof groupStopResultSchema>>>
+      onEvent: (listener: (event: GroupEventPayload) => void) => () => void
+    }
+    items: {
+      list: (
+        input?: z.infer<typeof itemsListInputSchema>
+      ) => Promise<IpcResult<z.infer<typeof itemsListResultSchema>>>
+      get: (
+        input: z.infer<typeof itemsGetInputSchema>
+      ) => Promise<IpcResult<z.infer<typeof itemsGetResultSchema>>>
+      comment: (
+        input: z.infer<typeof itemsCommentInputSchema>
+      ) => Promise<IpcResult<TaskCommentPayload>>
+      ask: (input: z.infer<typeof itemsAskInputSchema>) => Promise<IpcResult<TaskCommentPayload>>
+      answer: (
+        input: z.infer<typeof itemsAnswerInputSchema>
+      ) => Promise<IpcResult<{ question: TaskCommentPayload; answer: TaskCommentPayload }>>
+      snooze: (
+        input: z.infer<typeof itemsSnoozeInputSchema>
+      ) => Promise<IpcResult<{ item: ItemPayload | null }>>
+      setStatus: (
+        input: z.infer<typeof itemsSetStatusInputSchema>
+      ) => Promise<IpcResult<{ item: ItemPayload }>>
+      linkAdd: (
+        input: z.infer<typeof itemsLinkAddInputSchema>
+      ) => Promise<IpcResult<TaskLinkPayload>>
+      linkRemove: (input: z.infer<typeof itemsLinkRemoveInputSchema>) => Promise<IpcResult<boolean>>
+      attach: (
+        input: z.infer<typeof itemsAttachInputSchema>
+      ) => Promise<IpcResult<TaskAttachmentPayload>>
+      removeAttachment: (
+        input: z.infer<typeof itemsRemoveAttachmentInputSchema>
+      ) => Promise<IpcResult<boolean>>
     }
     schedules: {
       list: (input?: z.infer<typeof scheduleListInputSchema>) => Promise<IpcResult<TaskSchedulePayload[]>>

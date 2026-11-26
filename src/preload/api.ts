@@ -201,6 +201,7 @@ export function createIcodeApi(
       history: (input) => call(IPC_CHANNELS.tasksHistory, input),
       changes: (input) => call(IPC_CHANNELS.tasksChanges, input),
       decideReview: (input) => call(IPC_CHANNELS.tasksDecideReview, input),
+      requestChanges: (input) => call(IPC_CHANNELS.tasksRequestChanges, input),
       archive: (input) => call(IPC_CHANNELS.tasksArchive, input),
       unarchive: (input) => call(IPC_CHANNELS.tasksUnarchive, input),
       archiveFinished: (input) => call(IPC_CHANNELS.tasksArchiveFinished, input),
@@ -244,6 +245,66 @@ export function createIcodeApi(
         subscribe(IPC_CHANNELS.assistantEvent, (payload) =>
           listener(payload as import('../shared/schemas/assistant').AssistantEventPayload)
         )
+    },
+    bots: {
+      list: () => call(IPC_CHANNELS.botsList, {}),
+      create: (input) => call(IPC_CHANNELS.botsCreate, input),
+      update: (input) => call(IPC_CHANNELS.botsUpdate, input),
+      archive: (input) => call(IPC_CHANNELS.botsArchive, input),
+      setPaused: (input) => call(IPC_CHANNELS.botsSetPaused, input),
+      state: (input) => call(IPC_CHANNELS.botsState, input),
+      messages: (input) => call(IPC_CHANNELS.botsMessages, input),
+      conversations: (input) => call(IPC_CHANNELS.botsConversations, input),
+      notifications: (input) => call(IPC_CHANNELS.botsNotifications, input),
+      send: (input) => call(IPC_CHANNELS.botsSend, input),
+      markRead: (input) => call(IPC_CHANNELS.botsMarkRead, input),
+      stop: (input) => call(IPC_CHANNELS.botsStop, input),
+      newConversation: (input) => call(IPC_CHANNELS.botsNewConversation, input),
+      focus: (input) => call(IPC_CHANNELS.botsFocus, input),
+      settings: (input) => call(IPC_CHANNELS.botsSettingsGet, input),
+      setSettings: (input) => call(IPC_CHANNELS.botsSettingsSet, input),
+      memory: {
+        list: (input) => call(IPC_CHANNELS.botsMemoryList, input),
+        set: (input) => call(IPC_CHANNELS.botsMemorySet, input),
+        remove: (input) => call(IPC_CHANNELS.botsMemoryDelete, input),
+        approve: (input) => call(IPC_CHANNELS.botsMemoryApprove, input)
+      },
+      onEvent: (listener) =>
+        subscribe(IPC_CHANNELS.botsEvent, (payload) =>
+          listener(payload as import('../shared/schemas/bots').BotEventPayload)
+        )
+    },
+    groups: {
+      list: () => call(IPC_CHANNELS.groupsList, {}),
+      create: (input) => call(IPC_CHANNELS.groupsCreate, input),
+      update: (input) => call(IPC_CHANNELS.groupsUpdate, input),
+      archive: (input) => call(IPC_CHANNELS.groupsArchive, input),
+      remove: (input) => call(IPC_CHANNELS.groupsDelete, input),
+      threads: (input) => call(IPC_CHANNELS.groupsThreads, input),
+      threadCreate: (input) => call(IPC_CHANNELS.groupsThreadCreate, input),
+      messages: (input) => call(IPC_CHANNELS.groupsMessages, input),
+      send: (input) => call(IPC_CHANNELS.groupsSend, input),
+      markRead: (input) => call(IPC_CHANNELS.groupsMarkRead, input),
+      setRead: (input) => call(IPC_CHANNELS.groupsSetRead, input),
+      setMuted: (input) => call(IPC_CHANNELS.groupsSetMuted, input),
+      stop: (input) => call(IPC_CHANNELS.groupsStop, input),
+      onEvent: (listener) =>
+        subscribe(IPC_CHANNELS.groupsEvent, (payload) =>
+          listener(payload as import('../shared/schemas/groups').GroupEventPayload)
+        )
+    },
+    items: {
+      list: (input) => call(IPC_CHANNELS.itemsList, input ?? {}),
+      get: (input) => call(IPC_CHANNELS.itemsGet, input),
+      comment: (input) => call(IPC_CHANNELS.itemsComment, input),
+      ask: (input) => call(IPC_CHANNELS.itemsAsk, input),
+      answer: (input) => call(IPC_CHANNELS.itemsAnswer, input),
+      snooze: (input) => call(IPC_CHANNELS.itemsSnooze, input),
+      setStatus: (input) => call(IPC_CHANNELS.itemsSetStatus, input),
+      linkAdd: (input) => call(IPC_CHANNELS.itemsLinkAdd, input),
+      linkRemove: (input) => call(IPC_CHANNELS.itemsLinkRemove, input),
+      attach: (input) => call(IPC_CHANNELS.itemsAttach, input),
+      removeAttachment: (input) => call(IPC_CHANNELS.itemsRemoveAttachment, input)
     },
     schedules: {
       list: (input) => call(IPC_CHANNELS.schedulesList, input ?? {}),

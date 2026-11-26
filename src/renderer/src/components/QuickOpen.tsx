@@ -19,7 +19,7 @@ export type QuickOpenProps = {
 /**
  * Splits `path:line` into its parts.
  *
- * Orca's palette accepts a line suffix, and the same shorthand is how a search
+ * the reference implementation's palette accepts a line suffix, and the same shorthand is how a search
  * hit or a compiler message is usually pasted. A colon is only treated as a line
  * marker when what follows is a positive integer, so a Windows-style drive or a
  * file legitimately named `a:1` is left alone unless unambiguous.

@@ -6,20 +6,19 @@
  * has a managed status adapter, provider injection, or resume support. Those
  * are capability subsets and live below with explicit defaults.
  *
- * Catalog breadth is copied from Orca's TUI agent catalog (45 entries) so the
- * same CLIs can be launched here. The transport, protocol, and status depth are
- * iCode's own. Adding an agent must not silently claim status support: the
- * default capability record observes nothing and stays honestly `unknown`.
+ * Catalog breadth follows the common TUI agent launchers. The transport,
+ * protocol, and status depth are iCode's own. Adding an agent must not
+ * silently claim status support: the default capability record observes
+ * nothing and stays honestly `unknown`.
  *
- * `shell` is iCode's terminal entry, not an Orca TUI agent. It is last because
- * the picker treats it as a separate action.
+ * `shell` is iCode's terminal entry, not a model agent. It is last because the
+ * picker treats it as a separate action.
  */
 
 import { MANAGED_HOOK_PROVIDER_IDS } from './managed-hook-providers'
 
 export type HarnessId =
   | 'claude'
-  | 'claude-agent-teams'
   | 'openclaude'
   | 'codex'
   | 'grok'
@@ -125,17 +124,6 @@ export const HARNESS_DEFINITIONS_LIST: readonly HarnessDefinition[] = [
     command: { kind: 'executable', name: 'claude' },
     group: 'primary',
     resume: { tokenArgs: ['--resume', '$TOKEN'], fallback: ['--continue'] }
-  }),
-  definition({
-    id: 'claude-agent-teams',
-    label: 'Claude Agent Teams',
-    command: { kind: 'executable', name: 'orca' },
-    group: 'primary',
-    detectAliases: ['orca-dev', 'orca-ide'],
-    requires: ['claude'],
-    launchArgs: ['claude-teams'],
-    unsupportedRuntimes: ['win32', 'wsl'],
-    unsupported: 'Claude Agent Teams is an Orca CLI wrapper and cannot be launched from iCode.'
   }),
   definition({
     id: 'openclaude',

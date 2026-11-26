@@ -25,15 +25,19 @@ export type AssistantNotifierService = {
 
 export type AssistantNotifierDeps = {
   service: AssistantNotifierService
+  /** Route a task's notification to its assigned bot thread. */
+  serviceForBot?: (botId: string) => AssistantNotifierService | null
   taskStore: TaskStore
   repositories: RepositoryStore
   settings: () => AssistantSettings
+  settingsForBot?: (botId: string) => AssistantSettings
   now: () => number
   isWindowFocused: () => boolean
   onOsNotify: (input: {
     title: string
     body: string
     messageId: string
+    botId?: string | null
   }) => void
 }
 
@@ -43,6 +47,7 @@ type Need = {
   kind: AssistantNotificationKind
   body: string
   card: AssistantCard
+  botId: string | null
 }
 
 function inQuietHours(now: number, startMinute: number, endMinute: number): boolean {
@@ -140,6 +145,7 @@ export class AssistantNotifier {
       if (task.approval === 'pending' && task.status === 'queued' && task.createdByActor !== 'mira') {
         needs.push({
           fingerprint: `task:${task.id}:approval:${String(task.createdAt)}`,
+          botId: task.botId ?? null,
           priority: 'high',
           kind: 'approval-needed',
           body: mainT('notifications.taskApproval', { title: task.title }),
@@ -149,6 +155,7 @@ export class AssistantNotifier {
       if (task.status === 'waiting') {
         needs.push({
           fingerprint: `task:${task.id}:waiting:${String(task.updatedAt)}`,
+          botId: task.botId ?? null,
           priority: 'high',
           kind: 'task-waiting',
           body: mainT('notifications.taskWaiting', { title: task.title }),
@@ -158,6 +165,7 @@ export class AssistantNotifier {
       if (task.status === 'failed') {
         needs.push({
           fingerprint: `task:${task.id}:failed:${String(task.finishedAt ?? task.updatedAt)}:${String(task.attempt)}`,
+          botId: task.botId ?? null,
           priority: 'high',
           kind: 'task-failed',
           body:
@@ -170,9 +178,14 @@ export class AssistantNotifier {
           card
         })
       }
-      if (task.status === 'completed' && task.reviewDecision === 'pending') {
+      if (
+        task.status === 'completed' &&
+        task.reviewDecision === 'pending' &&
+        task.changesRequestedAt === null
+      ) {
         needs.push({
           fingerprint: `task:${task.id}:review:${String(task.finishedAt ?? task.updatedAt)}`,
+          botId: task.botId ?? null,
           priority: 'normal',
           kind: 'review-ready',
           body: mainT('notifications.reviewReady', { title: task.title }),
@@ -186,6 +199,7 @@ export class AssistantNotifier {
       ) {
         needs.push({
           fingerprint: `task:${task.id}:completed:${String(task.finishedAt ?? task.updatedAt)}`,
+          botId: task.botId ?? null,
           priority: 'low',
           kind: 'task-completed',
           body: mainT('notifications.taskCompleted', { title: task.title }),
@@ -197,6 +211,7 @@ export class AssistantNotifier {
       if (repo.preparation?.state === 'failed') {
         needs.push({
           fingerprint: `repo:${repo.id}:setup:${String(repo.preparation.finishedAt ?? repo.preparation.startedAt)}`,
+          botId: null,
           priority: 'high',
           kind: 'custom',
           body: mainT('notifications.firstCommitFailed', { title: repo.displayName }),
@@ -211,16 +226,26 @@ export class AssistantNotifier {
     return needs
   }
 
+  private settingsFor(need: Need): AssistantSettings {
+    return need.botId === null ? this.deps.settings() : (this.deps.settingsForBot?.(need.botId) ?? this.deps.settings())
+  }
+
+  private serviceFor(need: Need): AssistantNotifierService {
+    return need.botId === null
+      ? this.deps.service
+      : (this.deps.serviceForBot?.(need.botId) ?? this.deps.service)
+  }
+
   private async sweep(): Promise<void> {
     const needs = await this.compute().catch(() => [] as Need[])
-    if (!this.deps.settings().notifications.enabled) {
-      for (const need of needs) this.fingerprints.add(need.fingerprint)
-      return
-    }
     for (const need of needs) {
+      if (!this.settingsFor(need).notifications.enabled) {
+        this.fingerprints.add(need.fingerprint)
+        continue
+      }
       if (this.fingerprints.has(need.fingerprint)) continue
       this.fingerprints.add(need.fingerprint)
-      const message = this.deps.service.postNotification({
+      const message = this.serviceFor(need).postNotification({
         body: need.body,
         card: need.card,
         kind: 'notification',
@@ -234,7 +259,7 @@ export class AssistantNotifier {
   }
 
   private deliverOs(need: Need, message: AssistantMessageRecord): void {
-    const settings = this.deps.settings()
+    const settings = this.settingsFor(need)
     if (!settings.notifications.enabled) return
     if (need.priority === 'low') return
     if (settings.notifications.quietMode === 'in-app') return
@@ -254,12 +279,14 @@ export class AssistantNotifier {
     this.osSentAt = this.osSentAt.filter((timestamp) => now - timestamp < 60 * 60 * 1000)
     if (this.osSentAt.length >= settings.notifications.budgetPerHour) return
     this.osSentAt.push(now)
-    this.deps.service.markNotificationDelivered(message.id)
+    const service = this.serviceFor(need)
+    service.markNotificationDelivered(message.id)
     try {
       this.deps.onOsNotify({
         title: settings.personaName,
         body: need.body,
-        messageId: message.id
+        messageId: message.id,
+        botId: need.botId
       })
     } catch {
       // The in-app message and rail badge are still the durable notification.

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { splitLineSuffix } from '../components/QuickOpen'
 
 /**
- * `path:line` is accepted by Orca's palette and is how a search hit or a compiler
+ * `path:line` is accepted by the reference implementation's palette and is how a search hit or a compiler
  * message is usually pasted. The parser must not turn an ordinary name into a
  * jump, so only a trailing positive integer counts.
  */

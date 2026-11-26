@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { ITEM_STATUSES } from '../domain/item'
 import {
   repoIdSchema,
   sessionIdSchema,
@@ -340,6 +341,12 @@ export const taskRecordSchema = z.strictObject({
   origin: taskOriginSchema.optional(),
   createdBySessionId: sessionIdSchema.nullable().optional(),
   createdByActor: z.string().max(80).nullable().optional(),
+  botId: z.string().min(1).max(120).nullable().optional(),
+  groupId: z.string().min(1).max(120).nullable().optional(),
+  groupThreadId: z.string().min(1).max(120).nullable().optional(),
+  snoozedUntil: z.number().int().nullable().optional(),
+  itemStatusOverride: z.enum(ITEM_STATUSES).nullable().optional(),
+  acceptanceCriteria: z.string().max(4_000).nullable().optional(),
   assistantRunId: z.string().max(120).nullable().optional(),
   approvalPolicy: z.string().max(80).nullable().optional(),
   approval: taskApprovalSchema.optional(),
@@ -359,6 +366,9 @@ export const taskRecordSchema = z.strictObject({
   reviewDecision: taskReviewDecisionSchema,
   reviewedAt: z.number().int().nullable(),
   reviewNote: z.string().max(2000).nullable(),
+  changesRequestedAt: z.number().int().nullable().optional(),
+  reviewState: z.enum(['pending', 'changes_requested', 'accepted', 'rejected']).optional(),
+  canRequestChanges: z.boolean().optional(),
   reviewRecommendation: taskReviewRecommendationSchema.nullable().optional(),
   reviewRecommendationNote: z.string().max(2000).nullable().optional(),
   reviewRecommendedAt: z.number().int().nullable().optional(),
@@ -397,6 +407,9 @@ export const taskCreateInputSchema = z.strictObject({
   title: z.string().min(1).max(200).optional(),
   prompt: z.string().min(1).max(20_000),
   harness: harnessIdSchema,
+  botId: z.string().min(1).max(120).optional(),
+  groupId: z.string().min(1).max(120).optional(),
+  acceptanceCriteria: z.string().max(4_000).optional(),
   dependsOn: z.array(z.string().min(1).max(80)).max(20).optional(),
   holdDependents: z.boolean().optional(),
   startFrom: startRefSchema.optional(),
@@ -430,6 +443,11 @@ export const taskDecideReviewInputSchema = z.strictObject({
   note: z.string().max(2000).nullable().optional(),
   /** Required to change a decision that was already made. */
   replace: z.boolean().optional()
+})
+
+export const taskRequestChangesInputSchema = z.strictObject({
+  taskId: z.string().min(1).max(80),
+  note: z.string().max(2000).nullable().optional()
 })
 
 export const taskChangesPayloadSchema = z.strictObject({

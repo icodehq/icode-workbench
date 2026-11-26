@@ -112,7 +112,7 @@ function removalJob(): RepoRemovalJobSummary {
     id: 'job-1',
     repoId: 'repo_00000000-0000-4000-8000-000000000000',
     repoName: 'yibei',
-    repoPath: '/mnt/d/Development/OrcaProjects/yibei',
+    repoPath: '/mnt/d/Development/Projects/yibei',
     status: 'completed',
     stage: 'done',
     worktreeCount: 0,

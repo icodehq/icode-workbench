@@ -39,7 +39,8 @@ const TASK_COLUMNS = `id, workspace_id, repo_id, title, prompt, harness, status,
   review_recommended_by_session_id,
   created_at, updated_at, started_at, finished_at, result_summary, error, error_detail,
   failure_reason, last_observed_state, exit_code, review_decision, reviewed_at, review_note,
-  hold_dependents, chain_branch, chain_gate, start_from`
+  hold_dependents, chain_branch, chain_gate, start_from,
+  bot_id, group_id, group_thread_id, snoozed_until, item_status_override, acceptance_criteria, changes_requested_at`
 
 /**
  * The one readiness predicate.
@@ -138,6 +139,13 @@ type TaskRow = {
   chain_branch: string | null
   chain_gate: string
   start_from: string | null
+  bot_id: string | null
+  group_id: string | null
+  group_thread_id: string | null
+  snoozed_until: number | null
+  item_status_override: string | null
+  acceptance_criteria: string | null
+  changes_requested_at: number | null
 }
 
 function taskFromRow(row: TaskRow): TaskRecord {
@@ -186,7 +194,14 @@ function taskFromRow(row: TaskRow): TaskRecord {
     holdDependents: row.hold_dependents === 1,
     chainBranch: row.chain_branch,
     chainGate: row.chain_gate as TaskChainGate,
-    startFrom: row.start_from
+    startFrom: row.start_from,
+    botId: row.bot_id,
+    groupId: row.group_id,
+    groupThreadId: row.group_thread_id,
+    snoozedUntil: row.snoozed_until,
+    itemStatusOverride: row.item_status_override as TaskRecord['itemStatusOverride'],
+    acceptanceCriteria: row.acceptance_criteria,
+    changesRequestedAt: row.changes_requested_at
   }
 }
 
@@ -224,6 +239,14 @@ export type NewTaskRow = {
   chainGate?: TaskChainGate
   /** Local or remote-tracking ref a chain root starts from. */
   startFrom?: string | null
+  /** Optional bot assignee. */
+  botId?: string | null
+  /** Optional group that requested the work, for group-room routing. */
+  groupId?: string | null
+  /** Group thread the request came from, for group-room milestones. */
+  groupThreadId?: string | null
+  /** Human-readable acceptance criteria shown beside review. */
+  acceptanceCriteria?: string | null
 }
 
 export type TaskPatch = {
@@ -238,6 +261,8 @@ export type TaskPatch = {
   failureReason?: TaskFailureReason | null
   lastObservedState?: string | null
   exitCode?: number | null
+  changesRequestedAt?: number | null
+  itemStatusOverride?: TaskRecord['itemStatusOverride']
 }
 
 export class TaskStore {
@@ -270,7 +295,8 @@ export class TaskStore {
            review_recommended_by_session_id,
            created_at, updated_at, started_at, finished_at, result_summary, error, error_detail,
            failure_reason, last_observed_state, exit_code, review_decision, reviewed_at, review_note,
-           hold_dependents, chain_branch, chain_gate, start_from
+           hold_dependents, chain_branch, chain_gate, start_from,
+           bot_id, group_id, group_thread_id, acceptance_criteria, changes_requested_at
          )
          VALUES (
            ?, ?, ?, ?, ?, ?, 'queued', ?,
@@ -280,7 +306,7 @@ export class TaskStore {
            NULL, NULL, NULL, NULL,
            ?, ?, NULL, NULL, NULL, NULL, NULL,
            NULL, NULL, NULL, 'pending', NULL, NULL,
-           ?, ?, ?, ?
+           ?, ?, ?, ?, ?, ?, ?, ?, NULL
          )
          ON CONFLICT (dedupe_key) DO NOTHING`
       )
@@ -312,7 +338,11 @@ export class TaskStore {
         draft.holdDependents === true ? 1 : 0,
         draft.chainBranch ?? null,
         draft.chainGate ?? 'merge',
-        draft.startFrom ?? null
+        draft.startFrom ?? null,
+        draft.botId ?? null,
+        draft.groupId ?? null,
+        draft.groupThreadId ?? null,
+        draft.acceptanceCriteria ?? null
       )
     if (Number(result.changes) === 0) return null
     return this.findById(draft.id)
@@ -371,6 +401,15 @@ export class TaskStore {
       }
       return this.findById(draft.id)
     })
+  }
+
+  /** A deleted group no longer owns existing tasks or milestone routing. */
+  clearGroup(groupId: string): void {
+    this.db.raw
+      .prepare(
+        `UPDATE tasks SET group_id = NULL, group_thread_id = NULL WHERE group_id = ?`
+      )
+      .run(groupId)
   }
 
   findById(id: string): TaskRecord | null {
@@ -893,6 +932,8 @@ export class TaskStore {
     if (patch.failureReason !== undefined) assign('failure_reason', patch.failureReason)
     if (patch.lastObservedState !== undefined) assign('last_observed_state', patch.lastObservedState)
     if (patch.exitCode !== undefined) assign('exit_code', patch.exitCode)
+    if (patch.changesRequestedAt !== undefined) assign('changes_requested_at', patch.changesRequestedAt)
+    if (patch.itemStatusOverride !== undefined) assign('item_status_override', patch.itemStatusOverride)
     if (sets.length === 0) return false
     assign('updated_at', now)
     const placeholders = expected.map(() => '?').join(', ')
@@ -922,6 +963,36 @@ export class TaskStore {
          WHERE id = ? AND review_decision = ?`
       )
       .run(decision, now, note, now, id, expected)
+    return Number(result.changes) === 1
+  }
+
+  /**
+   * Marks a finished result as sent back for changes.
+   *
+   * `review_decision` deliberately stays `pending`; the timestamp is the
+   * derived state, and the successor task carries the actual continuation.
+   */
+  setChangesRequested(id: string, note: string | null, now: number): boolean {
+    const result = this.db.raw
+      .prepare(
+        `UPDATE tasks
+         SET changes_requested_at = ?, review_note = ?, updated_at = ?
+         WHERE id = ? AND review_decision = 'pending'
+           AND changes_requested_at IS NULL
+           AND status IN ('completed', 'failed', 'cancelled')`
+      )
+      .run(now, note, now, id)
+    return Number(result.changes) === 1
+  }
+
+  /** Undo a changes-requested marker when the successor could not be created. */
+  clearChangesRequested(id: string, now: number): boolean {
+    const result = this.db.raw
+      .prepare(
+        `UPDATE tasks SET changes_requested_at = NULL, updated_at = ?
+         WHERE id = ? AND changes_requested_at IS NOT NULL`
+      )
+      .run(now, id)
     return Number(result.changes) === 1
   }
 

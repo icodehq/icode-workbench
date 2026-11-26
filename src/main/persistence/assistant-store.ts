@@ -28,8 +28,8 @@ import {
 } from '../../shared/domain/assistant'
 import { MODEL_HARNESSES, type ModelHarness } from '../../shared/domain/harness'
 
-const THREAD_COLUMNS = `id, kind, title, created_at, updated_at, last_message_at,
-  last_read_seq, active_run_id, archived_at`
+const THREAD_COLUMNS = `id, kind, title, bot_id, group_thread_id, created_at, updated_at,
+  last_message_at, last_read_seq, active_run_id, archived_at`
 
 const MESSAGE_COLUMNS = `id, thread_id, seq, run_id, role, kind, body, card_json,
   notification_kind, notification_priority, notification_state,
@@ -47,6 +47,8 @@ type ThreadRow = {
   id: string
   kind: string
   title: string
+  bot_id: string | null
+  group_thread_id: string | null
   created_at: number
   updated_at: number
   last_message_at: number | null
@@ -147,8 +149,20 @@ function parseCard(value: unknown): AssistantCard | null {
 function threadFromRow(row: ThreadRow): AssistantThread {
   return {
     id: requireString(row.id, 'assistant_threads.id'),
-    kind: row.kind === 'system' ? 'system' : 'main',
+    kind:
+      row.kind === 'system'
+        ? 'system'
+        : row.kind === 'bot'
+          ? 'bot'
+          : row.kind === 'room'
+            ? 'room'
+            : 'main',
     title: requireString(row.title, 'assistant_threads.title'),
+    botId: row.bot_id === null ? null : requireString(row.bot_id, 'assistant_threads.bot_id'),
+    groupThreadId:
+      row.group_thread_id === null
+        ? null
+        : requireString(row.group_thread_id, 'assistant_threads.group_thread_id'),
     createdAt: requireInteger(row.created_at, 'assistant_threads.created_at'),
     updatedAt: requireInteger(row.updated_at, 'assistant_threads.updated_at'),
     lastMessageAt: nullableInteger(row.last_message_at, 'assistant_threads.last_message_at'),
@@ -311,14 +325,16 @@ export class AssistantStore {
     this.db.raw
       .prepare(
         `INSERT INTO assistant_threads (
-           id, kind, title, created_at, updated_at, last_message_at,
-           last_read_seq, active_run_id, archived_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           id, kind, title, bot_id, group_thread_id, created_at, updated_at,
+           last_message_at, last_read_seq, active_run_id, archived_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         thread.id,
         thread.kind,
         thread.title,
+        thread.botId,
+        thread.groupThreadId,
         thread.createdAt,
         thread.updatedAt,
         thread.lastMessageAt,
@@ -327,6 +343,73 @@ export class AssistantStore {
         thread.archivedAt
       )
     return this.findThread(thread.id)!
+  }
+
+  /** A bot's one home chat; room sessions are separate. */
+  findThreadByBotId(botId: string): AssistantThread | null {
+    return this.findHomeThreadByBotId(botId)
+  }
+
+  findHomeThreadByBotId(botId: string): AssistantThread | null {
+    const row = this.db.raw
+      .prepare(
+        `SELECT ${THREAD_COLUMNS} FROM assistant_threads
+         WHERE bot_id = ? AND group_thread_id IS NULL
+         ORDER BY created_at ASC LIMIT 1`
+      )
+      .get(botId) as ThreadRow | undefined
+    return row ? threadFromRow(row) : null
+  }
+
+  findRoomThread(botId: string, groupThreadId: string): AssistantThread | null {
+    const row = this.db.raw
+      .prepare(
+        `SELECT ${THREAD_COLUMNS} FROM assistant_threads
+         WHERE bot_id = ? AND group_thread_id = ? AND kind = 'room'
+         ORDER BY created_at ASC LIMIT 1`
+      )
+      .get(botId, groupThreadId) as ThreadRow | undefined
+    return row ? threadFromRow(row) : null
+  }
+
+  listThreadsForBot(botId: string): AssistantThread[] {
+    const rows = this.db.raw
+      .prepare(
+        `SELECT ${THREAD_COLUMNS} FROM assistant_threads
+         WHERE bot_id = ? ORDER BY created_at ASC`
+      )
+      .all(botId) as ThreadRow[]
+    return rows.map(threadFromRow)
+  }
+
+  archiveRoomThread(id: string, now: number): void {
+    this.db.raw
+      .prepare(
+        `UPDATE assistant_threads SET archived_at = ?, updated_at = ?
+         WHERE id = ? AND kind = 'room'`
+      )
+      .run(now, now, id)
+  }
+
+  /** Archive every room session attached to the given group threads. */
+  archiveRoomThreadsForGroupThreads(threadIds: readonly string[], now: number): void {
+    const ids = [...new Set(threadIds)]
+    if (ids.length === 0) return
+    const placeholders = ids.map(() => '?').join(', ')
+    this.db.raw
+      .prepare(
+        `UPDATE assistant_threads
+         SET archived_at = ?, updated_at = ?
+         WHERE kind = 'room' AND archived_at IS NULL
+           AND group_thread_id IN (${placeholders})`
+      )
+      .run(now, now, ...ids)
+  }
+
+  updateThreadTitle(id: string, title: string, now: number): void {
+    this.db.raw
+      .prepare(`UPDATE assistant_threads SET title = ?, updated_at = ? WHERE id = ?`)
+      .run(title, now, id)
   }
 
   findConversation(id: string): AssistantConversation | null {
@@ -663,6 +746,17 @@ export class AssistantStore {
     return this.unreadCount(threadId)
   }
 
+  setReadSeq(threadId: string, seq: number, now: number): number {
+    this.db.raw
+      .prepare(
+        `UPDATE assistant_threads
+         SET last_read_seq = ?, updated_at = ?
+         WHERE id = ?`
+      )
+      .run(seq, now, threadId)
+    return this.unreadCount(threadId)
+  }
+
   markNotificationDelivered(messageId: string, now: number): void {
     this.db.raw
       .prepare(
@@ -766,18 +860,34 @@ export class AssistantStore {
       )
   }
 
-  failStaleRuns(now: number): number {
-    const result = this.db.raw
-      .prepare(
-        `UPDATE assistant_runs
-         SET status = 'failed', stage = NULL, finished_at = ?,
-             error = COALESCE(error, 'iCode restarted before this run finished.')
-         WHERE status IN ('queued', 'running')`
-      )
-      .run(now)
-    this.db.raw
-      .prepare(`UPDATE assistant_threads SET active_run_id = NULL WHERE active_run_id IS NOT NULL`)
-      .run()
+  failStaleRuns(now: number, threadId?: string): number {
+    const result =
+      threadId === undefined
+        ? this.db.raw
+            .prepare(
+              `UPDATE assistant_runs
+               SET status = 'failed', stage = NULL, finished_at = ?,
+                   error = COALESCE(error, 'iCode restarted before this run finished.')
+               WHERE status IN ('queued', 'running')`
+            )
+            .run(now)
+        : this.db.raw
+            .prepare(
+              `UPDATE assistant_runs
+               SET status = 'failed', stage = NULL, finished_at = ?,
+                   error = COALESCE(error, 'iCode restarted before this run finished.')
+               WHERE status IN ('queued', 'running') AND thread_id = ?`
+            )
+            .run(now, threadId)
+    if (threadId === undefined) {
+      this.db.raw
+        .prepare(`UPDATE assistant_threads SET active_run_id = NULL WHERE active_run_id IS NOT NULL`)
+        .run()
+    } else {
+      this.db.raw
+        .prepare(`UPDATE assistant_threads SET active_run_id = NULL WHERE id = ? AND active_run_id IS NOT NULL`)
+        .run(threadId)
+    }
     return Number(result.changes)
   }
 
@@ -808,24 +918,36 @@ export class AssistantStore {
 
   listMemory(): Array<{ key: string; value: string }> {
     const rows = this.db.raw
-      .prepare(`SELECT key, value FROM assistant_memory ORDER BY updated_at DESC LIMIT 50`)
+      .prepare(
+        `SELECT key, value FROM bot_memory
+         WHERE scope = 'bot' AND bot_id = 'mira' AND status = 'active'
+         ORDER BY updated_at DESC LIMIT 50`
+      )
       .all() as Array<{ key: string; value: string }>
     return rows
   }
 
   setMemory(key: string, value: string, now: number): void {
+    const updated = this.db.raw
+      .prepare(
+        `UPDATE bot_memory SET value = ?, updated_at = ?
+         WHERE scope = 'bot' AND bot_id = 'mira' AND key = ? AND status = 'active'`
+      )
+      .run(value, now, key)
+    if (Number(updated.changes) > 0) return
     this.db.raw
       .prepare(
-        `INSERT INTO assistant_memory (id, key, value, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
+        `INSERT INTO bot_memory (
+           id, scope, bot_id, repo_id, team_id, proposed_by_bot_id,
+           key, value, status, source_task_id, created_at, updated_at
+         ) VALUES (?, 'bot', 'mira', NULL, NULL, 'mira', ?, ?, 'active', NULL, ?, ?)`
       )
-      .run(`mem_${now}_${key.slice(0, 40)}`, key, value, now, now)
+      .run(`mem_mira_${String(now)}_${key.slice(0, 40)}`, key, value, now, now)
   }
 
   forgetMemory(key: string): boolean {
     const result = this.db.raw
-      .prepare(`DELETE FROM assistant_memory WHERE key = ?`)
+      .prepare(`DELETE FROM bot_memory WHERE scope = 'bot' AND bot_id = 'mira' AND key = ?`)
       .run(key)
     return Number(result.changes) === 1
   }
@@ -834,6 +956,7 @@ export class AssistantStore {
     threadId?: string | null
     runId?: string | null
     actor: 'mira' | 'human' | 'system'
+    botId?: string | null
     op: string
     repoId?: string | null
     taskId?: string | null
@@ -845,14 +968,15 @@ export class AssistantStore {
     this.db.raw
       .prepare(
         `INSERT INTO assistant_actions (
-           thread_id, run_id, actor, op, repo_id, task_id, session_id,
+           thread_id, run_id, actor, bot_id, op, repo_id, task_id, session_id,
            outcome, detail_json, created_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         input.threadId ?? null,
         input.runId ?? null,
         input.actor,
+        input.botId ?? null,
         input.op,
         input.repoId ?? null,
         input.taskId ?? null,

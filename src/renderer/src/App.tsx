@@ -2,10 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { RendererSessionEvent, SessionSummary } from '../../shared/schemas/ipc'
 import type { TaskRecordPayload } from '../../shared/icode-api'
-import AppTabStrip from './components/AppTabStrip'
+import AppTabStrip, { type AppBotsTab } from './components/AppTabStrip'
 import WindowChrome from './components/shell/WindowChrome'
 import WorkspaceSidebar from './components/shell/WorkspaceSidebar'
-import type { ActivityEntry } from './components/NotificationsDrawer'
+import type { ActivityEntry, BotsNotificationEntry } from './components/NotificationsDrawer'
 import SchedulesView from './components/SchedulesView'
 import WorkspaceWelcome from './components/shell/WorkspaceWelcome'
 import SessionsSurface from './components/sessions/SessionsSurface'
@@ -16,7 +16,10 @@ import TasksSurface from './components/tasks/TasksSurface'
 import TaskComposerDialog from './components/tasks/TaskComposerDialog'
 import type { TaskAction } from './components/TaskWorkbench'
 import AssistantPage from './pages/AssistantPage'
+import BotsSidebarSection from './components/bots/BotsSidebarSection'
+import BotsSurface from './components/bots/BotsSurface'
 import type { AssistantTaskAction } from './components/AssistantCardView'
+import { requestTaskAction } from './lib/task-action-request'
 import NoticeToast from './components/shell/NoticeToast'
 import SidebarStatus from './components/shell/SidebarStatus'
 import AppLayout from './layouts/AppLayout'
@@ -38,6 +41,7 @@ import {
 import { useTaskQueue } from './state/use-task-queue'
 import { useRemovalJobs } from './state/use-removal-jobs'
 import { useAssistant } from './state/use-assistant'
+import { botsTabKey, useBots, type OpenBotsTab } from './state/use-bots'
 import { useThemePreference } from './theme/use-theme'
 import { useLocale } from './i18n/use-i18n'
 import { translate } from './i18n/i18n-store'
@@ -98,27 +102,118 @@ export default function App(): React.JSX.Element {
   const assistant = useAssistant(workspace.notify, (event) =>
     commands.showAssistant({ threadId: event.threadId, messageId: event.messageId })
   )
+  const botsState = useBots(workspace.notify)
+
+  const openBotsGroup = useCallback(
+    (groupId: string): void => {
+      botsState.selectGroup(groupId)
+      commands.openAppTab('bots')
+    },
+    [commands, botsState]
+  )
+  const openBotsBot = useCallback(
+    (botId: string): void => {
+      botsState.selectBot(botId)
+      commands.openAppTab('bots')
+    },
+    [commands, botsState]
+  )
+  const activateBotsTab = useCallback(
+    (tab: OpenBotsTab): void => {
+      botsState.activateTab(tab)
+      commands.openAppTab('bots')
+    },
+    [botsState, commands]
+  )
+  const closeBotsTab = useCallback(
+    (tab: OpenBotsTab): void => {
+      botsState.closeTab(tab)
+    },
+    [botsState]
+  )
+  const botsTabs = useMemo<AppBotsTab[]>(
+    () =>
+      botsState.openTabs.map((tab) => {
+        if (tab.kind === 'group') {
+          const group = botsState.groups.find((entry) => entry.id === tab.groupId)
+          return {
+            key: botsTabKey(tab),
+            tab,
+            label: group?.name ?? tab.groupId,
+            ...(group === undefined || group.unread === 0 ? {} : { badge: group.unread })
+          }
+        }
+        const bot = botsState.bots.find((entry) => entry.id === tab.botId)
+        return {
+          key: botsTabKey(tab),
+          tab,
+          label: bot?.name ?? tab.botId,
+          ...(bot === undefined || bot.unread === 0 ? {} : { badge: bot.unread })
+        }
+      }),
+    [botsState.bots, botsState.groups, botsState.openTabs]
+  )
+  const activeBotsKey = botsState.selected === null ? null : botsTabKey(botsState.selected)
+  const botsNotifications = useMemo<BotsNotificationEntry[]>(() => {
+    const needsByGroup = new Map<string, number>()
+    const needsByBot = new Map<string, number>()
+    for (const task of tasks.tasks) {
+      if (taskAttention(task) === null) continue
+      if (task.groupId !== null && task.groupId !== undefined) {
+        needsByGroup.set(task.groupId, (needsByGroup.get(task.groupId) ?? 0) + 1)
+      }
+      if (task.botId !== null && task.botId !== undefined) {
+        needsByBot.set(task.botId, (needsByBot.get(task.botId) ?? 0) + 1)
+      }
+    }
+    const entries: BotsNotificationEntry[] = []
+    for (const group of botsState.groups) {
+      const thread = group.threads.find((entry) => entry.isDefault) ?? group.threads[0]
+      if (thread === undefined) continue
+      const needs = needsByGroup.get(group.id) ?? 0
+      if (group.unread === 0 && needs === 0) continue
+      entries.push({
+        key: `group:${group.id}`,
+        kind: 'group',
+        tab: { kind: 'group', groupId: group.id, threadId: thread.id },
+        label: group.name,
+        unread: group.unread,
+        needs
+      })
+    }
+    for (const bot of botsState.bots) {
+      const needs = needsByBot.get(bot.id) ?? 0
+      if (bot.unread === 0 && needs === 0) continue
+      entries.push({
+        key: `bot:${bot.id}`,
+        kind: 'bot',
+        tab: { kind: 'bot', botId: bot.id },
+        label: bot.name,
+        unread: bot.unread,
+        needs
+      })
+    }
+    return entries.sort(
+      (left, right) => right.needs - left.needs || right.unread - left.unread
+    )
+  }, [botsState.bots, botsState.groups, tasks.tasks])
+
+  // The global assistant reads its own thread; a rename of the default Chief
+  // happens through the bot store, so refresh the persona when it changes.
+  useEffect(() => {
+    return window.icode.bots.onEvent((event) => {
+      if (event.type === 'changed' && (event.botId === null || event.botId === 'mira')) {
+        void assistant.reload()
+      }
+    })
+  }, [assistant.reload])
 
   const runAssistantTaskAction = useCallback(
     async (action: AssistantTaskAction, taskId: string): Promise<void> => {
-      const result = await (() => {
-        switch (action) {
-          case 'approve':
-            return window.icode.tasks.approve({ taskId })
-          case 'reject':
-            return window.icode.tasks.reject({ taskId })
-          case 'retry':
-            return window.icode.tasks.retry({ taskId })
-          case 'continue':
-            return window.icode.tasks.resume({ taskId })
-          case 'cancel':
-            return window.icode.tasks.cancel({ taskId })
-          default: {
-            const never: never = action
-            throw new Error(`Unknown task action: ${String(never)}`)
-          }
-        }
-      })()
+      const result = await requestTaskAction(
+        taskId,
+        action === 'continue' ? 'resume' : action
+      )
       if (!result.ok) {
         workspace.notify({ tone: 'error', message: result.error.message })
         return
@@ -131,25 +226,7 @@ export default function App(): React.JSX.Element {
 
   const runTaskWorkbenchAction = useCallback(
     async (task: TaskRecordPayload, action: TaskAction): Promise<void> => {
-      const request = (() => {
-        switch (action) {
-          case 'approve':
-            return window.icode.tasks.approve({ taskId: task.id })
-          case 'reject':
-            return window.icode.tasks.reject({ taskId: task.id })
-          case 'cancel':
-            return window.icode.tasks.cancel({ taskId: task.id })
-          case 'retry':
-            return window.icode.tasks.retry({ taskId: task.id })
-          case 'resume':
-            return window.icode.tasks.resume({ taskId: task.id })
-          case 'archive':
-            return window.icode.tasks.archive({ taskId: task.id })
-          case 'unarchive':
-            return window.icode.tasks.unarchive({ taskId: task.id })
-        }
-      })()
-      const result = await request
+      const result = await requestTaskAction(task.id, action)
       if (!result.ok) {
         workspace.notify(errorNotice(result.error))
         return
@@ -306,7 +383,6 @@ export default function App(): React.JSX.Element {
     () => state.sessions.filter((session) => !taskSessionIds.has(session.id)),
     [state.sessions, taskSessionIds]
   )
-  const activeTaskId = displaySurface === 'tasks' ? selectedTaskId : null
   const taskSlotCount = tasks.tasks.filter((task) =>
     ['dispatching', 'running', 'waiting'].includes(task.status)
   ).length
@@ -689,6 +765,7 @@ export default function App(): React.JSX.Element {
         onReload={() => tasks.reload()}
         onChanged={() => void tasks.reload()}
         onTaskAction={(task, action) => void runTaskWorkbenchAction(task, action)}
+        bots={botsState.bots}
       />
     ),
     assistant: (
@@ -700,6 +777,16 @@ export default function App(): React.JSX.Element {
         onOpenTask={commands.openTaskById}
         onTaskAction={(action, taskId) => void runAssistantTaskAction(action, taskId)}
         onOpenSettings={commands.showSettings}
+      />
+    ),
+    bots: (
+      <BotsSurface
+        state={botsState}
+        repos={state.repos}
+        tasks={tasks.tasks}
+        notify={workspace.notify}
+        onOpenTask={commands.openTaskById}
+        onTaskAction={(action, taskId) => void runAssistantTaskAction(action, taskId)}
       />
     ),
     schedules: (
@@ -743,18 +830,28 @@ export default function App(): React.JSX.Element {
       onCloseSidebar={() => setSidebarOpen(false)}
       sidebar={
         <WorkspaceSidebar
+          botsSection={
+            <BotsSidebarSection
+              state={botsState}
+              tasks={tasks.tasks}
+              repos={state.repos}
+              notify={workspace.notify}
+              onOpenGroup={openBotsGroup}
+              onOpenBot={openBotsBot}
+            />
+          }
           repos={state.repos}
           sessions={sidebarSessions}
           tasks={tasks.tasks}
           archivedTasks={tasks.archivedTasks}
           activeRepoId={state.activeRepoId}
           activeSessionId={state.activeSessionId}
-          activeTaskId={activeTaskId}
           branches={state.branches}
           orphans={state.orphans}
           pending={state.pending}
           assistantName={assistant.personaName}
           assistantUnread={assistant.unread}
+          botsUnread={botsState.unread}
           assistantStatus={assistant.status}
           hostUnreachable={hostUnreachable}
           platform={workspace.runtime?.platform ?? null}
@@ -765,14 +862,6 @@ export default function App(): React.JSX.Element {
           onOpenSession={(sessionId) => {
             commands.openDirectSession(sessionId)
             setSidebarOpen(false)
-          }}
-          onOpenTask={(task) => {
-            commands.openTask(task)
-            setSidebarOpen(false)
-          }}
-          onTaskAction={(task, action) => {
-            void runTaskWorkbenchAction(task, action)
-            if (action === 'retry' || action === 'resume') setSidebarOpen(false)
           }}
           sessionActions={sessionActions}
           onRemoveWorktree={workspace.requestRemoveWorktree}
@@ -852,11 +941,16 @@ export default function App(): React.JSX.Element {
         <AppTabStrip
           activeTab={activeTab}
           auxTabs={auxTabs}
+          botsTabs={auxTabs.includes('bots') ? botsTabs : []}
+          activeBotsKey={activeBotsKey}
           assistantName={assistant.personaName}
           assistantUnread={assistant.unread}
+          botsUnread={botsState.unread}
           platform={workspace.runtime?.platform ?? null}
           onActivate={(tab) => commands.openAppTab(tab)}
           onClose={(tab) => commands.closeAppTab(tab)}
+          onActivateBots={activateBotsTab}
+          onCloseBots={closeBotsTab}
         />
       }
       banner={<UpdateBanner platform={workspace.runtime?.platform ?? null} />}
@@ -866,6 +960,7 @@ export default function App(): React.JSX.Element {
           notifications={{
             open: notificationsOpen,
             needsTasks,
+            bots: botsNotifications,
             activity: activityEntries,
             assistantName: assistant.personaName,
             assistantMessages: assistant.notifications,
@@ -878,6 +973,10 @@ export default function App(): React.JSX.Element {
               if (target.messageId) {
                 void window.icode.assistant.focus({ messageId: target.messageId })
               }
+            },
+            onOpenBots: (tab) => {
+              activateBotsTab(tab)
+              setNotificationsOpen(false)
             },
             onMarkRead: () => void markActivityRead()
           }}
@@ -903,6 +1002,8 @@ export default function App(): React.JSX.Element {
             onQueueTask: openQueueTask,
             activeRepoId: repo?.id ?? null,
             onOpenAssistant: () => commands.showAssistant(),
+            assistantName: assistant.personaName,
+            onBots: () => commands.openAppTab('bots'),
             onSchedules: commands.showSchedules,
             onSettings: commands.showSettings,
             onSourceControl: () => commands.requestView('changes'),

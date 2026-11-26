@@ -187,31 +187,78 @@ export function applyActivityEvent(
 
   switch (event.event) {
     case 'SessionStart':
-      return { ...base, state: 'idle', toolName: null, outcome: null, unread: previous.unread }
+      return {
+        ...base,
+        state: 'idle',
+        toolName: null,
+        outcome: null,
+        unread: previous.unread,
+        attentionKind: null
+      }
     case 'UserPromptSubmit':
-      return { ...base, state: 'working', toolName: null, outcome: null }
+      return { ...base, state: 'working', toolName: null, outcome: null, attentionKind: null }
     case 'PreToolUse': {
       if (isUserInputTool(event.toolName)) {
-        return { ...base, state: 'waiting', toolName: event.toolName, outcome: null, unread: true }
+        return {
+          ...base,
+          state: 'waiting',
+          toolName: event.toolName,
+          outcome: null,
+          unread: true,
+          attentionKind: 'question'
+        }
       }
-      return { ...base, state: 'working', toolName: event.toolName, outcome: null }
+      return {
+        ...base,
+        state: 'working',
+        toolName: event.toolName,
+        outcome: null,
+        attentionKind: null
+      }
     }
     case 'PostToolUse':
-      return { ...base, state: 'working', toolName: event.toolName ?? previous.toolName, outcome: null }
+      return {
+        ...base,
+        state: 'working',
+        toolName: event.toolName ?? previous.toolName,
+        outcome: null,
+        attentionKind: null
+      }
     case 'PostToolUseFailure':
-      return { ...base, state: 'working', toolName: event.toolName ?? previous.toolName, outcome: null }
+      return {
+        ...base,
+        state: 'working',
+        toolName: event.toolName ?? previous.toolName,
+        outcome: null,
+        attentionKind: null
+      }
     case 'PermissionRequest':
       return {
         ...base,
         state: 'waiting',
         toolName: event.toolName ?? previous.toolName,
         outcome: null,
-        unread: true
+        unread: true,
+        attentionKind: 'permission'
       }
     case 'Stop':
-      return { ...base, state: 'idle', toolName: null, outcome: 'completed', unread: true }
+      return {
+        ...base,
+        state: 'idle',
+        toolName: null,
+        outcome: 'completed',
+        unread: true,
+        attentionKind: null
+      }
     case 'StopFailure':
-      return { ...base, state: 'idle', toolName: null, outcome: 'failed', unread: true }
+      return {
+        ...base,
+        state: 'idle',
+        toolName: null,
+        outcome: 'failed',
+        unread: true,
+        attentionKind: null
+      }
     default:
       return previous
   }
@@ -248,7 +295,8 @@ export function applyTerminalActivity(
   const base: AgentActivity = {
     ...previous,
     since: now,
-    source: event.source
+    source: event.source,
+    attentionKind: null
   }
 
   if (event.source === 'title') {
@@ -274,9 +322,23 @@ export function applyTerminalActivity(
     case 'waiting':
       return { ...base, state: 'waiting', toolName: null, outcome: null, unread: true }
     case 'done':
-      return { ...base, state: 'idle', toolName: null, outcome: 'completed', unread: true }
+      return {
+        ...base,
+        state: 'idle',
+        toolName: null,
+        outcome: 'completed',
+        unread: true,
+        attentionKind: null
+      }
     case 'error':
-      return { ...base, state: 'idle', toolName: null, outcome: 'failed', unread: true }
+      return {
+        ...base,
+        state: 'idle',
+        toolName: null,
+        outcome: 'failed',
+        unread: true,
+        attentionKind: null
+      }
     case 'idle':
       return previous.state === 'working'
         ? { ...base, state: 'idle', toolName: null, outcome: 'completed', unread: true }

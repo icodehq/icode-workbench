@@ -25,6 +25,12 @@ import type { LocaleService } from '../i18n/locale-service'
 import { getMainLocale } from '../i18n/main-i18n'
 import { localizeAppError } from '../../shared/i18n'
 import { createProviderProbe } from '../providers/provider-probe'
+import type {
+  BotGroupMessage,
+  BotGroupRecord,
+  BotGroupThread,
+  BotGroupTurn
+} from '../../shared/domain/group'
 
 export const WINDOW_CONTROL_CHANNELS: readonly string[] = [
   IPC_CHANNELS.windowMinimize,
@@ -116,6 +122,7 @@ export const HANDLED_CHANNELS: readonly string[] = [
   IPC_CHANNELS.tasksHistory,
   IPC_CHANNELS.tasksChanges,
   IPC_CHANNELS.tasksDecideReview,
+  IPC_CHANNELS.tasksRequestChanges,
   IPC_CHANNELS.tasksArchive,
   IPC_CHANNELS.tasksUnarchive,
   IPC_CHANNELS.tasksArchiveFinished,
@@ -136,6 +143,50 @@ export const HANDLED_CHANNELS: readonly string[] = [
   IPC_CHANNELS.assistantNewConversation,
   IPC_CHANNELS.assistantSettingsGet,
   IPC_CHANNELS.assistantSetSettings,
+  IPC_CHANNELS.botsList,
+  IPC_CHANNELS.botsCreate,
+  IPC_CHANNELS.botsUpdate,
+  IPC_CHANNELS.botsArchive,
+  IPC_CHANNELS.botsSetPaused,
+  IPC_CHANNELS.botsState,
+  IPC_CHANNELS.botsMessages,
+  IPC_CHANNELS.botsConversations,
+  IPC_CHANNELS.botsNotifications,
+  IPC_CHANNELS.botsSend,
+  IPC_CHANNELS.botsMarkRead,
+  IPC_CHANNELS.botsStop,
+  IPC_CHANNELS.botsNewConversation,
+  IPC_CHANNELS.botsFocus,
+  IPC_CHANNELS.botsSettingsGet,
+  IPC_CHANNELS.botsSettingsSet,
+  IPC_CHANNELS.botsMemoryList,
+  IPC_CHANNELS.botsMemorySet,
+  IPC_CHANNELS.botsMemoryDelete,
+  IPC_CHANNELS.botsMemoryApprove,
+  IPC_CHANNELS.groupsList,
+  IPC_CHANNELS.groupsCreate,
+  IPC_CHANNELS.groupsUpdate,
+  IPC_CHANNELS.groupsArchive,
+  IPC_CHANNELS.groupsDelete,
+  IPC_CHANNELS.groupsThreads,
+  IPC_CHANNELS.groupsThreadCreate,
+  IPC_CHANNELS.groupsMessages,
+  IPC_CHANNELS.groupsSend,
+  IPC_CHANNELS.groupsMarkRead,
+  IPC_CHANNELS.groupsSetRead,
+  IPC_CHANNELS.groupsSetMuted,
+  IPC_CHANNELS.groupsStop,
+  IPC_CHANNELS.itemsList,
+  IPC_CHANNELS.itemsGet,
+  IPC_CHANNELS.itemsComment,
+  IPC_CHANNELS.itemsAsk,
+  IPC_CHANNELS.itemsAnswer,
+  IPC_CHANNELS.itemsSnooze,
+  IPC_CHANNELS.itemsSetStatus,
+  IPC_CHANNELS.itemsLinkAdd,
+  IPC_CHANNELS.itemsLinkRemove,
+  IPC_CHANNELS.itemsAttach,
+  IPC_CHANNELS.itemsRemoveAttachment,
   IPC_CHANNELS.networkSettingsGet,
   IPC_CHANNELS.networkSetSettings,
   IPC_CHANNELS.updatesGet,
@@ -193,6 +244,27 @@ export function createAppDispatcher(
   // applies to Chromium applies here.
   const providerProbe = createProviderProbe({
     fetch: (url, init) => runtime.network.fetch(url, init)
+  })
+  const groupThreadPayload = (thread: BotGroupThread) => ({
+    ...thread,
+    unread: runtime.groupChat.unreadCount(thread.id)
+  })
+  const groupSummaryPayload = (group: BotGroupRecord) => {
+    const threads = runtime.groupChat.listThreads(group.id).map(groupThreadPayload)
+    return {
+      ...group,
+      memberBotIds: runtime.groupChat.memberIds(group.id),
+      threads,
+      unread: threads.reduce((total, thread) => total + thread.unread, 0)
+    }
+  }
+  const groupTurnPayload = (turn: BotGroupTurn) => {
+    const { context: _context, ...rest } = turn
+    return rest
+  }
+  const groupMessagePayload = (message: BotGroupMessage, turns: BotGroupTurn[]) => ({
+    ...message,
+    turns: turns.map(groupTurnPayload)
   })
   return createDispatcher({
     sidebarOrderGet: async () => getPersistence().sidebarOrder.get(),
@@ -460,6 +532,10 @@ export function createAppDispatcher(
           })
         )
       ),
+    tasksRequestChanges: (input) =>
+      Promise.resolve(
+        outcomeOrThrow(runtime.tasks.requestChanges(input.taskId, input.note ?? null))
+      ),
     tasksArchive: (input) => Promise.resolve(outcomeOrThrow(runtime.tasks.archive(input.taskId))),
     tasksUnarchive: (input) =>
       Promise.resolve(outcomeOrThrow(runtime.tasks.unarchive(input.taskId))),
@@ -506,6 +582,205 @@ export function createAppDispatcher(
     assistantSettingsGet: () => Promise.resolve(runtime.assistant.settings()),
     assistantSetSettings: (input) =>
       Promise.resolve(runtime.assistant.saveSettings(input.settings as never)),
+    botsList: () => Promise.resolve(runtime.bots.listSummaries()),
+    botsCreate: (input) => Promise.resolve(runtime.bots.createBot(input)),
+    botsUpdate: (input) => Promise.resolve(runtime.bots.updateBot(input)),
+    botsArchive: (input) => {
+      const archived = runtime.bots.archiveBot(input.botId)
+      if (archived) runtime.groupChat.removeBotFromGroups(input.botId)
+      return Promise.resolve(archived)
+    },
+    botsSetPaused: (input) => Promise.resolve(runtime.bots.setPaused(input.botId, input.paused)),
+    botsState: (input) =>
+      Promise.resolve(runtime.botRuntimes.ensure(input.botId).service.state()),
+    botsMessages: (input) => {
+      const runtimeForBot = runtime.botRuntimes.ensure(input.botId)
+      const { botId: _botId, ...rest } = input
+      return Promise.resolve(
+        runtimeForBot.service.listMessages({
+          threadId: runtimeForBot.threadId,
+          ...rest
+        })
+      )
+    },
+    botsConversations: (input) =>
+      Promise.resolve(runtime.botRuntimes.ensure(input.botId).service.listConversations()),
+    botsNotifications: (input) =>
+      Promise.resolve(
+        runtime.botRuntimes.ensure(input.botId).service.listNotifications({
+          limit: input.limit
+        })
+      ),
+    botsSend: (input) =>
+      runtime.botRuntimes.ensure(input.botId).service.send({
+        text: input.text,
+        ...(input.repoId === undefined ? {} : { repoId: input.repoId })
+      }),
+    botsMarkRead: (input) => {
+      const runtimeForBot = runtime.botRuntimes.ensure(input.botId)
+      return Promise.resolve(
+        runtimeForBot.service.markRead({
+          threadId: runtimeForBot.threadId,
+          ...(input.messageId === undefined ? {} : { messageId: input.messageId }),
+          ...(input.read === undefined ? {} : { read: input.read })
+        })
+      )
+    },
+    botsStop: (input) => {
+      runtime.botRuntimes.ensure(input.botId).service.stop()
+      return Promise.resolve(null)
+    },
+    botsNewConversation: (input) =>
+      Promise.resolve(runtime.botRuntimes.ensure(input.botId).service.newConversation()),
+    botsFocus: (input) => {
+      runtime.botRuntimes.ensure(input.botId).service.focus(input.messageId)
+      return Promise.resolve(null)
+    },
+    botsSettingsGet: (input) => Promise.resolve(runtime.bots.settingsFor(input.botId)),
+    botsSettingsSet: (input) =>
+      Promise.resolve(
+        runtime.bots.saveSettings(input.botId, input.settings as never)
+      ),
+    botsMemoryList: (input) => {
+      const target =
+        input.scope === 'bot'
+          ? { scope: 'bot' as const, botId: input.botId }
+          : input.scope === 'project'
+            ? { scope: 'project' as const, repoId: input.repoId! }
+            : { scope: 'team' as const, teamId: input.teamId! }
+      return Promise.resolve(
+        runtime.botMemory.list(target, {
+          ...(input.status === undefined ? {} : { status: input.status })
+        })
+      )
+    },
+    botsMemorySet: (input) => {
+      const target =
+        input.scope === 'bot'
+          ? { scope: 'bot' as const, botId: input.botId }
+          : input.scope === 'project'
+            ? { scope: 'project' as const, repoId: input.repoId! }
+            : { scope: 'team' as const, teamId: input.teamId! }
+      const status = input.status ?? 'active'
+      const existing = runtime.botMemory.find(target, input.key, status)
+      if (existing !== null) {
+        runtime.botMemory.updateValue(existing.id, input.value, Date.now())
+        return Promise.resolve(runtime.botMemory.findById(existing.id))
+      }
+      return Promise.resolve(
+        runtime.botMemory.insert({
+          id: `mem_${globalThis.crypto.randomUUID()}`,
+          scope: target.scope,
+          botId: target.scope === 'bot' ? target.botId : null,
+          repoId: target.scope === 'project' ? target.repoId : null,
+          teamId: target.scope === 'team' ? target.teamId : null,
+          proposedByBotId: null,
+          key: input.key,
+          value: input.value,
+          status,
+          sourceTaskId: null,
+          createdAt: Date.now(),
+          updatedAt: Date.now()
+        })
+      )
+    },
+    botsMemoryDelete: (input) =>
+      Promise.resolve(runtime.botMemory.remove(input.memoryId)),
+    botsMemoryApprove: (input) =>
+      Promise.resolve(runtime.botMemory.approve(input.memoryId, Date.now())),
+    groupsList: () =>
+      Promise.resolve(runtime.groupChat.listGroups().map(groupSummaryPayload)),
+    groupsCreate: async (input) => {
+      const group = await runtime.groupChat.createGroup(input)
+      return groupSummaryPayload(group)
+    },
+    groupsUpdate: (input) => Promise.resolve(groupSummaryPayload(runtime.groupChat.updateGroup(input))),
+    groupsArchive: (input) =>
+      Promise.resolve(groupSummaryPayload(runtime.groupChat.archiveGroup(input.groupId))),
+    groupsDelete: (input) => Promise.resolve(runtime.groupChat.deleteGroup(input.groupId)),
+    groupsThreads: (input) =>
+      Promise.resolve(
+        runtime.groupChat.listThreads(input.groupId).map(groupThreadPayload)
+      ),
+    groupsThreadCreate: (input) =>
+      Promise.resolve({ thread: groupThreadPayload(runtime.groupChat.createThread(input.groupId)) }),
+    groupsMessages: (input) => {
+      const limit = input.limit ?? 40
+      const page = runtime.groupChat.messages(input.threadId, {
+        ...(input.beforeSeq === undefined ? {} : { beforeSeq: input.beforeSeq }),
+        limit
+      })
+      return Promise.resolve({
+        messages: page.messages.map((message) =>
+          groupMessagePayload(
+            message,
+            page.turns.filter((turn) => turn.messageId === message.id)
+          )
+        ),
+        hasEarlier: page.messages.length >= limit
+      })
+    },
+    groupsSend: async (input) => {
+      const result = await runtime.groupChat.sendOwnerMessage(input)
+      return {
+        message: groupMessagePayload(result.message, result.turns)
+      }
+    },
+    groupsMarkRead: (input) =>
+      Promise.resolve({ unread: runtime.groupChat.markRead(input.threadId, input.seq) }),
+    groupsSetRead: (input) =>
+      Promise.resolve({
+        unread: runtime.groupChat.setGroupRead(input.groupId, input.read)
+      }),
+    groupsSetMuted: (input) =>
+      Promise.resolve({
+        group: groupSummaryPayload(
+          runtime.groupChat.setGroupMuted(input.groupId, input.muted)
+        )
+      }),
+    groupsStop: (input) =>
+      Promise.resolve({
+        turns: runtime.groupChat.stop(input).map(groupTurnPayload)
+      }),
+    itemsList: (input) => Promise.resolve(runtime.items.list(input)),
+    itemsGet: (input) => Promise.resolve({ item: runtime.items.get(input.taskId) }),
+    itemsComment: (input) =>
+      Promise.resolve(
+        runtime.items.comment({
+          taskId: input.taskId,
+          body: input.body,
+          authorKind: 'owner'
+        })
+      ),
+    itemsAsk: (input) =>
+      Promise.resolve(
+        runtime.items.ask({
+          taskId: input.taskId,
+          body: input.body,
+          ...(input.options === undefined ? {} : { options: input.options }),
+          authorKind: 'owner'
+        })
+      ),
+    itemsAnswer: (input) =>
+      Promise.resolve(
+        runtime.items.answer({
+          taskId: input.taskId,
+          questionId: input.commentId,
+          body: input.body,
+          authorKind: 'owner'
+        })
+      ),
+    itemsSnooze: (input) => {
+      runtime.items.snooze(input.taskId, input.until)
+      return Promise.resolve({ item: runtime.items.get(input.taskId) })
+    },
+    itemsSetStatus: (input) =>
+      Promise.resolve({ item: runtime.items.setStatus(input.taskId, input.status) }),
+    itemsLinkAdd: (input) => Promise.resolve(runtime.items.linkAdd(input)),
+    itemsLinkRemove: (input) => Promise.resolve(runtime.items.linkRemove(input)),
+    itemsAttach: (input) => Promise.resolve(runtime.items.attach(input)),
+    itemsRemoveAttachment: (input) =>
+      Promise.resolve(runtime.items.removeAttachment(input.taskId, input.id)),
     networkSettingsGet: () => Promise.resolve(runtime.network.settings()),
     networkSetSettings: (input) =>
       runtime.network.saveSettings(input.settings as never),
@@ -766,6 +1041,28 @@ export function registerAppIpc(
     broadcast(IPC_CHANNELS.assistantEvent, event)
   })
 
+  const unsubscribeBotChanges = runtime.onBotChange(() => {
+    broadcast(IPC_CHANNELS.botsEvent, { type: 'changed', botId: null })
+  })
+  const unsubscribeBotChat = runtime.botRuntimes.subscribe((botId, event) => {
+    broadcast(IPC_CHANNELS.botsEvent, {
+      type: 'chat',
+      botId,
+      threadId: runtime.botRuntimes.get(botId)?.threadId ?? '',
+      event
+    })
+  })
+  const unsubscribeGroups = runtime.groupChat.subscribe((event) => {
+    // Service messages carry no turns; the wire contract pairs every message
+    // with its turn list, and later turn events fill it in.
+    broadcast(
+      IPC_CHANNELS.groupsEvent,
+      event.type === 'message'
+        ? { ...event, message: { ...event.message, turns: [] } }
+        : event
+    )
+  })
+
   const unsubscribeOpenCode = runtime.integrations.subscribe((state) => {
     broadcast(IPC_CHANNELS.opencodeIntegrationEvent, state)
   })
@@ -795,6 +1092,9 @@ export function registerAppIpc(
     unsubscribeUpdates()
     unsubscribeClone()
     unsubscribeAssistant()
+    unsubscribeBotChanges()
+    unsubscribeBotChat()
+    unsubscribeGroups()
     unsubscribeFilesChanged()
     unsubscribeGitStatus()
     unsubscribeRepos()

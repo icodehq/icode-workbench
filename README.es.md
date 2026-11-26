@@ -16,7 +16,7 @@
 <p align="center">
   iCode Workbench es el entorno universal de desarrollo de agentes (ADE): ejecuta
   Claude Code, Codex y OpenCode en paralelo, cada uno en su propio worktree de Git.
-  Mira observa todos los repositorios, te dice qué necesita tu atención y puede actuar
+  Yarcy observa todos los repositorios, te dice qué necesita tu atención y puede actuar
   entre proyectos. Revisa los cambios donde trabajó el agente y mantén la terminal viva
   cuando la aplicación se reinicia.
 </p>
@@ -35,11 +35,11 @@
   ver sus detalles, dormirla o despertarla, reiniciarla, fijarla o eliminarla sin
   abrirla. La eliminación no pide el nombre de la rama, nombra los cambios en riesgo
   y conserva la rama.
-- **Mira entre proyectos.** Una conversación para la cola, los bloqueos y las acciones
+- **Yarcy entre proyectos (nombre predeterminado, se puede cambiar).** Una conversación para la cola, los bloqueos y las acciones
   entre proyectos.
 - **Revisión donde trabajó el agente.** Diffs de tareas, archivos, búsqueda y Source
   Control en el mismo checkout de la sesión.
-- **Todo el trabajo en una barra lateral.** Proyectos, sesiones directas, elementos fijados y la cola de tareas entre proyectos siempre visibles; Mira, Ajustes y Programaciones se abren en pestañas.
+- **Todo el trabajo en una barra lateral.** Proyectos, sesiones directas, elementos fijados y la cola de tareas entre proyectos siempre visibles; Yarcy, Ajustes y Programaciones se abren en pestañas.
 
 <p align="center">
   <a href=".github/assets/workbench-0916-session-menu.png"><img src=".github/assets/workbench-0916-session-menu.png" alt="Menú contextual de una fila de sesión con Detalles de la sesión, Dormir sesión, Reiniciar sesión, Fijar arriba y Eliminar sesión" width="100%" /></a>

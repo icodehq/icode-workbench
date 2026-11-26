@@ -16,11 +16,16 @@ function task(id: string, status: string, extra: Record<string, unknown> = {}) {
     updatedAt: 100,
     createdAt: 100,
     reviewDecision: 'pending',
+    changesRequestedAt: null,
+    botId: null,
     ...extra
   }
 }
 
-function fixture(initial: ReturnType<typeof task>[]) {
+function fixture(
+  initial: ReturnType<typeof task>[],
+  overrides: Partial<AssistantNotifierDeps> = {}
+) {
   let tasks = initial
   const postNotification = vi.fn((_input: unknown) => ({ id: 'msg_notification' }))
   const markNotificationDelivered = vi.fn()
@@ -33,7 +38,8 @@ function fixture(initial: ReturnType<typeof task>[]) {
     settings: () => DEFAULT_ASSISTANT_SETTINGS,
     now: () => new Date('2026-11-08T12:00:00').getTime(),
     isWindowFocused: () => focused,
-    onOsNotify
+    onOsNotify,
+    ...overrides
   }
   const notifier = new AssistantNotifier(deps)
   return {
@@ -81,6 +87,31 @@ describe('AssistantNotifier', () => {
     await f.notifier.sweepNow()
     expect(f.onOsNotify).toHaveBeenCalledTimes(1)
     expect(f.markNotificationDelivered).toHaveBeenCalledWith('msg_notification')
+  })
+
+  it('routes a bot task review to the assigned bot thread', async () => {
+    const botPost = vi.fn((_input: unknown) => ({ id: 'msg_bot' }))
+    const botMark = vi.fn()
+    const f = fixture([], {
+      serviceForBot: () =>
+        ({
+          postNotification: botPost,
+          markNotificationDelivered: botMark
+        }) as never,
+      settingsForBot: () => ({ ...DEFAULT_ASSISTANT_SETTINGS, personaName: 'Backend' })
+    })
+    await f.notifier.start()
+    f.setFocused(false)
+    f.setTasks([task('bot1', 'completed', { botId: 'bot_backend' })])
+    await f.notifier.sweepNow()
+
+    expect(f.postNotification).not.toHaveBeenCalled()
+    expect(botPost).toHaveBeenCalledTimes(1)
+    expect(botPost.mock.calls[0]?.[0]).toMatchObject({ notificationKind: 'review-ready' })
+    expect(botMark).toHaveBeenCalledWith('msg_bot')
+    expect(f.onOsNotify).toHaveBeenCalledWith(
+      expect.objectContaining({ botId: 'bot_backend', title: 'Backend' })
+    )
   })
 
   it('does not notify for a Mira-created approval waiting on the user', async () => {

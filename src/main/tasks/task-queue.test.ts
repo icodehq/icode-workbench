@@ -159,6 +159,11 @@ async function harness(
     secondRepo?: boolean
     activity?: { get: (sessionId: string) => ActivitySummary }
     completionHoldMs?: number
+    onWorkerQuestion?: (question: {
+      task: { id: string }
+      body: string
+      dedupeKey: string
+    }) => void
   } = {}
 ): Promise<Harness> {
   const root = makeTempRoot('icode-w84-')
@@ -238,7 +243,10 @@ async function harness(
     ...(options.activity === undefined ? {} : { activity: options.activity }),
     ...(options.completionHoldMs === undefined
       ? {}
-      : { completionHoldMs: options.completionHoldMs })
+      : { completionHoldMs: options.completionHoldMs }),
+    ...(options.onWorkerQuestion === undefined
+      ? {}
+      : { onWorkerQuestion: options.onWorkerQuestion })
   })
   dispatcher.start()
 
@@ -571,6 +579,39 @@ describe('observed completion and failure', () => {
 
     h.dispatcher.onActivity(sessionId, { state: 'working', outcome: null })
     expect(h.store.findById(created.id)!.status).toBe('running')
+  })
+
+  it('raises an item question when the worker asks, but not for a permission prompt', async () => {
+    const questions: Array<{ task: { id: string }; body: string; dedupeKey: string }> = []
+    const h = await harness({
+      maxConcurrent: 1,
+      onWorkerQuestion: (question) => questions.push(question)
+    })
+    const created = createQueued(h, 'Ask before changing the schema')
+    await settle(h)
+    const sessionId = h.store.findById(created.id)!.sessionId!
+
+    h.dispatcher.onActivity(sessionId, {
+      state: 'waiting',
+      outcome: null,
+      attentionKind: 'permission'
+    })
+    expect(questions).toHaveLength(0)
+
+    h.dispatcher.onActivity(sessionId, { state: 'working', outcome: null })
+    h.dispatcher.onActivity(sessionId, {
+      state: 'waiting',
+      outcome: null,
+      attentionKind: 'question',
+      message: 'Which database should I use?',
+      since: 42
+    })
+    expect(questions).toHaveLength(1)
+    expect(questions[0]).toMatchObject({
+      task: { id: created.id },
+      body: 'Which database should I use?',
+      dedupeKey: `worker-question:${created.id}:42`
+    })
   })
 
   it('fails when the harness exits non-zero, and completes on a clean exit', async () => {
@@ -908,6 +949,85 @@ describe('reviewability', () => {
     expect(view.sessionId).not.toBeNull()
     expect(view.worktreePath).toBe('/tmp/wt')
     expect(view.canReview).toBe(true)
+  })
+})
+
+describe('request changes', () => {
+  async function completedTask(h: Harness, prompt = 'Refactor the parser') {
+    const created = createQueued(h, prompt)
+    await settle(h)
+    const task = h.store.findById(created.id)!
+    h.dispatcher.onActivity(task.sessionId!, { state: 'idle', outcome: 'completed' })
+    await settle(h)
+    return h.store.findById(created.id)!
+  }
+
+  it('sends the review feedback back into the same worktree as a new attempt', async () => {
+    const h = await harness({ maxConcurrent: 1 })
+    const original = await completedTask(h)
+
+    const sentBack = h.service.requestChanges(original.id, 'Keep the old public API.')
+    expect(sentBack.ok).toBe(true)
+    if (!sentBack.ok) return
+    await settle(h)
+
+    const stored = h.store.findById(original.id)!
+    // The original row keeps its pending decision; the sent-back state is
+    // derived, so review history is never rewritten.
+    expect(stored.reviewDecision).toBe('pending')
+    expect(stored.changesRequestedAt).not.toBeNull()
+    expect(stored.reviewNote).toBe('Keep the old public API.')
+    const view = h.service.get(original.id)!
+    expect(view.reviewState).toBe('changes_requested')
+    expect(view.canDecideReview).toBe(false)
+    expect(view.canRequestChanges).toBe(false)
+
+    const successor = h.store.findById(sentBack.value.id)!
+    expect(successor.previousTaskId).toBe(original.id)
+    expect(successor.attemptMode).toBe('resume')
+    expect(successor.sessionId).toBe(original.sessionId)
+    expect(successor.status).toBe('running')
+
+    const prompt = h.sessions.writes.map((entry) => entry.data).join('')
+    expect(prompt).toContain('requested changes')
+    expect(prompt).toContain('Keep the old public API.')
+    expect(prompt).toContain('Refactor the parser')
+  })
+
+  it('refuses a second send-back and a decision on the original', async () => {
+    const h = await harness({ maxConcurrent: 1 })
+    const original = await completedTask(h)
+
+    const first = h.service.requestChanges(original.id, 'Still not right.')
+    expect(first.ok).toBe(true)
+    await settle(h)
+
+    const second = h.service.requestChanges(original.id, 'Once more.')
+    expect(second.ok).toBe(false)
+    const decided = h.service.decideReview(original.id, 'accepted')
+    expect(decided.ok).toBe(false)
+  })
+
+  it('refuses to send back a task that has not finished', async () => {
+    const h = await harness({ maxConcurrent: 1 })
+    const running = createQueued(h, 'Still working')
+    await settle(h)
+
+    const result = h.service.requestChanges(running.id, 'Stop and change course.')
+    expect(result.ok).toBe(false)
+  })
+
+  it('refuses a shell task, which has no conversation to continue', async () => {
+    const h = await harness({ maxConcurrent: 1 })
+    const created = createQueued(h, 'true', 'shell')
+    await settle(h)
+    const task = h.store.findById(created.id)!
+    h.dispatcher.onActivity(task.sessionId!, { state: 'idle', outcome: 'completed' })
+    await settle(h)
+
+    const result = h.service.requestChanges(task.id, 'Run it again.')
+    expect(result.ok).toBe(false)
+    expect(h.service.get(task.id)!.canRequestChanges).toBe(false)
   })
 })
 

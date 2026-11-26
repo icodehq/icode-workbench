@@ -36,11 +36,14 @@ export function resolveConversation(input: {
   store: AssistantStore
   threadId: string
   selection: ConversationSelection
+  /** The configured display name for status messages. */
+  personaName?: string
   /** Seq of the user message that started this turn. */
   startSeq: number
   now: number
   newId: (prefix: string) => string
 }): ConversationPlan {
+  const passName = input.personaName ?? 'the assistant'
   const active = input.store.findActiveConversation(input.threadId)
 
   if (active !== null) {
@@ -72,8 +75,8 @@ export function resolveConversation(input: {
         includeHistory: true,
         firstPromptMode: 'full',
         boundaryBody: harnessChanged
-          ? `Switched to ${input.selection.harness}. Mira started a new ${input.selection.harness} conversation and kept the recent thread as context.`
-          : `Switched to ${targetLabel(input.selection)}. Mira started a new agent conversation and kept the recent thread as context.`
+          ? `Switched to ${input.selection.harness}. ${passName} started a new ${input.selection.harness} conversation and kept the recent thread as context.`
+          : `Switched to ${targetLabel(input.selection)}. ${passName} started a new agent conversation and kept the recent thread as context.`
       }
     }
 
@@ -123,9 +126,11 @@ export function resolveConversation(input: {
 export function resetConversationForUser(input: {
   store: AssistantStore
   threadId: string
+  personaName?: string
   now: number
   newId: (prefix: string) => string
 }): { conversation: AssistantConversation; message: AssistantMessageRecord } | null {
+  const passName = input.personaName ?? 'the assistant'
   const active = input.store.findActiveConversation(input.threadId)
   if (active === null) return null
   // The boundary belongs to the segment being retired, so append it first and
@@ -135,7 +140,7 @@ export function resetConversationForUser(input: {
     threadId: input.threadId,
     role: 'system',
     kind: 'status',
-    body: 'New conversation. Earlier messages stay in this thread, but Mira will not use them as context.',
+    body: `New conversation. Earlier messages stay in this thread, but ${passName} will not use them as context.`,
     createdAt: input.now
   })
   const retired = input.store.retireConversation(active.id, {
@@ -159,11 +164,13 @@ export function retireForResumeFailure(input: {
     'resume-failed' | 'resume-unsupported'
   >
   selection: ConversationSelection
+  personaName?: string
   /** Seq of the user message that started this turn. */
   startSeq: number
   now: number
   newId: (prefix: string) => string
 }): { conversation: AssistantConversation; boundaryBody: string } {
+  const passName = input.personaName ?? 'the assistant'
   const retired = input.store.retireConversation(input.activeConversationId, {
     state: 'invalid',
     reason: input.reason,
@@ -189,7 +196,7 @@ export function retireForResumeFailure(input: {
     conversation: created,
     boundaryBody:
       input.reason === 'resume-unsupported'
-        ? `This ${harness} version cannot resume a conversation, so Mira will rebuild context from this thread each turn.`
-        : `Mira could not resume the previous ${harness} conversation, so she started a new one. Recent messages are still available as context.`
+        ? `This ${harness} version cannot resume a conversation, so ${passName} will rebuild context from this thread each turn.`
+        : `${passName} could not resume the previous ${harness} conversation, so a new one was started. Recent messages are still available as context.`
   }
 }

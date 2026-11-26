@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { GitBranch, Loader2, Plus, X } from 'lucide-react'
 import type { TaskRecordPayload } from '../../../../shared/icode-api'
+import type { BotSummaryPayload } from '../../../../shared/schemas/bots'
 import type { HarnessDetection } from '../../../../shared/domain/harness'
 import type { RepositorySummary } from '../../../../shared/schemas/ipc'
 import type { Notice } from '../../state/workspace'
@@ -40,6 +41,9 @@ export default function TaskComposerDialog({
   const t = useT()
   const [prompt, setPrompt] = useState('')
   const [harness, setHarness] = useState('claude')
+  const [bots, setBots] = useState<BotSummaryPayload[]>([])
+  const [botId, setBotId] = useState('')
+  const [acceptanceCriteria, setAcceptanceCriteria] = useState('')
   const [after, setAfter] = useState<string[]>(() =>
     initialAfterTaskId ? [initialAfterTaskId] : []
   )
@@ -57,6 +61,10 @@ export default function TaskComposerDialog({
   const projectTasks = useMemo(
     () => tasks.filter((task) => task.repoId === repo.id),
     [repo.id, tasks]
+  )
+  const selectedBot = useMemo(
+    () => bots.find((bot) => bot.id === botId) ?? null,
+    [botId, bots]
   )
   const afterCandidates = useMemo(
     () => projectTasks.filter((task) => !after.includes(task.id)),
@@ -114,6 +122,21 @@ export default function TaskComposerDialog({
     }
   }, [notify, repo.id])
 
+  useEffect(() => {
+    let cancelled = false
+    void callApi<BotSummaryPayload[]>(window.icode.bots.list()).then((result) => {
+      if (cancelled) return
+      if (!result.ok) {
+        notify(errorNotice(result.error))
+        return
+      }
+      setBots(result.value)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [notify])
+
   const submit = useCallback(async (): Promise<void> => {
     if (prompt.trim().length === 0 || chainConflict || busy || preparation !== null) return
     setBusy(true)
@@ -123,6 +146,17 @@ export default function TaskComposerDialog({
           repoId: repo.id,
           prompt: prompt.trim(),
           harness: harness as never,
+          ...(selectedBot === null
+            ? {}
+            : {
+                botId: selectedBot.id,
+                ...(selectedBot.groupIds[0] === undefined
+                  ? {}
+                  : { groupId: selectedBot.groupIds[0] })
+              }),
+          ...(acceptanceCriteria.trim().length > 0
+            ? { acceptanceCriteria: acceptanceCriteria.trim() }
+            : {}),
           ...(after.length > 0 ? { dependsOn: after } : {}),
           ...(holdDependents ? { holdDependents: true } : {}),
           ...(startFrom.length > 0 ? { startFrom } : {}),
@@ -144,6 +178,7 @@ export default function TaskComposerDialog({
       setBusy(false)
     }
   }, [
+    acceptanceCriteria,
     after,
     busy,
     chainBranchName,
@@ -156,6 +191,7 @@ export default function TaskComposerDialog({
     preparation,
     prompt,
     repo.id,
+    selectedBot,
     startFrom,
     t
   ])
@@ -197,6 +233,27 @@ export default function TaskComposerDialog({
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
           <div className="flex flex-wrap items-center gap-1.5">
             <select
+              className="h-8 max-w-[210px] rounded border border-border bg-background px-2 text-[11px]"
+              value={botId}
+              onChange={(event) => {
+                const nextId = event.target.value
+                setBotId(nextId)
+                const next = bots.find((bot) => bot.id === nextId)
+                if (next?.harness !== null && next?.harness !== undefined) {
+                  setHarness(next.harness)
+                }
+              }}
+              aria-label={t('tasks.composer.assignBot')}
+              data-testid="task-bot"
+            >
+              <option value="">{t('tasks.composer.direct')}</option>
+              {bots.map((bot) => (
+                <option key={bot.id} value={bot.id}>
+                  {bot.name} · {bot.role}
+                </option>
+              ))}
+            </select>
+            <select
               className="h-8 rounded border border-border bg-background px-2 text-[11px]"
               value={harness}
               onChange={(event) => setHarness(event.target.value)}
@@ -233,6 +290,17 @@ export default function TaskComposerDialog({
             }}
             data-testid="task-prompt"
           />
+
+          <label className="mt-2 block text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
+            {t('tasks.composer.acceptance')}
+            <textarea
+              className="mt-1 h-14 w-full resize-y rounded-md border border-border bg-background px-2.5 py-1.5 text-[11px] font-normal normal-case tracking-normal text-foreground outline-none placeholder:text-muted-foreground focus:border-accent"
+              placeholder={t('tasks.composer.acceptancePlaceholder')}
+              value={acceptanceCriteria}
+              onChange={(event) => setAcceptanceCriteria(event.target.value)}
+              data-testid="task-acceptance"
+            />
+          </label>
 
           <div className="mt-2 rounded-md border border-border bg-background px-2.5 py-2">
             <div className="flex flex-wrap items-center gap-1.5">
