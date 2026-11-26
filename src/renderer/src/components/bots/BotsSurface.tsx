@@ -73,6 +73,7 @@ function BotHomeView({
   suggestions,
   repos,
   tasks,
+  mentionBots,
   onOpenTask,
   onTaskAction,
   onOpenSettings
@@ -82,6 +83,7 @@ function BotHomeView({
   suggestions: boolean
   repos: RepositorySummary[]
   tasks: TaskRecordPayload[]
+  mentionBots: BotSummaryPayload[]
   onOpenTask: (taskId: string) => void
   onTaskAction: (action: AssistantTaskAction, taskId: string) => void
   onOpenSettings: () => void
@@ -94,6 +96,7 @@ function BotHomeView({
           assistant={assistant}
           repos={repos}
           tasks={tasks}
+          mentionBots={mentionBots}
           role={bot.role}
           suggestions={suggestions}
           showHeader={false}
@@ -114,6 +117,7 @@ function BotChatView({
   bot,
   repos,
   tasks,
+  mentionBots,
   notify,
   onOpenTask,
   onTaskAction,
@@ -122,6 +126,7 @@ function BotChatView({
   bot: BotSummaryPayload
   repos: RepositorySummary[]
   tasks: TaskRecordPayload[]
+  mentionBots: BotSummaryPayload[]
   notify: (notice: Notice) => void
   onOpenTask: (taskId: string) => void
   onTaskAction: (action: AssistantTaskAction, taskId: string) => void
@@ -135,6 +140,7 @@ function BotChatView({
       suggestions={false}
       repos={repos}
       tasks={tasks}
+      mentionBots={mentionBots}
       onOpenTask={onOpenTask}
       onTaskAction={onTaskAction}
       onOpenSettings={onOpenSettings}
@@ -206,6 +212,7 @@ export default function BotsSurface({
               bot={bot}
               repos={repos}
               tasks={tasks}
+              mentionBots={state.bots.filter((entry) => entry.id !== bot.id)}
               notify={notify}
               onOpenTask={onOpenTask}
               onTaskAction={onTaskAction}
