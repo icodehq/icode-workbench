@@ -10,21 +10,21 @@
  *   - **Path B (`wsl/harness`, `wsl/relay`).** A coding Agent runs on the managed
  *     Guest Host, reached through the W5 relay.
  *
- * Orca's Path A is `resolveWindowsShellLaunchArgs` for `wsl.exe`
+ * the reference implementation's Path A is `resolveWindowsShellLaunchArgs` for `wsl.exe`
  * (`providers/windows-shell-args.ts:136-150`, call sites `:225-245`):
  *
  *     wsl.exe -d <distro> --exec sh -c \
  *       'cd <linuxCwd> && export PATH="$HOME/.local/bin:$PATH" && <interactive login shell>'
  *
  * Three details in that shape are load-bearing, and each was checked against the
- * Orca source rather than assumed:
+ * the reference implementation source rather than assumed:
  *
  *   1. **`--exec`, not `--`.** `wsl.exe -d d -- argv` expands `$name` in every
  *      argument against the guest environment before the guest runs
  *      (`shared/wsl-login-shell-command.ts:8-17`), which would silently rewrite a
  *      path or a script.
  *   2. **The PTY's cwd is a machine-local directory, never the Linux path.**
- *      Orca returns `effectiveCwd: defaultCwd` for exactly this reason. A ConPTY
+ *      the reference implementation returns `effectiveCwd: defaultCwd` for exactly this reason. A ConPTY
  *      whose cwd is `/home/you/repo` cannot start at all.
  *   3. **The interactive login shell is resolved inside the guest**
  *      (`buildWslInteractiveLoginShellCommand`): `getent passwd` → `$SHELL` →
@@ -51,7 +51,7 @@ const SCRIPT_TAG = 'icode-wsl-terminal'
 /**
  * Resolves the distro's login shell and replaces this process with it.
  *
- * A constant script whose only variable is `$1`: Orca quotes the path into the
+ * A constant script whose only variable is `$1`: the reference implementation quotes the path into the
  * script text, whereas here it travels as a positional argument, so no path can
  * ever be parsed as shell syntax. `exec` matters: the PTY's child becomes the
  * shell itself, so `exit` reaches the host with the shell's own status.
@@ -59,7 +59,7 @@ const SCRIPT_TAG = 'icode-wsl-terminal'
 export const WSL_INTERACTIVE_LOGIN_SHELL_SCRIPT = [
   `__icode_cwd="$1"`,
   `cd "$__icode_cwd" || { printf '%s\\n' "iCode: cannot enter $__icode_cwd" >&2; exit 1; }`,
-  // Orca prepends this so a user-local install is reachable from the pane.
+  // the reference implementation prepends this so a user-local install is reachable from the pane.
   'export PATH="$HOME/.local/bin:$PATH"',
   '__icode_shell=$(getent passwd "$(id -un)" 2>/dev/null | cut -d: -f7)',
   'if [ -z "$__icode_shell" ] || [ ! -x "$__icode_shell" ]; then',

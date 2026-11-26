@@ -31,7 +31,6 @@ const HOST_DIR = join(RUN_DIR, 'host')
 const PORT = 26_100 + (process.pid % 400)
 
 const SIDEBAR_KEY = 'icode.workspace.sidebar.width.v1'
-const SIDEBAR_TASKS_KEY = 'icode.workspace.sidebar.tasksHeight.v1'
 const INSPECTOR_KEY = 'icode.inspector.width.v1'
 const FILES_KEY = 'icode.files.settings.v1'
 const SCM_KEY = 'icode.scm.settings.v1'
@@ -398,18 +397,6 @@ async function sidebarState() {
   })()`)
 }
 
-async function sidebarSectionsState() {
-  return cdp.evaluate(`(() => {
-    const pane = document.querySelector('[data-testid="sidebar-tasks"]');
-    const seam = document.querySelector('[data-testid="sidebar-sections-resizer"]');
-    return {
-      height: pane === null ? 0 : Math.round(pane.getBoundingClientRect().height),
-      storage: window.localStorage.getItem(${JSON.stringify(SIDEBAR_TASKS_KEY)}),
-      aria: seam?.getAttribute('aria-valuenow') ?? null
-    };
-  })()`)
-}
-
 async function inspectorState() {
   return cdp.evaluate(`(() => {
     const aside = document.querySelector('[data-testid="session-inspector"]');
@@ -528,49 +515,6 @@ async function scenarioSidebar(deltaX = 140) {
   await drag('[data-testid="sidebar-resizer"]', deltaX >= 0 ? -100 : 60, 0)
 
   return { before, mid, after, metrics, seam }
-}
-
-async function scenarioSidebarSections(deltaY = -80) {
-  const before = await sidebarSectionsState()
-  assert(before.height > 0, 'The Tasks pane has no height to resize')
-  await startProbe()
-  const { mid, seam } = await drag(
-    '[data-testid="sidebar-sections-resizer"]',
-    0,
-    deltaY,
-    sidebarSectionsState
-  )
-  const metrics = await stopProbe()
-  const after = await sidebarSectionsState()
-
-  const moved =
-    deltaY < 0 ? mid.height >= before.height + 20 : mid.height <= before.height - 20
-  assert(
-    moved,
-    `Tasks height did not follow the pointer (${before.height} -> ${mid.height})`
-  )
-  assert(mid.storage === before.storage, 'Tasks height was persisted during the drag')
-  assert(after.storage !== null, 'Tasks height was not persisted on release')
-  assert(
-    Number(after.storage) === after.height,
-    `Stored Tasks height ${after.storage} != rendered ${after.height}`
-  )
-  assert(
-    after.aria === String(after.height),
-    `Tasks aria-valuenow ${after.aria} != ${after.height}`
-  )
-
-  // Double-click returns the pane to content-sized for the later scenarios.
-  await cdp.evaluate(`(() => {
-    const seam = document.querySelector('[data-testid="sidebar-sections-resizer"]');
-    seam?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
-  })()`)
-  await sleep(250)
-  const reset = await sidebarSectionsState()
-  assert(reset.storage === null, 'Double-click did not clear the Tasks height preference')
-  assert(reset.aria !== null, 'Tasks aria-valuenow is missing after the reset')
-
-  return { before, mid, after, reset, metrics, seam }
 }
 
 async function scenarioInspector() {
@@ -753,7 +697,6 @@ async function main() {
   // The sidebar needs no session; measure it before session startup work can
   // compete with the pointer events.
   await measureScenario('sidebar', scenarioSidebar)
-  await measureScenario('sidebar-sections', scenarioSidebarSections)
 
   await createSession('Resize perf one')
   await createSession('Resize perf two')

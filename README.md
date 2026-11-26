@@ -79,7 +79,6 @@ to a fleet:
 - [How to queue coding agent tasks](https://icodehq.vercel.app/guides/queue-coding-agent-tasks/)
 - [How to review AI-generated code](https://icodehq.vercel.app/guides/review-ai-generated-code/)
 - [How to run Claude Code in parallel](https://icodehq.vercel.app/guides/run-claude-code-in-parallel/)
-- [Compare with Orca](https://icodehq.vercel.app/compare/orca/)
 
 ## Install
 
@@ -160,7 +159,7 @@ made.
   Run them in parallel, each in its own Git worktree.
 - **Keep the judgment.** Task review is a human decision. Accepting a review
   records the judgment; it does not merge, push, or delete anything. Merge is a
-  separate step in Source Control. Mira can propose, message, retry, and
+  separate step in Source Control. Yarcy can propose, message, retry, and
   archive; she cannot approve a review, merge, or push.
 - **WSL and Windows are first-class.** Managed WSL guest hosts, `wsl.exe` shell
   sessions, and target-aware harness detection that knows when a CLI exists on
@@ -172,7 +171,7 @@ made.
   terminal.
 - **One sidebar, two surfaces.** Projects, direct sessions, pinned items, and
   the cross-project task queue share one sidebar. Sessions and task workbenches
-  are the main surfaces; Mira, Settings, and Schedules are auxiliary tabs.
+  are the main surfaces; Yarcy, Settings, and Schedules are auxiliary tabs.
 - **Terminals that outlive the app.** A detached host owns the PTYs, so closing
   the window or quitting iCode does not stop the agents.
 - **Local-first.** State lives in SQLite on your machine. No telemetry, no
@@ -209,9 +208,9 @@ first.
 *Right-click any session row, including one you are not viewing, to reach its
 lifecycle actions.*
 
-### Meet Mira, your cross-project assistant
+### Meet Yarcy, your cross-project assistant
 
-Mira opens from the sidebar footer or from **Talk to Mira** in the command
+Yarcy opens from the sidebar footer or from **Talk to Yarcy** in the command
 palette. She is not scoped to one project and is not a terminal: one
 conversation spans every repository.
 
@@ -226,22 +225,24 @@ conversation spans every repository.
   written; the run line shows the current stage, elapsed time, and
   thinking-token count.
 - **She keeps the harness's conversation.** The installed harness owns the
-  native conversation and Mira resumes it by session id. Switching harness or
+  native conversation and Yarcy resumes it by session id. Switching harness or
   target starts a bridged conversation with a visible boundary.
 - **She comes to you.** Approvals, failed or waiting tasks, and review-ready
   work become proactive messages with unread badges and OS notifications.
 
 <p align="center">
-  <a href=".github/assets/workbench-0916-mira.png"><img src=".github/assets/workbench-0916-mira.png" alt="Mira answering a cross-project question with a Needs a decision and In flight summary, beside the live project and task sidebar" width="100%" /></a>
+  <a href=".github/assets/workbench-0916-mira.png"><img src=".github/assets/workbench-0916-mira.png" alt="Yarcy answering a cross-project question with a Needs a decision and In flight summary, beside the live project and task sidebar" width="100%" /></a>
 </p>
 
-*Mira reads the real queue: finished work waiting for review, a running task,
+*Yarcy reads the real queue: finished work waiting for review, a running task,
 and uncommitted session changes.*
 
-Mira is configured in **Settings → Mira**: persona name, run target, preferred
+Yarcy is configured in **Settings → Assistant**: persona name, run target, preferred
 harness, auto-dispatch policy, and notification policy. Low-risk tasks she
 creates may auto-dispatch under a daily cap and protected-path/keyword policy;
-everything else waits for a person.
+everything else waits for a person. The default Chief is Yarcy; rename it in
+Settings or bot settings at any time — the UI, prompts, and notifications all
+follow the configured name.
 
 ### Isolated sessions by default
 
@@ -257,7 +258,7 @@ repository's own primary checkout, labelled with its live branch. Its **+**
 starts a terminal or agent there, and the New Session dialog's **Run in** list
 offers it for every project. Default-checkout sessions share the folder with the
 user, so an agent started there shows a persistent shared-checkout warning; task,
-supervisor, Mira, and CLI-created sessions always use isolated worktrees.
+supervisor, Yarcy, and CLI-created sessions always use isolated worktrees.
 
 <p align="center">
   <a href=".github/assets/workbench-0916-session-split.png"><img src=".github/assets/workbench-0916-session-split.png" alt="Two direct sessions side by side in the iCode split view, each with its own terminal and branch" width="100%" /></a>
@@ -295,7 +296,7 @@ the instruction, live session, changes against the task baseline, and a review
 decision separate from process exit.
 
 Approval depends on who asked. Your own tasks are approved when queued. A
-project supervisor always proposes for a person, and a Mira-created task waits
+project supervisor always proposes for a person, and a Yarcy-created task waits
 unless the current auto-dispatch policy permits it. Dependencies form chains: a
 dependent waits for its blockers to complete, and for a blocker's acceptance
 when **Wait for my acceptance before dependent tasks start** is set. Chain tasks
@@ -397,10 +398,10 @@ iCode does not call model APIs — your harness does — and the renderer is
 sandboxed behind a typed preload and validated IPC.
 
 <p align="center">
-  <a href=".github/assets/workbench-0916-settings.png"><img src=".github/assets/workbench-0916-settings.png" alt="The Settings tab with appearance, language, Mira, host and runtime, and Source Control sections" width="100%" /></a>
+  <a href=".github/assets/workbench-0916-settings.png"><img src=".github/assets/workbench-0916-settings.png" alt="The Settings tab with appearance, language, Assistant, host and runtime, and Source Control sections" width="100%" /></a>
 </p>
 
-*Settings open as an auxiliary tab. Appearance, language, Mira, task execution,
+*Settings open as an auxiliary tab. Appearance, language, Assistant, task execution,
 Source Control, Files, agent providers, harnesses, host/runtime, and About share
 one page.*
 
@@ -415,7 +416,7 @@ one page.*
 - **Instant project removal**: the row disappears immediately while cleanup
   stops sessions, snapshots dirty worktrees, and reports retry/discard.
 - **Command palette**: `Ctrl/Cmd+K` for projects, sessions, tasks, Source Control
-  actions, and "Talk to Mira"; `Ctrl/Cmd+P` for quick open.
+  actions, and "Talk to Yarcy"; `Ctrl/Cmd+P` for quick open.
 - **Themes**: light by default, with System and Dark applied before first paint;
   terminals follow the same appearance.
 - **Session diagnostics**: host authority, PTY incarnation, worktree state, and
@@ -434,7 +435,7 @@ one page.*
 iCode runs the harness itself, not a chat reimplementation, so its TUI,
 permissions, and hooks keep working.
 
-**Native provider injection + Mira conversation (3):**
+**Native provider injection + Yarcy conversation (3):**
 Claude Code, Codex, OpenCode.
 
 **Managed status hooks (21):**
@@ -478,11 +479,11 @@ live text draft.
 1. **Add a project.** Register an existing Git checkout, clone from a URL, or
    initialize a folder on its first commit. Repositories can live on this
    machine or inside a WSL distro.
-2. **Start work.** Start a direct session, queue a task, or open Mira. A direct
+2. **Start work.** Start a direct session, queue a task, or open Yarcy. A direct
    session launches immediately; a queued task waits for a global and
    per-project slot. Either way, the harness runs in a real PTY.
 3. **Approve or adjust.** Your own tasks are approved on creation. Supervisor
-   proposals wait for a person, and Mira tasks wait unless the auto-dispatch
+   proposals wait for a person, and Yarcy tasks wait unless the auto-dispatch
    policy allows them. Blockers and chain branches decide when dependents start.
 4. **Work in the terminal.** Switch sessions with the tab strip, split when two
    need to be visible, and open Source Control or Files in the inspector.
@@ -538,9 +539,9 @@ pnpm build
 | `tests/compat` | Compatibility gates and packaged smokes |
 | `tests/wsl` | WSL host artifact selftests and smokes |
 
-### Mira: native conversation, typed control plane
+### Yarcy: native conversation, typed control plane
 
-Mira is not a repo-less PTY. Each turn is a one-shot run of the same installed
+Yarcy is not a repo-less PTY. Each turn is a one-shot run of the same installed
 harness in a scratch directory on this machine or inside a WSL distro. The
 harness owns the native conversation: iCode stores the opaque session id, while
 the harness keeps the prior context. A manual **New conversation** retires the
@@ -669,7 +670,7 @@ even when iCode is down. A broken iCode must never block the agent.
   individually.
 - Main registers a fixed IPC channel table, validates each payload with Zod,
   checks the calling frame, and maps failures to stable `AppError` codes.
-- Mira's Markdown renderer produces React elements, never HTML. Only http(s)
+- Yarcy's Markdown renderer produces React elements, never HTML. Only http(s)
   links can reach `shell.openExternal`; `file:`, `javascript:` and custom schemes
   are rejected in both the parser and the IPC handler.
 - The host protocol is NDJSON with a 4 MiB frame limit; malformed, oversized,

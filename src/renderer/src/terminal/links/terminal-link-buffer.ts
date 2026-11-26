@@ -1,7 +1,7 @@
 /**
  * Structural subset of xterm's buffer API used by link detection.
  *
- * Adapted from Orca (MIT, Copyright (c) 2026 Lovecast Inc.),
+ * Adapted from an MIT-licensed reference implementation (Copyright (c) 2026 Lovecast Inc.),
  * `src/shared/terminal/links/terminal-link-buffer.ts`.
  */
 

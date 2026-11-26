@@ -358,14 +358,35 @@ async function openSessionWorkspace() {
   await expandAllProjects()
 }
 
-async function openProjectTasks() {
-  await waitForSelector('button[data-testid^="sidebar-task-"]', 10000)
-  const taskId = await cdp.evaluate(
-    `document.querySelector('button[data-testid^="sidebar-task-"]')?.getAttribute('data-testid')?.replace('sidebar-task-', '') ?? null`
+async function taskIdByTitle(title) {
+  return cdp.evaluate(`(async () => {
+    const result = await window.icode.tasks.list({});
+    if (!result.ok) return null;
+    const task = result.value.find((entry) => entry.title === ${JSON.stringify(title)});
+    return task ? task.id : null;
+  })()`)
+}
+
+/** Tasks no longer have a sidebar row; the palette is the user's way in. */
+async function openTaskByTitle(title) {
+  await cdp.evaluate(
+    `window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true, cancelable: true }))`
   )
-  assert(taskId, 'No task row to open the Tasks view')
-  await click(`[data-testid="sidebar-task-${taskId}"]`)
-  await waitForSelector('[data-testid="tasks-surface"]', 20000)
+  await waitForSelector('[data-testid="command-palette"]', 10000)
+  await setValue('[data-testid="command-palette-input"]', title)
+  await waitFor(
+    `Array.from(document.querySelectorAll('[data-testid="command-palette-item"][data-kind="work"]')).some((el) => el.innerText.includes(${JSON.stringify(title)}))`,
+    `palette result for ${title}`,
+    10000
+  )
+  const opened = await cdp.evaluate(`(() => {
+    const item = Array.from(document.querySelectorAll('[data-testid="command-palette-item"][data-kind="work"]')).find((el) => el.innerText.includes(${JSON.stringify(title)}));
+    if (!item) return false;
+    item.click();
+    return true;
+  })()`)
+  assert(opened, `palette task item for ${title}`)
+  await waitForSelector('[data-testid="task-workbench"]', 15000)
 }
 
 async function openChanges() {
@@ -927,8 +948,7 @@ async function run() {
 
     await openSessionWorkspace()
     await waitForSelector('[data-testid="sessions-surface"]', 15000)
-    await openProjectTasks()
-    await waitForSelector('[data-testid="task-workbench"]', 15000)
+    await openTaskByTitle('Task continuity smoke')
     await waitFor(
       `document.querySelector('[data-testid="task-workbench"] h1')?.innerText === 'Task continuity smoke'`,
       'the last task is restored after switching project modes',
@@ -939,11 +959,8 @@ async function run() {
     // blocker releases its dependent once completed and merged onto the chain;
     // a gated blocker also waits for the result to be accepted. This is the
     // only path that drives the DAG UI through the real renderer.
-    const continuityTaskId = await cdp.evaluate(
-      `document.querySelector('button[data-testid^="sidebar-task-"]')?.getAttribute('data-testid')?.replace('sidebar-task-', '') ?? null`
-    )
-    assert(continuityTaskId, 'continuity task row was not found')
-    await click(`[data-testid="sidebar-task-${continuityTaskId}"]`)
+    const continuityTaskId = await taskIdByTitle('Task continuity smoke')
+    assert(continuityTaskId, 'continuity task was not found')
     await waitFor(
       `document.querySelector('[data-testid="task-workbench"] h1')?.innerText === 'Task continuity smoke'`,
       'continuity task selected',
@@ -987,13 +1004,16 @@ async function run() {
       }
       await click('[data-testid="task-create"]')
       await sleep(700)
-      const diagnostic = await cdp.evaluate(`(() => ({
-        heading: document.querySelector('[data-testid="task-workbench"] h1')?.innerText ?? null,
-        notice: document.querySelector('[data-testid="notice"]')?.innerText ?? null,
-        composer: Boolean(document.querySelector('[data-testid="task-composer"]')),
-        createDisabled: document.querySelector('[data-testid="task-create"]')?.disabled ?? null,
-        rows: Array.from(document.querySelectorAll('button[data-testid^="sidebar-task-"]')).map((el) => el.innerText.replace(/\\n/g, ' '))
-      }))()`)
+      const diagnostic = await cdp.evaluate(`(async () => {
+        const result = await window.icode.tasks.list({});
+        return {
+          heading: document.querySelector('[data-testid="task-workbench"] h1')?.innerText ?? null,
+          notice: document.querySelector('[data-testid="notice"]')?.innerText ?? null,
+          composer: Boolean(document.querySelector('[data-testid="task-composer"]')),
+          createDisabled: document.querySelector('[data-testid="task-create"]')?.disabled ?? null,
+          tasks: result.ok ? result.value.slice(0, 6).map((task) => ({ title: task.title, status: task.status })) : []
+        };
+      })()`)
       console.log('[feature-smoke] task create diagnostic', JSON.stringify(diagnostic))
       if (diagnostic.heading !== prompt) {
         await screenshot(`10b-task-${prompt.replace(/[^a-z0-9]+/gi, '-')}`)
@@ -1004,10 +1024,7 @@ async function run() {
         `task ${prompt} selected`,
         15000
       )
-      return cdp.evaluate(`(() => {
-        const row = Array.from(document.querySelectorAll('button[data-testid^="sidebar-task-"]')).find((el) => el.innerText.includes(${JSON.stringify(prompt)}))
-        return row?.getAttribute('data-testid')?.replace('sidebar-task-', '') ?? null
-      })()`)
+      return taskIdByTitle(prompt)
     }
 
     async function waitForTaskStatus(taskId, status, timeoutMs) {
@@ -1061,7 +1078,7 @@ async function run() {
       'dependent started after the blocker completed and merged',
       35000
     )
-    await click(`[data-testid="sidebar-task-${dependentId}"]`)
+    await openTaskByTitle('dependent smoke')
     await waitFor(
       `document.querySelector('[data-testid="task-workbench"] h1')?.innerText === 'dependent smoke'`,
       'dependent task selected',
@@ -1106,7 +1123,7 @@ async function run() {
     await click('[data-testid="task-review-accept"]')
     await waitForTaskStatus(gatedBlockerId, 'completed', 30000)
     await mergeTaskIntoChain(gatedBlockerId)
-    await click(`[data-testid="sidebar-task-${gatedDependentId}"]`)
+    await openTaskByTitle('gated dependent')
     await waitFor(
       `document.querySelector('[data-testid="task-workbench"] h1')?.innerText === 'gated dependent'`,
       'gated dependent selected again',

@@ -1,14 +1,14 @@
 /**
  * Harness discovery and launch inside a WSL distro.
  *
- * Orca's guest detection (`src/wsl-guest/preflight-handler.ts`) is the reference,
+ * the reference implementation's guest detection (`src/wsl-guest/preflight-handler.ts`) is the reference,
  * and two of its rules exist because WSL-specific facts break the obvious
  * implementation:
  *
  *   1. **Skip `/mnt/*` PATH entries.** WSL appends the Windows PATH, so
  *      `command -v claude` can resolve to a Windows-installed shim
  *      (`/mnt/c/nvm4w/nodejs/claude`, measured on this machine). That is not a
- *      guest install, and reporting it as one is wrong. Orca passes
+ *      guest install, and reporting it as one is wrong. the reference implementation passes
  *      `skipWindowsMountDirs: true` for exactly this reason.
  *   2. **Ask the user's login shell.** A harness installed by nvm/asdf is only on
  *      the *login* PATH. Measured: non-login `wsl.exe --exec` has no `node` at
@@ -37,7 +37,7 @@ export const AGENT_PATH_PREFIX = '__ICODE_AGENT_PATH__'
 const LOOKUP_TIMEOUT_MS = 10_000
 /** Shells whose startup files a package-manager install commonly relies on. */
 const INTERACTIVE_SHELLS = new Set(['bash', 'zsh', 'fish'])
-/** Orca's conservative allow-list: a rare shell gets the `/bin/sh` fallback. */
+/** the reference implementation's conservative allow-list: a rare shell gets the `/bin/sh` fallback. */
 const SUPPORTED_SHELLS = new Set(['bash', 'zsh', 'fish', 'sh', 'dash'])
 
 /**
@@ -48,7 +48,7 @@ const SUPPORTED_SHELLS = new Set(['bash', 'zsh', 'fish', 'sh', 'dash'])
  * while wiring W7). One shell, one deterministic answer.
  *
  * `$@` carries the names, so no name is ever interpolated into this text. The
- * Windows-mount skip is the same rule Orca applies
+ * Windows-mount skip is the same rule the reference implementation applies
  * (`preflight-handler.ts`, `skipWindowsMountDirs`): WSL appends the Windows PATH,
  * so a `/mnt/c/...` npm shim would otherwise read as a guest install — measured
  * on this machine, where `command -v claude` answers with a Windows shim.
@@ -76,7 +76,7 @@ export const GUEST_SHELL_SCRIPT = 'printf %s "${SHELL:-}"'
 export type GuestShell = {
   /** Absolute guest path of the user's shell, or `/bin/sh`. */
   shell: string
-  /** Orca's mode: interactive login for bash/zsh/fish, login for sh/dash. */
+  /** the reference implementation's mode: interactive login for bash/zsh/fish, login for sh/dash. */
   mode: '-ilc' | '-lc'
 }
 
@@ -148,7 +148,7 @@ async function runShell(
  * The user's login shell, or `/bin/sh`.
  *
  * Only a supported shell is honoured: a rare shell may not implement the lookup
- * script's POSIX constructs, and Orca restricts itself the same way.
+ * script's POSIX constructs, and the reference implementation restricts itself the same way.
  */
 export async function resolveGuestShell(deps: GuestHarnessProbeDeps): Promise<GuestShell> {
   const result = await runShell(deps, '/bin/sh', '-c', GUEST_SHELL_SCRIPT, null, 'harness-shell')
@@ -163,7 +163,7 @@ export async function resolveGuestShell(deps: GuestHarnessProbeDeps): Promise<Gu
 /**
  * Finds several executables on the guest PATH, in one call per shell.
  *
- * Same two attempts as the single-name form, in Orca's order: the user's login
+ * Same two attempts as the single-name form, in the reference implementation's order: the user's login
  * shell, then `/bin/sh` with the inherited PATH. Anything the first pass missed is
  * looked for again by `sh`, which is what makes a broken profile recoverable.
  */
@@ -252,7 +252,7 @@ async function runShellBatch(
 /**
  * Finds one executable on the guest PATH.
  *
- * Two attempts, in Orca's order: the user's login shell, then `/bin/sh` with the
+ * Two attempts, in the reference implementation's order: the user's login shell, then `/bin/sh` with the
  * inherited PATH. The second matters when a profile is broken or absent.
  */
 export async function resolveGuestExecutable(

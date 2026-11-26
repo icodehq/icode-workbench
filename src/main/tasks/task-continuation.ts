@@ -37,3 +37,28 @@ export function buildContinuationPrompt(input: ContinuationPromptInput): string 
     input.originalPrompt
   ].join('\n')
 }
+
+/**
+ * The instruction for a result the human sent back for changes.
+ *
+ * The worktree is the same one the review opened; the feedback is the reason
+ * this attempt exists. The original instruction is repeated for the harness's
+ * fresh-conversation fallback.
+ */
+export function buildReviewChangesPrompt(input: {
+  originalPrompt: string
+  feedback: string | null
+}): string {
+  return [
+    'This continues the same task after a human reviewed the previous result and requested changes.',
+    '',
+    'Review feedback:',
+    input.feedback?.trim() || 'No written feedback was provided; inspect the diff and improve the result.',
+    '',
+    'The working tree already contains the previous attempt. Inspect it before acting:',
+    'keep what is correct, address the feedback, and finish the remaining work.',
+    '',
+    'Original instruction:',
+    input.originalPrompt
+  ].join('\n')
+}

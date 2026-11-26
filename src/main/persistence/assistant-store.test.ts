@@ -25,6 +25,8 @@ function thread(store: AssistantStore, now = 1_000) {
   return store.insertThread({
     id: 'thread_main',
     kind: 'main',
+    groupThreadId: null,
+    botId: null,
     title: 'Mira',
     createdAt: now,
     updatedAt: now,
@@ -503,7 +505,6 @@ describe('assistant store', () => {
     expect(names.map((row) => row.name)).toEqual([
       'assistant_actions',
       'assistant_conversations',
-      'assistant_memory',
       'assistant_messages',
       'assistant_runs',
       'assistant_settings',

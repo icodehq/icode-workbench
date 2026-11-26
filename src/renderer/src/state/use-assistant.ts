@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   AssistantConversationPayload,
   AssistantEventPayload,
@@ -8,6 +8,7 @@ import type {
   AssistantSettingsPayload,
   AssistantStatePayload
 } from '../../../shared/schemas/assistant'
+import type { IpcResult } from '../../../shared/schemas/ipc'
 import type { AssistantRunStage } from '../../../shared/domain/assistant'
 import { DEFAULT_ASSISTANT_SETTINGS } from '../../../shared/domain/assistant'
 import type { Notice } from './workspace'
@@ -61,6 +62,101 @@ export type AssistantState = {
 }
 
 /**
+ * The chat transport the state machine runs on.
+ *
+ * Mira and bots share the same conversation semantics; only their IPC
+ * namespace differs. Keeping the transport here means one hook, one paging
+ * implementation and one streaming path for both.
+ */
+export type ChatClient = {
+  state: () => Promise<IpcResult<AssistantStatePayload>>
+  messages: (input: {
+    threadId: string
+    beforeSeq?: number
+    limit?: number
+    conversationId?: string
+  }) => Promise<IpcResult<AssistantMessagePayload[]>>
+  conversations: () => Promise<IpcResult<AssistantConversationPayload[]>>
+  notifications: (input: { limit?: number }) => Promise<IpcResult<AssistantMessagePayload[]>>
+  focus: (input: { messageId: string }) => Promise<IpcResult<null>>
+  send: (input: { text: string; repoId?: string }) => Promise<IpcResult<AssistantSendResult>>
+  markRead: (input: {
+    threadId: string
+    messageId?: string
+  }) => Promise<IpcResult<number>>
+  stop: () => Promise<IpcResult<null>>
+  newConversation: () => Promise<IpcResult<AssistantNewConversationResult>>
+  settings: () => Promise<IpcResult<AssistantSettingsPayload>>
+  setSettings: (input: {
+    settings: AssistantSettingsPayload
+  }) => Promise<IpcResult<AssistantSettingsPayload>>
+  onEvent: (listener: (event: AssistantEventPayload) => void) => () => void
+}
+
+const miraChatClient: ChatClient = {
+  state: () => window.icode.assistant.state(),
+  messages: (input) => window.icode.assistant.messages(input),
+  conversations: () => window.icode.assistant.conversations(),
+  notifications: (input) => window.icode.assistant.notifications(input),
+  focus: (input) => window.icode.assistant.focus(input),
+  send: (input) => window.icode.assistant.send(input),
+  markRead: (input) => window.icode.assistant.markRead(input),
+  stop: () => window.icode.assistant.stop(),
+  newConversation: () => window.icode.assistant.newConversation(),
+  settings: () => window.icode.assistant.settings(),
+  setSettings: (input) => window.icode.assistant.setSettings(input),
+  onEvent: (listener) => window.icode.assistant.onEvent(listener)
+}
+
+function botChatClient(botId: string): ChatClient {
+  return {
+    state: () => window.icode.bots.state({ botId }),
+    messages: (input) =>
+      window.icode.bots.messages({
+        botId,
+        ...(input.beforeSeq === undefined ? {} : { beforeSeq: input.beforeSeq }),
+        ...(input.limit === undefined ? {} : { limit: input.limit }),
+        ...(input.conversationId === undefined
+          ? {}
+          : { conversationId: input.conversationId })
+      }),
+    conversations: () => window.icode.bots.conversations({ botId }),
+    notifications: (input) =>
+      window.icode.bots.notifications({
+        botId,
+        ...(input.limit === undefined ? {} : { limit: input.limit })
+      }),
+    focus: (input) => window.icode.bots.focus({ botId, messageId: input.messageId }),
+    send: (input) =>
+      window.icode.bots.send({
+        botId,
+        text: input.text,
+        ...(input.repoId === undefined ? {} : { repoId: input.repoId })
+      }),
+    markRead: (input) =>
+      window.icode.bots.markRead({
+        botId,
+        ...(input.messageId === undefined ? {} : { messageId: input.messageId })
+      }),
+    stop: () => window.icode.bots.stop({ botId }),
+    newConversation: () => window.icode.bots.newConversation({ botId }),
+    settings: () => window.icode.bots.settings({ botId }),
+    setSettings: (input) =>
+      window.icode.bots.setSettings({ botId, settings: input.settings }),
+    onEvent: (listener) =>
+      window.icode.bots.onEvent((event) => {
+        if (event.type === 'chat') {
+          if (event.botId === botId) listener(event.event)
+          return
+        }
+        // A roster change can rename or re-configure this bot; re-read state
+        // so the chat header and placeholders follow the new name.
+        if (event.botId === null || event.botId === botId) listener({ type: 'changed' })
+      })
+  }
+}
+
+/**
  * The global Mira thread, shared by the rail, the assistant page and the
  * notification surface. It is deliberately outside WorkspaceState: a repository
  * refresh must not reset the conversation.
@@ -71,7 +167,8 @@ export type AssistantState = {
  */
 export function useAssistant(
   notify: (notice: Notice) => void,
-  onFocus?: (event: Extract<AssistantEventPayload, { type: 'focus' }>) => void
+  onFocus?: (event: Extract<AssistantEventPayload, { type: 'focus' }>) => void,
+  client: ChatClient = miraChatClient
 ): AssistantState {
   const [threadId, setThreadId] = useState<string | null>(null)
   const [personaName, setPersonaName] = useState(DEFAULT_ASSISTANT_SETTINGS.personaName)
@@ -125,7 +222,7 @@ export function useAssistant(
   const reload = useCallback(
     async (announce = false): Promise<void> => {
       const generation = ++reloadGenerationRef.current
-      const stateResult = await callApi<AssistantStatePayload>(window.icode.assistant.state())
+      const stateResult = await callApi<AssistantStatePayload>(client.state())
       if (!mounted.current || generation !== reloadGenerationRef.current) return
       if (!stateResult.ok) {
         setLoading(false)
@@ -157,9 +254,9 @@ export function useAssistant(
       )
 
       const [conversationsResult, notificationsResult] = await Promise.all([
-        callApi<AssistantConversationPayload[]>(window.icode.assistant.conversations()),
+        callApi<AssistantConversationPayload[]>(client.conversations()),
         callApi<AssistantMessagePayload[]>(
-          window.icode.assistant.notifications({ limit: NOTIFICATION_FEED_LIMIT })
+          client.notifications({ limit: NOTIFICATION_FEED_LIMIT })
         )
       ])
       if (!mounted.current || generation !== reloadGenerationRef.current) return
@@ -188,7 +285,7 @@ export function useAssistant(
 
       if (selection === null) {
         const result = await callApi<AssistantMessagePayload[]>(
-          window.icode.assistant.messages({
+          client.messages({
             threadId: next.threadId,
             limit: MESSAGE_PAGE_SIZE
           })
@@ -205,7 +302,7 @@ export function useAssistant(
         const conversation =
           nextConversations.find((entry) => entry.id === selection) ?? null
         const result = await callApi<AssistantMessagePayload[]>(
-          window.icode.assistant.messages({
+          client.messages({
             threadId: next.threadId,
             conversationId: selection,
             limit: MESSAGE_PAGE_SIZE
@@ -225,7 +322,7 @@ export function useAssistant(
       }
       setLoading(false)
     },
-    [applyHasMore, applyMessages, applySelection, notify]
+    [applyHasMore, applyMessages, applySelection, client, notify]
   )
 
   const selectConversation = useCallback(
@@ -240,7 +337,7 @@ export function useAssistant(
       const conversation =
         conversationsRef.current.find((entry) => entry.id === conversationId) ?? null
       const result = await callApi<AssistantMessagePayload[]>(
-        window.icode.assistant.messages({
+        client.messages({
           threadId: thread,
           conversationId,
           limit: MESSAGE_PAGE_SIZE
@@ -256,7 +353,7 @@ export function useAssistant(
         computeHasMore(result.value, conversation, result.value.length === MESSAGE_PAGE_SIZE)
       )
     },
-    [applyHasMore, applyMessages, applySelection, notify]
+    [applyHasMore, applyMessages, applySelection, client, notify]
   )
 
   const loadOlder = useCallback(async (): Promise<boolean> => {
@@ -278,7 +375,7 @@ export function useAssistant(
     const conversation =
       conversationsRef.current.find((entry) => entry.id === selection) ?? null
     const result = await callApi<AssistantMessagePayload[]>(
-      window.icode.assistant.messages({
+      client.messages({
         threadId: thread,
         conversationId: selection,
         beforeSeq: first.seq,
@@ -298,7 +395,7 @@ export function useAssistant(
       computeHasMore(merged, conversation, result.value.length === MESSAGE_PAGE_SIZE)
     )
     return result.value.length > 0
-  }, [applyHasMore, applyMessages, notify])
+  }, [applyHasMore, applyMessages, client, notify])
 
   const focusMessage = useCallback(
     async (event: Extract<AssistantEventPayload, { type: 'focus' }>): Promise<void> => {
@@ -321,7 +418,7 @@ export function useAssistant(
       const conversation =
         conversationsRef.current.find((entry) => entry.id === conversationId) ?? null
       const result = await callApi<AssistantMessagePayload[]>(
-        window.icode.assistant.messages({
+        client.messages({
           threadId: threadIdRef.current,
           conversationId,
           beforeSeq: event.seq + MESSAGE_PAGE_SIZE,
@@ -337,7 +434,7 @@ export function useAssistant(
       }
       onFocusRef.current?.(event)
     },
-    [applyHasMore, applyMessages, reload]
+    [applyHasMore, applyMessages, client, reload]
   )
 
   useEffect(() => {
@@ -350,7 +447,7 @@ export function useAssistant(
 
   useEffect(
     () =>
-      window.icode.assistant.onEvent((event) => {
+      client.onEvent((event) => {
         if (event.type === 'focus') {
           void focusMessage(event)
           return
@@ -383,13 +480,13 @@ export function useAssistant(
         }
         void reload()
       }),
-    [focusMessage, reload]
+    [client, focusMessage, reload]
   )
 
   const send = useCallback(
     async (text: string, repoId?: string): Promise<boolean> => {
       const result = await callApi<AssistantSendResult>(
-        window.icode.assistant.send({ text, ...(repoId === undefined ? {} : { repoId }) })
+        client.send({ text, ...(repoId === undefined ? {} : { repoId }) })
       )
       if (!result.ok) {
         notify(errorNotice(result.error))
@@ -407,19 +504,19 @@ export function useAssistant(
       await reload()
       return true
     },
-    [applyHasMore, applyMessages, applySelection, notify, reload]
+    [applyHasMore, applyMessages, applySelection, client, notify, reload]
   )
 
   const stop = useCallback(async (): Promise<void> => {
-    const result = await callApi<null>(window.icode.assistant.stop())
+    const result = await callApi<null>(client.stop())
     if (!result.ok) notify(errorNotice(result.error))
     await reload()
-  }, [notify, reload])
+  }, [client, notify, reload])
 
   const newConversation = useCallback(async (): Promise<boolean> => {
     followLatestRef.current = true
     const result = await callApi<AssistantNewConversationResult>(
-      window.icode.assistant.newConversation()
+      client.newConversation()
     )
     if (!result.ok) {
       notify(errorNotice(result.error))
@@ -427,13 +524,13 @@ export function useAssistant(
     }
     await reload()
     return true
-  }, [notify, reload])
+  }, [client, notify, reload])
 
   const markRead = useCallback(
     async (messageId?: string): Promise<void> => {
       if (threadId === null) return
       const result = await callApi<number>(
-        window.icode.assistant.markRead({ threadId, ...(messageId === undefined ? {} : { messageId }) })
+        client.markRead({ threadId, ...(messageId === undefined ? {} : { messageId }) })
       )
       if (!result.ok) {
         notify(errorNotice(result.error))
@@ -441,13 +538,13 @@ export function useAssistant(
       }
       setUnread(result.value)
     },
-    [notify, threadId]
+    [client, notify, threadId]
   )
 
   const saveSettings = useCallback(
     async (next: AssistantSettingsPayload): Promise<void> => {
       const result = await callApi<AssistantSettingsPayload>(
-        window.icode.assistant.setSettings({ settings: next })
+        client.setSettings({ settings: next })
       )
       if (!result.ok) {
         notify(errorNotice(result.error))
@@ -457,7 +554,7 @@ export function useAssistant(
       setPersonaName(result.value.personaName)
       await reload()
     },
-    [notify, reload]
+    [client, notify, reload]
   )
 
   return {
@@ -486,4 +583,14 @@ export function useAssistant(
     markRead,
     saveSettings
   }
+}
+
+/** The same chat state machine, talking to one bot's IPC namespace. */
+export function useBotChat(
+  botId: string,
+  notify: (notice: Notice) => void,
+  onFocus?: (event: Extract<AssistantEventPayload, { type: 'focus' }>) => void
+): AssistantState {
+  const client = useMemo(() => botChatClient(botId), [botId])
+  return useAssistant(notify, onFocus, client)
 }

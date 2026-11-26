@@ -62,17 +62,28 @@ import { SupervisorStore } from '../persistence/supervisor-store'
 import { SupervisorService } from '../supervisor/supervisor-service'
 import { AssistantStore } from '../persistence/assistant-store'
 import { AssistantService } from '../assistant/assistant-service'
-import { AssistantRunner } from '../assistant/assistant-runner'
-import { AssistantActions } from '../assistant/assistant-actions'
 import { AssistantPolicy } from '../assistant/assistant-policy'
+import { BotStore } from '../persistence/bot-store'
+import { GroupStore } from '../persistence/group-store'
+import { ItemStore } from '../items/item-store'
+import { ItemService } from '../items/item-service'
+import { BotMemoryStore } from '../persistence/bot-memory-store'
+import { BotService } from '../bots/bot-service'
+import { GroupChatService } from '../bots/group-chat-service'
+import { composeGroupTurnPrompt } from '../bots/group-turn-prompt'
+import { taskGroupMilestone } from '../bots/group-task-notice'
+import { BotRuntimeRegistry } from '../bots/bot-runtime'
+import { buildBotTaskPrompt } from '../bots/bot-task-prompt'
+import type { TaskRecord } from '../../shared/domain/task'
 import { presentWindow } from '../window-present'
+import { AGENT_SUBMIT_DELAY_MS, buildAgentPromptPaste } from '../../shared/agent-prompt'
 import {
   notificationDestination,
   notificationTaskId
 } from '../assistant/notification-destination'
 import { AssistantNotifier } from '../assistant/assistant-notifier'
 import { ActivityService } from '../activity/activity-service'
-import type { ActivitySource } from '../../shared/domain/activity'
+import type { ActivityAttentionKind, ActivitySource } from '../../shared/domain/activity'
 import { ActivityHookServer } from '../activity/hook-server'
 import { mainT } from '../i18n/main-i18n'
 import { activitySocketPath as activityEndpoint } from '../activity/endpoint'
@@ -174,6 +185,17 @@ export type AppRuntime = {
   supervisor: SupervisorService
   /** The global Mira thread. */
   assistant: AssistantService
+  /** Persistent bot identities and their lazy chat runtimes. */
+  bots: BotService
+  botRuntimes: BotRuntimeRegistry
+  /** Scoped bot/project/group memory. */
+  botMemory: BotMemoryStore
+  /** Bot groups, threads, room turns and hand-offs. */
+  groupChat: GroupChatService
+  /** Owner-facing task conversation: comments, questions, links and snooze. */
+  items: ItemService
+  /** Subscribe to bot changes so a window can re-read. */
+  onBotChange: (listener: () => void) => () => void
   /** Subscribe to task changes so a window can re-read the queue. */
   onTaskChange: (listener: () => void) => () => void
   harness: HarnessDetector
@@ -270,7 +292,13 @@ export async function startAppRuntime(): Promise<AppRuntime> {
         state: string
         outcome: string | null
         source?: ActivitySource
+        attentionKind?: ActivityAttentionKind | null
+        message?: string | null
+        since?: number
       }) => void)
+    | null = null
+  let onWorkerQuestion:
+    | ((question: { task: TaskRecord; body: string; dedupeKey: string }) => void)
     | null = null
   let assistantNotifier: AssistantNotifier | null = null
   /** Read by ActivityService; updated by the integration service below. */
@@ -293,7 +321,10 @@ export async function startAppRuntime(): Promise<AppRuntime> {
       onTaskActivity?.(transition.sessionId, {
         state: transition.next.state,
         outcome: transition.next.outcome,
-        source: transition.next.source
+        source: transition.next.source,
+        attentionKind: transition.next.attentionKind,
+        message: transition.next.message,
+        since: transition.next.since
       })
     },
     currentIncarnation: (sessionId) => {
@@ -763,7 +794,7 @@ export async function startAppRuntime(): Promise<AppRuntime> {
      * Path A: a terminal on the desktop Host whose child is `wsl.exe`.
      *
      * The PTY cwd is the app's userData directory — machine-local, because a
-     * ConPTY cannot start in a Linux path (Orca's `effectiveCwd: defaultCwd`).
+     * ConPTY cannot start in a Linux path (the reference implementation's `effectiveCwd: defaultCwd`).
      * The guest directory is entered by the child script.
      */
     resolveWslTerminal: (target, guestCwd) =>
@@ -1022,6 +1053,8 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     return worktree?.path ?? null
   }
 
+  let composeTaskPrompt: ((task: TaskRecord) => Promise<string>) | null = null
+
   const taskDispatcher = new TaskDispatcher({
     tasks: taskStore,
     sessions,
@@ -1034,6 +1067,9 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     sessionState: (sessionId) => sessionFacts.get(sessionId) ?? null,
     sessionWorktree: sessionWorktreePath,
     activity,
+    onWorkerQuestion: (question) => onWorkerQuestion?.(question),
+    composePrompt: (task) =>
+      composeTaskPrompt === null ? Promise.resolve(task.prompt) : composeTaskPrompt(task),
     resolveTaskBase: (task) => chainService.resolveTaskBase(task)
   })
 
@@ -1143,28 +1179,60 @@ export async function startAppRuntime(): Promise<AppRuntime> {
   const assistantPolicy = new AssistantPolicy({ tasks: taskStore, now: () => Date.now() })
   const newAssistantId = (prefix: string): string =>
     `${prefix}_${globalThis.crypto.randomUUID()}`
-  const assistantRunner = new AssistantRunner({
+
+  const botStore = new BotStore(persistence.database)
+  const groupStore = new GroupStore(persistence.database)
+  const itemStore = new ItemStore(persistence.database)
+  // Assigned once the task-change fan-out exists; item writes then refresh the
+  // same listeners the task queue already uses.
+  let notifyItemChange: () => void = () => undefined
+  let answerItemQuestion: (notice: {
+    task: TaskRecord
+    question: { id: string; authorKind: string; authorBotId: string | null; body: string }
+    answer: { id: string; body: string }
+  }) => void = () => undefined
+  const itemService = new ItemService({
+    tasks: taskStore,
+    items: itemStore,
+    now: () => Date.now(),
+    newId: newAssistantId,
+    onChange: () => notifyItemChange(),
+    onAnswer: (notice) => answerItemQuestion(notice)
+  })
+  onWorkerQuestion = ({ task, body, dedupeKey }) => {
+    try {
+      itemService.askWorker(task.id, body, dedupeKey)
+    } catch (error) {
+      process.stderr.write(`[icode] worker question: ${String(error)}\n`)
+    }
+  }
+  const botMemoryStore = new BotMemoryStore(persistence.database)
+  const botService = new BotService({
+    database: persistence.database,
+    assistants: assistantStore,
+    bots: botStore,
+    groups: groupStore,
+    memory: botMemoryStore,
+    tasks: taskStore,
+    newId: newAssistantId,
+    now: () => Date.now()
+  })
+  botService.ensureMira()
+  const botRuntimes = new BotRuntimeRegistry({
+    bots: botStore,
+    botService,
+    memory: botMemoryStore,
+    groups: groupStore,
+    items: itemService,
     store: assistantStore,
-    actionsFor: (threadId, runId) =>
-      new AssistantActions({
-        store: assistantStore,
-        tasks: taskService,
-        taskStore,
-        sessions,
-        supervisors: supervisorService!,
-        repositories: persistence.repositories,
-        gitWorkspace,
-        policy: assistantPolicy,
-        listHarnesses,
-        threadId,
-        runId,
-        now: () => Date.now()
-      }),
-    taskStore,
     tasks: taskService,
+    taskStore,
     repositories: persistence.repositories,
     sessions,
-    settings: () => assistantStore.getSettings(),
+    supervisors: supervisorService!,
+    gitWorkspace,
+    policy: assistantPolicy,
+    listHarnesses,
     detectHarness: detectHarnessForTarget,
     listWslDistros: async () =>
       toWslDistroListPayload(await discoverWslDistros({ runner: wslRunner })),
@@ -1172,31 +1240,118 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     wslRunner,
     workspaceTrust,
     userDataDir: app.getPath('userData'),
-    resumeEnabled: true,
     newId: newAssistantId,
     now: () => Date.now(),
     onError: (error) => {
-      process.stderr.write(`[icode] assistant runner: ${String(error)}\n`)
+      process.stderr.write(`[icode] bot runtime: ${String(error)}\n`)
     }
   })
-  const assistantService = new AssistantService({
-    store: assistantStore,
+  botService.setStatusProvider((botId) => botRuntimes.statusFor(botId))
+  const groupChat = new GroupChatService({
+    store: groupStore,
+    botInfo: (botId) => {
+      const bot = botService.getBot(botId)
+      return bot === null
+        ? null
+        : {
+            id: bot.id,
+            name: bot.name,
+            paused: bot.pausedAt !== null,
+            archived: bot.archivedAt !== null
+          }
+    },
+    runtime: botRuntimes,
+    composeTurnPrompt: composeGroupTurnPrompt,
     now: () => Date.now(),
     newId: newAssistantId,
-    runner: assistantRunner,
+    onEvent: () => emitBotChange(),
+    onDeleteGroup: (groupId, threadIds) => {
+      taskStore.clearGroup(groupId)
+      assistantStore.archiveRoomThreadsForGroupThreads(threadIds, Date.now())
+    },
     onError: (error) => {
-      process.stderr.write(`[icode] assistant: ${String(error)}\n`)
+      process.stderr.write(`[icode] group chat: ${String(error)}\n`)
     }
   })
-  assistantService.start()
+  answerItemQuestion = ({ task, question, answer }) => {
+    if (
+      task.groupId !== null &&
+      task.groupThreadId !== null &&
+      question.authorBotId !== null
+    ) {
+      try {
+        groupChat.wakeFromItem({
+          groupId: task.groupId,
+          threadId: task.groupThreadId,
+          botId: question.authorBotId,
+          taskId: task.id,
+          answerId: answer.id,
+          question: question.body,
+          answer: answer.body
+        })
+      } catch (error) {
+        process.stderr.write(`[icode] item answer wake: ${String(error)}\n`)
+      }
+    }
+    if (
+      question.authorKind === 'system' &&
+      task.sessionId !== null &&
+      task.status === 'waiting'
+    ) {
+      void deliverWorkerAnswer(task.sessionId, answer.body)
+    }
+  }
+
+  async function deliverWorkerAnswer(sessionId: string, text: string): Promise<void> {
+    try {
+      const session = await sessions.get(sessionId)
+      if (session.state !== 'live' || !session.incarnationId) return
+      await sessions.write(sessionId, session.incarnationId, buildAgentPromptPaste(text))
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, AGENT_SUBMIT_DELAY_MS)
+        timer.unref?.()
+      })
+      await sessions.write(sessionId, session.incarnationId, '\r')
+    } catch (error) {
+      process.stderr.write(`[icode] item answer delivery: ${String(error)}\n`)
+    }
+  }
+  composeTaskPrompt = async (task) => {
+    if (task.botId === null) return task.prompt
+    const bot = botService.getBot(task.botId)
+    if (bot === null) return task.prompt
+    const memory = [
+      ...botMemoryStore.list({ scope: 'bot', botId: bot.id }, { limit: 30 }),
+      ...botMemoryStore.list({ scope: 'project', repoId: task.repoId }, { limit: 15 }),
+      ...(task.groupId === null
+        ? []
+        : botMemoryStore.list({ scope: 'team', teamId: task.groupId }, { limit: 15 }))
+    ].slice(0, 50)
+    return buildBotTaskPrompt({
+      bot,
+      memory,
+      prompt: task.prompt,
+      acceptanceCriteria: task.acceptanceCriteria
+    })
+  }
+  const miraRuntime = botRuntimes.ensure('mira')
+  const assistantService = miraRuntime.service
   assistantNotifier = new AssistantNotifier({
     service: assistantService,
+    serviceForBot: (botId) => {
+      try {
+        return botRuntimes.ensure(botId).service
+      } catch {
+        return null
+      }
+    },
     taskStore,
     repositories: persistence.repositories,
     settings: () => assistantStore.getSettings(),
+    settingsForBot: (botId) => botService.settingsFor(botId),
     now: () => Date.now(),
     isWindowFocused: () => BrowserWindow.getFocusedWindow() !== null,
-    onOsNotify: ({ title, body, messageId }) => {
+    onOsNotify: ({ title, body, messageId, botId }) => {
       if (!Notification.isSupported()) return
       const notification = new Notification({ title, body })
       notification.on('click', () => {
@@ -1208,13 +1363,21 @@ export async function startAppRuntime(): Promise<AppRuntime> {
         const taskId = message === null ? null : notificationTaskId(message.card)
         const task = taskId === null ? null : taskStore.findById(taskId)
         const destination = notificationDestination(message?.notificationKind ?? null, task)
+        let service = assistantService
+        if (botId !== null && botId !== undefined) {
+          try {
+            service = botRuntimes.ensure(botId).service
+          } catch {
+            // The bot was archived; fall back to the global thread.
+          }
+        }
         if (destination.kind === 'assistant' || message === null) {
-          assistantService.focus(messageId)
+          service.focus(messageId)
           return
         }
         // The user is acting on the task, not reading the card. Acknowledge the
-        // message so the Mira badge clears without emitting a competing focus.
-        assistantService.markNotificationRead(messageId)
+        // message so the bot's badge clears without emitting a competing focus.
+        service.markNotificationRead(messageId)
         if (window !== undefined && !window.webContents.isDestroyed()) {
           window.webContents.send(IPC_CHANNELS.sessionEvent, {
             type: 'notification-focus',
@@ -1263,10 +1426,74 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     }
   }
 
+  const botListeners = new Set<() => void>()
+  const emitBotChange = (): void => {
+    for (const listener of botListeners) {
+      try {
+        listener()
+      } catch {
+        // A dead window must not stop a bot.
+      }
+    }
+  }
+  botService.subscribe(() => emitBotChange())
+  botRuntimes.subscribe(() => emitBotChange())
+
+  /**
+   * Posts bot-task milestones into the group room that requested the work.
+   *
+   * The room is a conversation, not an event log, so only approval, start,
+   * review, change request and failure get a line. Dedupe keys make every
+   * queue pass idempotent, and the thread the task came from wins over the
+   * group's default thread.
+   */
+  const groupNoticesPosted = new Set<string>()
+  const syncGroupTaskNotices = (): void => {
+    // Include older attempts: "changes requested" lives on the predecessor,
+    // which a successor hides from the default (latest-attempt) listing.
+    for (const task of taskStore.list({ includeAttempts: true, limit: 500 })) {
+      if (task.groupId === null || task.botId === null || task.archivedAt !== null) continue
+      const group = groupStore.findGroup(task.groupId)
+      if (group === null) continue
+      const name = botService.getBot(task.botId)?.name ?? 'A bot'
+      const milestone = taskGroupMilestone(task, name)
+      if (milestone === null || groupNoticesPosted.has(milestone.key)) continue
+      const threads = groupStore.listThreads(group.id)
+      const requested =
+        task.groupThreadId === null ? null : groupStore.findThread(task.groupThreadId)
+      const thread =
+        requested !== null && requested.groupId === group.id
+          ? requested
+          : (threads.find((entry) => entry.isDefault) ?? threads[0])
+      if (thread === undefined) continue
+      try {
+        groupChat.postSystemMessage({
+          groupId: group.id,
+          threadId: thread.id,
+          body: milestone.body,
+          dedupeKey: milestone.key,
+          taskId: task.id,
+          card: {
+            type: 'task',
+            taskId: task.id,
+            repoId: task.repoId,
+            title: task.title,
+            status: task.status,
+            approval: task.approval
+          }
+        })
+        groupNoticesPosted.add(milestone.key)
+      } catch {
+        // A room notice must never break the queue.
+      }
+    }
+  }
+
   const taskListeners = new Set<() => void>()
   const emitTaskChange = (): void => {
     supervisorService?.notifyTaskChange()
     assistantNotifier?.onChange()
+    syncGroupTaskNotices()
     for (const listener of taskListeners) {
       try {
         listener()
@@ -1275,6 +1502,7 @@ export async function startAppRuntime(): Promise<AppRuntime> {
       }
     }
   }
+  notifyItemChange = emitTaskChange
 
   const removalListeners = new Set<() => void>()
   const emitRemovalChange = (): void => {
@@ -1519,7 +1747,7 @@ export async function startAppRuntime(): Promise<AppRuntime> {
       // Stop in-flight clones and remove their partial destinations.
       clone.cancelAll()
       assistantNotifier?.stop()
-      assistantService.stop()
+      botRuntimes.stopAll()
       taskScheduler.stop()
       taskDispatcher.stop()
       await supervisorService?.stop().catch(() => undefined)
@@ -1573,6 +1801,15 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     taskDispatcher,
     supervisor: supervisorService!,
     assistant: assistantService,
+    bots: botService,
+    botRuntimes,
+    botMemory: botMemoryStore,
+    groupChat,
+    items: itemService,
+    onBotChange: (listener) => {
+      botListeners.add(listener)
+      return () => botListeners.delete(listener)
+    },
     harness,
     listHarnesses,
     invalidateHarnessDetection,

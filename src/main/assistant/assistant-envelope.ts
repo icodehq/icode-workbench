@@ -32,6 +32,9 @@ const tasksCreate = z.strictObject({
   title: z.string().max(200).optional(),
   prompt: z.string().trim().min(1).max(20_000),
   harness: z.enum(MODEL_HARNESSES).optional(),
+  botId: z.string().min(1).max(120).optional(),
+  groupId: z.string().min(1).max(120).optional(),
+  acceptanceCriteria: z.string().max(4_000).optional(),
   idempotencyKey: z.string().min(1).max(200).optional()
 })
 const tasksCancel = z.strictObject({ op: z.literal('tasks.cancel'), taskId })
@@ -63,11 +66,34 @@ const notify = z.strictObject({
 const memorySet = z.strictObject({
   op: z.literal('memory.set'),
   key: z.string().min(1).max(ASSISTANT_LIMITS.maxMemoryKeyLength),
-  value: z.string().min(1).max(ASSISTANT_LIMITS.maxMemoryValueLength)
+  value: z.string().min(1).max(ASSISTANT_LIMITS.maxMemoryValueLength),
+  scope: z.enum(['bot', 'project', 'team']).optional(),
+  repoId: repoIdSchema.optional(),
+  teamId: z.string().min(1).max(120).optional()
 })
 const memoryForget = z.strictObject({
   op: z.literal('memory.forget'),
-  key: z.string().min(1).max(ASSISTANT_LIMITS.maxMemoryKeyLength)
+  key: z.string().min(1).max(ASSISTANT_LIMITS.maxMemoryKeyLength),
+  scope: z.enum(['bot', 'project', 'team']).optional(),
+  repoId: repoIdSchema.optional(),
+  teamId: z.string().min(1).max(120).optional()
+})
+const itemsComment = z.strictObject({
+  op: z.literal('items.comment'),
+  taskId,
+  text: z.string().trim().min(1).max(4_000)
+})
+const itemsAsk = z.strictObject({
+  op: z.literal('items.ask'),
+  taskId,
+  text: z.string().trim().min(1).max(4_000),
+  options: z.array(z.string().trim().min(1).max(200)).max(6).optional()
+})
+const itemsLink = z.strictObject({
+  op: z.literal('items.link'),
+  taskId,
+  kind: z.enum(['url', 'file', 'pr']),
+  ref: z.string().trim().min(1).max(2_048)
 })
 
 export const assistantActionSchema = z.discriminatedUnion('op', [
@@ -88,7 +114,10 @@ export const assistantActionSchema = z.discriminatedUnion('op', [
   reviewRecommend,
   notify,
   memorySet,
-  memoryForget
+  memoryForget,
+  itemsComment,
+  itemsAsk,
+  itemsLink
 ])
 
 export const assistantEnvelopeSchema = z.strictObject({

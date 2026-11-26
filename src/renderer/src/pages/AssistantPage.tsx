@@ -86,6 +86,13 @@ export default function AssistantPage({
   request,
   repos,
   tasks,
+  role,
+  suggestions = true,
+  showHeader = true,
+  color,
+  image,
+  mascot,
+  outfit,
   onOpenTask,
   onTaskAction,
   onOpenSettings
@@ -94,9 +101,21 @@ export default function AssistantPage({
   request: (AssistantTarget & { nonce: number }) | null
   repos: RepositorySummary[]
   tasks: TaskRecordPayload[]
+  /** A bot's job/role, shown under its name. */
+  role?: string
+  /** Mira's suggestions fit a chief; a specialist's chat starts blank. */
+  suggestions?: boolean
+  /** Bot home supplies its own header; the global assistant keeps the full one. */
+  showHeader?: boolean
+  /** The bot's avatar color, when its identity has one. */
+  color?: string
+  /** The bot's uploaded avatar image, when it has one. */
+  image?: string | null
+  mascot?: string | null
+  outfit?: string | null
   onOpenTask?: (taskId: string) => void
   onTaskAction?: (action: AssistantTaskAction, taskId: string) => void
-  onOpenSettings: () => void
+  onOpenSettings?: () => void
 }): React.JSX.Element {
   const t = useT()
   const [draft, setDraft] = useState('')
@@ -199,8 +218,11 @@ export default function AssistantPage({
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background" data-testid="assistant-view">
+      {showHeader ? (
       <header className="flex shrink-0 items-center gap-3 border-b border-border bg-card px-5 py-3">
-        <AssistantAvatar name={assistant.personaName} status={assistant.status} size="lg" />
+        <AssistantAvatar name={assistant.personaName} status={assistant.status} size="lg" color={color} image={image}
+                    mascot={mascot}
+                    outfit={outfit} />
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <h1 className="truncate text-[15px] font-semibold tracking-[-0.01em] text-foreground">
@@ -209,6 +231,7 @@ export default function AssistantPage({
             <span className="text-[10.5px] text-muted-foreground">{t(STATUS_KEY[assistant.status])}</span>
           </div>
           <p className="truncate text-[10.5px] text-muted-foreground">
+            {role ? `${role} · ` : ''}
             {assistant.harness ? `${assistant.harness} · ` : ''}
             {assistant.target ?? t('assistant.targetAll')}
           </p>
@@ -218,7 +241,7 @@ export default function AssistantPage({
             className="ml-auto max-w-[320px] truncate rounded-md border border-border bg-background px-2 py-1 text-[10.5px] text-muted-foreground outline-none focus:border-line-strong"
             value={assistant.selectedConversationId ?? ''}
             onChange={(event) => selectConversation(event.target.value)}
-            aria-label="Mira conversation"
+            aria-label={`${assistant.personaName} conversation`}
             data-testid="assistant-conversation-select"
           >
             {latestConversation ? (
@@ -257,17 +280,20 @@ export default function AssistantPage({
         >
           <Plus size={12} />
         </button>
-        <button
-          type="button"
-          className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-muted hover:text-foreground"
-          onClick={onOpenSettings}
-          title={t('assistant.settings')}
-          aria-label={t('assistant.settings')}
-          data-testid="assistant-settings"
-        >
-          <Settings2 size={12} />
-        </button>
+        {onOpenSettings ? (
+          <button
+            type="button"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-muted hover:text-foreground"
+            onClick={onOpenSettings}
+            title={t('assistant.settings')}
+            aria-label={t('assistant.settings')}
+            data-testid="assistant-settings"
+          >
+            <Settings2 size={12} />
+          </button>
+        ) : null}
       </header>
+      ) : null}
 
       {!followingLatest && selectedConversation ? (
         <div className="flex shrink-0 items-center justify-between border-b border-border bg-muted/30 px-5 py-1.5 text-[10.5px] text-muted-foreground">
@@ -325,6 +351,10 @@ export default function AssistantPage({
                     name={assistant.personaName}
                     status={assistant.status}
                     size="sm"
+                    color={color}
+                    image={image}
+                    mascot={mascot}
+                    outfit={outfit}
                   />
                 ) : null}
                 <div
@@ -367,6 +397,7 @@ export default function AssistantPage({
                 name={assistant.personaName}
                 status={assistant.status}
                 size="sm"
+                color={color}
               />
               <div className="flex w-full min-w-0 max-w-[86%] flex-col gap-1.5">
                 <div className="break-words rounded-lg border border-border bg-card px-3 py-2 text-[12px] leading-relaxed text-foreground">
@@ -381,6 +412,7 @@ export default function AssistantPage({
                 name={assistant.personaName}
                 status={assistant.status}
                 size="sm"
+                color={color}
               />
               <div className="rounded-lg border border-border bg-card px-3 py-2 text-[12px] text-muted-foreground">
                 <span className="animate-pulse">…</span>
@@ -413,7 +445,7 @@ export default function AssistantPage({
             </div>
           ) : null}
 
-          {followingLatest && !hasUserMessage && !working ? (
+          {suggestions && followingLatest && !hasUserMessage && !working ? (
             <div className="mt-2 flex flex-wrap gap-1.5">
               {SUGGESTION_KEYS.map((suggestionKey) => (
                 <button
@@ -437,9 +469,9 @@ export default function AssistantPage({
             className="min-h-[38px] max-h-32 flex-1 resize-none rounded-md border border-border bg-background px-3 py-2 text-[12px] text-foreground outline-none placeholder:text-muted-foreground focus:border-line-strong"
             placeholder={
               working
-                ? t('assistant.workingPlaceholder')
+                ? t('assistant.workingPlaceholder', { name: assistant.personaName })
                 : followingLatest
-                  ? t('assistant.placeholder')
+                  ? t('assistant.placeholder', { name: assistant.personaName })
                   : 'Viewing an earlier conversation — sending returns to the current one'
             }
             rows={1}

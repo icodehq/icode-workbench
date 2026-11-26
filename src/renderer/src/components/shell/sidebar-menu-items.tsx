@@ -1,8 +1,5 @@
 import {
-  Archive,
-  ArchiveRestore,
   ChevronRight,
-  CircleX,
   Copy,
   GitBranch,
   Info,
@@ -20,11 +17,9 @@ import {
   Trash2
 } from 'lucide-react'
 import type { RepositorySummary, SessionSummary } from '../../../../shared/schemas/ipc'
-import type { TaskRecordPayload } from '../../../../shared/icode-api'
 import type { Notice, PendingAction } from '../../state/workspace'
 import type { useT } from '../../i18n/use-i18n'
 import type { ContextMenuItem } from '../ContextMenu'
-import type { TaskAction } from '../TaskWorkbench'
 import type { SidebarPins } from './sidebar-pins'
 import type { WorktreeSessionGroup } from './sidebar-model'
 import {
@@ -37,7 +32,6 @@ import {
   type ProjectMenuEntryId,
   type WorktreeMenuEntryId
 } from './sidebar-menu'
-import { taskMenuEntries, type TaskMenuEntryId } from './task-menu'
 import {
   sessionActionState,
   sessionMenuEntries,
@@ -68,12 +62,10 @@ export type SidebarMenuContext = {
   onQueueTask: () => void
   onAddProject: () => void
   onOpenSchedules: () => void
-  onTaskAction: (task: TaskRecordPayload, action: TaskAction) => void
   onWakeSession: (sessionId: string) => void
   onResumeSession: (sessionId: string) => void
   onRestartSession: (sessionId: string) => void
   toggleProjectPin: (repoId: string) => void
-  toggleTaskPin: (taskId: string) => void
   toggleSessionPin: (sessionId: string) => void
   toggleWorktreeCollapsed: (worktreeId: string) => void
   toggleDefaultCheckoutCollapsed: (repoId: string) => void
@@ -323,53 +315,6 @@ export function createSidebarMenuItems(context: SidebarMenuContext) {
     )
   }
 
-  const task = (record: TaskRecordPayload): ContextMenuItem[] => {
-    const build: Record<TaskMenuEntryId, () => ContextMenuItem> = {
-      continue: () => ({
-        id: 'continue',
-        label: t('tasks.row.continue'),
-        icon: <Play size={12} />,
-        onSelect: () => context.onTaskAction(record, 'resume')
-      }),
-      retry: () => ({
-        id: 'retry',
-        label: t('tasks.row.retry'),
-        icon: <RefreshCw size={12} />,
-        onSelect: () => context.onTaskAction(record, 'retry')
-      }),
-      archive: () => ({
-        id: 'archive',
-        label: t('tasks.row.archive'),
-        icon: <Archive size={12} />,
-        onSelect: () => context.onTaskAction(record, 'archive')
-      }),
-      unarchive: () => ({
-        id: 'unarchive',
-        label: t('tasks.row.restore'),
-        icon: <ArchiveRestore size={12} />,
-        onSelect: () => context.onTaskAction(record, 'unarchive')
-      }),
-      pin: () => ({
-        id: 'pin',
-        label: t(pins.tasks.includes(record.id) ? 'projects.row.unpin' : 'projects.row.pin'),
-        icon: <Pin size={12} />,
-        onSelect: () => context.toggleTaskPin(record.id)
-      }),
-      cancel: () => ({
-        id: 'cancel',
-        label: t('tasks.row.cancel'),
-        icon: <CircleX size={12} />,
-        danger: true,
-        onSelect: () => context.onTaskAction(record, 'cancel')
-      })
-    }
-    return taskMenuEntries(record).map((entry) => ({
-      ...build[entry.id](),
-      separatorBefore: entry.separatorBefore,
-      testId: `sidebar-task-${record.id}-${entry.id}`
-    }))
-  }
-
   const session = (record: SessionSummary): ContextMenuItem[] => {
     const build: Record<SessionMenuEntryId, () => ContextMenuItem> = {
       details: () => ({
@@ -449,5 +394,5 @@ export function createSidebarMenuItems(context: SidebarMenuContext) {
       ? defaultCheckout(request.repo)
       : worktree({ repo: request.repo, group: request.group })
 
-  return { checkout, project, newWork, task, session }
+  return { checkout, project, newWork, session }
 }

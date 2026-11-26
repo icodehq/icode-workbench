@@ -45,11 +45,20 @@ describe('database initialization', () => {
       // v11: the rotating native conversation owned by that thread.
       'assistant_actions',
       'assistant_conversations',
-      'assistant_memory',
       'assistant_messages',
       'assistant_runs',
       'assistant_settings',
       'assistant_threads',
+      // v24: bot groups, their threads and per-member turns.
+      'bot_group_members',
+      'bot_group_messages',
+      'bot_group_thread_members',
+      'bot_group_threads',
+      'bot_group_turns',
+      'bot_groups',
+      // v22: persistent bots, teams and scoped memory.
+      'bot_memory',
+      'bots',
       // v13: per-harness provider configuration and its selection.
       'harness_provider_selection',
       // v19: the allowed launch catalog behind sessions.harness.
@@ -70,7 +79,10 @@ describe('database initialization', () => {
       'supervisor_actions',
       'supervisor_bindings',
       // v14: ordering edges between tasks.
+      'task_attachments',
+      'task_comments',
       'task_dependencies',
+      'task_links',
       'task_occurrences',
       'task_schedules',
       'task_settings',
@@ -739,8 +751,30 @@ describe('migrations', () => {
       'assistant_messages_thread_seq_idx',
       'assistant_runs_status_idx',
       'assistant_runs_thread_started_idx',
+      'assistant_threads_home_idx',
       'assistant_threads_main_idx',
+      'assistant_threads_room_idx',
       'assistant_threads_updated_idx',
+      // v24: group rooms, threads, per-member sessions and turns.
+      'bot_group_members_bot_idx',
+      'bot_group_messages_dedupe_idx',
+      'bot_group_messages_group_created_idx',
+      'bot_group_messages_root_idx',
+      'bot_group_messages_thread_created_idx',
+      'bot_group_thread_members_bot_idx',
+      'bot_group_thread_members_session_idx',
+      'bot_group_threads_default_idx',
+      'bot_group_threads_group_idx',
+      'bot_group_turns_message_idx',
+      'bot_group_turns_session_idx',
+      'bot_group_turns_thread_idx',
+      'bot_groups_updated_idx',
+      // v22: scoped memory uniqueness and bot/group lookups.
+      'bot_memory_bot_idx',
+      'bot_memory_project_idx',
+      'bot_memory_team_idx',
+      'bots_name_idx',
+      'bots_updated_idx',
       // v16: durable merge claims and audit trail.
       'merge_records_active_session_idx',
       'merge_records_active_target_idx',
@@ -763,7 +797,12 @@ describe('migrations', () => {
       // v8: supervisor actions and the approval queue.
       'supervisor_actions_repo_created_idx',
       // v14: the reverse edge lookup used by readiness and successor re-pointing.
+      'task_attachments_task_idx',
+      'task_comments_dedupe_idx',
+      'task_comments_open_question_idx',
+      'task_comments_task_created_idx',
       'task_dependencies_depends_on_idx',
+      'task_links_task_idx',
       // v4: the queue's own access paths, and the occurrence receipt that makes
       // duplicate triggers a database answer rather than a memory one.
       'task_occurrences_schedule_idx',
@@ -772,7 +811,9 @@ describe('migrations', () => {
       'tasks_approval_status_created_idx',
       // v10: the archived working-list split.
       'tasks_archived_updated_idx',
+      'tasks_bot_status_idx',
       'tasks_chain_branch_idx',
+      'tasks_group_thread_idx',
       'tasks_previous_idx',
       'tasks_repo_created_idx',
       // v5: review state is read per queue view and per retry chain.

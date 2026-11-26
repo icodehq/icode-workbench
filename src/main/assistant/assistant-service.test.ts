@@ -41,7 +41,7 @@ describe('AssistantService', () => {
   it('creates one thread, marks the welcome read, and reports offline without a runner', async () => {
     const { service } = fixture()
     const state = service.state()
-    expect(state.personaName).toBe('Mira')
+    expect(state.personaName).toBe('Yarcy')
     expect(state.unread).toBe(0)
     expect(state.status).toBe('offline')
     expect(service.listMessages({ threadId: state.threadId })).toHaveLength(1)

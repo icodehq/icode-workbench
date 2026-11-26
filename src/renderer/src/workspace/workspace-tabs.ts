@@ -6,7 +6,7 @@ export { workspaceKeyForSession }
 /**
  * The shared center-tab interface.
  *
- * This plan implements `file` and `diff` kinds. The Orca workspace-tabs work
+ * This plan implements `file` and `diff` kinds. The the reference implementation workspace-tabs work
  * adds `agent-session` and `terminal` to the same ordered list; it must not
  * introduce a second navigation order. See docs/workbench-tabs.md.
  */

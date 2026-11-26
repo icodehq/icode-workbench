@@ -3,6 +3,7 @@ import { ListTodo, Loader2, Plus } from 'lucide-react'
 import type { TaskRecordPayload } from '../../../../shared/icode-api'
 import type { AppError } from '../../../../shared/domain/errors'
 import type { RepositorySummary, SessionSummary } from '../../../../shared/schemas/ipc'
+import type { BotSummaryPayload } from '../../../../shared/schemas/bots'
 import type { AgentSendResult } from '../../lib/agent-send'
 import type { WorkbenchDraftStore } from '../../review/drafts'
 import type { Notice } from '../../state/workspace'
@@ -36,6 +37,8 @@ type Props = {
   onReload: () => Promise<void>
   onChanged: () => void
   onTaskAction: (task: TaskRecordPayload, action: TaskAction) => void
+  /** Bot roster for the assigned-bot badge; tasks stay usable without it. */
+  bots?: BotSummaryPayload[]
 }
 
 /** Full-width task surface. The task list lives in the sidebar. */
@@ -63,7 +66,8 @@ export default function TasksSurface({
   onSendToAgent,
   onReload,
   onChanged,
-  onTaskAction
+  onTaskAction,
+  bots = []
 }: Props): React.JSX.Element {
   const t = useT()
   const [attempts, setAttempts] = useState<TaskRecordPayload[]>([])
@@ -167,6 +171,7 @@ export default function TasksSurface({
         viewRequest={taskViewRequest}
         onViewRequestHandled={onTaskViewRequestHandled}
         onTaskAction={(action) => onTaskAction(task, action)}
+        bots={bots}
         focusActive={focusActive}
       />
     </div>

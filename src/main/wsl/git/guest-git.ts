@@ -1,7 +1,7 @@
 /**
- * Git inside a distro, run the way Orca runs it.
+ * Git inside a distro, run the way the reference implementation runs it.
  *
- * Orca's `wslMode: 'direct-git'` (`wsl-command-runner/wsl-command-resolution.ts`)
+ * the reference implementation's `wslMode: 'direct-git'` (`wsl-command-runner/wsl-command-resolution.ts`)
  * is decisive: for a WSL repository it spawns
  * `wsl.exe -d <distro> --exec <git> -C <linuxPath> <args…>`. Git is *not* routed
  * through the host daemon, and the working directory is passed as `-C` rather
@@ -180,7 +180,7 @@ export function resetGuestGitEnvironments(): void {
 }
 
 /**
- * Runs Git inside a distro, choosing the environment the way Orca does.
+ * Runs Git inside a distro, choosing the environment the way the reference implementation does.
  *
  * Three paths, in order:
  *

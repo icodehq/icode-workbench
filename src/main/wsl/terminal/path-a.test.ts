@@ -85,7 +85,7 @@ describe('Path A argv', () => {
     expect(WSL_INTERACTIVE_LOGIN_SHELL_SCRIPT).toContain('cannot enter')
   })
 
-  it('prepends ~/.local/bin, as Orca does for a WSL pane', () => {
+  it('prepends ~/.local/bin, as the reference implementation does for a WSL pane', () => {
     expect(WSL_INTERACTIVE_LOGIN_SHELL_SCRIPT).toContain(
       'export PATH="$HOME/.local/bin:$PATH"'
     )

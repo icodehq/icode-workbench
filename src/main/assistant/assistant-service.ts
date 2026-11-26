@@ -71,13 +71,38 @@ export interface AssistantRunnerLike {
   stop(): void
 }
 
+export type AssistantSettingsPort = {
+  get: () => AssistantSettings
+  save: (settings: AssistantSettings, now: number) => AssistantSettings
+}
+
+/** Fired once for every run, before the thread is released for the next send. */
+export type AssistantRunCompletion = {
+  threadId: string
+  runId: string
+  status: AssistantStatus
+  error: string | null
+  stopped: boolean
+  messages: AssistantMessageRecord[]
+}
+
 export type AssistantServiceDeps = {
   store: AssistantStore
   now: () => number
   newId: (prefix: string) => string
   /** Optional until the headless runner is wired. */
   runner?: AssistantRunnerLike
+  /**
+   * A bot service uses its pre-created thread. Mira leaves this unset and
+   * keeps using the one global main thread.
+   */
+  threadId?: string
+  /** When creating the main thread, link it to this bot id. */
+  threadBotId?: string
+  /** Per-bot settings; defaults to the global assistant_settings row. */
+  settings?: AssistantSettingsPort
   onError?: (error: unknown) => void
+  onRunComplete?: (completion: AssistantRunCompletion) => void
 }
 
 class AssistantServiceError extends Error {
@@ -124,16 +149,34 @@ export class AssistantService {
 
   constructor(private readonly deps: AssistantServiceDeps) {}
 
+  private settingsPort(): AssistantSettingsPort {
+    return (
+      this.deps.settings ?? {
+        get: () => this.deps.store.getSettings(),
+        save: (settings, now) => this.deps.store.saveSettings(settings, now)
+      }
+    )
+  }
+
+  threadId(): string {
+    return this.ensureThread().id
+  }
+
+  /** The configured display name; never a hardcoded persona. */
+  private personaName(): string {
+    return this.settingsPort().get().personaName
+  }
+
   start(): void {
     const thread = this.ensureThread()
-    const interrupted = this.deps.store.failStaleRuns(this.deps.now())
+    const interrupted = this.deps.store.failStaleRuns(this.deps.now(), thread.id)
     if (interrupted > 0) {
       this.deps.store.appendMessage({
         id: this.deps.newId('msg'),
         threadId: thread.id,
         role: 'system',
         kind: 'error',
-        body: mainT('assistant.restarted'),
+        body: mainT('assistant.restarted', { name: this.personaName() }),
         createdAt: this.deps.now()
       })
     }
@@ -160,12 +203,13 @@ export class AssistantService {
     if (this.running !== null) {
       throw new AssistantServiceError(
         'ASSISTANT_BUSY',
-        'Mira is still working on the previous request.'
+        mainT('assistant.busy', { name: this.personaName() })
       )
     }
     const result = resetConversationForUser({
       store: this.deps.store,
       threadId: thread.id,
+      personaName: this.personaName(),
       now: this.deps.now(),
       newId: this.deps.newId
     })
@@ -179,14 +223,26 @@ export class AssistantService {
   }
 
   ensureThread(): AssistantThread {
+    if (this.deps.threadId !== undefined) {
+      const thread = this.deps.store.findThread(this.deps.threadId)
+      if (thread === null) {
+        throw new AssistantServiceError(
+          'INTERNAL',
+          'That conversation thread no longer exists.'
+        )
+      }
+      return thread
+    }
     const existing = this.deps.store.findMainThread()
     if (existing) return existing
     const now = this.deps.now()
-    const settings = this.deps.store.getSettings()
+    const settings = this.settingsPort().get()
     const thread = this.deps.store.insertThread({
       id: this.deps.newId('thread'),
       kind: 'main',
+      groupThreadId: null,
       title: settings.personaName,
+      botId: this.deps.threadBotId ?? null,
       createdAt: now,
       updatedAt: now,
       lastMessageAt: null,
@@ -199,7 +255,7 @@ export class AssistantService {
       threadId: thread.id,
       role: 'assistant',
       kind: 'welcome',
-      body: mainT('assistant.welcome'),
+      body: mainT('assistant.welcome', { name: settings.personaName }),
       createdAt: now
     })
     if (welcome) this.deps.store.markRead(thread.id, welcome.seq, now)
@@ -208,7 +264,7 @@ export class AssistantService {
 
   state(): AssistantState {
     const thread = this.ensureThread()
-    const settings = this.deps.store.getSettings()
+    const settings = this.settingsPort().get()
     const active = thread.activeRunId ? this.deps.store.findRun(thread.activeRunId) : null
     const activeRun: AssistantActiveRun | null =
       active && active.status === 'running'
@@ -235,11 +291,11 @@ export class AssistantService {
   }
 
   settings(): AssistantSettings {
-    return this.deps.store.getSettings()
+    return this.settingsPort().get()
   }
 
   saveSettings(settings: AssistantSettings): AssistantSettings {
-    const saved = this.deps.store.saveSettings(settings, this.deps.now())
+    const saved = this.settingsPort().save(settings, this.deps.now())
     this.emit({ type: 'changed' })
     return saved
   }
@@ -366,7 +422,7 @@ export class AssistantService {
     return this.deps.store.listRecentNotifications(thread.id, input.limit ?? 10)
   }
 
-  markRead(input: { threadId: string; messageId?: string }): number {
+  markRead(input: { threadId: string; messageId?: string; read?: boolean }): number {
     const thread = this.ensureThread()
     let seq: number
     if (input.messageId) {
@@ -383,7 +439,10 @@ export class AssistantService {
       seq = messages.at(-1)?.seq ?? 0
     }
     const before = this.deps.store.unreadCount(thread.id)
-    const unread = this.deps.store.markRead(thread.id, seq, this.deps.now())
+    const unread =
+      input.read === false
+        ? this.deps.store.setReadSeq(thread.id, Math.max(0, seq - 1), this.deps.now())
+        : this.deps.store.markRead(thread.id, seq, this.deps.now())
     // Only a real watermark change is an event. The page marks read whenever it
     // sees messages; emitting unconditionally would make reload → markRead →
     // reload an infinite loop.
@@ -400,7 +459,7 @@ export class AssistantService {
     if (!this.deps.store.claimRun(thread.id, runId)) {
       throw new AssistantServiceError(
         'ASSISTANT_BUSY',
-        mainT('assistant.busy')
+        mainT('assistant.busy', { name: this.personaName() })
       )
     }
 
@@ -464,6 +523,14 @@ export class AssistantService {
       this.deps.store.releaseRun(thread.id, runId)
       this.emit({ type: 'changed' })
       this.emit({ type: 'status', status: this.status })
+      this.deps.onRunComplete?.({
+        threadId: thread.id,
+        runId,
+        status: this.status,
+        error: mainT('assistant.noHarnessError'),
+        stopped: false,
+        messages: []
+      })
       return { message: userMessage, runId }
     }
 
@@ -484,6 +551,14 @@ export class AssistantService {
   }
 
   private async run(runner: AssistantRunnerLike, input: AssistantRunInput): Promise<void> {
+    const completion: AssistantRunCompletion = {
+      threadId: input.threadId,
+      runId: input.runId,
+      status: 'idle',
+      error: null,
+      stopped: false,
+      messages: []
+    }
     const onEvent = (event: AssistantRunEvent): void => {
       if (event.type === 'message') {
         this.emit({ type: 'changed' })
@@ -508,7 +583,7 @@ export class AssistantService {
       this.emit({ type: 'status', status: 'working' })
       const result = await runner.run(input, onEvent)
       for (const reply of result.messages) {
-        this.deps.store.appendMessage({
+        const message = this.deps.store.appendMessage({
           id: this.deps.newId('msg'),
           threadId: input.threadId,
           runId: input.runId,
@@ -519,6 +594,7 @@ export class AssistantService {
           notificationPriority: reply.priority ?? null,
           createdAt: this.deps.now()
         })
+        if (message !== null) completion.messages.push(message)
       }
       this.deps.store.updateRun(input.runId, {
         status: result.status === 'error' ? 'failed' : 'completed',
@@ -529,6 +605,8 @@ export class AssistantService {
       this.harness = result.harness ?? this.harness
       this.target = result.target ?? this.target
       this.status = result.status ?? 'idle'
+      completion.status = this.status
+      completion.error = result.error ?? null
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       const stopped = message === 'Stopped.'
@@ -540,7 +618,7 @@ export class AssistantService {
         kind: stopped ? 'status' : 'error',
         body: stopped
           ? mainT('assistant.stopped')
-          : mainT('assistant.failed', { detail: message }),
+          : mainT('assistant.failed', { name: this.personaName(), detail: message }),
         createdAt: this.deps.now()
       })
       this.deps.store.updateRun(input.runId, {
@@ -550,11 +628,19 @@ export class AssistantService {
         error: stopped ? null : message
       })
       this.status = stopped ? 'idle' : 'error'
+      completion.status = this.status
+      completion.error = stopped ? null : message
+      completion.stopped = stopped
       if (!stopped) this.deps.onError?.(error)
     } finally {
       this.deps.store.releaseRun(input.threadId, input.runId)
       this.emit({ type: 'changed' })
       this.emit({ type: 'status', status: this.status })
+      try {
+        this.deps.onRunComplete?.(completion)
+      } catch {
+        // A room listener must not break the assistant's run bookkeeping.
+      }
     }
   }
 

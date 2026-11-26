@@ -83,7 +83,7 @@ describe('probe parsing', () => {
   })
 
   it('probes with the login shell and fingerprints the unsafe environment', () => {
-    // Mirrors Orca's probe: refuse when a direct spawn would diverge.
+    // Mirrors the reference implementation's probe: refuse when a direct spawn would diverge.
     expect(GUEST_GIT_PROBE_SCRIPT).toContain('command -v git')
     expect(GUEST_GIT_PROBE_SCRIPT).toContain('exit 127')
     expect(GUEST_GIT_PROBE_SCRIPT).toContain('exit 78')

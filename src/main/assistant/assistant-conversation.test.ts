@@ -33,6 +33,8 @@ function fixture(): {
   store.insertThread({
     id: 'thread_main',
     kind: 'main',
+    groupThreadId: null,
+    botId: null,
     title: 'Mira',
     createdAt: 1_000,
     updatedAt: 1_000,

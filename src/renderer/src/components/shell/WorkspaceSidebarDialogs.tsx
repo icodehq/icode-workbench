@@ -11,7 +11,6 @@ import WorktreeRemoveConfirm from './WorktreeRemoveConfirm'
 type Props = {
   projectMenu: ComponentProps<typeof ContextMenu> | null
   checkoutMenu: ComponentProps<typeof ContextMenu> | null
-  taskMenu: ComponentProps<typeof ContextMenu> | null
   sessionMenu: ComponentProps<typeof ContextMenu> | null
   newMenu: ComponentProps<typeof ContextMenu> | null
   maintenance: ComponentProps<typeof ProjectMaintenanceDialog> | null
@@ -27,7 +26,6 @@ type Props = {
 export default function WorkspaceSidebarDialogs({
   projectMenu,
   checkoutMenu,
-  taskMenu,
   sessionMenu,
   newMenu,
   maintenance,
@@ -42,7 +40,6 @@ export default function WorkspaceSidebarDialogs({
     <>
       {projectMenu !== null ? <ContextMenu {...projectMenu} /> : null}
       {checkoutMenu !== null ? <ContextMenu {...checkoutMenu} /> : null}
-      {taskMenu !== null ? <ContextMenu {...taskMenu} /> : null}
       {sessionMenu !== null ? <ContextMenu {...sessionMenu} /> : null}
       {newMenu !== null ? <ContextMenu {...newMenu} /> : null}
       {maintenance !== null ? <ProjectMaintenanceDialog {...maintenance} /> : null}

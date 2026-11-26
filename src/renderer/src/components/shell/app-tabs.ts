@@ -1,4 +1,4 @@
-export type AppTab = 'sessions' | 'mira' | 'settings' | 'schedules'
+export type AppTab = 'sessions' | 'mira' | 'bots' | 'settings' | 'schedules'
 export type AuxAppTab = Exclude<AppTab, 'sessions'>
 
 export const SESSIONS_TAB: AppTab = 'sessions'

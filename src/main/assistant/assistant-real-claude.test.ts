@@ -26,6 +26,8 @@ describe.skipIf(!real)('Mira with real Claude', () => {
     const thread = store.insertThread({
       id: 'thread_main',
       kind: 'main',
+      groupThreadId: null,
+      botId: null,
       title: 'Mira',
       createdAt: now,
       updatedAt: now,
@@ -101,6 +103,8 @@ describe.skipIf(!real)('Mira with real Claude', () => {
     const thread = store.insertThread({
       id: 'thread_main',
       kind: 'main',
+      groupThreadId: null,
+      botId: null,
       title: 'Mira',
       createdAt: now,
       updatedAt: now,

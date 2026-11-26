@@ -57,7 +57,6 @@ export type ProjectStats = {
   /** A failed background first commit; the project header owns the retry. */
   setupFailed: boolean
   lastActivityAt: number | null
-  openMode: 'sessions' | 'tasks'
 }
 
 type TaskNeedEntry = {
@@ -215,11 +214,7 @@ export function projectStats(
       total: taskNeeds.total + waiting + setup
     },
     setupFailed,
-    lastActivityAt: stamps.length > 0 ? Math.max(...stamps) : null,
-    // Sessions win when both exist; a task-only project opens tasks; an empty
-    // project falls back to sessions so it can be started there.
-    openMode:
-      directSessions.length > 0 ? 'sessions' : repoTasks.length > 0 ? 'tasks' : 'sessions'
+    lastActivityAt: stamps.length > 0 ? Math.max(...stamps) : null
   }
 }
 

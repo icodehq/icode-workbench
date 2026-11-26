@@ -1,7 +1,7 @@
 /**
- * Which environment Git runs in inside a distro — Orca's strategy, verified.
+ * Which environment Git runs in inside a distro — the reference implementation's strategy, verified.
  *
- * Orca's rule (`git/wsl-git-read-environment.ts` + `wsl-command-resolution.ts`) is
+ * the reference implementation's rule (`git/wsl-git-read-environment.ts` + `wsl-command-resolution.ts`) is
  * not "always use a login shell". It is:
  *
  *   1. **Probe once per distro**, in the login shell, for `$PATH`, the absolute
@@ -16,7 +16,7 @@
  *      when a direct call fails with exit 127 and "not found"/"No such file".
  *
  * That last point is the important one for iCode. A distro where `git` lives on a
- * login-only PATH (nvm, asdf, a custom profile) works in Orca and would fail with
+ * login-only PATH (nvm, asdf, a custom profile) works in the reference implementation and would fail with
  * a naive `--exec git`, which is exactly what W60 shipped.
  *
  * The probe is cached per distro. A settled "no direct route" answer is cached too,

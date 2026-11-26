@@ -2,7 +2,7 @@
  * The Windows half of the relay: a loopback listener whose every accepted socket
  * rides its own bridge child.
  *
- * Shape follows Orca's stdio-bridge listener: admission and teardown live here,
+ * Shape follows the reference implementation's stdio-bridge listener: admission and teardown live here,
  * the channel factory knows only how to open one bridge. That split is what makes
  * "one bridge per connection" structural rather than a convention — there is no
  * shared pipe to accidentally reuse.
@@ -21,7 +21,7 @@
 import { createServer, type Server, type Socket } from 'node:net'
 import { attachBridge, type BridgeChild, type BridgeConnection, type BridgeConnectionFailure } from './bridge'
 
-/** Concurrent bridges. Each is one `wsl.exe`; Orca bounds this for the same reason. */
+/** Concurrent bridges. Each is one `wsl.exe`; the reference implementation bounds this for the same reason. */
 export const DEFAULT_MAX_CHANNELS = 8
 /** How long an accepted socket may wait for a free slot. */
 export const DEFAULT_QUEUE_TIMEOUT_MS = 30_000

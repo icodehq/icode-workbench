@@ -10,6 +10,7 @@ import {
   isTerminalTaskStatus,
   taskCanHoldDependents,
   taskCanResume,
+  taskReviewState,
   TASK_LIMITS,
   type ReviewRecommendation,
   type TaskApproval,
@@ -87,8 +88,17 @@ function ok<T>(value: T): TaskOutcome<T> {
 export type CreateTaskInput = {
   repoId: RepoId
   title?: string
+  /** The instruction handed to the harness. Stored because it is the work. */
   prompt: string
   harness: HarnessId
+  /** Optional bot assignee for group work. */
+  botId?: string | null
+  /** Optional group that requested the work, for group-room routing. */
+  groupId?: string | null
+  /** Group thread that requested the work, for group-room milestones. */
+  groupThreadId?: string | null
+  /** Human-readable acceptance criteria shown beside review. */
+  acceptanceCriteria?: string | null
   /**
    * Internal only: how this episode starts. `resume` is set by
    * `TaskService.resume` and carries the predecessor's session/worktree.
@@ -226,7 +236,7 @@ export class TaskService {
     if (
       origin === 'supervisor' &&
       !input.createdBySessionId &&
-      input.createdByActor !== 'mira'
+      (input.createdByActor === null || input.createdByActor === undefined)
     ) {
       return {
         ok: false,
@@ -380,6 +390,10 @@ export class TaskService {
         origin,
         createdBySessionId: (input.createdBySessionId as SessionId | null | undefined) ?? null,
         createdByActor: input.createdByActor ?? null,
+        botId: input.botId ?? null,
+        groupId: input.groupId ?? null,
+        groupThreadId: input.groupThreadId ?? null,
+        acceptanceCriteria: input.acceptanceCriteria ?? null,
         assistantRunId: input.assistantRunId ?? null,
         approvalPolicy: input.approvalPolicy ?? null,
         approval,
@@ -824,6 +838,10 @@ export class TaskService {
       origin: task.origin,
       createdBySessionId: task.createdBySessionId,
       createdByActor: task.createdByActor,
+      botId: task.botId,
+      groupId: task.groupId,
+      groupThreadId: task.groupThreadId,
+      acceptanceCriteria: task.acceptanceCriteria,
       assistantRunId: options.assistantRunId ?? task.assistantRunId,
       approvalPolicy: task.approvalPolicy,
       // A retry is a new attempt at work a human already allowed to start.
@@ -877,6 +895,16 @@ export class TaskService {
         ).error
       }
     }
+    if (task.changesRequestedAt !== null) {
+      return {
+        ok: false,
+        error: fail(
+          'INVALID_ARGUMENT',
+          'This result was sent back for changes.',
+          'Review the successor attempt instead.'
+        ).error
+      }
+    }
     const now = this.deps.now()
     const note = options.note?.trim() ? options.note.trim().slice(0, 2000) : null
 
@@ -912,6 +940,82 @@ export class TaskService {
     }
     this.deps.onQueueChanged()
     return ok(this.deps.tasks.findById(task.id)!)
+  }
+
+  /**
+   * Sends a finished result back for changes.
+   *
+   * The original row keeps `reviewDecision='pending'`; `changes_requested_at`
+   * is the derived state, and a successor attempt carries the continuation so
+   * the review history is never rewritten.
+   */
+  requestChanges(taskId: string, note?: string | null): TaskOutcome<TaskRecord> {
+    const task = this.deps.tasks.findById(taskId)
+    if (!task) return { ok: false, error: fail('INVALID_ARGUMENT', 'That task no longer exists.').error }
+    if (!isTerminalTaskStatus(task.status)) {
+      return {
+        ok: false,
+        error: fail(
+          'INVALID_ARGUMENT',
+          'This task has not finished, so there is no result to send back.'
+        ).error
+      }
+    }
+    if (task.reviewDecision !== 'pending' || task.changesRequestedAt !== null) {
+      return {
+        ok: false,
+        error: fail(
+          'INVALID_ARGUMENT',
+          'This task already has a review outcome.',
+          'Start a new attempt instead of changing an old decision.'
+        ).error
+      }
+    }
+    if (this.deps.tasks.findSuccessor(task.id) !== null) {
+      return {
+        ok: false,
+        error: fail(
+          'INVALID_ARGUMENT',
+          'This task already has a successor.',
+          'Review the latest attempt instead.'
+        ).error
+      }
+    }
+    if (task.sessionId === null) {
+      return {
+        ok: false,
+        error: fail(
+          'INVALID_ARGUMENT',
+          'This task has no session to continue.',
+          'Retry it as a fresh task instead.'
+        ).error
+      }
+    }
+    if (task.harness === 'shell') {
+      return {
+        ok: false,
+        error: fail(
+          'INVALID_ARGUMENT',
+          'A shell task has no conversation to continue.',
+          'Retry it as a fresh task instead.'
+        ).error
+      }
+    }
+    const cleanNote = note?.trim() ? note.trim().slice(0, 2_000) : null
+    const now = this.deps.now()
+    if (!this.deps.tasks.setChangesRequested(task.id, cleanNote, now)) {
+      return {
+        ok: false,
+        error: fail('INVALID_ARGUMENT', 'The task changed while this was being sent back.').error
+      }
+    }
+    const successor = this.createSuccessor(task, 'resume', {})
+    if (!successor.ok) {
+      this.deps.tasks.clearChangesRequested(task.id, this.deps.now())
+      return successor
+    }
+    this.deps.onQueueChanged()
+    return successor
   }
 
   /**
@@ -1142,8 +1246,18 @@ export class TaskService {
       canReject: task.approval === 'pending' && task.status === 'queued',
       canArchive: task.archivedAt === null && isTerminalTaskStatus(task.status),
       canUnarchive: task.archivedAt !== null,
-      // A result can only be judged once it exists.
-      canDecideReview: isTerminalTaskStatus(task.status),
+      // A result can only be judged once it exists; a result sent back for
+      // changes is judged through its successor instead.
+      canDecideReview:
+        isTerminalTaskStatus(task.status) && task.changesRequestedAt === null,
+      reviewState: taskReviewState(task),
+      canRequestChanges:
+        isTerminalTaskStatus(task.status) &&
+        task.reviewDecision === 'pending' &&
+        task.changesRequestedAt === null &&
+        task.sessionId !== null &&
+        task.harness !== 'shell' &&
+        successor === null,
       reviewDecisionFinal: task.reviewDecision !== 'pending'
     }
   }

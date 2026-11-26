@@ -894,7 +894,6 @@ export const MIGRATIONS: readonly Migration[] = [
        ) STRICT`,
       `INSERT INTO harnesses (id) VALUES
          ('claude'),
-         ('claude-agent-teams'),
          ('openclaude'),
          ('codex'),
          ('grok'),
@@ -1087,6 +1086,715 @@ export const MIGRATIONS: readonly Migration[] = [
          document TEXT NOT NULL,
          updated_at INTEGER NOT NULL
        ) STRICT`
+    ]
+  },
+  {
+    version: 22,
+    name: 'bots-teams-and-memory',
+    /**
+     * Bots are persistent teammates, not a session role.
+     *
+     * A bot owns one assistant thread. Mira is backfilled as the default bot
+     * and keeps the existing main thread; its old assistant_memory rows move
+     * into the scoped bot_memory table. Teams and team messages are new.
+     * Tasks gain an optional assignee/team and acceptance criteria, while the
+     * derived changes_requested state uses a timestamp instead of widening the
+     * review_decision CHECK (which would require rebuilding the tasks table).
+     *
+     * assistant_threads is rebuilt with create-new/drop-old/rename-new, so the
+     * child tables' foreign keys still resolve to the table name. The migration
+     * runner disables FKs for the rebuild and checks them before COMMIT.
+     */
+    rebuildsReferencedTable: true,
+    statements: [
+      `CREATE TABLE bots (
+         id TEXT PRIMARY KEY NOT NULL,
+         name TEXT NOT NULL,
+         role TEXT NOT NULL,
+         avatar_color TEXT NOT NULL,
+         instructions TEXT NOT NULL DEFAULT '',
+         settings_json TEXT,
+         archived_at INTEGER,
+         created_at INTEGER NOT NULL,
+         updated_at INTEGER NOT NULL,
+         CHECK (length(id) > 0 AND length(name) > 0 AND length(role) > 0
+                AND length(avatar_color) > 0)
+       ) STRICT`,
+      `CREATE UNIQUE INDEX bots_name_idx ON bots (name COLLATE NOCASE)`,
+      `CREATE INDEX bots_updated_idx ON bots (updated_at)`,
+
+      `CREATE TABLE teams (
+         id TEXT PRIMARY KEY NOT NULL,
+         name TEXT NOT NULL,
+         chief_bot_id TEXT REFERENCES bots(id) ON DELETE SET NULL,
+         last_read_seq INTEGER NOT NULL DEFAULT 0 CHECK (last_read_seq >= 0),
+         archived_at INTEGER,
+         created_at INTEGER NOT NULL,
+         updated_at INTEGER NOT NULL,
+         CHECK (length(id) > 0 AND length(name) > 0)
+       ) STRICT`,
+      `CREATE INDEX teams_updated_idx ON teams (updated_at)`,
+
+      `CREATE TABLE team_members (
+         team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+         bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+         joined_at INTEGER NOT NULL,
+         PRIMARY KEY (team_id, bot_id)
+       ) STRICT`,
+      `CREATE INDEX team_members_bot_idx ON team_members (bot_id)`,
+
+      `CREATE TABLE team_messages (
+         id TEXT PRIMARY KEY NOT NULL,
+         team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+         seq INTEGER NOT NULL,
+         author_kind TEXT NOT NULL CHECK (author_kind IN ('human', 'bot', 'system')),
+         author_bot_id TEXT REFERENCES bots(id) ON DELETE SET NULL,
+         body TEXT NOT NULL,
+         card_json TEXT,
+         dedupe_key TEXT,
+         created_at INTEGER NOT NULL,
+         UNIQUE (team_id, seq),
+         CHECK (length(id) > 0 AND length(body) > 0),
+         CHECK ((author_kind = 'bot' AND author_bot_id IS NOT NULL)
+             OR (author_kind <> 'bot'))
+       ) STRICT`,
+      `CREATE INDEX team_messages_team_created_idx ON team_messages (team_id, created_at)`,
+      `CREATE UNIQUE INDEX team_messages_dedupe_idx
+         ON team_messages (team_id, dedupe_key)
+         WHERE dedupe_key IS NOT NULL`,
+
+      `CREATE TABLE bot_memory (
+         id TEXT PRIMARY KEY NOT NULL,
+         scope TEXT NOT NULL CHECK (scope IN ('bot', 'project', 'team')),
+         bot_id TEXT REFERENCES bots(id) ON DELETE CASCADE,
+         repo_id TEXT REFERENCES repos(id) ON DELETE CASCADE,
+         team_id TEXT REFERENCES teams(id) ON DELETE CASCADE,
+         proposed_by_bot_id TEXT REFERENCES bots(id) ON DELETE SET NULL,
+         key TEXT NOT NULL,
+         value TEXT NOT NULL,
+         status TEXT NOT NULL DEFAULT 'active'
+           CHECK (status IN ('proposed', 'active', 'archived')),
+         source_task_id TEXT,
+         created_at INTEGER NOT NULL,
+         updated_at INTEGER NOT NULL,
+         CHECK (length(key) > 0 AND length(value) > 0),
+         CHECK (
+           (scope = 'bot' AND bot_id IS NOT NULL AND repo_id IS NULL AND team_id IS NULL)
+           OR (scope = 'project' AND bot_id IS NULL AND repo_id IS NOT NULL AND team_id IS NULL)
+           OR (scope = 'team' AND bot_id IS NULL AND repo_id IS NULL AND team_id IS NOT NULL)
+         )
+       ) STRICT`,
+      `CREATE UNIQUE INDEX bot_memory_bot_idx
+         ON bot_memory (bot_id, key)
+         WHERE scope = 'bot' AND status = 'active'`,
+      `CREATE UNIQUE INDEX bot_memory_project_idx
+         ON bot_memory (repo_id, key)
+         WHERE scope = 'project' AND status = 'active'`,
+      `CREATE UNIQUE INDEX bot_memory_team_idx
+         ON bot_memory (team_id, key)
+         WHERE scope = 'team' AND status = 'active'`,
+
+      `INSERT INTO bots (
+         id, name, role, avatar_color, instructions, settings_json,
+         archived_at, created_at, updated_at
+       ) VALUES (
+         'mira', 'Mira', 'Chief of Staff', '#6f7bf7', '', NULL, NULL,
+         CAST(strftime('%s', 'now') AS INTEGER) * 1000,
+         CAST(strftime('%s', 'now') AS INTEGER) * 1000
+       )`,
+
+      `CREATE TABLE assistant_threads_new (
+         id TEXT PRIMARY KEY NOT NULL,
+         kind TEXT NOT NULL DEFAULT 'main' CHECK (kind IN ('main', 'system', 'bot')),
+         title TEXT NOT NULL,
+         bot_id TEXT REFERENCES bots(id) ON DELETE SET NULL,
+         created_at INTEGER NOT NULL,
+         updated_at INTEGER NOT NULL,
+         last_message_at INTEGER,
+         last_read_seq INTEGER NOT NULL DEFAULT 0,
+         active_run_id TEXT,
+         archived_at INTEGER,
+         CHECK (length(title) > 0)
+       ) STRICT`,
+      `INSERT INTO assistant_threads_new (
+         id, kind, title, bot_id, created_at, updated_at, last_message_at,
+         last_read_seq, active_run_id, archived_at
+       )
+       SELECT id, kind, title, NULL, created_at, updated_at, last_message_at,
+              last_read_seq, active_run_id, archived_at
+       FROM assistant_threads`,
+      `DROP TABLE assistant_threads`,
+      `ALTER TABLE assistant_threads_new RENAME TO assistant_threads`,
+      `UPDATE assistant_threads SET bot_id = 'mira' WHERE kind = 'main'`,
+      `CREATE UNIQUE INDEX assistant_threads_main_idx
+         ON assistant_threads (kind) WHERE kind = 'main'`,
+      `CREATE INDEX assistant_threads_updated_idx ON assistant_threads (updated_at)`,
+      `CREATE UNIQUE INDEX assistant_threads_bot_idx
+         ON assistant_threads (bot_id) WHERE bot_id IS NOT NULL`,
+
+      `ALTER TABLE tasks ADD COLUMN bot_id TEXT`,
+      `ALTER TABLE tasks ADD COLUMN team_id TEXT`,
+      `ALTER TABLE tasks ADD COLUMN acceptance_criteria TEXT`,
+      `ALTER TABLE tasks ADD COLUMN changes_requested_at INTEGER`,
+      `CREATE INDEX tasks_bot_status_idx ON tasks (bot_id, status)`,
+
+      `ALTER TABLE assistant_actions ADD COLUMN bot_id TEXT`,
+
+      `INSERT INTO bot_memory (
+         id, scope, bot_id, repo_id, team_id, proposed_by_bot_id,
+         key, value, status, source_task_id, created_at, updated_at
+       )
+       SELECT 'mem_mira_' || key, 'bot', 'mira', NULL, NULL, 'mira',
+              key, value, 'active', NULL, created_at, updated_at
+       FROM assistant_memory`,
+      `DROP TABLE assistant_memory`
+    ]
+  },
+  {
+    version: 23,
+    name: 'default-chief-yarcy',
+    /**
+     * The default Chief is now called Yarcy, not Mira.
+     *
+     * Only the untouched defaults are renamed: a bot, thread title or persona
+     * name the user already changed is left alone. A conflicting bot named
+     * Yarcy also blocks the rename, because bot names are unique NOCASE; the
+     * stable id `mira` stays internal so no foreign keys are rebuilt.
+     */
+    statements: [
+      `UPDATE bots
+       SET name = 'Yarcy',
+           updated_at = CAST(strftime('%s', 'now') AS INTEGER) * 1000
+       WHERE id = 'mira'
+         AND name = 'Mira'
+         AND NOT EXISTS (
+           SELECT 1 FROM bots
+           WHERE id <> 'mira' AND lower(name) = lower('Yarcy')
+         )`,
+      `UPDATE assistant_threads
+       SET title = (SELECT name FROM bots WHERE id = 'mira')
+       WHERE bot_id = 'mira'
+         AND title = 'Mira'
+         AND EXISTS (SELECT 1 FROM bots WHERE id = 'mira' AND name <> 'Mira')`,
+      `UPDATE bots
+       SET settings_json = json_set(
+         settings_json,
+         '$.personaName',
+         (SELECT name FROM bots WHERE id = 'mira')
+       )
+       WHERE id = 'mira'
+         AND settings_json IS NOT NULL
+         AND json_extract(settings_json, '$.personaName') = 'Mira'
+         AND EXISTS (SELECT 1 FROM bots WHERE id = 'mira' AND name <> 'Mira')`,
+      `UPDATE assistant_settings
+       SET settings_json = json_set(
+             settings_json,
+             '$.personaName',
+             (SELECT name FROM bots WHERE id = 'mira')
+           ),
+           updated_at = CAST(strftime('%s', 'now') AS INTEGER) * 1000
+       WHERE json_extract(settings_json, '$.personaName') = 'Mira'
+         AND EXISTS (SELECT 1 FROM bots WHERE id = 'mira' AND name <> 'Mira')`,
+      // The greeting is generated by iCode, not typed by the user, so it is
+      // safe to keep it in step with the configured name.
+      `UPDATE assistant_messages
+       SET body = replace(
+         body,
+         'Mira',
+         (SELECT name FROM bots WHERE id = 'mira')
+       )
+       WHERE kind = 'welcome'
+         AND body LIKE '%Mira%'
+         AND thread_id IN (SELECT id FROM assistant_threads WHERE bot_id = 'mira')
+         AND EXISTS (SELECT 1 FROM bots WHERE id = 'mira' AND name <> 'Mira')`
+    ]
+  },
+  {
+    version: 24,
+    name: 'bot-groups-and-threads',
+    /**
+     * A bot group is a room with threads; each member has a session per thread.
+     *
+     * Teams are copied into groups and their messages move into one default
+     * thread, while the legacy team tables stay readable until the Bots UI
+     * cutover. Bots keep their existing home thread. Do not rely on RENAME to
+     * update foreign keys because the runner disables them around rebuilds.
+     */
+    rebuildsReferencedTable: true,
+    statements: [
+      `CREATE TABLE bot_groups (
+         id TEXT PRIMARY KEY NOT NULL,
+         name TEXT NOT NULL,
+         revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+         default_bot_id TEXT REFERENCES bots(id) ON DELETE SET NULL,
+         reply_mode TEXT NOT NULL DEFAULT 'mentions'
+           CHECK (reply_mode IN ('bot', 'all', 'mentions')),
+         archived_at INTEGER,
+         created_at INTEGER NOT NULL,
+         updated_at INTEGER NOT NULL,
+         CHECK (length(id) > 0 AND length(name) > 0)
+       ) STRICT`,
+      `CREATE INDEX bot_groups_updated_idx ON bot_groups (updated_at)`,
+
+      `CREATE TABLE bot_group_members (
+         group_id TEXT NOT NULL REFERENCES bot_groups(id) ON DELETE CASCADE,
+         bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+         joined_at INTEGER NOT NULL,
+         PRIMARY KEY (group_id, bot_id)
+       ) STRICT`,
+      `CREATE INDEX bot_group_members_bot_idx ON bot_group_members (bot_id)`,
+
+      `CREATE TABLE bot_group_threads (
+         id TEXT PRIMARY KEY NOT NULL,
+         group_id TEXT NOT NULL REFERENCES bot_groups(id) ON DELETE CASCADE,
+         title TEXT NOT NULL,
+         is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0, 1)),
+         last_read_seq INTEGER NOT NULL DEFAULT 0 CHECK (last_read_seq >= 0),
+         last_read_at INTEGER NOT NULL DEFAULT 0 CHECK (last_read_at >= 0),
+         last_activity_at INTEGER NOT NULL DEFAULT 0 CHECK (last_activity_at >= 0),
+         latest_author_name TEXT,
+         latest_text TEXT,
+         latest_at INTEGER,
+         created_at INTEGER NOT NULL,
+         updated_at INTEGER NOT NULL,
+         CHECK (length(id) > 0 AND length(title) > 0)
+       ) STRICT`,
+      `CREATE INDEX bot_group_threads_group_idx ON bot_group_threads (group_id, created_at)`,
+      `CREATE UNIQUE INDEX bot_group_threads_default_idx
+         ON bot_group_threads (group_id) WHERE is_default = 1`,
+
+      `INSERT INTO bot_groups (
+         id, name, revision, default_bot_id, reply_mode,
+         archived_at, created_at, updated_at
+       )
+       SELECT t.id, t.name, 1,
+         CASE WHEN EXISTS (
+           SELECT 1 FROM team_members m
+           WHERE m.team_id = t.id AND m.bot_id = t.chief_bot_id
+         ) THEN t.chief_bot_id ELSE NULL END,
+         CASE WHEN EXISTS (
+           SELECT 1 FROM team_members m
+           WHERE m.team_id = t.id AND m.bot_id = t.chief_bot_id
+         ) THEN 'bot' ELSE 'mentions' END,
+         t.archived_at, t.created_at, t.updated_at
+       FROM teams t`,
+      `INSERT INTO bot_group_members (group_id, bot_id, joined_at)
+       SELECT team_id, bot_id, joined_at FROM team_members`,
+
+      `INSERT INTO bot_group_threads (
+         id, group_id, title, is_default, last_read_seq, last_read_at,
+         last_activity_at, latest_author_name, latest_text, latest_at,
+         created_at, updated_at
+       )
+       SELECT
+         'gthread_' || t.id,
+         t.id,
+         t.name,
+         1,
+         t.last_read_seq,
+         CASE WHEN t.last_read_seq >= COALESCE((
+           SELECT MAX(m.seq) FROM team_messages m WHERE m.team_id = t.id
+         ), 0)
+           THEN COALESCE((
+             SELECT MAX(m.created_at) FROM team_messages m WHERE m.team_id = t.id
+           ), t.updated_at)
+           ELSE 0
+         END,
+         COALESCE((
+           SELECT MAX(m.created_at) FROM team_messages m WHERE m.team_id = t.id
+         ), t.updated_at),
+         (
+           SELECT CASE
+             WHEN m.author_kind = 'bot' THEN (SELECT b.name FROM bots b WHERE b.id = m.author_bot_id)
+             WHEN m.author_kind = 'human' THEN NULL
+             ELSE 'System'
+           END
+           FROM team_messages m
+           WHERE m.team_id = t.id
+           ORDER BY m.seq DESC LIMIT 1
+         ),
+         (
+           SELECT m.body FROM team_messages m
+           WHERE m.team_id = t.id
+           ORDER BY m.seq DESC LIMIT 1
+         ),
+         (
+           SELECT m.created_at FROM team_messages m
+           WHERE m.team_id = t.id
+           ORDER BY m.seq DESC LIMIT 1
+         ),
+         t.created_at,
+         t.updated_at
+       FROM teams t`,
+
+      `CREATE TABLE assistant_threads_new (
+         id TEXT PRIMARY KEY NOT NULL,
+         kind TEXT NOT NULL DEFAULT 'main'
+           CHECK (kind IN ('main', 'system', 'bot', 'room')),
+         title TEXT NOT NULL,
+         bot_id TEXT REFERENCES bots(id) ON DELETE SET NULL,
+         group_thread_id TEXT REFERENCES bot_group_threads(id) ON DELETE SET NULL,
+         created_at INTEGER NOT NULL,
+         updated_at INTEGER NOT NULL,
+         last_message_at INTEGER,
+         last_read_seq INTEGER NOT NULL DEFAULT 0,
+         active_run_id TEXT,
+         archived_at INTEGER,
+         CHECK (length(title) > 0),
+         CHECK (group_thread_id IS NULL OR (kind = 'room' AND bot_id IS NOT NULL))
+       ) STRICT`,
+      `INSERT INTO assistant_threads_new (
+         id, kind, title, bot_id, group_thread_id, created_at, updated_at,
+         last_message_at, last_read_seq, active_run_id, archived_at
+       )
+       SELECT id, kind, title, bot_id, NULL, created_at, updated_at,
+              last_message_at, last_read_seq, active_run_id, archived_at
+       FROM assistant_threads`,
+      `DROP TABLE assistant_threads`,
+      `ALTER TABLE assistant_threads_new RENAME TO assistant_threads`,
+      `CREATE UNIQUE INDEX assistant_threads_main_idx
+         ON assistant_threads (kind) WHERE kind = 'main'`,
+      `CREATE INDEX assistant_threads_updated_idx ON assistant_threads (updated_at)`,
+      `CREATE UNIQUE INDEX assistant_threads_home_idx
+         ON assistant_threads (bot_id)
+         WHERE bot_id IS NOT NULL AND group_thread_id IS NULL`,
+      `CREATE UNIQUE INDEX assistant_threads_room_idx
+         ON assistant_threads (bot_id, group_thread_id)
+         WHERE group_thread_id IS NOT NULL`,
+
+      `CREATE TABLE bot_group_thread_members (
+         thread_id TEXT NOT NULL REFERENCES bot_group_threads(id) ON DELETE CASCADE,
+         bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+         assistant_thread_id TEXT REFERENCES assistant_threads(id) ON DELETE SET NULL,
+         stopped_through_sequence INTEGER NOT NULL DEFAULT 0
+           CHECK (stopped_through_sequence >= 0),
+         joined_at INTEGER NOT NULL,
+         PRIMARY KEY (thread_id, bot_id)
+       ) STRICT`,
+      `CREATE INDEX bot_group_thread_members_bot_idx
+         ON bot_group_thread_members (bot_id)`,
+      `CREATE UNIQUE INDEX bot_group_thread_members_session_idx
+         ON bot_group_thread_members (assistant_thread_id)
+         WHERE assistant_thread_id IS NOT NULL`,
+      `INSERT INTO bot_group_thread_members (
+         thread_id, bot_id, assistant_thread_id, stopped_through_sequence, joined_at
+       )
+       SELECT 'gthread_' || m.team_id, m.bot_id, NULL, 0, m.joined_at
+       FROM team_members m`,
+
+      `CREATE TABLE bot_group_messages (
+         id TEXT PRIMARY KEY NOT NULL,
+         group_id TEXT NOT NULL REFERENCES bot_groups(id) ON DELETE CASCADE,
+         thread_id TEXT NOT NULL REFERENCES bot_group_threads(id) ON DELETE CASCADE,
+         seq INTEGER NOT NULL CHECK (seq >= 1),
+         author_kind TEXT NOT NULL CHECK (author_kind IN ('human', 'bot', 'system')),
+         author_bot_id TEXT REFERENCES bots(id) ON DELETE SET NULL,
+         author_name TEXT,
+         body TEXT NOT NULL,
+         card_json TEXT,
+         dedupe_key TEXT,
+         root_request_id TEXT,
+         root_sequence INTEGER,
+         requester_bot_id TEXT REFERENCES bots(id) ON DELETE SET NULL,
+         requester_name TEXT,
+         mentioned INTEGER NOT NULL DEFAULT 0 CHECK (mentioned IN (0, 1)),
+         from_items INTEGER NOT NULL DEFAULT 0 CHECK (from_items IN (0, 1)),
+         from_reports INTEGER NOT NULL DEFAULT 0 CHECK (from_reports IN (0, 1)),
+         task_id TEXT,
+         created_at INTEGER NOT NULL,
+         UNIQUE (thread_id, seq),
+         CHECK (length(id) > 0 AND length(body) > 0),
+         CHECK ((author_kind = 'bot' AND author_bot_id IS NOT NULL)
+             OR (author_kind <> 'bot'))
+       ) STRICT`,
+      `CREATE INDEX bot_group_messages_thread_created_idx
+         ON bot_group_messages (thread_id, created_at)`,
+      `CREATE INDEX bot_group_messages_group_created_idx
+         ON bot_group_messages (group_id, created_at)`,
+      `CREATE UNIQUE INDEX bot_group_messages_dedupe_idx
+         ON bot_group_messages (thread_id, dedupe_key)
+         WHERE dedupe_key IS NOT NULL`,
+      `CREATE INDEX bot_group_messages_root_idx
+         ON bot_group_messages (root_request_id)
+         WHERE root_request_id IS NOT NULL`,
+      `INSERT INTO bot_group_messages (
+         id, group_id, thread_id, seq, author_kind, author_bot_id, author_name,
+         body, card_json, dedupe_key, root_request_id, root_sequence,
+         requester_bot_id, requester_name, mentioned, from_items, from_reports,
+         task_id, created_at
+       )
+       SELECT
+         m.id, m.team_id, 'gthread_' || m.team_id, m.seq, m.author_kind,
+         m.author_bot_id,
+         CASE
+           WHEN m.author_kind = 'bot' THEN (SELECT b.name FROM bots b WHERE b.id = m.author_bot_id)
+           WHEN m.author_kind = 'human' THEN NULL
+           ELSE 'System'
+         END,
+         m.body, m.card_json, m.dedupe_key, m.id, m.seq,
+         NULL, NULL, 0, 0, 0, NULL, m.created_at
+       FROM team_messages m`,
+
+      `CREATE TABLE bot_group_turns (
+         operation_id TEXT PRIMARY KEY NOT NULL,
+         message_id TEXT NOT NULL REFERENCES bot_group_messages(id) ON DELETE CASCADE,
+         group_id TEXT NOT NULL,
+         thread_id TEXT NOT NULL,
+         bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+         bot_name TEXT NOT NULL,
+         assistant_thread_id TEXT,
+         run_id TEXT,
+         status TEXT NOT NULL DEFAULT 'queued'
+           CHECK (status IN ('queued', 'working', 'completed', 'failed', 'cancelled', 'inactive')),
+         reply TEXT,
+         error TEXT,
+         context_json TEXT,
+         handed_off_json TEXT NOT NULL DEFAULT '[]',
+         created_at INTEGER NOT NULL,
+         updated_at INTEGER NOT NULL,
+         delivered_at INTEGER,
+         UNIQUE (message_id, bot_id)
+       ) STRICT`,
+      `CREATE INDEX bot_group_turns_message_idx ON bot_group_turns (message_id)`,
+      `CREATE INDEX bot_group_turns_thread_idx
+         ON bot_group_turns (thread_id, created_at)`,
+      `CREATE INDEX bot_group_turns_session_idx
+         ON bot_group_turns (assistant_thread_id)
+         WHERE assistant_thread_id IS NOT NULL`,
+
+      `CREATE TABLE bot_memory_new (
+         id TEXT PRIMARY KEY NOT NULL,
+         scope TEXT NOT NULL CHECK (scope IN ('bot', 'project', 'team')),
+         bot_id TEXT REFERENCES bots(id) ON DELETE CASCADE,
+         repo_id TEXT REFERENCES repos(id) ON DELETE CASCADE,
+         -- Group id. The FK moves to bot_groups once the legacy team tables are
+         -- dropped at the Bots UI cutover; keeping it loose lets the old team
+         -- tests keep creating their fixture teams during the transition.
+         team_id TEXT,
+         proposed_by_bot_id TEXT REFERENCES bots(id) ON DELETE SET NULL,
+         key TEXT NOT NULL,
+         value TEXT NOT NULL,
+         status TEXT NOT NULL DEFAULT 'active'
+           CHECK (status IN ('proposed', 'active', 'archived')),
+         source_task_id TEXT,
+         created_at INTEGER NOT NULL,
+         updated_at INTEGER NOT NULL,
+         CHECK (length(key) > 0 AND length(value) > 0),
+         CHECK (
+           (scope = 'bot' AND bot_id IS NOT NULL AND repo_id IS NULL AND team_id IS NULL)
+           OR (scope = 'project' AND bot_id IS NULL AND repo_id IS NOT NULL AND team_id IS NULL)
+           OR (scope = 'team' AND bot_id IS NULL AND repo_id IS NULL AND team_id IS NOT NULL)
+         )
+       ) STRICT`,
+      `INSERT INTO bot_memory_new (
+         id, scope, bot_id, repo_id, team_id, proposed_by_bot_id,
+         key, value, status, source_task_id, created_at, updated_at
+       )
+       SELECT id, scope, bot_id, repo_id, team_id, proposed_by_bot_id,
+              key, value, status, source_task_id, created_at, updated_at
+       FROM bot_memory`,
+      `DROP TABLE bot_memory`,
+      `ALTER TABLE bot_memory_new RENAME TO bot_memory`,
+      `CREATE UNIQUE INDEX bot_memory_bot_idx
+         ON bot_memory (bot_id, key)
+         WHERE scope = 'bot' AND status = 'active'`,
+      `CREATE UNIQUE INDEX bot_memory_project_idx
+         ON bot_memory (repo_id, key)
+         WHERE scope = 'project' AND status = 'active'`,
+      `CREATE UNIQUE INDEX bot_memory_team_idx
+         ON bot_memory (team_id, key)
+         WHERE scope = 'team' AND status = 'active'`,
+
+      `ALTER TABLE bots ADD COLUMN paused_at INTEGER`,
+      `ALTER TABLE tasks ADD COLUMN group_thread_id TEXT`,
+      `UPDATE tasks
+       SET group_thread_id = (
+         SELECT t.id FROM bot_group_threads t
+         WHERE t.group_id = tasks.team_id AND t.is_default = 1
+       )
+       WHERE team_id IS NOT NULL`,
+      `CREATE INDEX tasks_group_thread_idx
+         ON tasks (group_thread_id, updated_at)
+         WHERE group_thread_id IS NOT NULL`
+    ]
+  },
+  {
+    version: 25,
+    name: 'task-items',
+    /**
+     * Items are tasks with owner-facing conversation. Comments and questions
+     * live in their own table; the derived item status (shared/domain/item.ts)
+     * never duplicates the task's queue or review state.
+     */
+    statements: [
+      `ALTER TABLE tasks ADD COLUMN snoozed_until INTEGER`,
+      `CREATE TABLE task_comments (
+         id TEXT PRIMARY KEY,
+         task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+         author_kind TEXT NOT NULL CHECK (author_kind IN ('owner', 'bot', 'system')),
+         author_bot_id TEXT REFERENCES bots(id) ON DELETE SET NULL,
+         author_name TEXT,
+         kind TEXT NOT NULL CHECK (kind IN ('comment', 'question', 'status', 'answer')),
+         body TEXT NOT NULL,
+         options_json TEXT,
+         recommended_option TEXT,
+         reply_to_id TEXT REFERENCES task_comments(id) ON DELETE SET NULL,
+         answered_at INTEGER,
+         dedupe_key TEXT,
+         created_at INTEGER NOT NULL,
+         updated_at INTEGER NOT NULL,
+         CHECK (length(body) > 0)
+       ) STRICT`,
+      `CREATE INDEX task_comments_task_created_idx
+         ON task_comments (task_id, created_at)`,
+      `CREATE INDEX task_comments_open_question_idx
+         ON task_comments (task_id)
+         WHERE kind = 'question' AND answered_at IS NULL`,
+      `CREATE UNIQUE INDEX task_comments_dedupe_idx
+         ON task_comments (task_id, dedupe_key)
+         WHERE dedupe_key IS NOT NULL`,
+      `CREATE TABLE task_links (
+         task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+         kind TEXT NOT NULL CHECK (kind IN ('url', 'file', 'pr')),
+         ref TEXT NOT NULL,
+         added_at INTEGER NOT NULL,
+         PRIMARY KEY (task_id, kind, ref),
+         CHECK (length(ref) > 0)
+       ) STRICT`,
+      `CREATE INDEX task_links_task_idx ON task_links (task_id, added_at)`
+    ]
+  },
+  {
+    version: 26,
+    name: 'drop-legacy-teams',
+    /**
+     * The Bots UI now reads groups only. Point memory at bot_groups, rename the
+     * task routing column to its real meaning, and delete the legacy team
+     * tables. `bot_memory.scope = 'team'` stays the storage alias for a group.
+     */
+    statements: [
+      `CREATE TABLE bot_memory_new (
+         id TEXT PRIMARY KEY NOT NULL,
+         scope TEXT NOT NULL CHECK (scope IN ('bot', 'project', 'team')),
+         bot_id TEXT REFERENCES bots(id) ON DELETE CASCADE,
+         repo_id TEXT REFERENCES repos(id) ON DELETE CASCADE,
+         team_id TEXT REFERENCES bot_groups(id) ON DELETE CASCADE,
+         proposed_by_bot_id TEXT REFERENCES bots(id) ON DELETE SET NULL,
+         key TEXT NOT NULL,
+         value TEXT NOT NULL,
+         status TEXT NOT NULL DEFAULT 'active'
+           CHECK (status IN ('proposed', 'active', 'archived')),
+         source_task_id TEXT,
+         created_at INTEGER NOT NULL,
+         updated_at INTEGER NOT NULL,
+         CHECK (length(key) > 0 AND length(value) > 0),
+         CHECK (
+           (scope = 'bot' AND bot_id IS NOT NULL AND repo_id IS NULL AND team_id IS NULL)
+           OR (scope = 'project' AND bot_id IS NULL AND repo_id IS NOT NULL AND team_id IS NULL)
+           OR (scope = 'team' AND bot_id IS NULL AND repo_id IS NULL AND team_id IS NOT NULL)
+         )
+       ) STRICT`,
+      `INSERT INTO bot_memory_new (
+         id, scope, bot_id, repo_id, team_id, proposed_by_bot_id,
+         key, value, status, source_task_id, created_at, updated_at
+       )
+       SELECT id, scope, bot_id, repo_id, team_id, proposed_by_bot_id,
+              key, value, status, source_task_id, created_at, updated_at
+       FROM bot_memory`,
+      `DROP TABLE bot_memory`,
+      `ALTER TABLE bot_memory_new RENAME TO bot_memory`,
+      `CREATE UNIQUE INDEX bot_memory_bot_idx
+         ON bot_memory (bot_id, key)
+         WHERE scope = 'bot' AND status = 'active'`,
+      `CREATE UNIQUE INDEX bot_memory_project_idx
+         ON bot_memory (repo_id, key)
+         WHERE scope = 'project' AND status = 'active'`,
+      `CREATE UNIQUE INDEX bot_memory_team_idx
+         ON bot_memory (team_id, key)
+         WHERE scope = 'team' AND status = 'active'`,
+      `ALTER TABLE tasks RENAME COLUMN team_id TO group_id`,
+      `DROP TABLE team_messages`,
+      `DROP TABLE team_members`,
+      `DROP TABLE teams`
+    ]
+  },
+  {
+    version: 27,
+    name: 'group-mute',
+    /** A muted group keeps its unread state but sends no system notifications. */
+    statements: [`ALTER TABLE bot_groups ADD COLUMN muted_at INTEGER`]
+  },
+  {
+    version: 28,
+    name: 'bot-avatar-image',
+    /** One uploaded picture per bot; null keeps the color-and-initial avatar. */
+    statements: [`ALTER TABLE bots ADD COLUMN avatar_image TEXT`]
+  },
+  {
+    version: 29,
+    name: 'item-status-override',
+    /** A manual owner-facing item status; null keeps the derived status. */
+    statements: [`ALTER TABLE tasks ADD COLUMN item_status_override TEXT`]
+  },
+  {
+    version: 30,
+    name: 'worker-item-links',
+    /** Item evidence can point at a worker as well as a URL, file, or PR. */
+    statements: [
+      `CREATE TABLE task_links_new (
+         task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+         kind TEXT NOT NULL CHECK (kind IN ('url', 'file', 'pr', 'worker')),
+         ref TEXT NOT NULL,
+         added_at INTEGER NOT NULL,
+         PRIMARY KEY (task_id, kind, ref),
+         CHECK (length(ref) > 0)
+       ) STRICT`,
+      `INSERT INTO task_links_new (task_id, kind, ref, added_at)
+       SELECT task_id, kind, ref, added_at FROM task_links`,
+      `DROP TABLE task_links`,
+      `ALTER TABLE task_links_new RENAME TO task_links`,
+      `CREATE INDEX task_links_task_idx ON task_links (task_id, added_at)`
+    ]
+  },
+  {
+    version: 31,
+    name: 'bot-avatar-mascot-outfit',
+    /** A mascot glyph and an outfit ring are the non-picture avatar variants. */
+    statements: [
+      `ALTER TABLE bots ADD COLUMN avatar_mascot TEXT`,
+      `ALTER TABLE bots ADD COLUMN avatar_outfit TEXT`
+    ]
+  },
+  {
+    version: 32,
+    name: 'item-attachments',
+    /** Owner-visible files attached to a task/item, stored inline as data URLs. */
+    statements: [
+      `CREATE TABLE task_attachments (
+         id TEXT PRIMARY KEY,
+         task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+         name TEXT NOT NULL,
+         mime TEXT NOT NULL,
+         size INTEGER NOT NULL,
+         data_url TEXT NOT NULL,
+         created_at INTEGER NOT NULL,
+         CHECK (length(name) > 0 AND size >= 0 AND size <= 2000000)
+       ) STRICT`,
+      `CREATE INDEX task_attachments_task_idx ON task_attachments (task_id, created_at)`
+    ]
+  },
+  {
+    version: 33,
+    name: 'builtin-assistant-bot-name',
+    /**
+     * The built-in assistant keeps an internal profile, but its name must not
+     * reserve a name in the owner's bot namespace: a bot the owner creates may
+     * use it. Owners still cannot create two bots with the same name.
+     */
+    statements: [
+      `DROP INDEX bots_name_idx`,
+      `CREATE UNIQUE INDEX bots_name_idx ON bots (name COLLATE NOCASE)
+         WHERE id <> 'mira'`
     ]
   }
 ]

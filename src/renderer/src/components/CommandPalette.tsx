@@ -27,8 +27,7 @@ import {
   TerminalSquare,
   Trash2,
   X,
-  type LucideIcon
-} from 'lucide-react'
+  type LucideIcon, Users } from 'lucide-react'
 import type { TaskRecordPayload } from '../../../shared/icode-api'
 import type { RepositorySummary, SessionSummary } from '../../../shared/schemas/ipc'
 import { fuzzyScore } from '../files/fuzzy'
@@ -82,6 +81,8 @@ type Props = {
   onQueueTask: () => void
   activeRepoId?: string | null
   onOpenAssistant?: () => void
+  assistantName?: string
+  onBots?: () => void
   onSchedules: () => void
   onSettings: () => void
   /** Focuses the active session's Source Control tab. */
@@ -150,6 +151,8 @@ export default function CommandPalette({
   onQueueTask,
   activeRepoId,
   onOpenAssistant,
+  assistantName = 'Assistant',
+  onBots,
   onSchedules,
   onSettings,
   onSourceControl,
@@ -284,11 +287,20 @@ export default function CommandPalette({
       {
         id: 'assistant',
         kind: 'action',
-        label: t('palette.action.assistant'),
+        label: t('palette.action.assistant', { name: assistantName }),
         hint: t('palette.allProjects'),
         icon: Bot,
         disabled: !onOpenAssistant,
         run: () => onOpenAssistant?.()
+      },
+      {
+        id: 'bots',
+        kind: 'action',
+        label: t('bots.label'),
+        hint: t('palette.botsHint'),
+        icon: Users,
+        disabled: !onBots,
+        run: () => onBots?.()
       },
       {
         id: 'source-control',
@@ -359,6 +371,8 @@ export default function CommandPalette({
     fileSession,
     onNewSession,
     onOpenAssistant,
+    assistantName,
+    onBots,
     onQueueTask,
     onSchedules,
     onSettings,

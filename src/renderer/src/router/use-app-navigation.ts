@@ -82,7 +82,6 @@ export type AppNavigation = {
     backToTasks: () => void
     openProject: (repoId: string, mode?: ProjectMode) => void
     switchProject: (repoId: string) => void
-    changeMode: (mode: ProjectMode) => void
     openDirectSession: (sessionId: string) => void
     openTask: (task: TaskRecordPayload) => void
     openTaskById: (taskId: string) => void
@@ -163,11 +162,13 @@ export function useAppNavigation({
   const activeTab: AppTab =
     displaySurface === 'assistant'
       ? 'mira'
-      : displaySurface === 'settings'
-        ? 'settings'
-        : displaySurface === 'schedules'
-          ? 'schedules'
-          : 'sessions'
+      : displaySurface === 'bots'
+        ? 'bots'
+        : displaySurface === 'settings'
+          ? 'settings'
+          : displaySurface === 'schedules'
+            ? 'schedules'
+            : 'sessions'
   const selectedId = focusTaskId ?? (repo === null ? null : taskSelectionByRepo[repo.id] ?? null)
   const selectedWorkbenchTask =
     displaySurface !== 'tasks' || repo === null
@@ -340,25 +341,6 @@ export function useAppNavigation({
     [displaySurface, openProject]
   )
 
-  const changeMode = useCallback(
-    (mode: ProjectMode): void => {
-      if (repo === null) return
-      setTaskSession(null)
-      setViewRequest(null)
-      setSurface(mode)
-      if (mode === 'sessions') {
-        const direct = state.sessions.filter(
-          (session) => session.repoId === repo.id && !taskSessionIds.has(session.id)
-        )
-        if (direct.length > 0 && !direct.some((session) => session.id === state.activeSessionId)) {
-          const first = direct[0]
-          if (first) workspace.selectSession(first.id)
-        }
-      }
-    },
-    [repo, state.activeSessionId, state.sessions, taskSessionIds, workspace]
-  )
-
   const openDirectSession = useCallback(
     (sessionId: string): void => {
       const session = state.sessions.find((entry) => entry.id === sessionId)
@@ -491,7 +473,6 @@ export function useAppNavigation({
       backToTasks,
       openProject,
       switchProject,
-      changeMode,
       openDirectSession,
       openTask,
       openTaskById,
@@ -506,7 +487,6 @@ export function useAppNavigation({
     }),
     [
       backToTasks,
-      changeMode,
       clearOpenRequest,
       clearViewRequest,
       clearTaskViewRequest,

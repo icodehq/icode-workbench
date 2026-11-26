@@ -10,7 +10,7 @@ import {
  * A click in a mouse-aware TUI is still a link click when it lands on a link;
  * the PTY mouse-report suppression below keeps the TUI from acting on it.
  *
- * Adapted from Orca (MIT, Copyright (c) 2026 Lovecast Inc.),
+ * Adapted from an MIT-licensed reference implementation (Copyright (c) 2026 Lovecast Inc.),
  * `terminal-link-pointer-gesture.ts` and `terminal-link-activation.ts`.
  */
 

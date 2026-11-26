@@ -70,8 +70,10 @@ export const assistantCardSchema = z.discriminatedUnion('type', [
 
 export const assistantThreadSchema = z.strictObject({
   id: z.string().min(1).max(120),
-  kind: z.enum(['main', 'system']),
+  kind: z.enum(['main', 'system', 'bot', 'room']),
   title: z.string().min(1).max(200),
+  botId: z.string().min(1).max(120).nullable(),
+  groupThreadId: z.string().min(1).max(120).nullable(),
   createdAt: z.number().int(),
   updatedAt: z.number().int(),
   lastMessageAt: z.number().int().nullable(),

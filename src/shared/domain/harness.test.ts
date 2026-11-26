@@ -33,19 +33,19 @@ function probe(overrides: Partial<HarnessProbeEvidence> = {}): HarnessProbeEvide
 }
 
 describe('harness registry', () => {
-  it('exposes the 45-entry Orca launch catalog plus the terminal', () => {
-    expect(HARNESS_IDS).toHaveLength(46)
-    expect(new Set(HARNESS_IDS).size).toBe(46)
+  it('exposes the launch catalog plus the terminal', () => {
+    expect(HARNESS_IDS).toHaveLength(45)
+    expect(new Set(HARNESS_IDS).size).toBe(45)
     expect(HARNESS_IDS[0]).toBe('claude')
     expect(HARNESS_IDS.at(-1)).toBe('shell')
-    expect(HARNESS_DEFINITIONS_LIST.filter((entry) => entry.id !== 'shell')).toHaveLength(45)
+    expect(HARNESS_DEFINITIONS_LIST.filter((entry) => entry.id !== 'shell')).toHaveLength(44)
     expect(Object.keys(HARNESS_DEFINITIONS).sort()).toEqual([...HARNESS_IDS].sort())
   })
 
   it('keeps the picker split and the model subset explicit', () => {
     expect(
       HARNESS_DEFINITIONS_LIST.filter((entry) => entry.group === 'primary')
-    ).toHaveLength(21)
+    ).toHaveLength(20)
     expect(
       HARNESS_DEFINITIONS_LIST.filter((entry) => entry.group === 'secondary')
     ).toHaveLength(24)
@@ -70,7 +70,6 @@ describe('harness registry', () => {
     expect(HARNESS_DEFINITIONS.dsh.requires).toEqual(['dsh'])
     expect(HARNESS_DEFINITIONS.kiro.launchArgs).toEqual(['chat', '--tui'])
     expect(HARNESS_DEFINITIONS.dsh.launchArgs).toEqual(['.'])
-    expect(HARNESS_DEFINITIONS['claude-agent-teams'].unsupported).toBeTruthy()
   })
 
   it('carries resume recipes for the 26 resumable agents', () => {

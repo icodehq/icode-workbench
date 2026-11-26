@@ -41,6 +41,8 @@ describe('AssistantRunner', () => {
     const thread = store.insertThread({
       id: 'thread_main',
       kind: 'main',
+      groupThreadId: null,
+      botId: null,
       title: 'Mira',
       createdAt: now,
       updatedAt: now,

@@ -76,9 +76,9 @@ function input(overrides: Partial<AgentRowsInput> = {}): AgentRowsInput {
 }
 
 describe('agents and harnesses view model', () => {
-  it('builds the 45 agent harnesses and excludes the terminal', () => {
+  it('builds the 44 agent harnesses and excludes the terminal', () => {
     const rows = buildAgentRows(input({ managedHooks: managed([]) }))
-    expect(rows).toHaveLength(45)
+    expect(rows).toHaveLength(44)
     expect(rows.some((row) => row.id === 'shell')).toBe(false)
     expect(rows.find((row) => row.id === 'claude')?.status).toBe('missing')
     expect(rows.find((row) => row.id === 'claude')?.label).toBe('Claude Code')
@@ -158,7 +158,7 @@ describe('agents and harnesses view model', () => {
   it('hides cli-not-found providers until show-all', () => {
     const rows = buildAgentRows(input())
     expect(visibleAgentRows(rows, false)).toHaveLength(0)
-    expect(visibleAgentRows(rows, true)).toHaveLength(45)
+    expect(visibleAgentRows(rows, true)).toHaveLength(44)
   })
 
   it('reports a mixed master switch', () => {

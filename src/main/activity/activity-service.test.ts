@@ -64,7 +64,12 @@ describe('activity mapping', () => {
 
   it('marks a permission request as waiting and unread', () => {
     const next = applyActivityEvent(unknownActivity(1), event({ event: 'PermissionRequest' }), 2)
-    expect(next).toMatchObject({ state: 'waiting', unread: true, outcome: null })
+    expect(next).toMatchObject({
+      state: 'waiting',
+      unread: true,
+      outcome: null,
+      attentionKind: 'permission'
+    })
   })
 
   it('marks an explicit user-input tool as waiting', () => {
@@ -77,7 +82,12 @@ describe('activity mapping', () => {
       'request_permission'
     ]) {
       const next = applyActivityEvent(unknownActivity(1), event({ event: 'PreToolUse', toolName }), 2)
-      expect(next).toMatchObject({ state: 'waiting', unread: true, toolName })
+      expect(next).toMatchObject({
+        state: 'waiting',
+        unread: true,
+        toolName,
+        attentionKind: 'question'
+      })
     }
   })
 

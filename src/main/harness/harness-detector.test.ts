@@ -140,9 +140,6 @@ describe('harness detection', () => {
     expect(results.map((entry) => entry.harness)).toEqual([...HARNESS_IDS])
     expect(results.find((entry) => entry.harness === 'opencode')?.state).toBe('unavailable')
     expect(results.find((entry) => entry.harness === 'claude')?.state).toBe('available')
-    expect(results.find((entry) => entry.harness === 'claude-agent-teams')?.state).toBe(
-      'unavailable'
-    )
   })
 
   it('resolves a detection alias without inventing a canonical executable', async () => {
@@ -187,12 +184,6 @@ describe('harness detection', () => {
     expect(kiro.command.args).toEqual(['chat', '--tui'])
   })
 
-  it('reports a catalog-only entry as unsupported, not missing', async () => {
-    const { detector: d } = detector()
-    const result = await d.detect('claude-agent-teams')
-    expect(result).toMatchObject({ state: 'unavailable', reason: 'unsupported' })
-    expect(result.command).toBeNull()
-  })
 })
 
 describe('findExecutable', () => {

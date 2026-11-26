@@ -48,7 +48,7 @@ function suffixRegex(suffixes: readonly string[]): string {
  * `ignoreGlobs` is a misnomer in @parcel/watcher 2.5.6: the native binding
  * compiles each entry as a **regular expression** (the JS wrapper only builds
  * regexes for the `ignore` option). We therefore emit component regexes rather
- * than globs, matching Orca's approach and avoiding the pathological leading
+ * than globs, matching the reference implementation's approach and avoiding the pathological leading
  * double-star lookaheads Parcel 2.5.6 produces for glob patterns.
  *
  * A recursive Source Control watch opens two roots: the worktree (where `.git`
