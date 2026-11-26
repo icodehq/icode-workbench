@@ -146,12 +146,24 @@ export const HANDLED_CHANNELS: readonly string[] = [
   IPC_CHANNELS.botsStop,
   IPC_CHANNELS.botsNewConversation,
   IPC_CHANNELS.botsFocus,
+  IPC_CHANNELS.botsHome,
+  IPC_CHANNELS.botsAutomationsList,
+  IPC_CHANNELS.botsAutomationsCreate,
+  IPC_CHANNELS.botsAutomationsUpdate,
+  IPC_CHANNELS.botsAutomationsRemove,
+  IPC_CHANNELS.botsSkillsList,
+  IPC_CHANNELS.botsSkillsRead,
+  IPC_CHANNELS.botsSkillsSave,
+  IPC_CHANNELS.botsSkillsDelete,
   IPC_CHANNELS.botsSettingsGet,
   IPC_CHANNELS.botsSettingsSet,
-  IPC_CHANNELS.botsMemoryList,
-  IPC_CHANNELS.botsMemorySet,
-  IPC_CHANNELS.botsMemoryDelete,
-  IPC_CHANNELS.botsMemoryApprove,
+  IPC_CHANNELS.botsMemoryRead,
+  IPC_CHANNELS.botsMemoryAdd,
+  IPC_CHANNELS.botsMemoryEdit,
+  IPC_CHANNELS.botsMemoryForget,
+  IPC_CHANNELS.botsMemoryUndo,
+  IPC_CHANNELS.botsMemoryTopic,
+  IPC_CHANNELS.botsMemoryTidyUp,
   IPC_CHANNELS.groupsList,
   IPC_CHANNELS.groupsCreate,
   IPC_CHANNELS.groupsUpdate,
@@ -176,6 +188,8 @@ export const HANDLED_CHANNELS: readonly string[] = [
   IPC_CHANNELS.itemsLinkRemove,
   IPC_CHANNELS.itemsAttach,
   IPC_CHANNELS.itemsRemoveAttachment,
+  IPC_CHANNELS.permissionsList,
+  IPC_CHANNELS.permissionsRespond,
   IPC_CHANNELS.networkSettingsGet,
   IPC_CHANNELS.networkSetSettings,
   IPC_CHANNELS.updatesGet,
@@ -208,6 +222,7 @@ export const HANDLED_CHANNELS: readonly string[] = [
   IPC_CHANNELS.aiCancelCommitMessage,
   IPC_CHANNELS.wslListDistros,
   IPC_CHANNELS.terminalAttach,
+  IPC_CHANNELS.terminalPreview,
   IPC_CHANNELS.terminalWrite,
   IPC_CHANNELS.terminalResize,
   ...WINDOW_CONTROL_CHANNELS
@@ -255,6 +270,13 @@ export function createAppDispatcher(
     ...message,
     turns: turns.map(groupTurnPayload)
   })
+  const memoryRead = async (botId: string) => {
+    const [read, history] = await Promise.all([
+      runtime.memoryFiles.read(botId),
+      runtime.memoryFiles.history(botId)
+    ])
+    return { ...read, history }
+  }
   return createDispatcher({
     sidebarOrderGet: async () => getPersistence().sidebarOrder.get(),
     sidebarOrderSet: async (input) => getPersistence().sidebarOrder.set(input),
@@ -610,58 +632,57 @@ export function createAppDispatcher(
       runtime.botRuntimes.ensure(input.botId).service.focus(input.messageId)
       return Promise.resolve(null)
     },
+    botsAutomationsList: (input) =>
+      Promise.resolve(runtime.botAutomations.list(input.botId)),
+    botsAutomationsCreate: (input) =>
+      Promise.resolve(runtime.botAutomations.create(input)),
+    botsAutomationsUpdate: (input) =>
+      Promise.resolve(runtime.botAutomations.update(input.id, input)),
+    botsAutomationsRemove: (input) =>
+      Promise.resolve(runtime.botAutomations.remove(input.id)),
+    botsSkillsList: (input) => Promise.resolve(runtime.botSkills.list(input.botId)),
+    botsSkillsRead: (input) =>
+      Promise.resolve(runtime.botSkills.read(input.botId, input.folder)),
+    botsSkillsSave: (input) =>
+      Promise.resolve(runtime.botSkills.save(input.botId, input.folder, input.text)),
+    botsSkillsDelete: (input) =>
+      Promise.resolve(runtime.botSkills.remove(input.botId, input.folder)),
+    botsHome: async (input) => {
+      const path = runtime.bots.ensureHome(input.botId)
+      if (path === null) throw new Error('That bot has no home folder.')
+      const error = await shell.openPath(path)
+      return { path, opened: error === '' }
+    },
     botsSettingsGet: (input) => Promise.resolve(runtime.bots.settingsFor(input.botId)),
     botsSettingsSet: (input) =>
       Promise.resolve(
         runtime.bots.saveSettings(input.botId, input.settings as never)
       ),
-    botsMemoryList: (input) => {
-      const target =
-        input.scope === 'bot'
-          ? { scope: 'bot' as const, botId: input.botId }
-          : input.scope === 'project'
-            ? { scope: 'project' as const, repoId: input.repoId! }
-            : { scope: 'team' as const, teamId: input.teamId! }
-      return Promise.resolve(
-        runtime.botMemory.list(target, {
-          ...(input.status === undefined ? {} : { status: input.status })
-        })
-      )
+    botsMemoryRead: (input) => memoryRead(input.botId),
+    botsMemoryAdd: async (input) => {
+      await runtime.memoryFiles.add(input.botId, input.text, { kind: 'owner' })
+      return memoryRead(input.botId)
     },
-    botsMemorySet: (input) => {
-      const target =
-        input.scope === 'bot'
-          ? { scope: 'bot' as const, botId: input.botId }
-          : input.scope === 'project'
-            ? { scope: 'project' as const, repoId: input.repoId! }
-            : { scope: 'team' as const, teamId: input.teamId! }
-      const status = input.status ?? 'active'
-      const existing = runtime.botMemory.find(target, input.key, status)
-      if (existing !== null) {
-        runtime.botMemory.updateValue(existing.id, input.value, Date.now())
-        return Promise.resolve(runtime.botMemory.findById(existing.id))
-      }
-      return Promise.resolve(
-        runtime.botMemory.insert({
-          id: `mem_${globalThis.crypto.randomUUID()}`,
-          scope: target.scope,
-          botId: target.scope === 'bot' ? target.botId : null,
-          repoId: target.scope === 'project' ? target.repoId : null,
-          teamId: target.scope === 'team' ? target.teamId : null,
-          proposedByBotId: null,
-          key: input.key,
-          value: input.value,
-          status,
-          sourceTaskId: null,
-          createdAt: Date.now(),
-          updatedAt: Date.now()
-        })
-      )
+    botsMemoryEdit: async (input) => {
+      await runtime.memoryFiles.edit(input.botId, input.fact, input.text)
+      return memoryRead(input.botId)
     },
-    botsMemoryDelete: (input) =>
-      Promise.resolve(runtime.botMemory.remove(input.memoryId)),
-    botsMemoryApprove: (input) =>
-      Promise.resolve(runtime.botMemory.approve(input.memoryId, Date.now())),
+    botsMemoryForget: async (input) => {
+      await runtime.memoryFiles.forget(input.botId, input.fact)
+      return memoryRead(input.botId)
+    },
+    botsMemoryUndo: async (input) => {
+      await runtime.memoryFiles.undo(input.botId, input.rowId)
+      return memoryRead(input.botId)
+    },
+    botsMemoryTopic: async (input) => {
+      const text = await runtime.memoryFiles.readTopic(input.botId, input.name)
+      return text === null ? null : { name: input.name, text }
+    },
+    botsMemoryTidyUp: async (input) => {
+      await runtime.memoryFiles.tidyUp(input.botId)
+      return memoryRead(input.botId)
+    },
     groupsList: () =>
       Promise.resolve(runtime.groupChat.listGroups().map(groupSummaryPayload)),
     groupsCreate: async (input) => {
@@ -755,6 +776,9 @@ export function createAppDispatcher(
     itemsAttach: (input) => Promise.resolve(runtime.items.attach(input)),
     itemsRemoveAttachment: (input) =>
       Promise.resolve(runtime.items.removeAttachment(input.taskId, input.id)),
+    permissionsList: (input) => Promise.resolve(runtime.permissions.list(input.groupId)),
+    permissionsRespond: (input) =>
+      Promise.resolve(runtime.permissions.respond(input.id, input.decision)),
     networkSettingsGet: () => Promise.resolve(runtime.network.settings()),
     networkSetSettings: (input) =>
       runtime.network.saveSettings(input.settings as never),
@@ -831,6 +855,7 @@ export function createAppDispatcher(
     }),
     wslListDistros: () => runtime.listWslDistros(),
     terminalAttach: (input) => runtime.sessions.attach(input.sessionId),
+    terminalPreview: (input) => runtime.sessions.preview(input.sessionId),
     terminalWrite: async (input) => {
       await runtime.sessions.write(input.sessionId, input.incarnationId, input.data)
       return null
@@ -1024,6 +1049,10 @@ export function registerAppIpc(
       event
     })
   })
+  const unsubscribePermissions = runtime.permissions.subscribe(() => {
+    broadcast(IPC_CHANNELS.permissionsEvent, { type: 'changed' })
+  })
+
   const unsubscribeGroups = runtime.groupChat.subscribe((event) => {
     // Service messages carry no turns; the wire contract pairs every message
     // with its turn list, and later turn events fill it in.
@@ -1065,6 +1094,7 @@ export function registerAppIpc(
     unsubscribeClone()
     unsubscribeBotChanges()
     unsubscribeBotChat()
+    unsubscribePermissions()
     unsubscribeGroups()
     unsubscribeFilesChanged()
     unsubscribeGitStatus()

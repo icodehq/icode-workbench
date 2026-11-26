@@ -9,7 +9,7 @@ export type GroupTaskMilestone = {
 
 type NoticeTask = Pick<
   TaskRecord,
-  'id' | 'title' | 'status' | 'approval' | 'changesRequestedAt' | 'reviewDecision'
+  'id' | 'title' | 'status' | 'approval' | 'changesRequestedAt' | 'reviewDecision' | 'updatedAt'
 >
 
 /**
@@ -36,11 +36,13 @@ export function taskGroupMilestone(
       body: mainT('notifications.groupTaskQueued', { name: botName, title })
     }
   }
-  if (
-    task.status === 'dispatching' ||
-    task.status === 'running' ||
-    task.status === 'waiting'
-  ) {
+  if (task.status === 'waiting') {
+    return {
+      key: `task:${task.id}:waiting:${String(task.updatedAt)}`,
+      body: mainT('notifications.groupTaskWaiting', { name: botName, title })
+    }
+  }
+  if (task.status === 'dispatching' || task.status === 'running') {
     return {
       key: `task:${task.id}:started`,
       body: mainT('notifications.groupTaskStarted', { name: botName, title })

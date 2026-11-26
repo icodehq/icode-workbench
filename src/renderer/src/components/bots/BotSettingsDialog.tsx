@@ -2,11 +2,12 @@ import { useEffect, useRef, useState } from 'react'
 import type { BotSummaryPayload } from '../../../../shared/schemas/bots'
 import type { AssistantSettingsPayload } from '../../../../shared/schemas/assistant'
 import type { GroupSummaryPayload } from '../../../../shared/schemas/groups'
-import type { RepositorySummary } from '../../../../shared/schemas/ipc'
 import type { BotsWorkspaceState } from '../../state/use-bots'
 import type { Notice } from '../../state/workspace'
 import AssistantSettingsCard from '../AssistantSettingsCard'
 import BotMemoryPane from './BotMemoryPane'
+import BotSkillsPane from './BotSkillsPane'
+import BotAutomationsPane from './BotAutomationsPane'
 import AssistantAvatar from '../AssistantAvatar'
 import { useT } from '../../i18n/use-i18n'
 
@@ -16,18 +17,18 @@ export default function BotSettingsDialog({
   bot,
   state,
   groups,
-  repos,
   notify,
   onClose
 }: {
   bot: BotSummaryPayload
   state: BotsWorkspaceState
   groups: GroupSummaryPayload[]
-  repos: RepositorySummary[]
   notify: (notice: Notice) => void
   onClose: () => void
 }): React.JSX.Element {
-  const [tab, setTab] = useState<'identity' | 'agent' | 'access' | 'memory'>('identity')
+  const [tab, setTab] = useState<'identity' | 'agent' | 'access' | 'memory' | 'skills' | 'automations'>(
+    'identity'
+  )
   const [agentSettings, setAgentSettings] = useState<AssistantSettingsPayload | null>(null)
   const [name, setName] = useState(bot.name)
   const [role, setRole] = useState(bot.role)
@@ -145,7 +146,9 @@ export default function BotSettingsDialog({
               { id: 'identity' as const, label: t('bot.settings.identity') },
               { id: 'agent' as const, label: t('bot.settings.agent') },
               { id: 'access' as const, label: t('bot.settings.access') },
-              { id: 'memory' as const, label: t('bot.settings.memory') }
+              { id: 'memory' as const, label: t('bot.settings.memory') },
+              { id: 'skills' as const, label: t('bot.settings.skills') },
+              { id: 'automations' as const, label: t('bot.settings.automations') }
             ]
           ).map((entry) => (
             <button
@@ -369,13 +372,12 @@ export default function BotSettingsDialog({
                 </p>
               </div>
             </div>
+          ) : tab === 'memory' ? (
+            <BotMemoryPane bot={bot} notify={notify} />
+          ) : tab === 'skills' ? (
+            <BotSkillsPane bot={bot} notify={notify} />
           ) : (
-            <BotMemoryPane
-              bot={bot}
-              repos={repos}
-              groups={groups.map((group) => ({ id: group.id, name: group.name }))}
-              notify={notify}
-            />
+            <BotAutomationsPane bot={bot} notify={notify} />
           )}
         </div>
 

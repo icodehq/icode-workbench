@@ -787,6 +787,16 @@ describe('attach', () => {
     expect(payload.snapshot).toContain('hello')
   })
 
+  it('reads a preview without changing the stored observation', async () => {
+    const f = await withRepo()
+    const created = await f.service.create(createInput(f))
+    f.host.emitData(created.id, 'permission?\r\n')
+    const before = f.stores.sessions.findById(created.id as never)?.observation
+    const payload = await f.service.preview(created.id)
+    expect(payload.snapshot).toContain('permission?')
+    expect(f.stores.sessions.findById(created.id as never)?.observation).toEqual(before)
+  })
+
   it('marks the session unavailable when the host lost it', async () => {
     const f = await withRepo()
     const created = await f.service.create(createInput(f))

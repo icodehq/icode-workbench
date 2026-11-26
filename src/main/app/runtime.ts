@@ -66,14 +66,22 @@ import { BotStore } from '../persistence/bot-store'
 import { GroupStore } from '../persistence/group-store'
 import { ItemStore } from '../items/item-store'
 import { ItemService } from '../items/item-service'
+import { MemoryService } from '../memory/memory-service'
+import { migrateLegacyMemory } from '../memory/legacy-memory-migration'
+import { PeerMailService } from '../bots/peer-mail-service'
+import { BotAutomationService } from '../bots/bot-automation-service'
+import { BotAutomationStore } from '../bots/bot-automation-store'
+import { PeerMailStore } from '../bots/peer-mail-store'
 import { BotMemoryStore } from '../persistence/bot-memory-store'
 import { BotService } from '../bots/bot-service'
+import { BotSkillService } from '../bots/bot-skills'
 import { GroupChatService } from '../bots/group-chat-service'
 import { composeGroupTurnPrompt } from '../bots/group-turn-prompt'
 import { taskGroupMilestone } from '../bots/group-task-notice'
 import { BotRuntimeRegistry } from '../bots/bot-runtime'
 import { buildBotTaskPrompt } from '../bots/bot-task-prompt'
 import type { TaskRecord } from '../../shared/domain/task'
+import { itemStatus } from '../../shared/domain/item'
 import { presentWindow } from '../window-present'
 import { AGENT_SUBMIT_DELAY_MS, buildAgentPromptPaste } from '../../shared/agent-prompt'
 import {
@@ -81,6 +89,7 @@ import {
   notificationTaskId
 } from '../assistant/notification-destination'
 import { AssistantNotifier } from '../assistant/assistant-notifier'
+import { PermissionService } from '../permissions/permission-service'
 import { ActivityService } from '../activity/activity-service'
 import type { ActivityAttentionKind, ActivitySource } from '../../shared/domain/activity'
 import { ActivityHookServer } from '../activity/hook-server'
@@ -185,12 +194,18 @@ export type AppRuntime = {
   /** Persistent bot identities and their lazy chat runtimes. */
   bots: BotService
   botRuntimes: BotRuntimeRegistry
-  /** Scoped bot/project/group memory. */
-  botMemory: BotMemoryStore
+  /** Each bot's MEMORY.md and its change history. */
+  memoryFiles: MemoryService
+  /** Each bot's own skills folder. */
+  botSkills: BotSkillService
+  /** Recurring prompts that wake a bot's home chat. */
+  botAutomations: BotAutomationService
   /** Bot groups, threads, room turns and hand-offs. */
   groupChat: GroupChatService
   /** Owner-facing task conversation: comments, questions, links and snooze. */
   items: ItemService
+  /** Claude PermissionRequests from group-task worker sessions. */
+  permissions: PermissionService
   /** Subscribe to bot changes so a window can re-read. */
   onBotChange: (listener: () => void) => () => void
   /** Subscribe to task changes so a window can re-read the queue. */
@@ -298,6 +313,7 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     | ((question: { task: TaskRecord; body: string; dedupeKey: string }) => void)
     | null = null
   let assistantNotifier: AssistantNotifier | null = null
+  let permissionService: PermissionService | null = null
   /** Read by ActivityService; updated by the integration service below. */
   let pluginActivityEnabled = true
   const activity = new ActivityService({
@@ -337,6 +353,12 @@ export async function startAppRuntime(): Promise<AppRuntime> {
   const activityServer = new ActivityHookServer({
     socketPath: activitySocketPath,
     ingest: (event) => activity.ingest(event),
+    onPermissionRequest: (event) =>
+      permissionService?.request({
+        sessionId: event.sessionId,
+        toolName: event.toolName,
+        input: event.toolInput
+      }) ?? null,
     onRejected: (reason, detail) => {
       // A zero-byte connection cannot be the shipped hook: it either sends a
       // frame or exits before connecting. Windows named pipes are world-open,
@@ -1176,6 +1198,11 @@ export async function startAppRuntime(): Promise<AppRuntime> {
   const assistantPolicy = new AssistantPolicy({ tasks: taskStore, now: () => Date.now() })
   const newAssistantId = (prefix: string): string =>
     `${prefix}_${globalThis.crypto.randomUUID()}`
+  permissionService = new PermissionService({
+    tasks: taskStore,
+    now: () => Date.now(),
+    newId: newAssistantId
+  })
 
   const botStore = new BotStore(persistence.database)
   const groupStore = new GroupStore(persistence.database)
@@ -1203,21 +1230,40 @@ export async function startAppRuntime(): Promise<AppRuntime> {
       process.stderr.write(`[icode] worker question: ${String(error)}\n`)
     }
   }
-  const botMemoryStore = new BotMemoryStore(persistence.database)
+  const memoryFiles = new MemoryService({ dataDir: app.getPath('userData') })
+  const botSkills = new BotSkillService(app.getPath('userData'))
+  memoryFiles.useMigration(
+    migrateLegacyMemory({
+      bots: botStore,
+      legacy: new BotMemoryStore(persistence.database),
+      files: memoryFiles,
+      now: () => Date.now()
+    }).catch((error: unknown) => {
+      process.stderr.write(`[icode] bot memory migration: ${String(error)}\n`)
+    })
+  )
   const botService = new BotService({
     database: persistence.database,
     assistants: assistantStore,
     bots: botStore,
     groups: groupStore,
-    memory: botMemoryStore,
+    dataDir: app.getPath('userData'),
     tasks: taskStore,
     newId: newAssistantId,
     now: () => Date.now()
   })
+  let peerMailService: PeerMailService | null = null
+  const peerMailPort = {
+    send: (input: { fromBotId: string; to: string; body: string; depth?: number }) => {
+      if (peerMailService === null) throw new Error('Bot mail is not ready.')
+      return peerMailService.send(input)
+    }
+  }
   const botRuntimes = new BotRuntimeRegistry({
     bots: botStore,
     botService,
-    memory: botMemoryStore,
+    memoryFiles,
+    peerMail: peerMailPort,
     groups: groupStore,
     items: itemService,
     store: assistantStore,
@@ -1243,6 +1289,71 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     }
   })
   botService.setStatusProvider((botId) => botRuntimes.statusFor(botId))
+  const peerMail = new PeerMailService({
+    store: new PeerMailStore(persistence.database),
+    botInfo: (botId) => {
+      const bot = botStore.findById(botId)
+      return bot === null
+        ? null
+        : {
+            id: bot.id,
+            name: bot.name,
+            paused: bot.pausedAt !== null,
+            archived: bot.archivedAt !== null
+          }
+    },
+    findBotByName: (name) => {
+      const bot = botStore.findByName(name)
+      return bot === null
+        ? null
+        : {
+            id: bot.id,
+            name: bot.name,
+            paused: bot.pausedAt !== null,
+            archived: bot.archivedAt !== null
+          }
+    },
+    deliver: async (botId, prompt) => {
+      const runtime = botRuntimes.ensure(botId)
+      const { runId } = await runtime.service.send({ text: prompt, role: 'system' })
+      const completion = await runtime.waitForRun(runId)
+      const answer =
+        [...completion.messages]
+          .reverse()
+          .find(
+            (message) =>
+              message.role === 'assistant' &&
+              message.kind !== 'error' &&
+              message.kind !== 'status'
+          )?.body ?? null
+      return { answer }
+    },
+    now: () => Date.now(),
+    newId: newAssistantId,
+    onError: (error) => {
+      process.stderr.write(`[icode] bot mail: ${String(error)}\n`)
+    }
+  })
+  peerMailService = peerMail
+  peerMail.start()
+  const botAutomations = new BotAutomationService({
+    store: new BotAutomationStore(persistence.database),
+    botInfo: (botId) => {
+      const bot = botStore.findById(botId)
+      return bot === null
+        ? null
+        : { id: bot.id, paused: bot.pausedAt !== null, archived: bot.archivedAt !== null }
+    },
+    deliver: async (botId, prompt) => {
+      await botRuntimes.ensure(botId).service.send({ text: prompt, role: 'system' })
+    },
+    now: () => Date.now(),
+    newId: newAssistantId,
+    onError: (error) => {
+      process.stderr.write(`[icode] bot automation: ${String(error)}\n`)
+    }
+  })
+  botAutomations.start()
   const groupChat = new GroupChatService({
     store: groupStore,
     botInfo: (botId) => {
@@ -1316,13 +1427,7 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     if (task.botId === null) return task.prompt
     const bot = botService.getBot(task.botId)
     if (bot === null) return task.prompt
-    const memory = [
-      ...botMemoryStore.list({ scope: 'bot', botId: bot.id }, { limit: 30 }),
-      ...botMemoryStore.list({ scope: 'project', repoId: task.repoId }, { limit: 15 }),
-      ...(task.groupId === null
-        ? []
-        : botMemoryStore.list({ scope: 'team', teamId: task.groupId }, { limit: 15 }))
-    ].slice(0, 50)
+    const memory = await memoryFiles.promptMemory(bot.id)
     return buildBotTaskPrompt({
       bot,
       memory,
@@ -1480,11 +1585,64 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     }
   }
 
+  /**
+   * A bot's closed work leaves a dated line in memory/journal/YYYY-MM.md, so
+   * finished items stay findable after MEMORY.md moves on. Both a done item and
+   * a canceled one are closes; the file write dedupes by date and task.
+   */
+  const journalWrites = new Set<string>()
+  const syncBotJournals = (): void => {
+    for (const task of taskStore.list({ includeAttempts: true, limit: 500 })) {
+      if (task.botId === null) continue
+      const status = itemStatus(task)
+      if (status !== 'done' && status !== 'canceled') continue
+      const key = `task:${task.id}`
+      const writeKey = `${task.botId}:${key}:${status}`
+      if (journalWrites.has(writeKey)) continue
+      journalWrites.add(writeKey)
+      void memoryFiles
+        .appendJournal(task.botId, {
+          key,
+          status,
+          title: task.title,
+          at: task.updatedAt
+        })
+        .then(() => undefined)
+        .catch((error: unknown) => {
+          journalWrites.delete(writeKey)
+          process.stderr.write(`[icode] bot journal: ${String(error)}\n`)
+        })
+    }
+  }
+
+  /**
+   * Keeps every bot's MEMORY.md at its index cap without a model: the oldest
+   * facts move to memory/archive.md and Undo can put them back. Runs once at
+   * startup and every six hours.
+   */
+  const tidyBotMemory = async (): Promise<void> => {
+    for (const bot of botService.listSummaries()) {
+      try {
+        const loaded = await memoryFiles.promptLines(bot.id)
+        if (loaded.omitted > 0) await memoryFiles.tidyUp(bot.id)
+      } catch (error) {
+        process.stderr.write(`[icode] bot memory tidy-up: ${String(error)}\n`)
+      }
+    }
+  }
+  const tidyTimer = setInterval(() => void tidyBotMemory(), 6 * 60 * 60 * 1000)
+  tidyTimer.unref?.()
+  void tidyBotMemory()
+
+  // Backfill closes that predate the journal; the file write dedupes.
+  syncBotJournals()
+
   const taskListeners = new Set<() => void>()
   const emitTaskChange = (): void => {
     supervisorService?.notifyTaskChange()
     assistantNotifier?.onChange()
     syncGroupTaskNotices()
+    syncBotJournals()
     for (const listener of taskListeners) {
       try {
         listener()
@@ -1738,6 +1896,9 @@ export async function startAppRuntime(): Promise<AppRuntime> {
       // Stop in-flight clones and remove their partial destinations.
       clone.cancelAll()
       assistantNotifier?.stop()
+      peerMail.stop()
+      botAutomations.stop()
+      clearInterval(tidyTimer)
       botRuntimes.stopAll()
       taskScheduler.stop()
       taskDispatcher.stop()
@@ -1793,9 +1954,12 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     supervisor: supervisorService!,
     bots: botService,
     botRuntimes,
-    botMemory: botMemoryStore,
+    memoryFiles,
+    botSkills,
+    botAutomations,
     groupChat,
     items: itemService,
+    permissions: permissionService!,
     onBotChange: (listener) => {
       botListeners.add(listener)
       return () => botListeners.delete(listener)

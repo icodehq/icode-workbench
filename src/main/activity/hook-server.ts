@@ -7,30 +7,58 @@ import { isNamedPipe } from '../../shared/domain/endpoint'
 
 export type ActivityIngestResult = 'accepted' | 'duplicate' | 'stale' | 'unknown-session' | 'stale-incarnation'
 
+/** Claude's PermissionRequest answer; null asks Claude to fall back to the terminal. */
+export type ActivityPermissionDecision =
+  | { behavior: 'allow' }
+  | { behavior: 'deny'; message: string }
+
 export type ActivityHookServerOptions = {
   socketPath: string
   ingest: (event: ActivityHookEvent) => ActivityIngestResult
+  /**
+   * Holds a Claude PermissionRequest until a person answers. The returned
+   * promise resolves with the decision; null answers `{}` immediately.
+   * Only events whose hook waits (`permissionHold`) are held.
+   */
+  onPermissionRequest?: (
+    event: ActivityHookEvent
+  ) => Promise<ActivityPermissionDecision | null> | null
   onRejected?: (reason: string, detail?: string) => void
   /** Per-connection read budget; a stuck client must not hold a socket forever. */
   readTimeoutMs?: number
+  /** How long a permission request stays open before answering `{}`. */
+  permissionHoldMs?: number
 }
 
 const DEFAULT_READ_TIMEOUT_MS = 2000
+/** Past Claude's 2:00 auto-block, inside the hook script's 126 s wait. */
+const DEFAULT_PERMISSION_HOLD_MS = 122_000
+
+function permissionReply(decision: ActivityPermissionDecision | null): string {
+  if (decision === null) return '{}'
+  return JSON.stringify({
+    hookSpecificOutput: { hookEventName: 'PermissionRequest', decision }
+  })
+}
 
 /**
  * Unix-socket ingress for Claude hook payloads.
  *
  * Framing is one JSON object per connection, capped at 8 KiB. The connection is
  * closed as soon as the payload is read or the budget is exceeded, so a broken
- * hook can never pin the listener. Nothing here touches sessions, PTYs, or
- * lifecycle state.
+ * hook can never pin the listener. A PermissionRequest whose hook script waits
+ * is the one exception: it stays open until a decision or the hold budget.
  */
 export class ActivityHookServer {
   private server: Server | null = null
   private readonly readTimeoutMs: number
+  private readonly permissionHoldMs: number
+  /** Open permission holds, drained with `{}` before the server stops. */
+  private readonly holds = new Set<() => void>()
 
   constructor(private readonly options: ActivityHookServerOptions) {
     this.readTimeoutMs = options.readTimeoutMs ?? DEFAULT_READ_TIMEOUT_MS
+    this.permissionHoldMs = options.permissionHoldMs ?? DEFAULT_PERMISSION_HOLD_MS
   }
 
   async start(): Promise<void> {
@@ -43,7 +71,9 @@ export class ActivityHookServer {
       if (existsSync(this.options.socketPath)) rmSync(this.options.socketPath, { force: true })
     }
 
-    const server = createServer((socket) => this.handleConnection(socket))
+    // A PermissionRequest hook half-closes after its frame and waits for the
+    // decision; keep the writable side open so the answer can still be sent.
+    const server = createServer({ allowHalfOpen: true }, (socket) => this.handleConnection(socket))
     this.server = server
     await new Promise<void>((resolve, reject) => {
       server.once('error', reject)
@@ -63,6 +93,8 @@ export class ActivityHookServer {
   }
 
   async stop(): Promise<void> {
+    for (const drain of [...this.holds]) drain()
+    this.holds.clear()
     const server = this.server
     this.server = null
     if (server) {
@@ -78,22 +110,22 @@ export class ActivityHookServer {
     let size = 0
     let settled = false
 
-    const finish = (reason?: string): void => {
+    const reject = (reason: string): void => {
       if (settled) return
       settled = true
       socket.destroy()
-      if (reason) this.options.onRejected?.(reason)
+      this.options.onRejected?.(reason)
     }
 
-    const timer = setTimeout(() => finish('read-timeout'), this.readTimeoutMs)
+    const timer = setTimeout(() => reject('read-timeout'), this.readTimeoutMs)
     timer.unref?.()
 
-    socket.on('error', () => finish('socket-error'))
+    socket.on('error', () => reject('socket-error'))
     socket.on('data', (chunk: Buffer) => {
       if (settled) return
       size += chunk.length
       if (size > ACTIVITY_MAX_PAYLOAD_BYTES) {
-        finish('payload-too-large')
+        reject('payload-too-large')
         return
       }
       chunks.push(chunk)
@@ -101,38 +133,98 @@ export class ActivityHookServer {
     socket.on('end', () => {
       clearTimeout(timer)
       if (settled) return
-      const raw = Buffer.concat(chunks).toString('utf8')
-      this.process(raw)
-      finish()
+      const processed = this.process(Buffer.concat(chunks).toString('utf8'))
+      if (processed === null) {
+        settled = true
+        socket.destroy()
+        return
+      }
+      if (processed.event.event === 'PermissionRequest' && processed.event.permissionHold) {
+        const pending =
+          processed.result === 'accepted'
+            ? (this.options.onPermissionRequest?.(processed.event) ?? null)
+            : null
+        if (pending !== null) {
+          this.hold(socket, pending)
+          return
+        }
+        // The hook is waiting for an answer. `{}` makes Claude ask in the
+        // terminal, exactly as it would without iCode's hook.
+        settled = true
+        socket.end(permissionReply(null))
+        return
+      }
+      settled = true
+      socket.destroy()
     })
   }
 
-  private process(raw: string): void {
+  /** Keeps the hook open until the decision, the budget, or a hang-up. */
+  private hold(
+    socket: Socket,
+    pending: Promise<ActivityPermissionDecision | null>
+  ): void {
+    let settled = false
+    let timer: NodeJS.Timeout | null = null
+    const drain = (): void => finish(null)
+    const finish = (decision: ActivityPermissionDecision | null): void => {
+      if (settled) return
+      settled = true
+      this.holds.delete(drain)
+      if (timer !== null) clearTimeout(timer)
+      try {
+        socket.end(permissionReply(decision))
+      } catch {
+        socket.destroy()
+      }
+    }
+    this.holds.add(drain)
+    timer = setTimeout(() => finish(null), this.permissionHoldMs)
+    timer.unref?.()
+    pending.then((decision) => finish(decision)).catch(() => finish(null))
+    socket.once('close', () => {
+      if (settled) return
+      settled = true
+      if (timer !== null) clearTimeout(timer)
+    })
+    socket.once('error', () => {
+      if (settled) return
+      settled = true
+      if (timer !== null) clearTimeout(timer)
+    })
+  }
+
+  private process(
+    raw: string
+  ): { event: ActivityHookEvent; result: ActivityIngestResult } | null {
     if (raw.trim().length === 0) {
       this.options.onRejected?.('empty-payload')
-      return
+      return null
     }
     let parsed: unknown
     try {
       parsed = JSON.parse(raw)
     } catch {
       this.options.onRejected?.('invalid-json')
-      return
+      return null
     }
     const result = activityHookPayloadSchema.safeParse(parsed)
     if (!result.success) {
       this.options.onRejected?.('invalid-payload', result.error.issues[0]?.path.join('.'))
-      return
+      return null
     }
     const payload: ActivityHookPayload = result.data
-    this.options.ingest({
+    const event: ActivityHookEvent = {
       event: payload.event,
       sessionId: payload.sessionId,
       incarnationId: payload.incarnationId,
       claudeSessionId: payload.claudeSessionId,
       promptId: payload.promptId,
       toolName: payload.toolName,
+      toolInput: payload.toolInput ?? null,
+      permissionHold: payload.permissionHold,
       sentAt: payload.sentAt
-    })
+    }
+    return { event, result: this.options.ingest(event) }
   }
 }

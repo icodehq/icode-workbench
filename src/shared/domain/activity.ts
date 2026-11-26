@@ -86,6 +86,10 @@ export type ActivityHookEvent = {
   claudeSessionId: string | null
   promptId: string | null
   toolName: string | null
+  /** Bounded JSON of a PermissionRequest's tool input; never persisted. */
+  toolInput: string | null
+  /** True when the hook waits for a PermissionRequest decision on this socket. */
+  permissionHold: boolean
   /** Monotonic-per-process send time, used only for ordering. */
   sentAt: number
 }

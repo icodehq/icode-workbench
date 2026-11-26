@@ -74,6 +74,18 @@ import type {
   botCreateInputSchema,
   botUpdateInputSchema,
   botFocusInputSchema,
+  botHomeInputSchema,
+  botHomeResultSchema,
+  botAutomationCreateInputSchema,
+  botAutomationRemoveInputSchema,
+  botAutomationUpdateInputSchema,
+  botAutomationsInputSchema,
+  BotAutomationPayload,
+  botSkillDeleteInputSchema,
+  botSkillReadInputSchema,
+  botSkillSaveInputSchema,
+  botSkillsInputSchema,
+  BotSkillPayload,
   botMarkReadInputSchema,
   botMessagesInputSchema,
   botConversationsInputSchema,
@@ -84,15 +96,21 @@ import type {
   botSettingsInputSchema,
   botStateInputSchema,
   botStopInputSchema,
-  botMemoryApproveInputSchema,
-  botMemoryDeleteInputSchema,
-  botMemoryListInputSchema,
-  botMemorySetInputSchema,
   BotEventPayload,
-  BotMemoryEntryPayload,
   BotRecordPayload,
   BotSummaryPayload
 } from './schemas/bots'
+import type {
+  memoryAddInputSchema,
+  memoryEditInputSchema,
+  memoryForgetInputSchema,
+  memoryReadInputSchema,
+  memoryTidyUpInputSchema,
+  memoryTopicInputSchema,
+  memoryUndoInputSchema,
+  MemoryReadResultPayload,
+  MemoryTopicResultPayload
+} from './schemas/memory'
 import type {
   groupCreateInputSchema,
   groupArchiveInputSchema,
@@ -135,6 +153,11 @@ import type {
   TaskCommentPayload,
   TaskLinkPayload
 } from './schemas/items'
+import type {
+  PendingPermissionPayload,
+  PermissionsListInput,
+  PermissionsRespondInput
+} from './schemas/permissions'
 import type {
   NetworkProxySettingsPayload,
   networkSetSettingsInputSchema
@@ -662,6 +685,9 @@ export type IcodeProductApi = {
     attach: (
       input: z.infer<typeof terminalAttachInputSchema>
     ) => Promise<IpcResult<TerminalAttachPayload>>
+    preview: (
+      input: z.infer<typeof terminalAttachInputSchema>
+    ) => Promise<IpcResult<TerminalAttachPayload>>
     write: (input: z.infer<typeof terminalWriteInputSchema>) => Promise<IpcResult<null>>
     resize: (input: z.infer<typeof terminalResizeInputSchema>) => Promise<IpcResult<null>>
   }
@@ -734,6 +760,37 @@ export type IcodeProductApi = {
         input: z.infer<typeof botNewConversationInputSchema>
       ) => Promise<IpcResult<AssistantNewConversationResult>>
       focus: (input: z.infer<typeof botFocusInputSchema>) => Promise<IpcResult<null>>
+      home: (
+        input: z.infer<typeof botHomeInputSchema>
+      ) => Promise<IpcResult<z.infer<typeof botHomeResultSchema>>>
+      automations: {
+        list: (
+          input: z.infer<typeof botAutomationsInputSchema>
+        ) => Promise<IpcResult<BotAutomationPayload[]>>
+        create: (
+          input: z.infer<typeof botAutomationCreateInputSchema>
+        ) => Promise<IpcResult<BotAutomationPayload>>
+        update: (
+          input: z.infer<typeof botAutomationUpdateInputSchema>
+        ) => Promise<IpcResult<BotAutomationPayload | null>>
+        remove: (
+          input: z.infer<typeof botAutomationRemoveInputSchema>
+        ) => Promise<IpcResult<boolean>>
+      }
+      skills: {
+        list: (
+          input: z.infer<typeof botSkillsInputSchema>
+        ) => Promise<IpcResult<BotSkillPayload[]>>
+        read: (
+          input: z.infer<typeof botSkillReadInputSchema>
+        ) => Promise<IpcResult<string | null>>
+        save: (
+          input: z.infer<typeof botSkillSaveInputSchema>
+        ) => Promise<IpcResult<BotSkillPayload>>
+        remove: (
+          input: z.infer<typeof botSkillDeleteInputSchema>
+        ) => Promise<IpcResult<boolean>>
+      }
       settings: (
         input: z.infer<typeof botSettingsInputSchema>
       ) => Promise<IpcResult<AssistantSettingsPayload>>
@@ -741,16 +798,27 @@ export type IcodeProductApi = {
         input: z.infer<typeof botSetSettingsInputSchema>
       ) => Promise<IpcResult<AssistantSettingsPayload>>
       memory: {
-        list: (
-          input: z.infer<typeof botMemoryListInputSchema>
-        ) => Promise<IpcResult<BotMemoryEntryPayload[]>>
-        set: (
-          input: z.infer<typeof botMemorySetInputSchema>
-        ) => Promise<IpcResult<BotMemoryEntryPayload>>
-        remove: (input: z.infer<typeof botMemoryDeleteInputSchema>) => Promise<IpcResult<boolean>>
-        approve: (
-          input: z.infer<typeof botMemoryApproveInputSchema>
-        ) => Promise<IpcResult<BotMemoryEntryPayload | null>>
+        read: (
+          input: z.infer<typeof memoryReadInputSchema>
+        ) => Promise<IpcResult<MemoryReadResultPayload>>
+        add: (
+          input: z.infer<typeof memoryAddInputSchema>
+        ) => Promise<IpcResult<MemoryReadResultPayload>>
+        edit: (
+          input: z.infer<typeof memoryEditInputSchema>
+        ) => Promise<IpcResult<MemoryReadResultPayload>>
+        forget: (
+          input: z.infer<typeof memoryForgetInputSchema>
+        ) => Promise<IpcResult<MemoryReadResultPayload>>
+        undo: (
+          input: z.infer<typeof memoryUndoInputSchema>
+        ) => Promise<IpcResult<MemoryReadResultPayload>>
+        topic: (
+          input: z.infer<typeof memoryTopicInputSchema>
+        ) => Promise<IpcResult<MemoryTopicResultPayload>>
+        tidyUp: (
+          input: z.infer<typeof memoryTidyUpInputSchema>
+        ) => Promise<IpcResult<MemoryReadResultPayload>>
       }
       onEvent: (listener: (event: BotEventPayload) => void) => () => void
     }
@@ -822,6 +890,13 @@ export type IcodeProductApi = {
       removeAttachment: (
         input: z.infer<typeof itemsRemoveAttachmentInputSchema>
       ) => Promise<IpcResult<boolean>>
+    }
+    permissions: {
+      list: (
+        input?: PermissionsListInput
+      ) => Promise<IpcResult<PendingPermissionPayload[]>>
+      respond: (input: PermissionsRespondInput) => Promise<IpcResult<boolean>>
+      onEvent: (listener: () => void) => () => void
     }
     schedules: {
       list: (input?: z.infer<typeof scheduleListInputSchema>) => Promise<IpcResult<TaskSchedulePayload[]>>

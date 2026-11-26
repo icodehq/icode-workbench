@@ -116,6 +116,58 @@ describe('hook ingress', () => {
     running.length = 0
   })
 
+  it('holds a waiting PermissionRequest until its decision', async () => {
+    const path = socketPath()
+    let resolveDecision: (value: { behavior: 'allow' } | null) => void = () => undefined
+    const decision = new Promise<{ behavior: 'allow' } | null>((resolve) => {
+      resolveDecision = resolve
+    })
+    const server = new ActivityHookServer({
+      socketPath: path,
+      ingest: () => 'accepted',
+      onPermissionRequest: () => decision,
+      readTimeoutMs: 300,
+      permissionHoldMs: 1_000
+    })
+    running.push(server)
+    await server.start()
+    const response = send(
+      path,
+      JSON.stringify({
+        ...JSON.parse(VALID),
+        event: 'PermissionRequest',
+        toolName: 'Bash',
+        toolInput: '{\"command\":\"ls\"}',
+        permissionHold: true
+      })
+    )
+    await new Promise((done) => setTimeout(done, 20))
+    resolveDecision({ behavior: 'allow' })
+    await expect(response).resolves.toContain('"behavior":"allow"')
+  })
+
+  it('answers an unanswered PermissionRequest with an empty decision', async () => {
+    const path = socketPath()
+    const server = new ActivityHookServer({
+      socketPath: path,
+      ingest: () => 'accepted',
+      onPermissionRequest: () => new Promise(() => undefined),
+      readTimeoutMs: 300,
+      permissionHoldMs: 20
+    })
+    running.push(server)
+    await server.start()
+    const response = await send(
+      path,
+      JSON.stringify({
+        ...JSON.parse(VALID),
+        event: 'PermissionRequest',
+        permissionHold: true
+      })
+    )
+    expect(response).toBe('{}')
+  })
+
   it('propagates the ingest verdict without throwing', async () => {
     const { server, path, events } = start(() => 'accepted')
     await server.start()

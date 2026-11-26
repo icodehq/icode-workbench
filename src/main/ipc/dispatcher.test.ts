@@ -134,12 +134,65 @@ function services(overrides: Partial<DispatcherServices> = {}): DispatcherServic
     botsStop: vi.fn(async () => null),
     botsNewConversation: vi.fn(async () => ({ message: null })),
     botsFocus: vi.fn(async () => null),
+    botsHome: vi.fn(async () => ({ path: '/tmp/bot', opened: true })),
+    botsAutomationsList: vi.fn(async () => []),
+    botsAutomationsCreate: vi.fn(async () => ({ id: 'automation_1' })),
+    botsAutomationsUpdate: vi.fn(async () => ({ id: 'automation_1' })),
+    botsAutomationsRemove: vi.fn(async () => true),
+    botsSkillsList: vi.fn(async () => []),
+    botsSkillsRead: vi.fn(async () => null),
+    botsSkillsSave: vi.fn(async () => ({
+      name: 'Deploy',
+      description: 'Ship it',
+      folder: 'deploy',
+      updatedAt: 1_000
+    })),
+    botsSkillsDelete: vi.fn(async () => true),
     botsSettingsGet: vi.fn(async () => ({ personaName: 'Backend' })),
     botsSettingsSet: vi.fn(async () => ({ personaName: 'Backend' })),
-    botsMemoryList: vi.fn(async () => []),
-    botsMemorySet: vi.fn(async () => ({ id: 'mem_1' })),
-    botsMemoryDelete: vi.fn(async () => true),
-    botsMemoryApprove: vi.fn(async () => ({ id: 'mem_1' })),
+    botsMemoryRead: vi.fn(async () => ({
+      text: '',
+      facts: [],
+      topics: [],
+      omitted: 0,
+      history: []
+    })),
+    botsMemoryAdd: vi.fn(async () => ({
+      text: '',
+      facts: [],
+      topics: [],
+      omitted: 0,
+      history: []
+    })),
+    botsMemoryEdit: vi.fn(async () => ({
+      text: '',
+      facts: [],
+      topics: [],
+      omitted: 0,
+      history: []
+    })),
+    botsMemoryForget: vi.fn(async () => ({
+      text: '',
+      facts: [],
+      topics: [],
+      omitted: 0,
+      history: []
+    })),
+    botsMemoryUndo: vi.fn(async () => ({
+      text: '',
+      facts: [],
+      topics: [],
+      omitted: 0,
+      history: []
+    })),
+    botsMemoryTopic: vi.fn(async () => null),
+    botsMemoryTidyUp: vi.fn(async () => ({
+      text: '',
+      facts: [],
+      topics: [],
+      omitted: 0,
+      history: []
+    })),
     groupsList: vi.fn(async () => []),
     groupsCreate: vi.fn(async () => ({ id: 'group_1' })),
     groupsUpdate: vi.fn(async () => ({ id: 'group_1' })),
@@ -164,6 +217,8 @@ function services(overrides: Partial<DispatcherServices> = {}): DispatcherServic
     itemsLinkRemove: vi.fn(async () => true),
     itemsAttach: vi.fn(async () => ({ id: 'attachment_1' })),
     itemsRemoveAttachment: vi.fn(async () => true),
+    permissionsList: vi.fn(async () => []),
+    permissionsRespond: vi.fn(async () => true),
     networkSettingsGet: vi.fn(async () => ({
       mode: 'system',
       httpProxyUrl: '',
@@ -210,6 +265,7 @@ function services(overrides: Partial<DispatcherServices> = {}): DispatcherServic
     aiCancelCommitMessage: vi.fn(async () => ({ cancelled: true })),
     wslListDistros: vi.fn(async () => ({ status: 'ok', distros: [], defaultRegistrationId: null })),
     terminalAttach: vi.fn(async () => ({})),
+    terminalPreview: vi.fn(async () => ({})),
     terminalWrite: vi.fn(async () => null),
     terminalResize: vi.fn(async () => null),
     ...overrides

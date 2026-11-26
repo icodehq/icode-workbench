@@ -93,11 +93,13 @@ function harness(
 ): Harness {
   const listeners = new Set<(event: RendererSessionEvent) => void>()
   const attach = vi.fn()
+  const preview = vi.fn()
   const write = vi.fn().mockResolvedValue({ ok: true, value: null })
   const resize = vi.fn().mockResolvedValue({ ok: true, value: null })
   const terminal: TerminalApi = {
     terminal: {
       attach: attach as unknown as TerminalApi['terminal']['attach'],
+      preview: preview as unknown as TerminalApi['terminal']['preview'],
       write: write as unknown as TerminalApi['terminal']['write'],
       resize: resize as unknown as TerminalApi['terminal']['resize']
     },

@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { BotRecordPayload } from '../../../../shared/schemas/bots'
 import type { BotsWorkspaceState } from '../../state/use-bots'
+import type { AssistantTarget } from '../../../../shared/domain/assistant'
 import { useT } from '../../i18n/use-i18n'
 import {
   BOT_TEMPLATE_CATEGORIES,
@@ -40,6 +41,8 @@ export function NewBotDialog({
   const [name, setName] = useState('')
   const [role, setRole] = useState('Engineer')
   const [harness, setHarness] = useState<'claude' | 'codex' | 'opencode'>('claude')
+  const [target, setTarget] = useState<AssistantTarget>({ kind: 'auto' })
+  const [distros, setDistros] = useState<Array<{ name: string }>>([])
   const [color, setColor] = useState(COLORS[1] ?? '#5b8def')
   const [instructions, setInstructions] = useState('')
   const [seedMemory, setSeedMemory] = useState('')
@@ -49,6 +52,29 @@ export function NewBotDialog({
   const [templateQuery, setTemplateQuery] = useState('')
   const [busy, setBusy] = useState(false)
   const t = useT()
+  useEffect(() => {
+    let cancelled = false
+    void window.icode.wsl
+      .listDistros()
+      .then((result) => {
+        if (!cancelled && result.ok && result.value.status === 'ok') {
+          setDistros(result.value.distros.map((distro) => ({ name: distro.name })))
+        }
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [])
+  const targetValue =
+    target.kind === 'wsl' ? `wsl:${target.distro}` : target.kind
+  const setTargetValue = (value: string): void => {
+    setTarget(
+      value === 'auto' || value === 'local'
+        ? { kind: value }
+        : { kind: 'wsl', distro: value.slice(4) }
+    )
+  }
   const shownTemplates = useMemo(() => {
     const query = templateQuery.trim().toLocaleLowerCase()
     if (query.length === 0) return BOT_TEMPLATES
@@ -89,6 +115,7 @@ export function NewBotDialog({
       name: name.trim(),
       role: role.trim() || 'Engineer',
       harness,
+      target,
       avatarColor: color,
       ...(mascot === null ? {} : { avatarMascot: mascot }),
       ...(outfit === null ? {} : { avatarOutfit: outfit as never }),
@@ -224,6 +251,23 @@ export function NewBotDialog({
           <option value="claude">Claude Code</option>
           <option value="codex">Codex</option>
           <option value="opencode">OpenCode</option>
+        </select>
+        <label className="mt-3 block text-[10px] uppercase tracking-wide text-muted-foreground">
+          {t('assistant.settings.runOn')}
+        </label>
+        <select
+          className="mt-1 h-8 w-full rounded border border-border bg-background px-2 text-[11px]"
+          value={targetValue}
+          onChange={(event) => setTargetValue(event.target.value)}
+          data-testid="new-bot-target"
+        >
+          <option value="auto">{t('assistant.settings.autoTarget')}</option>
+          <option value="local">{t('assistant.settings.localTarget')}</option>
+          {distros.map((distro) => (
+            <option key={distro.name} value={`wsl:${distro.name}`}>
+              {distro.name}
+            </option>
+          ))}
         </select>
         <label className="mt-3 block text-[10px] uppercase tracking-wide text-muted-foreground">
           {t('bot.settings.color')}

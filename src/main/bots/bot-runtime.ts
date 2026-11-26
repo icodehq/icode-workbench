@@ -1,12 +1,12 @@
 import type { AssistantEvent, AssistantSettings, AssistantStatus } from '../../shared/domain/assistant'
 import type { BotRecord, BotStatus } from '../../shared/domain/bot'
-import type { MemoryEntry } from '../../shared/domain/memory'
 import type { HarnessDetectionResult } from '../harness/harness-detector'
 import type { WorkspaceTrustService } from '../harness/trust/workspace-trust'
 import type { WslCommandRunner } from '../wsl/exec'
 import type { WslDistroListPayload } from '../../shared/schemas/ipc'
 import type { AssistantStore } from '../persistence/assistant-store'
-import type { BotMemoryStore } from '../persistence/bot-memory-store'
+import type { MemoryService } from '../memory/memory-service'
+import type { PeerMailService } from './peer-mail-service'
 import type { BotStore } from '../persistence/bot-store'
 import type { GroupStore } from '../persistence/group-store'
 import type { ItemService } from '../items/item-service'
@@ -36,7 +36,8 @@ export type BotRuntimeDeps = {
   sandboxKey?: string
   bots: BotStore
   botService: BotService
-  memory: BotMemoryStore
+  memoryFiles: MemoryService
+  peerMail?: Pick<PeerMailService, 'send'>
   groups?: GroupStore
   /** Owner-facing task conversation; absent in legacy tests. */
   items?: ItemService
@@ -64,23 +65,6 @@ export type BotRuntimeDeps = {
   onError?: (error: unknown) => void
 }
 
-function botMemory(
-  botId: string,
-  memory: BotMemoryStore,
-  groupId: string | null,
-  repoId?: string
-): MemoryEntry[] {
-  const entries: MemoryEntry[] = []
-  entries.push(...memory.list({ scope: 'bot', botId }, { limit: 30 }))
-  if (repoId !== undefined) {
-    entries.push(...memory.list({ scope: 'project', repoId }, { limit: 15 }))
-  }
-  if (groupId !== null) {
-    entries.push(...memory.list({ scope: 'team', teamId: groupId }, { limit: 15 }))
-  }
-  return entries.slice(0, 50)
-}
-
 /**
  * One bot's chat runtime for one assistant thread.
  *
@@ -95,6 +79,11 @@ export class BotRuntime {
     threadId: string
     resolve: (completion: AssistantRunCompletion) => void
   } | null = null
+  private readonly runWaiters = new Map<
+    string,
+    (completion: AssistantRunCompletion) => void
+  >()
+  private lastCompletion: AssistantRunCompletion | null = null
   private turnQueue: Promise<void> = Promise.resolve()
 
   constructor(private readonly deps: BotRuntimeDeps) {
@@ -136,7 +125,8 @@ export class BotRuntime {
               }),
           ...(deps.items === undefined ? {} : { items: deps.items }),
           botSettings: (botId) => deps.botService.settingsFor(botId),
-          memoryStore: deps.memory,
+          memoryFiles: deps.memoryFiles,
+          ...(deps.peerMail === undefined ? {} : { peerMail: deps.peerMail }),
           canAssignOthers: groupId !== null
         })
       },
@@ -147,8 +137,7 @@ export class BotRuntime {
       settings: () => settingsPort.get(),
       botProfile: bot,
       ...(deps.sandboxKey === undefined ? {} : { sandboxKey: deps.sandboxKey }),
-      botMemory: (repoId) =>
-        botMemory(bot.id, deps.memory, groupId, repoId),
+      botMemory: () => deps.memoryFiles.promptMemory(bot.id),
       detectHarness: deps.detectHarness,
       listWslDistros: deps.listWslDistros,
       readGuestHome: deps.readGuestHome,
@@ -169,6 +158,12 @@ export class BotRuntime {
       settings: settingsPort,
       onError: deps.onError,
       onRunComplete: (completion) => {
+        this.lastCompletion = completion
+        const waiter = this.runWaiters.get(completion.runId)
+        if (waiter !== undefined) {
+          this.runWaiters.delete(completion.runId)
+          waiter(completion)
+        }
         const pending = this.groupCompletion
         if (pending !== null && pending.threadId === completion.threadId) {
           this.groupCompletion = null
@@ -198,6 +193,16 @@ export class BotRuntime {
 
   send(input: { text: string; repoId?: string }): ReturnType<AssistantService['send']> {
     return this.service.send(input)
+  }
+
+  /** The finished messages of one run; a run that already ended answers at once. */
+  waitForRun(runId: string): Promise<AssistantRunCompletion> {
+    if (this.lastCompletion?.runId === runId) {
+      return Promise.resolve(this.lastCompletion)
+    }
+    return new Promise((resolve) => {
+      this.runWaiters.set(runId, resolve)
+    })
   }
 
   /** One room turn, serialized per assistant thread. */

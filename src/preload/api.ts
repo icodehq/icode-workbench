@@ -244,13 +244,29 @@ export function createIcodeApi(
       stop: (input) => call(IPC_CHANNELS.botsStop, input),
       newConversation: (input) => call(IPC_CHANNELS.botsNewConversation, input),
       focus: (input) => call(IPC_CHANNELS.botsFocus, input),
+      home: (input) => call(IPC_CHANNELS.botsHome, input),
+      automations: {
+        list: (input) => call(IPC_CHANNELS.botsAutomationsList, input),
+        create: (input) => call(IPC_CHANNELS.botsAutomationsCreate, input),
+        update: (input) => call(IPC_CHANNELS.botsAutomationsUpdate, input),
+        remove: (input) => call(IPC_CHANNELS.botsAutomationsRemove, input)
+      },
+      skills: {
+        list: (input) => call(IPC_CHANNELS.botsSkillsList, input),
+        read: (input) => call(IPC_CHANNELS.botsSkillsRead, input),
+        save: (input) => call(IPC_CHANNELS.botsSkillsSave, input),
+        remove: (input) => call(IPC_CHANNELS.botsSkillsDelete, input)
+      },
       settings: (input) => call(IPC_CHANNELS.botsSettingsGet, input),
       setSettings: (input) => call(IPC_CHANNELS.botsSettingsSet, input),
       memory: {
-        list: (input) => call(IPC_CHANNELS.botsMemoryList, input),
-        set: (input) => call(IPC_CHANNELS.botsMemorySet, input),
-        remove: (input) => call(IPC_CHANNELS.botsMemoryDelete, input),
-        approve: (input) => call(IPC_CHANNELS.botsMemoryApprove, input)
+        read: (input) => call(IPC_CHANNELS.botsMemoryRead, input),
+        add: (input) => call(IPC_CHANNELS.botsMemoryAdd, input),
+        edit: (input) => call(IPC_CHANNELS.botsMemoryEdit, input),
+        forget: (input) => call(IPC_CHANNELS.botsMemoryForget, input),
+        undo: (input) => call(IPC_CHANNELS.botsMemoryUndo, input),
+        topic: (input) => call(IPC_CHANNELS.botsMemoryTopic, input),
+        tidyUp: (input) => call(IPC_CHANNELS.botsMemoryTidyUp, input)
       },
       onEvent: (listener) =>
         subscribe(IPC_CHANNELS.botsEvent, (payload) =>
@@ -289,6 +305,11 @@ export function createIcodeApi(
       attach: (input) => call(IPC_CHANNELS.itemsAttach, input),
       removeAttachment: (input) => call(IPC_CHANNELS.itemsRemoveAttachment, input)
     },
+    permissions: {
+      list: (input) => call(IPC_CHANNELS.permissionsList, input ?? {}),
+      respond: (input) => call(IPC_CHANNELS.permissionsRespond, input),
+      onEvent: (listener) => subscribe(IPC_CHANNELS.permissionsEvent, () => listener())
+    },
     schedules: {
       list: (input) => call(IPC_CHANNELS.schedulesList, input ?? {}),
       create: (input) => call(IPC_CHANNELS.schedulesCreate, input),
@@ -317,6 +338,7 @@ export function createIcodeApi(
     },
     terminal: {
       attach: (input) => call(IPC_CHANNELS.terminalAttach, input),
+      preview: (input) => call(IPC_CHANNELS.terminalPreview, input),
       write: (input) => call(IPC_CHANNELS.terminalWrite, input),
       resize: (input) => call(IPC_CHANNELS.terminalResize, input)
     },

@@ -408,6 +408,47 @@ describe('shipped hook script transport', () => {
     expect(run.elapsedMs).toBeLessThan(3_000)
     await new Promise<void>((resolve) => server.close(() => resolve()))
   })
+
+  it('prints a PermissionRequest decision after the ingress answers', async () => {
+    const root = tempRoot()
+    const hooks = installClaudeHooks({
+      directory: join(root, 'agent-hooks'),
+      execPath: process.execPath,
+      electronRunAsNode: false
+    })
+    const path = socketPath(root)
+    if (!path.startsWith('\\\\')) mkdirSync(dirname(path), { recursive: true })
+    const server = (await import('node:net')).createServer(
+      { allowHalfOpen: true },
+      (socket) => {
+        socket.on('data', () => undefined)
+        socket.on('end', () => {
+          socket.end(
+            '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}'
+          )
+        })
+      }
+    )
+    await new Promise<void>((resolve) => server.listen(path, resolve))
+    const run = await runAsync(process.execPath, [hooks.scriptPath, 'PermissionRequest'], {
+      input: JSON.stringify({
+        session_id: 'claude-permission',
+        tool_name: 'Bash',
+        tool_input: { command: 'ls' }
+      }),
+      timeoutMs: 5_000,
+      env: {
+        ...process.env,
+        ICODE_SESSION_ID: SESSION,
+        ICODE_SESSION_INCARNATION: INC,
+        ICODE_ACTIVITY_SOCKET: path
+      }
+    })
+    expect(run.timedOut).toBe(false)
+    expect(run.status).toBe(0)
+    expect(run.stdout).toContain('"behavior":"allow"')
+    await new Promise<void>((resolve) => server.close(() => resolve()))
+  })
 })
 
 describe.skipIf(hasClaude())('hook integration (claude missing)', () => {

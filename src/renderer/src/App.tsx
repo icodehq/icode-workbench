@@ -759,6 +759,7 @@ export default function App(): React.JSX.Element {
         tasks={tasks.tasks}
         notify={workspace.notify}
         onOpenTask={commands.openTaskById}
+        onOpenSession={(sessionId) => commands.openTaskSession(sessionId, 'terminal')}
         onTaskAction={(action, taskId) => void runBotsTaskAction(action, taskId)}
       />
     ),
@@ -802,7 +803,6 @@ export default function App(): React.JSX.Element {
             <BotsSidebarSection
               state={botsState}
               tasks={tasks.tasks}
-              repos={state.repos}
               notify={workspace.notify}
               onOpenGroup={openBotsGroup}
               onOpenBot={openBotsBot}

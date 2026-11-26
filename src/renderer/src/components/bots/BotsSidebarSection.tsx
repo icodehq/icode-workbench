@@ -22,7 +22,6 @@ import {
 } from 'lucide-react'
 import type { BotsWorkspaceState } from '../../state/use-bots'
 import type { TaskRecordPayload } from '../../../../shared/icode-api'
-import type { RepositorySummary } from '../../../../shared/schemas/ipc'
 import type { Notice } from '../../state/workspace'
 import AssistantAvatar from '../AssistantAvatar'
 import ContextMenu, { type MenuAnchor } from '../ContextMenu'
@@ -148,14 +147,12 @@ type RenamingRow = {
 export default function BotsSidebarSection({
   state,
   tasks,
-  repos,
   notify,
   onOpenGroup,
   onOpenBot
 }: {
   state: BotsWorkspaceState
   tasks: TaskRecordPayload[]
-  repos: RepositorySummary[]
   notify: (notice: Notice) => void
   onOpenGroup: (groupId: string) => void
   onOpenBot: (botId: string) => void
@@ -1140,7 +1137,6 @@ export default function BotsSidebarSection({
           bot={editingBot}
           state={state}
           groups={state.groups.filter((group) => group.memberBotIds.includes(editingBot.id))}
-          repos={repos}
           notify={notify}
           onClose={() => setEditingBotId(null)}
         />

@@ -131,72 +131,75 @@ export const botMarkReadInputSchema = z.strictObject({
   read: z.boolean().optional()
 })
 
+export const botHomeInputSchema = z.strictObject({ botId: botIdSchema })
+export const botHomeResultSchema = z.strictObject({
+  path: z.string().min(1).max(4_096),
+  opened: z.boolean()
+})
+
 export const botSettingsInputSchema = z.strictObject({ botId: botIdSchema })
 export const botSetSettingsInputSchema = z.strictObject({
   botId: botIdSchema,
   settings: assistantSettingsSchema
 })
 
-export const botMemoryScopeSchema = z.enum(['bot', 'project', 'team'])
-export const botMemoryStatusSchema = z.enum(['proposed', 'active', 'archived'])
-
-export const botMemoryEntrySchema = z.strictObject({
+export const botAutomationSchema = z.strictObject({
   id: z.string().min(1).max(120),
-  scope: botMemoryScopeSchema,
-  botId: botIdSchema.nullable(),
-  repoId: repoIdSchema.nullable(),
-  teamId: botGroupIdSchema.nullable(),
-  proposedByBotId: botIdSchema.nullable(),
-  key: z.string().min(1).max(120),
-  value: z.string().min(1).max(2_000),
-  status: botMemoryStatusSchema,
-  sourceTaskId: z.string().max(120).nullable(),
+  botId: botIdSchema,
+  name: z.string().min(1).max(120),
+  prompt: z.string().min(1).max(4_000),
+  intervalMinutes: z.number().int().min(1).max(10_080),
+  enabled: z.boolean(),
+  lastRunAt: z.number().int().nullable(),
+  nextRunAt: z.number().int(),
   createdAt: z.number().int(),
   updatedAt: z.number().int()
 })
 
-export const botMemoryListInputSchema = z
-  .strictObject({
-    botId: botIdSchema,
-    scope: botMemoryScopeSchema,
-    repoId: repoIdSchema.optional(),
-    teamId: botGroupIdSchema.optional(),
-    status: botMemoryStatusSchema.optional()
-  })
-  .refine(
-    (value) =>
-      (value.scope === 'bot' && value.repoId === undefined && value.teamId === undefined) ||
-      (value.scope === 'project' && value.repoId !== undefined && value.teamId === undefined) ||
-      (value.scope === 'team' && value.teamId !== undefined && value.repoId === undefined),
-    { message: 'Memory scope and target do not match.' }
-  )
-
-export const botMemorySetInputSchema = z
-  .strictObject({
-    botId: botIdSchema,
-    scope: botMemoryScopeSchema,
-    key: z.string().min(1).max(120),
-    value: z.string().min(1).max(2_000),
-    repoId: repoIdSchema.optional(),
-    teamId: botGroupIdSchema.optional(),
-    status: z.enum(['proposed', 'active']).optional()
-  })
-  .refine(
-    (value) =>
-      (value.scope === 'bot' && value.repoId === undefined && value.teamId === undefined) ||
-      (value.scope === 'project' && value.repoId !== undefined && value.teamId === undefined) ||
-      (value.scope === 'team' && value.teamId !== undefined && value.repoId === undefined),
-    { message: 'Memory scope and target do not match.' }
-  )
-
-export const botMemoryDeleteInputSchema = z.strictObject({
+export const botAutomationsInputSchema = z.strictObject({ botId: botIdSchema })
+export const botAutomationCreateInputSchema = z.strictObject({
   botId: botIdSchema,
-  memoryId: z.string().min(1).max(120)
+  name: z.string().trim().min(1).max(120),
+  prompt: z.string().trim().min(1).max(4_000),
+  intervalMinutes: z.number().int().min(1).max(10_080),
+  enabled: z.boolean().optional()
+})
+export const botAutomationUpdateInputSchema = z.strictObject({
+  id: z.string().min(1).max(120),
+  name: z.string().trim().min(1).max(120).optional(),
+  prompt: z.string().trim().min(1).max(4_000).optional(),
+  intervalMinutes: z.number().int().min(1).max(10_080).optional(),
+  enabled: z.boolean().optional()
+})
+export const botAutomationRemoveInputSchema = z.strictObject({
+  id: z.string().min(1).max(120)
 })
 
-export const botMemoryApproveInputSchema = z.strictObject({
+export const botSkillFolderSchema = z
+  .string()
+  .regex(/^[a-z0-9][a-z0-9-]*$/)
+  .max(80)
+
+export const botSkillSchema = z.strictObject({
+  name: z.string().min(1).max(200),
+  description: z.string().max(300),
+  folder: botSkillFolderSchema,
+  updatedAt: z.number().int()
+})
+
+export const botSkillsInputSchema = z.strictObject({ botId: botIdSchema })
+export const botSkillReadInputSchema = z.strictObject({
   botId: botIdSchema,
-  memoryId: z.string().min(1).max(120)
+  folder: botSkillFolderSchema
+})
+export const botSkillSaveInputSchema = z.strictObject({
+  botId: botIdSchema,
+  folder: botSkillFolderSchema,
+  text: z.string().max(100_000)
+})
+export const botSkillDeleteInputSchema = z.strictObject({
+  botId: botIdSchema,
+  folder: botSkillFolderSchema
 })
 
 export const botEventSchema = z.discriminatedUnion('type', [
@@ -220,7 +223,6 @@ export type BotUpdateInput = z.infer<typeof botUpdateInputSchema>
 export type BotStatePayload = z.infer<typeof assistantStateSchema>
 export type BotSendResult = z.infer<typeof assistantSendResultSchema>
 export type BotEventPayload = z.infer<typeof botEventSchema>
-export type BotMemoryListInput = z.infer<typeof botMemoryListInputSchema>
-export type BotMemorySetInput = z.infer<typeof botMemorySetInputSchema>
-export type BotMemoryEntryPayload = z.infer<typeof botMemoryEntrySchema>
+export type BotSkillPayload = z.infer<typeof botSkillSchema>
+export type BotAutomationPayload = z.infer<typeof botAutomationSchema>
 export type BotCardPayload = z.infer<typeof assistantCardSchema>

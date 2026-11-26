@@ -6,7 +6,8 @@ const base = {
   title: 'Add rate limiting',
   approval: 'approved' as const,
   changesRequestedAt: null as number | null,
-  reviewDecision: 'pending' as const
+  reviewDecision: 'pending' as const,
+  updatedAt: 1
 }
 
 describe('group task milestones', () => {
@@ -29,6 +30,17 @@ describe('group task milestones', () => {
     expect(taskGroupMilestone({ ...base, status: 'completed' }, 'Backend')?.key).toBe(
       'task:task_1:review'
     )
+  })
+
+  it('announces each waiting state with its own dedupe key', () => {
+    const first = taskGroupMilestone({ ...base, status: 'waiting' }, 'Backend')
+    expect(first?.key).toBe('task:task_1:waiting:1')
+    expect(first?.body).toContain('waiting for your input')
+    const later = taskGroupMilestone(
+      { ...base, status: 'waiting', updatedAt: 2 },
+      'Backend'
+    )
+    expect(later?.key).toBe('task:task_1:waiting:2')
   })
 
   it('reports a change request instead of a plain review', () => {
