@@ -106,36 +106,23 @@ export class ActivityHookServer {
   }
 
   private handleConnection(socket: Socket): void {
-    const chunks: Buffer[] = []
-    let size = 0
-    let settled = false
+    let buffer = Buffer.alloc(0)
+    let read = false
 
     const reject = (reason: string): void => {
-      if (settled) return
-      settled = true
+      if (read) return
+      read = true
+      clearTimeout(timer)
       socket.destroy()
       this.options.onRejected?.(reason)
     }
 
-    const timer = setTimeout(() => reject('read-timeout'), this.readTimeoutMs)
-    timer.unref?.()
-
-    socket.on('error', () => reject('socket-error'))
-    socket.on('data', (chunk: Buffer) => {
-      if (settled) return
-      size += chunk.length
-      if (size > ACTIVITY_MAX_PAYLOAD_BYTES) {
-        reject('payload-too-large')
-        return
-      }
-      chunks.push(chunk)
-    })
-    socket.on('end', () => {
+    const finishFrame = (raw: string): void => {
+      if (read) return
+      read = true
       clearTimeout(timer)
-      if (settled) return
-      const processed = this.process(Buffer.concat(chunks).toString('utf8'))
+      const processed = this.process(raw)
       if (processed === null) {
-        settled = true
         socket.destroy()
         return
       }
@@ -150,12 +137,35 @@ export class ActivityHookServer {
         }
         // The hook is waiting for an answer. `{}` makes Claude ask in the
         // terminal, exactly as it would without iCode's hook.
-        settled = true
         socket.end(permissionReply(null))
         return
       }
-      settled = true
       socket.destroy()
+    }
+
+    const timer = setTimeout(() => reject('read-timeout'), this.readTimeoutMs)
+    timer.unref?.()
+
+    socket.on('error', () => reject('socket-error'))
+    // Newer hooks end the frame with a newline and keep the socket open for
+    // the decision; Windows named pipes do not support a writable half-close,
+    // so the reply is written to the same open connection. Older hooks still
+    // half-close after the frame and are read on `end`.
+    socket.on('data', (chunk: Buffer) => {
+      if (read) return
+      buffer = Buffer.concat([buffer, chunk])
+      if (buffer.length > ACTIVITY_MAX_PAYLOAD_BYTES) {
+        reject('payload-too-large')
+        return
+      }
+      const newline = buffer.indexOf(0x0a)
+      if (newline !== -1) {
+        finishFrame(buffer.subarray(0, newline).toString('utf8'))
+      }
+    })
+    socket.on('end', () => {
+      if (read) return
+      finishFrame(buffer.toString('utf8'))
     })
   }
 

@@ -421,8 +421,8 @@ describe('shipped hook script transport', () => {
     const server = (await import('node:net')).createServer(
       { allowHalfOpen: true },
       (socket) => {
-        socket.on('data', () => undefined)
-        socket.on('end', () => {
+        socket.on('data', (chunk) => {
+          if (!String(chunk).includes('\n')) return
           socket.end(
             '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}'
           )

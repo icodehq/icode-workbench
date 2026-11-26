@@ -85,7 +85,7 @@ function finish(payload) {
   })
   socket.on('connect', function () {
     try {
-      socket.end(JSON.stringify(payload))
+      socket.write(JSON.stringify(payload) + '\\n')
     } catch {
       clearTimeout(guard)
       if (isPermission) reply('{}')

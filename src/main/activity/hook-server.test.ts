@@ -27,7 +27,7 @@ function send(path: string, payload: string, options: { stall?: boolean } = {}):
     socket.on('close', () => resolve(response))
     socket.on('connect', () => {
       if (options.stall) return
-      socket.end(payload)
+      socket.write(payload + '\n')
     })
   })
 }
