@@ -151,7 +151,7 @@ export type AssistantSettings = {
 }
 
 export const DEFAULT_ASSISTANT_SETTINGS: AssistantSettings = {
-  personaName: 'Yarcy',
+  personaName: 'Assistant',
   target: { kind: 'auto' },
   harnessPriority: [...MODEL_HARNESSES],
   opencodeAgent: 'build',

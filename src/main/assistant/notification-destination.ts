@@ -13,9 +13,9 @@ export type NotificationFocusDestination =
   | { kind: 'task'; taskId: string }
 
 /**
- * Maps a Mira notification to the place where the user can act on it.
+ * Maps a bot notification to the place where the user can act on it.
  *
- * Only kinds that describe a concrete task or session leave Mira; everything
+ * Only kinds that describe a concrete task or session leave the chat; everything
  * else (including a task that disappeared) falls back to the notification card.
  */
 export function notificationDestination(

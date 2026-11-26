@@ -21,7 +21,7 @@ function localDayStart(now: number): number {
 }
 
 /**
- * Decides whether a Mira-created task may skip the human approval gate.
+ * Decides whether a bot-created task may skip the human approval gate.
  *
  * This is a conservative heuristic, not a security boundary: protected
  * keywords, protected paths and daily caps all keep the gate closed. False
@@ -36,7 +36,7 @@ export class AssistantPolicy {
     title?: string | null
     prompt: string
     settings: AssistantAutoDispatchSettings
-    /** The bot whose daily caps apply; defaults to Mira. */
+    /** The bot whose daily caps apply; defaults to the legacy assistant. */
     actor?: string
   }): AssistantRiskDecision {
     const { settings } = input

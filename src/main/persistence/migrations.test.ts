@@ -237,10 +237,10 @@ describe('migration 22: bots, teams and memory', () => {
       db.raw
         .prepare('SELECT id, name, role FROM bots WHERE id = ?')
         .get('mira')
-    ).toEqual({ id: 'mira', name: 'Yarcy', role: 'Chief of Staff' })
+    ).toEqual({ id: 'mira', name: 'Assistant', role: 'Workspace assistant' })
     expect(
       db.raw.prepare('SELECT title FROM assistant_threads WHERE id = ?').get('thread_main')
-    ).toEqual({ title: 'Yarcy' })
+    ).toEqual({ title: 'Assistant' })
     expect(
       db.raw
         .prepare('SELECT bot_id FROM assistant_threads WHERE id = ?')
@@ -305,7 +305,7 @@ describe('migration 22: bots, teams and memory', () => {
   })
 })
 
-describe('migration 23: the default Chief is Yarcy', () => {
+describe('migration 23 through 34: the default assistant name', () => {
   function v22(path: string) {
     return openDatabase({
       path,
@@ -347,20 +347,20 @@ describe('migration 23: the default Chief is Yarcy', () => {
     expect(migrated.userVersion()).toBe(SCHEMA_VERSION)
     expect(
       migrated.raw.prepare('SELECT name FROM bots WHERE id = ?').get('mira')
-    ).toEqual({ name: 'Yarcy' })
+    ).toEqual({ name: 'Assistant' })
     expect(
       migrated.raw.prepare('SELECT title FROM assistant_threads WHERE id = ?').get('thread_main')
-    ).toEqual({ title: 'Yarcy' })
+    ).toEqual({ title: 'Assistant' })
     const settings = migrated.raw
       .prepare('SELECT settings_json FROM assistant_settings WHERE id = 1')
       .get() as { settings_json: string }
     expect(JSON.parse(settings.settings_json)).toMatchObject({
-      personaName: 'Yarcy',
+      personaName: 'Assistant',
       autoDispatch: { mode: 'low-risk' }
     })
     expect(
       migrated.raw.prepare('SELECT body FROM assistant_messages WHERE id = ?').get('msg_welcome')
-    ).toEqual({ body: 'Hi, I am Yarcy.' })
+    ).toEqual({ body: 'Hi, I am Assistant.' })
   })
 
   it('leaves a customized name, thread title and persona alone', () => {
@@ -446,7 +446,7 @@ describe('migration 23: the default Chief is Yarcy', () => {
     ).toEqual({ body: 'Hi, I am Chief.' })
   })
 
-  it('does not rename into an existing Yarcy bot', () => {
+  it('renames the default assistant even when a user bot is called Yarcy', () => {
     const { path } = tempPath()
     const db = v22(path)
     db.raw
@@ -463,7 +463,7 @@ describe('migration 23: the default Chief is Yarcy', () => {
     closeAfter(migrated)
     expect(
       migrated.raw.prepare('SELECT name FROM bots WHERE id = ?').get('mira')
-    ).toEqual({ name: 'Mira' })
+    ).toEqual({ name: 'Assistant' })
   })
 })
 
@@ -590,10 +590,7 @@ describe('migration 24: groups, threads and room sessions', () => {
            WHERE thread_id = 'gthread_team_1' ORDER BY bot_id`
         )
         .all()
-    ).toEqual([
-      { bot_id: 'backend', assistant_thread_id: null },
-      { bot_id: 'mira', assistant_thread_id: null }
-    ])
+    ).toEqual([{ bot_id: 'backend', assistant_thread_id: null }])
     expect(
       migrated.raw.prepare("SELECT team_id FROM bot_memory WHERE id = 'mem_team'").get()
     ).toEqual({ team_id: 'team_1' })

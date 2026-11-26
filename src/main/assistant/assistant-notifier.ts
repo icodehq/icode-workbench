@@ -24,20 +24,18 @@ export type AssistantNotifierService = {
 }
 
 export type AssistantNotifierDeps = {
-  service: AssistantNotifierService
   /** Route a task's notification to its assigned bot thread. */
-  serviceForBot?: (botId: string) => AssistantNotifierService | null
+  serviceForBot: (botId: string) => AssistantNotifierService | null
   taskStore: TaskStore
   repositories: RepositoryStore
-  settings: () => AssistantSettings
-  settingsForBot?: (botId: string) => AssistantSettings
+  settingsForBot: (botId: string) => AssistantSettings
   now: () => number
   isWindowFocused: () => boolean
   onOsNotify: (input: {
     title: string
     body: string
     messageId: string
-    botId?: string | null
+    botId: string
   }) => void
 }
 
@@ -71,7 +69,10 @@ function taskCard(task: TaskRecord, canResume: boolean): AssistantCard {
 }
 
 /**
- * Turns task/project changes into proactive Mira messages.
+ * Turns task changes into proactive messages in the task's bot thread.
+ *
+ * Tasks without a bot have no chat to notify; the task queue and Items view
+ * remain their durable surface.
  *
  * The first sweep primes fingerprints and posts nothing: upgrading iCode must
  * not replay every existing need as a notification. After that, only new
@@ -226,26 +227,20 @@ export class AssistantNotifier {
     return needs
   }
 
-  private settingsFor(need: Need): AssistantSettings {
-    return need.botId === null ? this.deps.settings() : (this.deps.settingsForBot?.(need.botId) ?? this.deps.settings())
-  }
-
-  private serviceFor(need: Need): AssistantNotifierService {
-    return need.botId === null
-      ? this.deps.service
-      : (this.deps.serviceForBot?.(need.botId) ?? this.deps.service)
-  }
-
   private async sweep(): Promise<void> {
     const needs = await this.compute().catch(() => [] as Need[])
     for (const need of needs) {
-      if (!this.settingsFor(need).notifications.enabled) {
+      if (need.botId === null) continue
+      const botNeed: Need & { botId: string } = { ...need, botId: need.botId }
+      const service = this.deps.serviceForBot(botNeed.botId)
+      if (service === null) continue
+      if (!this.deps.settingsForBot(botNeed.botId).notifications.enabled) {
         this.fingerprints.add(need.fingerprint)
         continue
       }
       if (this.fingerprints.has(need.fingerprint)) continue
       this.fingerprints.add(need.fingerprint)
-      const message = this.serviceFor(need).postNotification({
+      const message = service.postNotification({
         body: need.body,
         card: need.card,
         kind: 'notification',
@@ -254,12 +249,16 @@ export class AssistantNotifier {
         dedupeKey: need.fingerprint
       })
       if (!message) continue
-      this.deliverOs(need, message)
+      this.deliverOs(botNeed, message, service)
     }
   }
 
-  private deliverOs(need: Need, message: AssistantMessageRecord): void {
-    const settings = this.settingsFor(need)
+  private deliverOs(
+    need: Need & { botId: string },
+    message: AssistantMessageRecord,
+    service: AssistantNotifierService
+  ): void {
+    const settings = this.deps.settingsForBot(need.botId)
     if (!settings.notifications.enabled) return
     if (need.priority === 'low') return
     if (settings.notifications.quietMode === 'in-app') return
@@ -279,7 +278,6 @@ export class AssistantNotifier {
     this.osSentAt = this.osSentAt.filter((timestamp) => now - timestamp < 60 * 60 * 1000)
     if (this.osSentAt.length >= settings.notifications.budgetPerHour) return
     this.osSentAt.push(now)
-    const service = this.serviceFor(need)
     service.markNotificationDelivered(message.id)
     try {
       this.deps.onOsNotify({

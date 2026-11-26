@@ -13,7 +13,6 @@ const snapshot: AssistantSnapshot = {
   tasks: [],
   sessions: [],
   needs: { pendingApproval: 0, waiting: 0, failed: 0, reviewReady: 0 },
-  memory: []
 }
 
 function build(overrides: Partial<Parameters<typeof buildAssistantPrompt>[0]> = {}) {

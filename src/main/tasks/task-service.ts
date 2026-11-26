@@ -116,7 +116,7 @@ export type CreateTaskInput = {
   /** The supervisor session that proposed the task. */
   createdBySessionId?: string | null
   /**
-   * Accurate non-session provenance. Mira uses `'mira'` and leaves
+   * Accurate non-session provenance. Legacy assistant tasks use `'mira'` and leave
    * `createdBySessionId` null; the renderer never supplies this.
    */
   createdByActor?: string | null

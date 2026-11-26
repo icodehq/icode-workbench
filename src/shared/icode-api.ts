@@ -62,18 +62,11 @@ import type {
 } from './schemas/remotes'
 import type {
   AssistantConversationPayload,
-  AssistantEventPayload,
   AssistantMessagePayload,
   AssistantNewConversationResult,
   AssistantSendResult,
   AssistantSettingsPayload,
   AssistantStatePayload,
-  assistantMarkReadInputSchema,
-  assistantMessagesInputSchema,
-  assistantNotificationsInputSchema,
-  assistantFocusInputSchema,
-  assistantSendInputSchema,
-  assistantSetSettingsInputSchema
 } from './schemas/assistant'
 import type {
   botArchiveInputSchema,
@@ -714,27 +707,6 @@ export type IcodeProductApi = {
       open: (
         input: z.infer<typeof supervisorOpenInputSchema>
       ) => Promise<IpcResult<SessionSummary>>
-    }
-    /** The global Mira thread. One conversation across all projects. */
-    assistant: {
-      state: () => Promise<IpcResult<AssistantStatePayload>>
-      messages: (
-        input: z.infer<typeof assistantMessagesInputSchema>
-      ) => Promise<IpcResult<AssistantMessagePayload[]>>
-      conversations: () => Promise<IpcResult<AssistantConversationPayload[]>>
-      notifications: (
-        input?: z.infer<typeof assistantNotificationsInputSchema>
-      ) => Promise<IpcResult<AssistantMessagePayload[]>>
-      focus: (input: z.infer<typeof assistantFocusInputSchema>) => Promise<IpcResult<null>>
-      send: (input: z.infer<typeof assistantSendInputSchema>) => Promise<IpcResult<AssistantSendResult>>
-      markRead: (input: z.infer<typeof assistantMarkReadInputSchema>) => Promise<IpcResult<number>>
-      stop: () => Promise<IpcResult<null>>
-      newConversation: () => Promise<IpcResult<AssistantNewConversationResult>>
-      settings: () => Promise<IpcResult<AssistantSettingsPayload>>
-      setSettings: (
-        input: z.infer<typeof assistantSetSettingsInputSchema>
-      ) => Promise<IpcResult<AssistantSettingsPayload>>
-      onEvent: (listener: (event: AssistantEventPayload) => void) => () => void
     }
     /** Persistent bots: identities, their chat, settings and scoped memory. */
     bots: {

@@ -64,9 +64,8 @@ export type AssistantState = {
 /**
  * The chat transport the state machine runs on.
  *
- * Mira and bots share the same conversation semantics; only their IPC
- * namespace differs. Keeping the transport here means one hook, one paging
- * implementation and one streaming path for both.
+ * Bot chats share one conversation state machine; the transport is the only
+ * difference between a bot home and a group-room session.
  */
 export type ChatClient = {
   state: () => Promise<IpcResult<AssistantStatePayload>>
@@ -91,21 +90,6 @@ export type ChatClient = {
     settings: AssistantSettingsPayload
   }) => Promise<IpcResult<AssistantSettingsPayload>>
   onEvent: (listener: (event: AssistantEventPayload) => void) => () => void
-}
-
-const miraChatClient: ChatClient = {
-  state: () => window.icode.assistant.state(),
-  messages: (input) => window.icode.assistant.messages(input),
-  conversations: () => window.icode.assistant.conversations(),
-  notifications: (input) => window.icode.assistant.notifications(input),
-  focus: (input) => window.icode.assistant.focus(input),
-  send: (input) => window.icode.assistant.send(input),
-  markRead: (input) => window.icode.assistant.markRead(input),
-  stop: () => window.icode.assistant.stop(),
-  newConversation: () => window.icode.assistant.newConversation(),
-  settings: () => window.icode.assistant.settings(),
-  setSettings: (input) => window.icode.assistant.setSettings(input),
-  onEvent: (listener) => window.icode.assistant.onEvent(listener)
 }
 
 function botChatClient(botId: string): ChatClient {
@@ -157,18 +141,16 @@ function botChatClient(botId: string): ChatClient {
 }
 
 /**
- * The global Mira thread, shared by the rail, the assistant page and the
- * notification surface. It is deliberately outside WorkspaceState: a repository
- * refresh must not reset the conversation.
+ * One bot thread's chat state.
  *
  * The transcript is segmented by native conversation. The newest segment is
  * followed by default; an older segment can be selected for reading. Only the
  * latest segment appends live progress and auto-marks read.
  */
-export function useAssistant(
+function useChat(
   notify: (notice: Notice) => void,
-  onFocus?: (event: Extract<AssistantEventPayload, { type: 'focus' }>) => void,
-  client: ChatClient = miraChatClient
+  onFocus: ((event: Extract<AssistantEventPayload, { type: 'focus' }>) => void) | undefined,
+  client: ChatClient
 ): AssistantState {
   const [threadId, setThreadId] = useState<string | null>(null)
   const [personaName, setPersonaName] = useState(DEFAULT_ASSISTANT_SETTINGS.personaName)
@@ -585,12 +567,12 @@ export function useAssistant(
   }
 }
 
-/** The same chat state machine, talking to one bot's IPC namespace. */
+/** The chat state machine, talking to one bot's IPC namespace. */
 export function useBotChat(
   botId: string,
   notify: (notice: Notice) => void,
   onFocus?: (event: Extract<AssistantEventPayload, { type: 'focus' }>) => void
 ): AssistantState {
   const client = useMemo(() => botChatClient(botId), [botId])
-  return useAssistant(notify, onFocus, client)
+  return useChat(notify, onFocus, client)
 }

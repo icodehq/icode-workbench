@@ -1,7 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ArrowUp, Loader2, Plus, Settings2, Square } from 'lucide-react'
 import type { AssistantRunStage } from '../../../shared/domain/assistant'
-import type { AssistantTarget } from '../router/routes'
 import type { RepositorySummary } from '../../../shared/schemas/ipc'
 import type { TaskRecordPayload } from '../../../shared/icode-api'
 import type { AssistantCardPayload } from '../../../shared/schemas/assistant'
@@ -83,7 +82,6 @@ function liveTaskCard(
 
 export default function AssistantPage({
   assistant,
-  request,
   repos,
   tasks,
   role,
@@ -98,14 +96,13 @@ export default function AssistantPage({
   onOpenSettings
 }: {
   assistant: AssistantState
-  request: (AssistantTarget & { nonce: number }) | null
   repos: RepositorySummary[]
   tasks: TaskRecordPayload[]
   /** A bot's job/role, shown under its name. */
   role?: string
-  /** Mira's suggestions fit a chief; a specialist's chat starts blank. */
+  /** Broader starters fit a generalist; a specialist's chat starts blank. */
   suggestions?: boolean
-  /** Bot home supplies its own header; the global assistant keeps the full one. */
+  /** Bot home supplies its own header and uses this page for the transcript. */
   showHeader?: boolean
   /** The bot's avatar color, when its identity has one. */
   color?: string
@@ -161,17 +158,6 @@ export default function AssistantPage({
   }, [assistant.messages, assistant.loadingOlder, assistant.selectedConversationId])
 
   useEffect(() => {
-    if (!request?.messageId) return
-    const message = assistant.messages.find((entry) => entry.id === request.messageId)
-    if (!message) return
-    stickBottom.current = false
-    setFocusedId(message.id)
-    const element = document.getElementById(`assistant-message-${message.id}`)
-    element?.scrollIntoView({ block: 'center' })
-    void assistant.markRead(message.id)
-  }, [assistant.markRead, assistant.messages, request])
-
-  useEffect(() => {
     if (!followingLatest || assistant.messages.length === 0) return
     if (document.hasFocus()) void assistant.markRead()
   }, [assistant.markRead, assistant.messages.length, followingLatest])
@@ -203,7 +189,7 @@ export default function AssistantPage({
     setDraft('')
     setFocusedId(null)
     stickBottom.current = true
-    const ok = await assistant.send(value, request?.repoId)
+    const ok = await assistant.send(value)
     if (!ok) setDraft(value)
     inputRef.current?.focus()
   }
@@ -212,9 +198,6 @@ export default function AssistantPage({
   const live = assistant.live
   const elapsed = useElapsedSeconds(live?.startedAt ?? null)
   const hasUserMessage = visible.some((message) => message.role === 'user')
-  const contextRepo = request?.repoId
-    ? repos.find((repo) => repo.id === request.repoId) ?? null
-    : null
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background" data-testid="assistant-view">
@@ -261,12 +244,12 @@ export default function AssistantPage({
           </select>
         ) : (
           <span className="ml-auto rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[10px] text-muted-foreground">
-            {contextRepo?.displayName ?? t('assistant.allProjects')}
+            {t('assistant.allProjects')}
           </span>
         )}
         {assistant.conversations.length > 0 ? (
           <span className="rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[10px] text-muted-foreground">
-            {contextRepo?.displayName ?? t('assistant.allProjects')}
+            {t('assistant.allProjects')}
           </span>
         ) : null}
         <button

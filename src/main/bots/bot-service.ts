@@ -5,7 +5,6 @@ import type { BotMemoryStore } from '../persistence/bot-memory-store'
 import type { GroupStore } from '../persistence/group-store'
 import type { TaskStore } from '../tasks/task-store'
 import type { BotRecord, BotStatus, BotSummary } from '../../shared/domain/bot'
-import { BUILTIN_ASSISTANT_BOT_ID } from '../../shared/domain/bot'
 import type { AssistantSettings, AssistantStatus } from '../../shared/domain/assistant'
 import { DEFAULT_ASSISTANT_SETTINGS } from '../../shared/domain/assistant'
 import type { BotCreateInput, BotUpdateInput } from '../../shared/schemas/bots'
@@ -58,40 +57,16 @@ export class BotService {
     }
   }
 
-  ensureMira(): BotRecord {
-    const existing = this.deps.bots.findById('mira')
-    if (existing) return existing
-    const now = this.deps.now()
-    return this.deps.bots.insert({
-      id: 'mira',
-      name: 'Yarcy',
-      role: 'Chief of Staff',
-      avatarColor: '#6f7bf7',
-      avatarImage: null,
-      avatarMascot: null,
-      avatarOutfit: null,
-      instructions: '',
-      settings: null,
-      archivedAt: null,
-      pausedAt: null,
-      createdAt: now,
-      updatedAt: now
-    })
-  }
-
   getBot(botId: string): BotRecord | null {
     return this.deps.bots.findById(botId)
   }
 
   settingsFor(botId: string): AssistantSettings {
-    if (botId === 'mira') {
-      return this.deps.bots.getSettings(botId, this.deps.assistants.getSettings())
-    }
     return this.deps.bots.getSettings(botId)
   }
 
   createBot(input: BotCreateInput): BotRecord {
-    if (this.deps.bots.findByName(input.name, { excludeId: BUILTIN_ASSISTANT_BOT_ID })) {
+    if (this.deps.bots.findByName(input.name)) {
       throw new Error('A bot with that name already exists.')
     }
     const now = this.deps.now()
@@ -175,9 +150,7 @@ export class BotService {
     const bot = this.deps.bots.findById(input.botId)
     if (bot === null) throw new Error('That bot no longer exists.')
     if (input.name !== undefined && input.name !== bot.name) {
-      const duplicate = this.deps.bots.findByName(input.name, {
-        excludeId: BUILTIN_ASSISTANT_BOT_ID
-      })
+      const duplicate = this.deps.bots.findByName(input.name)
       if (duplicate !== null && duplicate.id !== bot.id) {
         throw new Error('A bot with that name already exists.')
       }
@@ -217,12 +190,7 @@ export class BotService {
     const bot = this.deps.bots.findById(botId)
     if (bot === null) throw new Error('That bot no longer exists.')
     const now = this.deps.now()
-    let saved: AssistantSettings
-    if (botId === 'mira' && bot.settings === null) {
-      saved = this.deps.assistants.saveSettings(settings, now)
-    } else {
-      saved = this.deps.bots.saveSettings(botId, settings, now)
-    }
+    const saved = this.deps.bots.saveSettings(botId, settings, now)
     if (saved.personaName !== bot.name) {
       this.deps.bots.update(botId, { name: saved.personaName }, now)
       const thread = this.deps.assistants.findThreadByBotId(botId)
@@ -250,20 +218,13 @@ export class BotService {
   archiveBot(botId: string): boolean {
     const bot = this.deps.bots.findById(botId)
     if (bot === null) return false
-    if (botId === 'mira') {
-      throw new Error(`${bot.name} is the default Chief and cannot be archived.`)
-    }
     const archived = this.deps.bots.archive(botId, this.deps.now())
     if (archived) this.emit({ type: 'removed', botId })
     return archived
   }
 
   listSummaries(): BotSummary[] {
-    // The built-in assistant keeps a profile row for its settings and memory,
-    // but it is not a bot the owner created: it never appears in the roster,
-    // group member pickers or bot counts. Fresh installs start with no bots
-    // and create the first one from a template.
-    const bots = this.deps.bots.list().filter((bot) => bot.id !== BUILTIN_ASSISTANT_BOT_ID)
+    const bots = this.deps.bots.list()
     const tasks = this.deps.tasks.list({ limit: 500 })
     return bots.map((bot) => {
       const botTasks = tasks.filter((task) => task.botId === bot.id)

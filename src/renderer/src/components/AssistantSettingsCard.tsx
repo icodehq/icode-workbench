@@ -108,11 +108,11 @@ export default function AssistantSettingsCard({
                 saveName()
               }
             }}
-            data-testid="settings-mira-name"
+            data-testid="settings-bot-name"
           />
         </Row>
         <Row label={t('assistant.settings.status')}>
-          <span data-testid="settings-mira-status">
+          <span data-testid="settings-bot-status">
             {t(statusKey[status])}
             {harness ? ` · ${harness}` : ''}
             {target ? ` · ${target}` : ''}
@@ -123,7 +123,7 @@ export default function AssistantSettingsCard({
             className="h-7 max-w-[240px] rounded border border-border bg-muted/40 px-2 text-[11px] text-foreground"
             value={targetValue}
             onChange={(event) => setTarget(event.target.value)}
-            data-testid="settings-mira-target"
+            data-testid="settings-bot-target"
           >
             <option value="auto">{t('assistant.settings.autoTarget')}</option>
             <option value="local">{t('assistant.settings.localTarget')}</option>
@@ -143,7 +143,7 @@ export default function AssistantSettingsCard({
                 event.target.value as 'claude' | 'codex' | 'opencode'
               )
             }
-            data-testid="settings-mira-harness"
+            data-testid="settings-bot-harness"
           >
             <option value="claude">{t('assistant.settings.claudeFirst')}</option>
             <option value="codex">{t('assistant.settings.codexFirst')}</option>
@@ -163,7 +163,7 @@ export default function AssistantSettingsCard({
                 }
               })
             }
-            data-testid="settings-mira-auto-dispatch"
+            data-testid="settings-bot-auto-dispatch"
           >
             <option value="off">{t('assistant.settings.offApproval')}</option>
             <option value="low-risk">{t('assistant.settings.lowRisk')}</option>
@@ -184,7 +184,7 @@ export default function AssistantSettingsCard({
                   }
                 })
               }
-              data-testid="settings-mira-notifications"
+              data-testid="settings-bot-notifications"
             />
             {t('assistant.settings.enabled')}
           </label>
@@ -203,7 +203,7 @@ export default function AssistantSettingsCard({
                 }
               })
             }
-            data-testid="settings-mira-quiet-mode"
+            data-testid="settings-bot-quiet-mode"
           >
             <option value="off">{t('assistant.settings.offOs')}</option>
             <option value="in-app">{t('assistant.settings.inApp')}</option>

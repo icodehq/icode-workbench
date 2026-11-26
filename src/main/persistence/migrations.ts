@@ -1796,5 +1796,65 @@ export const MIGRATIONS: readonly Migration[] = [
       `CREATE UNIQUE INDEX bots_name_idx ON bots (name COLLATE NOCASE)
          WHERE id <> 'mira'`
     ]
+  },
+  {
+    version: 34,
+    name: 'assistant-profile-name',
+    /**
+     * "Yarcy" is now an ordinary Chief of Staff template, not the built-in
+     * assistant's persona. Rename only the untouched defaults; a customized
+     * assistant name, role or thread title is left alone.
+     */
+    statements: [
+      `UPDATE bots
+         SET name = 'Assistant',
+             role = 'Workspace assistant',
+             updated_at = CAST(strftime('%s', 'now') AS INTEGER) * 1000
+       WHERE id = 'mira' AND name IN ('Yarcy', 'Mira') AND role = 'Chief of Staff'`,
+      `UPDATE bots
+         SET name = 'Assistant',
+             updated_at = CAST(strftime('%s', 'now') AS INTEGER) * 1000
+       WHERE id = 'mira' AND name IN ('Yarcy', 'Mira')`,
+      `UPDATE assistant_threads
+         SET title = 'Assistant',
+             updated_at = CAST(strftime('%s', 'now') AS INTEGER) * 1000
+       WHERE bot_id = 'mira' AND title IN ('Yarcy', 'Mira')`,
+      `UPDATE assistant_settings
+         SET settings_json = json_set(settings_json, '$.personaName', 'Assistant'),
+             updated_at = CAST(strftime('%s', 'now') AS INTEGER) * 1000
+       WHERE json_extract(settings_json, '$.personaName') IN ('Yarcy', 'Mira')`,
+      `UPDATE bots
+         SET settings_json = json_set(settings_json, '$.personaName', 'Assistant')
+       WHERE id = 'mira' AND settings_json IS NOT NULL
+         AND json_extract(settings_json, '$.personaName') IN ('Yarcy', 'Mira')`,
+      `UPDATE assistant_messages
+         SET body = replace(replace(body, 'Yarcy', 'Assistant'), 'Mira', 'Assistant')
+       WHERE kind = 'welcome'
+         AND thread_id IN (SELECT id FROM assistant_threads WHERE bot_id = 'mira')`
+    ]
+  },
+  {
+    version: 35,
+    name: 'retire-global-assistant',
+    /**
+     * Bots own chat now. The global main thread and its internal profile stay
+     * in the database for history, but are archived so no surface or runtime
+     * resolves them.
+     */
+    statements: [
+      `DELETE FROM bot_group_thread_members WHERE bot_id = 'mira'`,
+      `DELETE FROM bot_group_members WHERE bot_id = 'mira'`,
+      `UPDATE bot_groups SET default_bot_id = NULL WHERE default_bot_id = 'mira'`,
+      `UPDATE bot_groups SET reply_mode = 'mentions'
+       WHERE reply_mode = 'bot' AND default_bot_id IS NULL`,
+      `UPDATE bots
+         SET archived_at = CAST(strftime('%s', 'now') AS INTEGER) * 1000,
+             updated_at = CAST(strftime('%s', 'now') AS INTEGER) * 1000
+       WHERE id = 'mira' AND archived_at IS NULL`,
+      `UPDATE assistant_threads
+         SET archived_at = CAST(strftime('%s', 'now') AS INTEGER) * 1000,
+             updated_at = CAST(strftime('%s', 'now') AS INTEGER) * 1000
+       WHERE kind = 'main' AND archived_at IS NULL`
+    ]
   }
 ]

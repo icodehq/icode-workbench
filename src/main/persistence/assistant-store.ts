@@ -1,8 +1,5 @@
 import type { Database } from './database'
-import {
-  assistantCardSchema,
-  assistantSettingsSchema
-} from '../../shared/schemas/assistant'
+import { assistantCardSchema } from '../../shared/schemas/assistant'
 import type {
   AssistantCard,
   AssistantConversation,
@@ -16,15 +13,13 @@ import type {
   AssistantRole,
   AssistantRun,
   AssistantRunStatus,
-  AssistantSettings,
   AssistantThread,
   AssistantTrigger
 } from '../../shared/domain/assistant'
 import {
   ASSISTANT_CONVERSATION_HISTORY_MODES,
   ASSISTANT_CONVERSATION_RESET_REASONS,
-  ASSISTANT_CONVERSATION_STATES,
-  DEFAULT_ASSISTANT_SETTINGS
+  ASSISTANT_CONVERSATION_STATES
 } from '../../shared/domain/assistant'
 import { MODEL_HARNESSES, type ModelHarness } from '../../shared/domain/harness'
 
@@ -302,17 +297,6 @@ export type AppendAssistantMessageInput = {
 
 export class AssistantStore {
   constructor(private readonly db: Database) {}
-
-  findMainThread(): AssistantThread | null {
-    const row = this.db.raw
-      .prepare(
-        `SELECT ${THREAD_COLUMNS} FROM assistant_threads
-         WHERE kind = 'main' AND archived_at IS NULL
-         ORDER BY created_at ASC LIMIT 1`
-      )
-      .get() as ThreadRow | undefined
-    return row ? threadFromRow(row) : null
-  }
 
   findThread(id: string): AssistantThread | null {
     const row = this.db.raw
@@ -889,67 +873,6 @@ export class AssistantStore {
         .run(threadId)
     }
     return Number(result.changes)
-  }
-
-  getSettings(): AssistantSettings {
-    const row = this.db.raw
-      .prepare(`SELECT settings_json FROM assistant_settings WHERE id = 1`)
-      .get() as { settings_json: string } | undefined
-    if (!row) return DEFAULT_ASSISTANT_SETTINGS
-    try {
-      const parsed = assistantSettingsSchema.safeParse(JSON.parse(row.settings_json))
-      return parsed.success ? parsed.data : DEFAULT_ASSISTANT_SETTINGS
-    } catch {
-      return DEFAULT_ASSISTANT_SETTINGS
-    }
-  }
-
-  saveSettings(settings: AssistantSettings, now: number): AssistantSettings {
-    this.db.raw
-      .prepare(
-        `INSERT INTO assistant_settings (id, settings_json, updated_at)
-         VALUES (1, ?, ?)
-         ON CONFLICT (id) DO UPDATE SET settings_json = excluded.settings_json,
-           updated_at = excluded.updated_at`
-      )
-      .run(JSON.stringify(settings), now)
-    return settings
-  }
-
-  listMemory(): Array<{ key: string; value: string }> {
-    const rows = this.db.raw
-      .prepare(
-        `SELECT key, value FROM bot_memory
-         WHERE scope = 'bot' AND bot_id = 'mira' AND status = 'active'
-         ORDER BY updated_at DESC LIMIT 50`
-      )
-      .all() as Array<{ key: string; value: string }>
-    return rows
-  }
-
-  setMemory(key: string, value: string, now: number): void {
-    const updated = this.db.raw
-      .prepare(
-        `UPDATE bot_memory SET value = ?, updated_at = ?
-         WHERE scope = 'bot' AND bot_id = 'mira' AND key = ? AND status = 'active'`
-      )
-      .run(value, now, key)
-    if (Number(updated.changes) > 0) return
-    this.db.raw
-      .prepare(
-        `INSERT INTO bot_memory (
-           id, scope, bot_id, repo_id, team_id, proposed_by_bot_id,
-           key, value, status, source_task_id, created_at, updated_at
-         ) VALUES (?, 'bot', 'mira', NULL, NULL, 'mira', ?, ?, 'active', NULL, ?, ?)`
-      )
-      .run(`mem_mira_${String(now)}_${key.slice(0, 40)}`, key, value, now, now)
-  }
-
-  forgetMemory(key: string): boolean {
-    const result = this.db.raw
-      .prepare(`DELETE FROM bot_memory WHERE scope = 'bot' AND bot_id = 'mira' AND key = ?`)
-      .run(key)
-    return Number(result.changes) === 1
   }
 
   recordAction(input: {

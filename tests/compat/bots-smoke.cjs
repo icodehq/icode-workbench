@@ -184,13 +184,20 @@ async function main() {
       `document.querySelector('[data-testid="new-bot-name"]')?.value === 'Pull request review'`,
       'first-run template prefill'
     )
-    await screenshot('00b-templates')
     assert(
       (await cdp.evaluate(
         `document.querySelectorAll('[data-testid^="new-bot-template-"]:not([data-testid="new-bot-template-search"])').length`
-      )) === 25,
-      'Expected 24 templates and a blank option on first run'
+      )) === 26,
+      'Expected 25 templates and a blank option on first run'
     )
+    await cdp.evaluate(
+      `document.querySelector('[data-testid="new-bot-template-chief-of-staff"]').click()`
+    )
+    await waitFor(
+      `document.querySelector('[data-testid="new-bot-name"]')?.value === 'Yarcy' && document.querySelector('[data-testid="new-bot-role"]')?.value === 'Chief of Staff'`,
+      'chief of staff template prefill'
+    )
+    await screenshot('00b-templates')
     await cdp.evaluate(
       `Array.from(document.querySelectorAll('[data-testid="new-bot-dialog"] button')).find((button) => button.textContent.includes('Cancel')).click()`
     )
@@ -499,8 +506,8 @@ async function main() {
     assert(
       (await cdp.evaluate(
         `document.querySelectorAll('[data-testid^="new-bot-template-"]:not([data-testid="new-bot-template-search"])').length`
-      )) === 25,
-      'Expected 24 templates and a blank option'
+      )) === 26,
+      'Expected 25 templates and a blank option'
     )
     await cdp.evaluate(
       `document.querySelector('[data-testid="new-bot-template-pr-review"]').click()`
@@ -628,7 +635,7 @@ async function main() {
       `document.querySelector('[data-testid="bot-settings-tab-agent"]').click()`
     )
     await waitFor(
-      `Boolean(document.querySelector('[data-testid="settings-mira-status"]'))`,
+      `Boolean(document.querySelector('[data-testid="settings-bot-status"]'))`,
       'bot agent settings'
     )
     await screenshot('05-bot-agent')

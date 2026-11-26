@@ -17,7 +17,7 @@ function task(id: string, status: string, extra: Record<string, unknown> = {}) {
     createdAt: 100,
     reviewDecision: 'pending',
     changesRequestedAt: null,
-    botId: null,
+    botId: 'bot_backend',
     ...extra
   }
 }
@@ -32,10 +32,11 @@ function fixture(
   const onOsNotify = vi.fn()
   let focused = true
   const deps: AssistantNotifierDeps = {
-    service: { postNotification, markNotificationDelivered } as never,
+    serviceForBot: () =>
+      ({ postNotification, markNotificationDelivered }) as never,
     taskStore: { list: () => tasks, findSuccessor: () => null } as never,
     repositories: { list: () => [] } as never,
-    settings: () => DEFAULT_ASSISTANT_SETTINGS,
+    settingsForBot: () => DEFAULT_ASSISTANT_SETTINGS,
     now: () => new Date('2026-11-08T12:00:00').getTime(),
     isWindowFocused: () => focused,
     onOsNotify,

@@ -5,7 +5,6 @@ import { SCHEMA_VERSION, openDatabase } from './database'
 import { MIGRATIONS } from './migrations'
 import { AssistantStore } from './assistant-store'
 import { makeTempRoot, openTempDatabase } from './persistence-test-fixtures'
-import { DEFAULT_ASSISTANT_SETTINGS } from '../../shared/domain/assistant'
 
 const cleanups: Array<() => void> = []
 
@@ -118,23 +117,9 @@ describe('assistant store', () => {
     expect(store.listMessages('thread_main')).toHaveLength(1)
   })
 
-  it('persists settings, memory, runs and actions', () => {
+  it('persists runs and actions', () => {
     const { store, db } = fixture()
     thread(store)
-
-    expect(store.getSettings()).toEqual(DEFAULT_ASSISTANT_SETTINGS)
-    const settings = {
-      ...DEFAULT_ASSISTANT_SETTINGS,
-      personaName: 'Ada',
-      autoDispatch: { ...DEFAULT_ASSISTANT_SETTINGS.autoDispatch, mode: 'off' as const }
-    }
-    expect(store.saveSettings(settings, 3_000)).toEqual(settings)
-    expect(store.getSettings().personaName).toBe('Ada')
-
-    store.setMemory('merge-style', 'squash', 3_001)
-    store.setMemory('merge-style', 'rebase', 3_002)
-    expect(store.listMemory()).toEqual([{ key: 'merge-style', value: 'rebase' }])
-    expect(store.forgetMemory('merge-style')).toBe(true)
 
     const run = store.createRun({
       id: 'run_1',

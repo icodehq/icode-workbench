@@ -86,14 +86,6 @@ import {
   aiCommitMessageInputSchema
 } from '../../shared/schemas/ai'
 import {
-  assistantFocusInputSchema,
-  assistantMarkReadInputSchema,
-  assistantMessagesInputSchema,
-  assistantNotificationsInputSchema,
-  assistantSendInputSchema,
-  assistantSetSettingsInputSchema
-} from '../../shared/schemas/assistant'
-import {
   botArchiveInputSchema,
   botSetPausedInputSchema,
   botConversationsInputSchema,
@@ -333,22 +325,6 @@ export type DispatcherServices = {
     maxConcurrentPerProject?: number
   }) => Promise<unknown>
   supervisorOpen: (input: { repoId: string }) => Promise<unknown>
-  assistantState: () => Promise<unknown>
-  assistantMessagesList: (input: {
-    threadId: string
-    beforeSeq?: number
-    limit?: number
-    conversationId?: string
-  }) => Promise<unknown>
-  assistantConversationsList: () => Promise<unknown>
-  assistantNotificationsList: (input: { limit?: number }) => Promise<unknown>
-  assistantFocus: (input: { messageId: string }) => Promise<unknown>
-  assistantSend: (input: { text: string; repoId?: string }) => Promise<unknown>
-  assistantMarkRead: (input: { threadId: string; messageId?: string }) => Promise<unknown>
-  assistantStop: () => Promise<unknown>
-  assistantNewConversation: () => Promise<unknown>
-  assistantSettingsGet: () => Promise<unknown>
-  assistantSetSettings: (input: { settings: unknown }) => Promise<unknown>
   botsList: () => Promise<unknown>
   botsCreate: (input: z.infer<typeof botCreateInputSchema>) => Promise<unknown>
   botsUpdate: (input: z.infer<typeof botUpdateInputSchema>) => Promise<unknown>
@@ -1032,57 +1008,6 @@ export function createDispatcher(services: DispatcherServices): Dispatcher {
         const input = parse(supervisorOpenInputSchema, rawInput)
         if ('code' in input) return { ok: false, error: input }
         return run(() => services.supervisorOpen(input))
-      }
-
-      case IPC_CHANNELS.assistantState:
-        return run(() => services.assistantState())
-
-      case IPC_CHANNELS.assistantMessagesList: {
-        const input = parse(assistantMessagesInputSchema, rawInput)
-        if ('code' in input) return { ok: false, error: input }
-        return run(() => services.assistantMessagesList(input))
-      }
-
-      case IPC_CHANNELS.assistantConversationsList:
-        return run(() => services.assistantConversationsList())
-
-      case IPC_CHANNELS.assistantNotificationsList: {
-        const input = parse(assistantNotificationsInputSchema, rawInput ?? {})
-        if ('code' in input) return { ok: false, error: input }
-        return run(() => services.assistantNotificationsList(input))
-      }
-
-      case IPC_CHANNELS.assistantFocus: {
-        const input = parse(assistantFocusInputSchema, rawInput)
-        if ('code' in input) return { ok: false, error: input }
-        return run(() => services.assistantFocus(input))
-      }
-
-      case IPC_CHANNELS.assistantSend: {
-        const input = parse(assistantSendInputSchema, rawInput)
-        if ('code' in input) return { ok: false, error: input }
-        return run(() => services.assistantSend(input))
-      }
-
-      case IPC_CHANNELS.assistantMarkRead: {
-        const input = parse(assistantMarkReadInputSchema, rawInput)
-        if ('code' in input) return { ok: false, error: input }
-        return run(() => services.assistantMarkRead(input))
-      }
-
-      case IPC_CHANNELS.assistantStop:
-        return run(() => services.assistantStop())
-
-      case IPC_CHANNELS.assistantNewConversation:
-        return run(() => services.assistantNewConversation())
-
-      case IPC_CHANNELS.assistantSettingsGet:
-        return run(() => services.assistantSettingsGet())
-
-      case IPC_CHANNELS.assistantSetSettings: {
-        const input = parse(assistantSetSettingsInputSchema, rawInput)
-        if ('code' in input) return { ok: false, error: input }
-        return run(() => services.assistantSetSettings(input))
       }
 
       case IPC_CHANNELS.botsList:

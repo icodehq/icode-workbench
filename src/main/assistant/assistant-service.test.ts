@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AssistantService, type AssistantRunnerLike } from './assistant-service'
 import { AssistantStore } from '../persistence/assistant-store'
+import { DEFAULT_ASSISTANT_SETTINGS } from '../../shared/domain/assistant'
 import { makeTempRoot, openTempDatabase } from '../persistence/persistence-test-fixtures'
 
 const cleanups: Array<() => void> = []
@@ -19,10 +20,41 @@ function fixture(runner?: AssistantRunnerLike): {
   cleanups.push(() => db.close())
   const store = new AssistantStore(db)
   let id = 0
+  let settings = { ...DEFAULT_ASSISTANT_SETTINGS }
+  const thread = store.insertThread({
+    id: 'thread_test',
+    kind: 'bot',
+    groupThreadId: null,
+    title: settings.personaName,
+    botId: null,
+    createdAt: 1_000,
+    updatedAt: 1_000,
+    lastMessageAt: null,
+    lastReadSeq: 0,
+    activeRunId: null,
+    archivedAt: null
+  })
+  const welcome = store.appendMessage({
+    id: 'msg_welcome',
+    threadId: thread.id,
+    role: 'assistant',
+    kind: 'welcome',
+    body: "Hi, I'm Assistant.",
+    createdAt: 1_000
+  })
+  if (welcome !== null) store.markRead(thread.id, welcome.seq, 1_000)
   const service = new AssistantService({
     store,
     now: () => 1_000 + id,
     newId: (prefix) => `${prefix}_${String(++id)}`,
+    threadId: thread.id,
+    settings: {
+      get: () => settings,
+      save: (next) => {
+        settings = next
+        return next
+      }
+    },
     ...(runner === undefined ? {} : { runner })
   })
   service.start()
@@ -38,10 +70,10 @@ async function waitForIdle(service: AssistantService): Promise<void> {
 }
 
 describe('AssistantService', () => {
-  it('creates one thread, marks the welcome read, and reports offline without a runner', async () => {
+  it('starts on its bot thread with the welcome read and reports offline without a runner', async () => {
     const { service } = fixture()
     const state = service.state()
-    expect(state.personaName).toBe('Yarcy')
+    expect(state.personaName).toBe('Assistant')
     expect(state.unread).toBe(0)
     expect(state.status).toBe('offline')
     expect(service.listMessages({ threadId: state.threadId })).toHaveLength(1)

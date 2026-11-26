@@ -28,7 +28,7 @@ import {
 
 export type BotRuntimeDeps = {
   bot: BotRecord
-  threadId?: string
+  threadId: string
   /** Set for a room session; null/absent for a bot's home chat. */
   groupId?: string | null
   groupThreadId?: string | null
@@ -165,8 +165,7 @@ export class BotRuntime {
       now: deps.now,
       newId: deps.newId,
       runner: this.runner,
-      ...(deps.threadId === undefined ? {} : { threadId: deps.threadId }),
-      threadBotId: bot.id,
+      threadId: deps.threadId,
       settings: settingsPort,
       onError: deps.onError,
       onRunComplete: (completion) => {
@@ -346,16 +345,12 @@ export class BotRuntimeRegistry {
     const cached = this.homeRuntimes.get(botId)
     if (cached !== undefined) return cached
     const bot = this.requireBot(botId)
-    const thread =
-      this.deps.store.findHomeThreadByBotId(botId) ??
-      (botId === 'mira' ? this.deps.store.findMainThread() : null)
-    if (thread === null && botId !== 'mira') {
-      throw new Error('That bot has no chat thread.')
-    }
+    const thread = this.deps.store.findHomeThreadByBotId(botId)
+    if (thread === null) throw new Error('That bot has no chat thread.')
     const runtime = new BotRuntime({
       ...this.deps,
       bot,
-      ...(thread === null ? {} : { threadId: thread.id }),
+      threadId: thread.id,
       sandboxKey: bot.id,
       onEvent: (id, event) => this.emit(id, event)
     })

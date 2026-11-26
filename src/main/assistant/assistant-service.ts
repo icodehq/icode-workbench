@@ -92,15 +92,10 @@ export type AssistantServiceDeps = {
   newId: (prefix: string) => string
   /** Optional until the headless runner is wired. */
   runner?: AssistantRunnerLike
-  /**
-   * A bot service uses its pre-created thread. Mira leaves this unset and
-   * keeps using the one global main thread.
-   */
-  threadId?: string
-  /** When creating the main thread, link it to this bot id. */
-  threadBotId?: string
-  /** Per-bot settings; defaults to the global assistant_settings row. */
-  settings?: AssistantSettingsPort
+  /** The bot thread this service owns. */
+  threadId: string
+  /** Per-bot settings. */
+  settings: AssistantSettingsPort
   onError?: (error: unknown) => void
   onRunComplete?: (completion: AssistantRunCompletion) => void
 }
@@ -134,7 +129,7 @@ function runTarget(run: { targetKind: 'local' | 'wsl' | null; targetDistro: stri
 }
 
 /**
- * The global Mira thread.
+ * One bot thread's chat service.
  *
  * The service owns persistence, one active run, unread state and the event
  * stream. It deliberately knows nothing about harnesses or task actions; those
@@ -150,12 +145,7 @@ export class AssistantService {
   constructor(private readonly deps: AssistantServiceDeps) {}
 
   private settingsPort(): AssistantSettingsPort {
-    return (
-      this.deps.settings ?? {
-        get: () => this.deps.store.getSettings(),
-        save: (settings, now) => this.deps.store.saveSettings(settings, now)
-      }
-    )
+    return this.deps.settings
   }
 
   threadId(): string {
@@ -223,43 +213,14 @@ export class AssistantService {
   }
 
   ensureThread(): AssistantThread {
-    if (this.deps.threadId !== undefined) {
-      const thread = this.deps.store.findThread(this.deps.threadId)
-      if (thread === null) {
-        throw new AssistantServiceError(
-          'INTERNAL',
-          'That conversation thread no longer exists.'
-        )
-      }
-      return thread
+    const thread = this.deps.store.findThread(this.deps.threadId)
+    if (thread === null) {
+      throw new AssistantServiceError(
+        'INTERNAL',
+        'That conversation thread no longer exists.'
+      )
     }
-    const existing = this.deps.store.findMainThread()
-    if (existing) return existing
-    const now = this.deps.now()
-    const settings = this.settingsPort().get()
-    const thread = this.deps.store.insertThread({
-      id: this.deps.newId('thread'),
-      kind: 'main',
-      groupThreadId: null,
-      title: settings.personaName,
-      botId: this.deps.threadBotId ?? null,
-      createdAt: now,
-      updatedAt: now,
-      lastMessageAt: null,
-      lastReadSeq: 0,
-      activeRunId: null,
-      archivedAt: null
-    })
-    const welcome = this.deps.store.appendMessage({
-      id: this.deps.newId('msg'),
-      threadId: thread.id,
-      role: 'assistant',
-      kind: 'welcome',
-      body: mainT('assistant.welcome', { name: settings.personaName }),
-      createdAt: now
-    })
-    if (welcome) this.deps.store.markRead(thread.id, welcome.seq, now)
-    return this.deps.store.findThread(thread.id)!
+    return thread
   }
 
   state(): AssistantState {
@@ -300,7 +261,7 @@ export class AssistantService {
     return saved
   }
 
-  /** A proactive Mira message, written by the notifier rather than the model. */
+  /** A proactive bot message, written by the notifier rather than the model. */
   postNotification(input: {
     body: string
     card?: AssistantCard | null
@@ -332,7 +293,7 @@ export class AssistantService {
   }
 
   /**
-   * Acknowledge one notification without asking the renderer to open Mira.
+   * Acknowledge one notification without asking the renderer to open the chat.
    *
    * Used when a toast click lands on a task or session instead of the card.
    * A missing message is a no-op: the click still navigates.
