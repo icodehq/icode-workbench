@@ -57,7 +57,7 @@ export default function ChatComposer({
 }: {
   textareaRef: RefObject<HTMLTextAreaElement | null>
   value: string
-  onChange: (value: string) => void
+  onChange: (value: string, caret: number) => void
   onSelect?: (event: React.SyntheticEvent<HTMLTextAreaElement>) => void
   /** Called by Enter, the primary button, or the parent. */
   onSend: () => void
@@ -117,9 +117,8 @@ export default function ChatComposer({
         transcript += event.results[index]?.[0]?.transcript ?? ''
       }
       const base = dictationBase.current
-      onChange(
-        `${base}${base.length > 0 && !base.endsWith(' ') ? ' ' : ''}${transcript}`
-      )
+      const next = `${base}${base.length > 0 && !base.endsWith(' ') ? ' ' : ''}${transcript}`
+      onChange(next, next.length)
     }
     recognition.onend = () => setDictating(false)
     recognition.onerror = () => setDictating(false)
@@ -151,7 +150,7 @@ export default function ChatComposer({
   const chooseCommand = (index: number): void => {
     const command = commandMatches[index]
     if (command === undefined) return
-    onChange('')
+    onChange('', 0)
     command.run()
     requestAnimationFrame(() => textareaRef.current?.focus())
   }
@@ -265,7 +264,9 @@ export default function ChatComposer({
             value={value}
             disabled={disabled}
             placeholder={placeholder}
-            onChange={(event) => onChange(event.target.value)}
+            onChange={(event) =>
+              onChange(event.target.value, event.target.selectionStart)
+            }
             onSelect={onSelect}
             onPaste={(event) => {
               if (onAttachFiles === undefined) return

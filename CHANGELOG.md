@@ -5,6 +5,15 @@ All notable changes to iCode are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.35.1] - 2026-11-27
+
+### Fixed
+
+- **@ mentions.** A bot's home composer now lists the owner's other bots when
+  typing `@`, with arrow-key/Tab selection and Escape. The group mention
+  picker tracks the input's real caret, so it opens reliably while typing.
+- A bots smoke regression now asserts both mention pickers open.
+
 ## [0.35.0] - 2026-11-27
 
 ### Changed

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Loader2, Plus, Settings2, Square } from 'lucide-react'
 import type { AssistantRunStage } from '../../../shared/domain/assistant'
 import { ASSISTANT_LIMITS } from '../../../shared/domain/assistant'
@@ -6,6 +6,7 @@ import { MODEL_HARNESSES } from '../../../shared/domain/harness'
 import type { RepositorySummary } from '../../../shared/schemas/ipc'
 import type { TaskRecordPayload } from '../../../shared/icode-api'
 import type { AssistantCardPayload } from '../../../shared/schemas/assistant'
+import type { BotSummaryPayload } from '../../../shared/schemas/bots'
 import type { AssistantState } from '../state/use-assistant'
 import {
   conversationLabel,
@@ -93,6 +94,7 @@ export default function AssistantPage({
   assistant,
   repos,
   tasks,
+  mentionBots = [],
   role,
   suggestions = true,
   showHeader = true,
@@ -108,6 +110,8 @@ export default function AssistantPage({
   assistant: AssistantState
   repos: RepositorySummary[]
   tasks: TaskRecordPayload[]
+  /** Other bots this chat can name with @. */
+  mentionBots?: BotSummaryPayload[]
   /** A bot's job/role, shown under its name. */
   role?: string
   /** Broader starters fit a generalist; a specialist's chat starts blank. */
@@ -132,6 +136,9 @@ export default function AssistantPage({
   )
   const [queued, setQueued] = useState<string[]>([])
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([])
+  const [caret, setCaret] = useState(0)
+  const [mentionIndex, setMentionIndex] = useState(0)
+  const [mentionDismissed, setMentionDismissed] = useState(false)
   const queueBusy = useRef(false)
   const [focusedId, setFocusedId] = useState<string | null>(null)
   const threadRef = useRef<HTMLDivElement | null>(null)
@@ -198,6 +205,60 @@ export default function AssistantPage({
   const selectConversation = (conversationId: string): void => {
     setFocusedId(null)
     void assistant.selectConversation(conversationId)
+  }
+
+  const mentionMenu = useMemo(() => {
+    if (mentionBots.length === 0) return null
+    const before = draft.slice(0, caret)
+    const match = /(?:^|[\s(])@([^@\n]*)$/u.exec(before)
+    if (match === null) return null
+    const start = match.index + match[0].lastIndexOf('@')
+    const query = (match[1] ?? '').trim().toLocaleLowerCase()
+    const items = mentionBots.filter((bot) =>
+      bot.name.toLocaleLowerCase().startsWith(query)
+    )
+    if (items.length === 0) return null
+    return { start, items: items.slice(0, 6) }
+  }, [caret, draft, mentionBots])
+
+  const insertMention = (name: string): void => {
+    if (mentionMenu === null) return
+    const next = `${draft.slice(0, mentionMenu.start)}@${name} ${draft.slice(caret)}`
+    setDraft(next)
+    const position = mentionMenu.start + name.length + 2
+    setCaret(position)
+    setMentionDismissed(true)
+    requestAnimationFrame(() => {
+      const field = inputRef.current
+      if (field === null) return
+      field.focus()
+      field.setSelectionRange(position, position)
+    })
+  }
+
+  const composerKeys = (event: React.KeyboardEvent<HTMLTextAreaElement>): boolean => {
+    if (mentionMenu === null || mentionDismissed) return false
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault()
+      const step = event.key === 'ArrowDown' ? 1 : -1
+      setMentionIndex(
+        (current) =>
+          (current + step + mentionMenu.items.length) % mentionMenu.items.length
+      )
+      return true
+    }
+    if (event.key === 'Enter' || event.key === 'Tab') {
+      event.preventDefault()
+      const bot = mentionMenu.items[Math.min(mentionIndex, mentionMenu.items.length - 1)]
+      if (bot !== undefined) insertMention(bot.name)
+      return true
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      setMentionDismissed(true)
+      return true
+    }
+    return false
   }
 
   const submit = async (text: string): Promise<void> => {
@@ -498,7 +559,14 @@ export default function AssistantPage({
       <ChatComposer
         textareaRef={inputRef}
         value={draft}
-        onChange={setDraft}
+        onChange={(value, nextCaret) => {
+          setDraft(value)
+          setCaret(nextCaret)
+          setMentionIndex(0)
+          setMentionDismissed(false)
+        }}
+        onSelect={(event) => setCaret(event.currentTarget.selectionStart)}
+        onKeyDown={composerKeys}
         onSend={() => void send(draft)}
         onStop={() => void assistant.stop()}
         working={working}
@@ -516,6 +584,39 @@ export default function AssistantPage({
             : undefined
         }
         attachments={attachments}
+        menu={
+          mentionMenu !== null && !mentionDismissed ? (
+            <div
+              className="w-64 overflow-hidden rounded-md border border-border bg-card py-1 shadow-xl"
+              data-testid="assistant-mention-menu"
+            >
+              {mentionMenu.items.map((bot, index) => (
+                <button
+                  key={bot.id}
+                  type="button"
+                  className={`flex w-full items-center gap-2 px-2 py-1.5 text-left text-[11px] ${
+                    mentionIndex === index ? 'bg-muted' : 'hover:bg-muted'
+                  }`}
+                  onMouseDown={(event) => {
+                    event.preventDefault()
+                    insertMention(bot.name)
+                  }}
+                >
+                  <AssistantAvatar
+                    name={bot.name}
+                    status={bot.status}
+                    size="sm"
+                    color={bot.avatarColor}
+                    image={bot.avatarImage}
+                    mascot={bot.avatarMascot}
+                    outfit={bot.avatarOutfit}
+                  />
+                  <span className="truncate">{bot.name}</span>
+                </button>
+              ))}
+            </div>
+          ) : undefined
+        }
         commands={[
           { name: '/new', run: () => void assistant.newConversation() },
           { name: '/stop', run: () => void assistant.stop() },

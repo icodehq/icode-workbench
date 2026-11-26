@@ -635,9 +635,9 @@ export default function GroupRoomPage({
         <ChatComposer
           textareaRef={composerRef}
           value={draft}
-          onChange={(value) => {
+          onChange={(value, caret) => {
             setDraft(value)
-            setCaret(value.length)
+            setCaret(caret)
             setMentionIndex(0)
             setMentionDismissed(false)
           }}
@@ -670,7 +670,10 @@ export default function GroupRoomPage({
           testIds={{ textarea: 'bots-composer', send: 'bots-send' }}
           menu={
             mentionMenu !== null && !mentionDismissed ? (
-              <div className="w-64 overflow-hidden rounded-md border border-border bg-card py-1 shadow-xl">
+              <div
+                className="w-64 overflow-hidden rounded-md border border-border bg-card py-1 shadow-xl"
+                data-testid="bots-mention-menu"
+              >
                 {mentionMenu.items.map((bot, index) => (
                   <button
                     key={bot.id}

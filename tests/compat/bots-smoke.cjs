@@ -577,6 +577,28 @@ async function main() {
         `document.querySelector('[data-testid="bots-send"]').click()`
       )
     }
+    await cdp.evaluate(`(() => {
+      const input = document.querySelector('[data-testid="bots-composer"]')
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLTextAreaElement.prototype,
+        'value'
+      ).set
+      setter.call(input, '@')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })()`)
+    await waitFor(
+      `Boolean(document.querySelector('[data-testid="bots-mention-menu"]'))`,
+      'group mention picker'
+    )
+    await cdp.evaluate(`(() => {
+      const input = document.querySelector('[data-testid="bots-composer"]')
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLTextAreaElement.prototype,
+        'value'
+      ).set
+      setter.call(input, '')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })()`)
     const message = 'Hello from the room smoke'
     await compose(message)
     try {
@@ -624,6 +646,28 @@ async function main() {
       `Boolean(document.querySelector('[data-testid="bots-open-settings"]'))`,
       'bot settings entry'
     )
+    await cdp.evaluate(`(() => {
+      const input = document.querySelector('[data-testid="assistant-composer"]')
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLTextAreaElement.prototype,
+        'value'
+      ).set
+      setter.call(input, '@')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })()`)
+    await waitFor(
+      `Boolean(document.querySelector('[data-testid="assistant-mention-menu"]'))`,
+      'bot mention picker'
+    )
+    await cdp.evaluate(`(() => {
+      const input = document.querySelector('[data-testid="assistant-composer"]')
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLTextAreaElement.prototype,
+        'value'
+      ).set
+      setter.call(input, '')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })()`)
     await screenshot('03a-bot-home')
     await cdp.evaluate(
       `document.querySelector('[data-testid="bots-open-settings"]').click()`
