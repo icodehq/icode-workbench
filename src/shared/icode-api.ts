@@ -347,6 +347,8 @@ export type GitApi = {
  * supply commands, cwd, or host protocol messages.
  */
 export type IcodeProductApi = {
+  /** The absolute path of a file the user picked, when the platform exposes one. */
+  pathForFile: (file: unknown) => string
   /**
    * Application language. `initial` is resolved by the main process and passed
    * to the renderer at window creation, so the first paint is already correct.

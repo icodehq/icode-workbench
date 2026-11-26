@@ -41,7 +41,8 @@ function createGitApi(
 export function createIcodeApi(
   invoke: InvokeFn,
   subscribe: SubscribeFn,
-  initialLocale: Locale = 'en'
+  initialLocale: Locale = 'en',
+  pathForFile: (file: unknown) => string = () => ''
 ): IcodeApi {
   const listeners = new Set<(event: RendererSessionEvent) => void>()
   let disposeChannel: (() => void) | null = null
@@ -63,6 +64,7 @@ export function createIcodeApi(
     invoke(channel, input) as Promise<IpcResult<T>>
 
   const api: IcodeApi = {
+    pathForFile,
     getRuntimeInfo: (): Promise<RuntimeInfo> =>
       invoke(IPC_CHANNELS.runtimeInfo) as Promise<RuntimeInfo>,
     locale: {

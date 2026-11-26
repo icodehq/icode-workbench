@@ -227,6 +227,7 @@ export class AssistantService {
     const thread = this.ensureThread()
     const settings = this.settingsPort().get()
     const active = thread.activeRunId ? this.deps.store.findRun(thread.activeRunId) : null
+    const latest = this.deps.store.latestRunForThread(thread.id)
     const activeRun: AssistantActiveRun | null =
       active && active.status === 'running'
         ? {
@@ -246,6 +247,7 @@ export class AssistantService {
       status: this.status,
       harness: this.harness,
       target: this.target,
+      contextChars: latest?.contextChars ?? null,
       activeRun,
       settings
     }

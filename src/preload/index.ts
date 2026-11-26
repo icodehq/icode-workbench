@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { createIcodeApi } from './api'
 import { readInitialLocale } from './initial-locale'
 
@@ -9,7 +9,8 @@ const api = createIcodeApi(
     ipcRenderer.on(channel, handler)
     return () => ipcRenderer.removeListener(channel, handler)
   },
-  readInitialLocale(process.argv)
+  readInitialLocale(process.argv),
+  (file) => webUtils.getPathForFile(file as File)
 )
 
 contextBridge.exposeInMainWorld('icode', api)

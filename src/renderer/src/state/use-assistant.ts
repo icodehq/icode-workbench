@@ -41,6 +41,8 @@ export type AssistantState = {
   status: AssistantStatePayload['status']
   harness: string | null
   target: string | null
+  /** Characters in the last run's prompt; null before the first run. */
+  contextChars: number | null
   settings: AssistantSettingsPayload
   messages: AssistantMessagePayload[]
   notifications: AssistantMessagePayload[]
@@ -158,6 +160,7 @@ function useChat(
   const [status, setStatus] = useState<AssistantStatePayload['status']>('offline')
   const [harness, setHarness] = useState<string | null>(null)
   const [target, setTarget] = useState<string | null>(null)
+  const [contextChars, setContextChars] = useState<number | null>(null)
   const [settings, setSettings] = useState<AssistantSettingsPayload>(
     DEFAULT_ASSISTANT_SETTINGS
   )
@@ -219,6 +222,7 @@ function useChat(
       setStatus(next.status)
       setHarness(next.harness)
       setTarget(next.target)
+      setContextChars(next.contextChars)
       setSettings(next.settings)
       setLive((current) =>
         next.activeRun === null
@@ -546,6 +550,7 @@ function useChat(
     status,
     harness,
     target,
+    contextChars,
     settings,
     messages,
     notifications,
