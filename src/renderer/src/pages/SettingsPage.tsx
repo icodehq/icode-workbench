@@ -1,7 +1,5 @@
 import { Check, Monitor, Moon, RefreshCw, Sun } from 'lucide-react'
 import type { RuntimeInfo } from '../../../shared/icode-api'
-import type { AssistantSettingsPayload } from '../../../shared/schemas/assistant'
-import type { AssistantStatus } from '../../../shared/domain/assistant'
 import type { ThemeName, ThemePreference } from '../theme/apply-theme'
 import { hostStatus } from '../state/host-status'
 import { availableHarnesses } from '../state/workspace'
@@ -10,7 +8,6 @@ import ScmSettingsCard from '../scm/ScmSettingsCard'
 import FilesSettingsCard from '../files/FilesSettingsCard'
 import SettingsCard from '../components/SettingsCard'
 import AgentsAndHarnessesCard from '../components/AgentsAndHarnessesCard'
-import AssistantSettingsCard from '../components/AssistantSettingsCard'
 import LanguageSettingsCard from '../components/LanguageSettingsCard'
 import NetworkSettingsCard from '../components/NetworkSettingsCard'
 import ProviderSettingsCard from '../components/ProviderSettingsCard'
@@ -29,11 +26,6 @@ type SettingsPageProps = {
   themePreference: ThemePreference
   resolvedTheme: ThemeName
   onSetTheme: (preference: ThemePreference) => void
-  assistantSettings: AssistantSettingsPayload
-  assistantStatus: AssistantStatus
-  assistantHarness: string | null
-  assistantTarget: string | null
-  onSaveAssistantSettings: (settings: AssistantSettingsPayload) => Promise<void>
 }
 
 
@@ -64,12 +56,7 @@ export default function SettingsPage({
   onRefresh,
   themePreference,
   resolvedTheme,
-  onSetTheme,
-  assistantSettings,
-  assistantStatus,
-  assistantHarness,
-  assistantTarget,
-  onSaveAssistantSettings
+  onSetTheme
 }: SettingsPageProps): React.JSX.Element {
   const t = useT()
   const host = hostStatus(state)
@@ -135,14 +122,6 @@ export default function SettingsPage({
               harnessError={state.harnessError}
               refreshing={refreshing}
               onRefresh={onRefresh}
-            />
-
-            <AssistantSettingsCard
-              settings={assistantSettings}
-              status={assistantStatus}
-              harness={assistantHarness}
-              target={assistantTarget}
-              onSave={onSaveAssistantSettings}
             />
 
             <ScmSettingsCard />

@@ -5,6 +5,26 @@ All notable changes to iCode are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.33.0] - 2026-11-26
+
+### Added
+
+- **Yarcy is now an official template.** The Chief of Staff template creates a
+  cross-project coordinator that tracks decisions, owners and follow-ups,
+  alongside the other 24 templates.
+
+### Changed
+
+- **The built-in global assistant surface is gone.** The sidebar footer entry,
+  Assistant tab, global assistant settings, notification section, command
+  palette action and `assistant.*` IPC are removed. Bots, groups, Items and the
+  task workbench are the only chat and work surfaces.
+- The built-in assistant profile and main thread are archived by schema v35.
+  Existing history stays in the database but is no longer resolved by the app.
+- Auto-dispatch and notification settings live with each bot. Task
+  notifications route to the task's bot thread; tasks without a bot remain in
+  the task queue and Items view.
+
 ## [0.32.0] - 2026-11-26
 
 ### Added

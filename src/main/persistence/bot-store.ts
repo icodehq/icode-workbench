@@ -129,19 +129,13 @@ export class BotStore {
     return row ? botFromRow(row) : null
   }
 
-  findByName(name: string, options: { excludeId?: string } = {}): BotRecord | null {
-    const row = (
-      options.excludeId === undefined
-        ? this.db.raw
-            .prepare(`SELECT ${BOT_COLUMNS} FROM bots WHERE name COLLATE NOCASE = ?`)
-            .get(name)
-        : this.db.raw
-            .prepare(
-              `SELECT ${BOT_COLUMNS} FROM bots
-               WHERE name COLLATE NOCASE = ? AND id <> ?`
-            )
-            .get(name, options.excludeId)
-    ) as BotRow | undefined
+  findByName(name: string): BotRecord | null {
+    const row = this.db.raw
+      .prepare(
+        `SELECT ${BOT_COLUMNS} FROM bots
+         WHERE name COLLATE NOCASE = ? AND archived_at IS NULL`
+      )
+      .get(name) as BotRow | undefined
     return row ? botFromRow(row) : null
   }
 

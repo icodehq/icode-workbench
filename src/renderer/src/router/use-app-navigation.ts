@@ -9,7 +9,7 @@ import {
   nextActiveAfterClose,
   openAuxTab
 } from '../components/shell/app-tabs'
-import type { AssistantTarget, ProjectMode, Surface } from './routes'
+import type { ProjectMode, Surface } from './routes'
 
 export type ViewName = 'terminal' | 'changes' | 'files'
 
@@ -69,13 +69,10 @@ export type AppNavigation = {
   viewRequest: ViewRequest | null
   taskViewRequest: TaskViewRequest | null
   openRequest: OpenFileRequest | null
-  assistantTarget: (AssistantTarget & { nonce: number }) | null
 
   commands: {
     showSchedules: () => void
     showSettings: () => void
-    showAssistant: (target?: AssistantTarget) => void
-    clearAssistantTarget: () => void
     showSessions: () => void
     openAppTab: (tab: AppTab) => void
     closeAppTab: (tab: AuxAppTab) => void
@@ -117,9 +114,7 @@ export function useAppNavigation({
   const [viewRequest, setViewRequest] = useState<ViewRequest | null>(null)
   const [taskViewRequest, setTaskViewRequest] = useState<TaskViewRequest | null>(null)
   const [openRequest, setOpenRequest] = useState<OpenFileRequest | null>(null)
-  const [assistantTarget, setAssistantTarget] = useState<
-    (AssistantTarget & { nonce: number }) | null
-  >(null)
+
 
   const repo = activeRepo(state)
   const active = activeSession(state)
@@ -160,15 +155,13 @@ export function useAppNavigation({
   const displaySurface: Surface =
     (surface === 'sessions' || surface === 'tasks') && repo === null ? 'projects' : surface
   const activeTab: AppTab =
-    displaySurface === 'assistant'
-      ? 'mira'
-      : displaySurface === 'bots'
-        ? 'bots'
-        : displaySurface === 'settings'
-          ? 'settings'
-          : displaySurface === 'schedules'
-            ? 'schedules'
-            : 'sessions'
+    displaySurface === 'bots'
+      ? 'bots'
+      : displaySurface === 'settings'
+        ? 'settings'
+        : displaySurface === 'schedules'
+          ? 'schedules'
+          : 'sessions'
   const selectedId = focusTaskId ?? (repo === null ? null : taskSelectionByRepo[repo.id] ?? null)
   const selectedWorkbenchTask =
     displaySurface !== 'tasks' || repo === null
@@ -258,20 +251,6 @@ export function useAppNavigation({
     setSurface('settings')
   }, [clearProjectView])
 
-  const showAssistant = useCallback(
-    (target?: AssistantTarget): void => {
-      clearProjectView()
-      setAuxTabs((current) => openAuxTab(current, 'mira'))
-      setSurface('assistant')
-      setAssistantTarget(target === undefined ? null : { ...target, nonce: Date.now() })
-    },
-    [clearProjectView]
-  )
-
-  const clearAssistantTarget = useCallback((): void => {
-    setAssistantTarget(null)
-  }, [])
-
   const showSessions = useCallback((): void => {
     setSurface('sessions')
     setTaskSession(null)
@@ -296,7 +275,7 @@ export function useAppNavigation({
         return
       }
       setAuxTabs((current) => openAuxTab(current, tab))
-      setSurface(tab === 'mira' ? 'assistant' : tab)
+      setSurface(tab)
     },
     [focusTaskId, repo, taskSelectionByRepo, tasks.tasks]
   )
@@ -465,8 +444,6 @@ export function useAppNavigation({
     () => ({
       showSchedules,
       showSettings,
-      showAssistant,
-      clearAssistantTarget,
       showSessions,
       openAppTab,
       closeAppTab,
@@ -504,8 +481,6 @@ export function useAppNavigation({
       showSchedules,
       showSessions,
       showSettings,
-      showAssistant,
-      clearAssistantTarget,
       switchProject
     ]
   )
@@ -529,7 +504,6 @@ export function useAppNavigation({
     viewRequest,
     taskViewRequest,
     openRequest,
-    assistantTarget,
     commands
   }
 }

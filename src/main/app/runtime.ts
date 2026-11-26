@@ -61,7 +61,6 @@ import { TaskScheduler } from '../tasks/task-scheduler'
 import { SupervisorStore } from '../persistence/supervisor-store'
 import { SupervisorService } from '../supervisor/supervisor-service'
 import { AssistantStore } from '../persistence/assistant-store'
-import { AssistantService } from '../assistant/assistant-service'
 import { AssistantPolicy } from '../assistant/assistant-policy'
 import { BotStore } from '../persistence/bot-store'
 import { GroupStore } from '../persistence/group-store'
@@ -183,8 +182,6 @@ export type AppRuntime = {
   taskDispatcher: TaskDispatcher
   /** One project-scoped control session and its local control plane. */
   supervisor: SupervisorService
-  /** The global Mira thread. */
-  assistant: AssistantService
   /** Persistent bot identities and their lazy chat runtimes. */
   bots: BotService
   botRuntimes: BotRuntimeRegistry
@@ -1217,7 +1214,6 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     newId: newAssistantId,
     now: () => Date.now()
   })
-  botService.ensureMira()
   const botRuntimes = new BotRuntimeRegistry({
     bots: botStore,
     botService,
@@ -1334,10 +1330,7 @@ export async function startAppRuntime(): Promise<AppRuntime> {
       acceptanceCriteria: task.acceptanceCriteria
     })
   }
-  const miraRuntime = botRuntimes.ensure('mira')
-  const assistantService = miraRuntime.service
   assistantNotifier = new AssistantNotifier({
-    service: assistantService,
     serviceForBot: (botId) => {
       try {
         return botRuntimes.ensure(botId).service
@@ -1347,7 +1340,6 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     },
     taskStore,
     repositories: persistence.repositories,
-    settings: () => assistantStore.getSettings(),
     settingsForBot: (botId) => botService.settingsFor(botId),
     now: () => Date.now(),
     isWindowFocused: () => BrowserWindow.getFocusedWindow() !== null,
@@ -1363,13 +1355,12 @@ export async function startAppRuntime(): Promise<AppRuntime> {
         const taskId = message === null ? null : notificationTaskId(message.card)
         const task = taskId === null ? null : taskStore.findById(taskId)
         const destination = notificationDestination(message?.notificationKind ?? null, task)
-        let service = assistantService
-        if (botId !== null && botId !== undefined) {
-          try {
-            service = botRuntimes.ensure(botId).service
-          } catch {
-            // The bot was archived; fall back to the global thread.
-          }
+        let service
+        try {
+          service = botRuntimes.ensure(botId).service
+        } catch {
+          // The bot was archived; the message and its task are still durable.
+          return
         }
         if (destination.kind === 'assistant' || message === null) {
           service.focus(messageId)
@@ -1800,7 +1791,6 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     schedules: taskScheduler,
     taskDispatcher,
     supervisor: supervisorService!,
-    assistant: assistantService,
     bots: botService,
     botRuntimes,
     botMemory: botMemoryStore,

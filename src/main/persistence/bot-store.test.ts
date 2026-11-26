@@ -80,7 +80,7 @@ describe('bot store', () => {
     expect(updated?.instructions).toBe('New')
 
     expect(bots.archive('backend', 3_000)).toBe(true)
-    expect(bots.list().map((entry) => entry.id)).toEqual(['mira'])
+    expect(bots.list().map((entry) => entry.id)).toEqual([])
     expect(bots.list({ includeArchived: true })).toHaveLength(2)
   })
 

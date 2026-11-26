@@ -2,8 +2,6 @@ import { useEffect } from 'react'
 import { Bell, Check, Loader2, X } from 'lucide-react'
 import type { TaskRecordPayload } from '../../../shared/icode-api'
 import type { SessionSummary } from '../../../shared/schemas/ipc'
-import type { AssistantMessagePayload } from '../../../shared/schemas/assistant'
-import type { AssistantTarget } from '../router/routes'
 import type { OpenBotsTab } from '../state/use-bots'
 import {
   activityDotClass,
@@ -39,13 +37,10 @@ type Props = {
   needsTasks: NeedsYouEntry[]
   bots: BotsNotificationEntry[]
   activity: ActivityEntry[]
-  assistantName: string
-  assistantMessages: AssistantMessagePayload[]
   markingRead: boolean
   onClose: () => void
   onOpenTask: (task: TaskRecordPayload) => void
   onOpenSession: (sessionId: string) => void
-  onOpenAssistant: (target: AssistantTarget) => void
   onOpenBots: (tab: OpenBotsTab) => void
   onMarkRead: () => void
 }
@@ -75,26 +70,6 @@ function attentionText(task: TaskRecordPayload): string {
   return translate(`task.status.${task.status}`)
 }
 
-function notificationKindLabel(kind: AssistantMessagePayload['notificationKind']): string {
-  switch (kind) {
-    case 'approval-needed':
-      return translate('notifications.kind.approvalNeeded')
-    case 'task-waiting':
-      return translate('notifications.kind.taskWaiting')
-    case 'task-failed':
-      return translate('notifications.kind.taskFailed')
-    case 'review-ready':
-      return translate('notifications.kind.reviewReady')
-    case 'task-completed':
-      return translate('notifications.kind.taskCompleted')
-    case 'custom':
-      return translate('notifications.kind.custom')
-    case undefined:
-      return translate('notifications.kind.message')
-    default:
-      return translate('notifications.kind.message')
-  }
-}
 
 /**
  * The bell's drawer: what needs the user, plus the recent activity the window
@@ -106,13 +81,10 @@ export default function NotificationsDrawer({
   needsTasks,
   bots,
   activity,
-  assistantName,
-  assistantMessages,
   markingRead,
   onClose,
   onOpenTask,
   onOpenSession,
-  onOpenAssistant,
   onOpenBots,
   onMarkRead
 }: Props): React.JSX.Element | null {
@@ -213,51 +185,6 @@ export default function NotificationsDrawer({
               </ul>
             </section>
           ) : null}
-
-          <section className="mb-2" data-testid="notifications-assistant">
-            <h3 className="px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.09em] text-muted-foreground">
-              {assistantName} · {assistantMessages.length}
-            </h3>
-            {assistantMessages.length === 0 ? (
-              <p className="px-2 py-2 text-[11px] text-muted-foreground">
-                {t('notifications.nothingFrom', { name: assistantName })}
-              </p>
-            ) : (
-              <ul className="space-y-0.5">
-                {assistantMessages.map((message) => (
-                  <li key={message.id}>
-                    <button
-                      type="button"
-                      className="flex w-full items-start gap-2 rounded-md px-2 py-2 text-left hover:bg-muted/60"
-                      onClick={() => {
-                        onClose()
-                        onOpenAssistant({ threadId: message.threadId, messageId: message.id })
-                      }}
-                      data-testid={`notification-assistant-${message.id}`}
-                    >
-                      <span
-                        className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
-                          message.notificationPriority === 'high'
-                            ? 'bg-signal'
-                            : message.notificationPriority === 'normal'
-                              ? 'bg-info'
-                              : 'bg-muted-foreground'
-                        }`}
-                      />
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[11.5px] font-medium text-foreground">
-                          {message.body}
-                        </span>
-                        <span className="block truncate text-[10px] text-muted-foreground">
-                          {notificationKindLabel(message.notificationKind)}
-                        </span>
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
 
           <section className="mb-2" data-testid="notifications-needs">
             <h3 className="px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.09em] text-muted-foreground">

@@ -19,7 +19,6 @@ export type AssistantSnapshot = {
     failed: number
     reviewReady: number
   }
-  memory: Array<{ key: string; value: string }>
 }
 
 export type AssistantContextDeps = {
@@ -78,8 +77,7 @@ export async function buildAssistantSnapshot(
       role: session.role,
       activity: session.activity?.state ?? null
     })),
-    needs,
-    memory: deps.store.listMemory()
+    needs
   }
 }
 
@@ -87,9 +85,9 @@ export type AssistantPromptInput = {
   personaName: string
   settings: AssistantSettings
   snapshot: AssistantSnapshot
-  /** The bot whose thread this is. Absent for the legacy Mira prompt. */
+  /** The bot whose thread this is. Absent for the legacy assistant prompt. */
   bot?: BotProfile
-  /** Scoped active memory; falls back to the snapshot's global Mira memory. */
+  /** Scoped active memory resolved by the bot runtime. */
   memory?: Array<{ key: string; value: string; scope?: string }>
   history: Array<{ role: string; body: string }>
   userText: string
@@ -169,7 +167,7 @@ For proactive messages, use notify only when the user needs to know now.`
       projects: snapshot.projects,
       tasks: snapshot.tasks,
       sessions: snapshot.sessions,
-      memory: input.memory ?? snapshot.memory,
+      memory: input.memory ?? [],
       currentProject: input.repoId ?? null
     },
     null,

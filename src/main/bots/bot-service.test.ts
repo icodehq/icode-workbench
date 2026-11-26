@@ -76,9 +76,9 @@ describe('bot service', () => {
 
   it('does not reserve the assistant display name for the built-in profile', () => {
     const { service } = fixture()
-    const bot = service.createBot({ name: 'Yarcy', role: 'Reviewer' })
-    expect(bot.name).toBe('Yarcy')
-    expect(() => service.createBot({ name: 'yarcy', role: 'Another' })).toThrow()
+    const bot = service.createBot({ name: 'Assistant', role: 'Reviewer' })
+    expect(bot.name).toBe('Assistant')
+    expect(() => service.createBot({ name: 'assistant', role: 'Another' })).toThrow()
   })
 
   it('keeps bot names unique and updates the thread title on rename', () => {
@@ -108,9 +108,8 @@ describe('bot service', () => {
     expect(assistants.findThreadByBotId(bot.id)?.title).toBe('API')
   })
 
-  it('protects Mira from accidental archive and archives other bots', () => {
+  it('archives a bot and removes it from the active list', () => {
     const { bots, service } = fixture()
-    expect(() => service.archiveBot('mira')).toThrow()
     const bot = service.createBot({ name: 'Backend', role: 'Backend engineer' })
     expect(service.archiveBot(bot.id)).toBe(true)
     expect(bots.list().map((entry) => entry.id)).not.toContain(bot.id)

@@ -15,7 +15,6 @@ import SettingsPage from './pages/SettingsPage'
 import TasksSurface from './components/tasks/TasksSurface'
 import TaskComposerDialog from './components/tasks/TaskComposerDialog'
 import type { TaskAction } from './components/TaskWorkbench'
-import AssistantPage from './pages/AssistantPage'
 import BotsSidebarSection from './components/bots/BotsSidebarSection'
 import BotsSurface from './components/bots/BotsSurface'
 import type { AssistantTaskAction } from './components/AssistantCardView'
@@ -40,7 +39,6 @@ import {
 } from './state/pending-create'
 import { useTaskQueue } from './state/use-task-queue'
 import { useRemovalJobs } from './state/use-removal-jobs'
-import { useAssistant } from './state/use-assistant'
 import { botsTabKey, useBots, type OpenBotsTab } from './state/use-bots'
 import { useThemePreference } from './theme/use-theme'
 import { useLocale } from './i18n/use-i18n'
@@ -90,7 +88,6 @@ export default function App(): React.JSX.Element {
     viewRequest,
     taskViewRequest,
     openRequest,
-    assistantTarget,
     commands
   } = useAppNavigation({ workspace, tasks })
 
@@ -99,9 +96,6 @@ export default function App(): React.JSX.Element {
   const commandsRef = useRef(commands)
   commandsRef.current = commands
 
-  const assistant = useAssistant(workspace.notify, (event) =>
-    commands.showAssistant({ threadId: event.threadId, messageId: event.messageId })
-  )
   const botsState = useBots(workspace.notify)
 
   const openBotsGroup = useCallback(
@@ -198,17 +192,7 @@ export default function App(): React.JSX.Element {
     )
   }, [botsState.bots, botsState.groups, tasks.tasks])
 
-  // The global assistant reads its own thread; a rename of the default Chief
-  // happens through the bot store, so refresh the persona when it changes.
-  useEffect(() => {
-    return window.icode.bots.onEvent((event) => {
-      if (event.type === 'changed' && (event.botId === null || event.botId === 'mira')) {
-        void assistant.reload()
-      }
-    })
-  }, [assistant.reload])
-
-  const runAssistantTaskAction = useCallback(
+  const runBotsTaskAction = useCallback(
     async (action: AssistantTaskAction, taskId: string): Promise<void> => {
       const result = await requestTaskAction(
         taskId,
@@ -219,9 +203,9 @@ export default function App(): React.JSX.Element {
         return
       }
       await tasks.reload()
-      await assistant.reload()
+      await botsState.reload()
     },
-    [assistant.reload, tasks.reload, workspace]
+    [botsState.reload, tasks.reload, workspace]
   )
 
   const runTaskWorkbenchAction = useCallback(
@@ -768,17 +752,6 @@ export default function App(): React.JSX.Element {
         bots={botsState.bots}
       />
     ),
-    assistant: (
-      <AssistantPage
-        assistant={assistant}
-        request={assistantTarget}
-        repos={state.repos}
-        tasks={tasks.tasks}
-        onOpenTask={commands.openTaskById}
-        onTaskAction={(action, taskId) => void runAssistantTaskAction(action, taskId)}
-        onOpenSettings={commands.showSettings}
-      />
-    ),
     bots: (
       <BotsSurface
         state={botsState}
@@ -786,7 +759,7 @@ export default function App(): React.JSX.Element {
         tasks={tasks.tasks}
         notify={workspace.notify}
         onOpenTask={commands.openTaskById}
-        onTaskAction={(action, taskId) => void runAssistantTaskAction(action, taskId)}
+        onTaskAction={(action, taskId) => void runBotsTaskAction(action, taskId)}
       />
     ),
     schedules: (
@@ -810,11 +783,6 @@ export default function App(): React.JSX.Element {
         themePreference={theme.preference}
         resolvedTheme={theme.resolved}
         onSetTheme={theme.setPreference}
-        assistantSettings={assistant.settings}
-        assistantStatus={assistant.status}
-        assistantHarness={assistant.harness}
-        assistantTarget={assistant.target}
-        onSaveAssistantSettings={assistant.saveSettings}
       />
     )
   }
@@ -849,10 +817,7 @@ export default function App(): React.JSX.Element {
           branches={state.branches}
           orphans={state.orphans}
           pending={state.pending}
-          assistantName={assistant.personaName}
-          assistantUnread={assistant.unread}
           botsUnread={botsState.unread}
-          assistantStatus={assistant.status}
           hostUnreachable={hostUnreachable}
           platform={workspace.runtime?.platform ?? null}
           onOpenProject={(repoId, mode) => {
@@ -901,10 +866,6 @@ export default function App(): React.JSX.Element {
             commands.showSchedules()
             setSidebarOpen(false)
           }}
-          onOpenAssistant={() => {
-            commands.showAssistant()
-            setSidebarOpen(false)
-          }}
           onOpenSettings={() => {
             commands.showSettings()
             setSidebarOpen(false)
@@ -943,8 +904,6 @@ export default function App(): React.JSX.Element {
           auxTabs={auxTabs}
           botsTabs={auxTabs.includes('bots') ? botsTabs : []}
           activeBotsKey={activeBotsKey}
-          assistantName={assistant.personaName}
-          assistantUnread={assistant.unread}
           botsUnread={botsState.unread}
           platform={workspace.runtime?.platform ?? null}
           onActivate={(tab) => commands.openAppTab(tab)}
@@ -962,18 +921,10 @@ export default function App(): React.JSX.Element {
             needsTasks,
             bots: botsNotifications,
             activity: activityEntries,
-            assistantName: assistant.personaName,
-            assistantMessages: assistant.notifications,
             markingRead: markingActivity,
             onClose: () => setNotificationsOpen(false),
             onOpenTask: commands.openTask,
             onOpenSession: commands.openDirectSession,
-            onOpenAssistant: (target) => {
-              commands.showAssistant(target)
-              if (target.messageId) {
-                void window.icode.assistant.focus({ messageId: target.messageId })
-              }
-            },
             onOpenBots: (tab) => {
               activateBotsTab(tab)
               setNotificationsOpen(false)
@@ -1001,8 +952,6 @@ export default function App(): React.JSX.Element {
             onNewSession: openNewSession,
             onQueueTask: openQueueTask,
             activeRepoId: repo?.id ?? null,
-            onOpenAssistant: () => commands.showAssistant(),
-            assistantName: assistant.personaName,
             onBots: () => commands.openAppTab('bots'),
             onSchedules: commands.showSchedules,
             onSettings: commands.showSettings,

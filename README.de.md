@@ -15,8 +15,8 @@
 
 <p align="center">
   iCode Workbench ist die universelle Agent Development Environment (ADE): Claude Code,
-  Codex und OpenCode laufen parallel, jeweils in einem eigenen Git-Worktree. Yarcy beobachtet
-  alle Repositories, sagt dir, was deine Aufmerksamkeit braucht, und kann projektübergreifend
+  Codex und OpenCode laufen parallel, jeweils in einem eigenen Git-Worktree. Bots beobachten
+  alle Repositories, sagen dir, was deine Aufmerksamkeit braucht, und können projektübergreifend
   handeln. Prüfe Änderungen dort, wo der Agent gearbeitet hat, und halte das Terminal am
   Leben, wenn die App neu startet.
 </p>
@@ -35,11 +35,11 @@
   Details, Schlafen oder Aufwecken, Neustart, Anheften und Entfernen, ohne die Sitzung
   zu öffnen. Das Entfernen verlangt keinen Branch-Namen, nennt gefährdete Änderungen
   und behält den Branch.
-- **Yarcy über Projekte hinweg (Standardname, jederzeit umbenennbar).** Eine Unterhaltung für Warteschlange, Blocker und
+- **Bots über Projekte hinweg (25 offizielle Vorlagen, inklusive Yarcy).** Jeder Bot hat seinen eigenen Home-Chat; in Gruppen bearbeiten sie Warteschlange, Blocker und
   projektübergreifende Aktionen.
 - **Prüfen, wo der Agent gearbeitet hat.** Task-Diffs, Dateien, Suche und Source Control
   im selben Session-Checkout.
-- **Alle Arbeit in einer Seitenleiste.** Projekte, direkte Sitzungen, angeheftete Elemente und die projektübergreifende Aufgabenwarteschlange bleiben sichtbar; Yarcy, Einstellungen und Zeitpläne öffnen als Tabs.
+- **Alle Arbeit in einer Seitenleiste.** Projekte, direkte Sitzungen, angeheftete Elemente und die projektübergreifende Aufgabenwarteschlange bleiben sichtbar; Bots, Einstellungen und Zeitpläne öffnen als Tabs.
 
 <p align="center">
   <a href=".github/assets/workbench-0916-session-menu.png"><img src=".github/assets/workbench-0916-session-menu.png" alt="Kontextmenü einer Sitzungszeile mit Sitzungsdetails, Sitzung in Ruhezustand versetzen, Sitzung neu starten, Oben anheften und Sitzung entfernen" width="100%" /></a>

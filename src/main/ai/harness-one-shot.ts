@@ -33,7 +33,7 @@ const MAX_OUTPUT_BYTES = 16_000_000
  * On Windows the resolved command is an npm `.cmd` shim, so the spawned child
  * is `cmd.exe`; Claude/Codex is its child. Killing only `cmd.exe` leaves the
  * agent holding the stdout/stderr pipes, and the `close` event does not fire
- * until that orphan exits. A timed-out or stopped Mira turn would then stay
+ * until that orphan exits. A timed-out or stopped bot turn would then stay
  * "working" for minutes after its deadline. `taskkill /T` closes the tree and
  * releases the pipes immediately.
  */
@@ -229,7 +229,7 @@ async function runGuestHarnessOneShot(
  * The WSL equivalent of the local streaming spawn.
  *
  * `WslCommandRunner` uses `execFile`, which only resolves with the complete
- * output. Mira needs the same incremental stdout for a guest harness, so this
+ * output. A bot needs the same incremental stdout for a guest harness, so this
  * path builds the identical `wsl.exe` argv and owns the process directly.
  */
 async function runGuestHarnessOneShotStreaming(

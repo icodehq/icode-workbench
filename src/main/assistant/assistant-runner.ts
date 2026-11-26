@@ -109,7 +109,7 @@ function isReadAction(action: AssistantActionPayload): boolean {
 }
 
 /**
- * One Mira turn: a bounded read/write loop over a headless harness.
+ * One bot turn: a bounded read/write loop over a headless harness.
  *
  * The harness is the planner. Main executes every action; the harness has no
  * project cwd and no iCode command surface.

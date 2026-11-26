@@ -210,44 +210,9 @@ export const assistantEventSchema = z.discriminatedUnion('type', [
   })
 ])
 
-export const assistantSendInputSchema = z.strictObject({
-  text: z.string().trim().min(1).max(ASSISTANT_LIMITS.maxMessageLength),
-  repoId: repoIdSchema.optional()
-})
-
 export const assistantSendResultSchema = z.strictObject({
   message: assistantMessageSchema,
   runId: z.string().min(1).max(120)
-})
-
-export const assistantMessagesInputSchema = z.strictObject({
-  threadId: z.string().min(1).max(120),
-  beforeSeq: z.number().int().min(1).optional(),
-  limit: z.number().int().min(1).max(ASSISTANT_LIMITS.maxThreadMessages).optional(),
-  conversationId: z.string().min(1).max(120).optional()
-})
-
-export const assistantMarkReadInputSchema = z.strictObject({
-  threadId: z.string().min(1).max(120),
-  messageId: z.string().min(1).max(120).optional()
-})
-
-export const assistantRunInputSchema = z.strictObject({
-  threadId: z.string().min(1).max(120)
-})
-
-export const assistantSetSettingsInputSchema = z.strictObject({
-  settings: assistantSettingsSchema
-})
-
-export const assistantEmptyInputSchema = z.strictObject({})
-
-export const assistantNotificationsInputSchema = z.strictObject({
-  limit: z.number().int().min(1).max(ASSISTANT_LIMITS.maxNotificationFeed).optional()
-})
-
-export const assistantFocusInputSchema = z.strictObject({
-  messageId: z.string().min(1).max(120)
 })
 
 export const assistantNewConversationResultSchema = z.strictObject({
@@ -261,13 +226,8 @@ export type AssistantRunPayload = z.infer<typeof assistantRunSchema>
 export type AssistantStatePayload = z.infer<typeof assistantStateSchema>
 export type AssistantEventPayload = z.infer<typeof assistantEventSchema>
 export type AssistantSettingsPayload = z.infer<typeof assistantSettingsSchema>
-export type AssistantSendInput = z.infer<typeof assistantSendInputSchema>
 export type AssistantSendResult = z.infer<typeof assistantSendResultSchema>
 export type AssistantNewConversationResult = z.infer<
   typeof assistantNewConversationResultSchema
 >
-export type AssistantMessagesInput = z.infer<typeof assistantMessagesInputSchema>
-export type AssistantNotificationsInput = z.infer<typeof assistantNotificationsInputSchema>
-export type AssistantFocusInput = z.infer<typeof assistantFocusInputSchema>
-export type AssistantMarkReadInput = z.infer<typeof assistantMarkReadInputSchema>
 export type AssistantCardPayload = z.infer<typeof assistantCardSchema>

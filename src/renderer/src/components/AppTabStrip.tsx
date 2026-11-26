@@ -24,8 +24,6 @@ type Props = {
   auxTabs: readonly AuxAppTab[]
   botsTabs: readonly AppBotsTab[]
   activeBotsKey: string | null
-  assistantName: string
-  assistantUnread: number
   botsUnread: number
   platform: string | null
   onActivate: (tab: AppTab) => void
@@ -35,7 +33,7 @@ type Props = {
 }
 
 /**
- * Center tabs. Sessions is pinned; Mira, Settings and Schedules are fixed app
+ * Center tabs. Sessions is pinned; Bots, Settings and Schedules are fixed app
  * views; bot homes and group rooms are dynamic, one tab per open bot/group.
  */
 export default function AppTabStrip({
@@ -43,8 +41,6 @@ export default function AppTabStrip({
   auxTabs,
   botsTabs,
   activeBotsKey,
-  assistantName,
-  assistantUnread,
   botsUnread,
   platform,
   onActivate,
@@ -98,17 +94,13 @@ export default function AppTabStrip({
       .map((tab) => ({
         key: tab,
         label:
-          tab === 'mira'
-            ? assistantName
-            : tab === 'bots'
-              ? t('bots.label')
-              : tab === 'settings'
-                ? t('settings.title')
-                : t('rail.schedules'),
+          tab === 'bots'
+            ? t('bots.label')
+            : tab === 'settings'
+              ? t('settings.title')
+              : t('rail.schedules'),
         icon:
-          tab === 'mira' ? (
-            <Sparkles size={12} />
-          ) : tab === 'bots' ? (
+          tab === 'bots' ? (
             <Users size={12} />
           ) : tab === 'settings' ? (
             <SettingsIcon size={12} />
@@ -117,11 +109,9 @@ export default function AppTabStrip({
           ),
         active: activeTab === tab,
         closable: true,
-        ...(tab === 'mira' && assistantUnread > 0
-          ? { badge: assistantUnread, badgeTitle: t('rail.assistantUnread', { name: assistantName, count: assistantUnread }) }
-          : tab === 'bots' && botsUnread > 0
-            ? { badge: botsUnread, badgeTitle: t('bots.unread', { count: botsUnread }) }
-            : {}),
+        ...(tab === 'bots' && botsUnread > 0
+          ? { badge: botsUnread, badgeTitle: t('bots.unread', { count: botsUnread }) }
+          : {}),
         testId: `app-tab-${tab}`,
         closeTestId: `app-tab-close-${tab}`,
         activate: () => onActivate(tab),

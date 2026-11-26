@@ -5,7 +5,7 @@ import { continuationDriver } from './assistant-continuation'
 const ANSI = /\u001b\[[0-9;]*m/g
 
 /**
- * Headless arguments for one Mira turn. These are one-shot, read-only modes:
+ * Headless arguments for one bot turn. These are one-shot, read-only modes:
  * the model never receives a project cwd or an iCode command surface.
  *
  * This is the compatibility wrapper used by tests and callers that do not

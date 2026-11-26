@@ -7,16 +7,6 @@ export const BOT_LIMITS = {
 } as const
 
 /**
- * The global assistant's internal profile id.
- *
- * The assistant needs a profile row for settings and memory, but it is not an
- * owner-created bot: it stays out of the Bots roster, group member pickers and
- * bot counts so a fresh install starts empty and the first bot comes from a
- * template.
- */
-export const BUILTIN_ASSISTANT_BOT_ID = 'mira'
-
-/**
  * A bot is a persistent teammate, not a session role.
  *
  * It owns a durable assistant thread and a small profile. Its work is ordinary

@@ -229,23 +229,6 @@ export function createIcodeApi(
       onChanged: (listener) =>
         subscribe(IPC_CHANNELS.updatesEvent, (payload) => listener(payload as UpdateState))
     },
-    assistant: {
-      state: () => call(IPC_CHANNELS.assistantState),
-      messages: (input) => call(IPC_CHANNELS.assistantMessagesList, input),
-      conversations: () => call(IPC_CHANNELS.assistantConversationsList, {}),
-      notifications: (input) => call(IPC_CHANNELS.assistantNotificationsList, input),
-      focus: (input) => call(IPC_CHANNELS.assistantFocus, input),
-      send: (input) => call(IPC_CHANNELS.assistantSend, input),
-      markRead: (input) => call(IPC_CHANNELS.assistantMarkRead, input),
-      stop: () => call(IPC_CHANNELS.assistantStop),
-      newConversation: () => call(IPC_CHANNELS.assistantNewConversation, {}),
-      settings: () => call(IPC_CHANNELS.assistantSettingsGet),
-      setSettings: (input) => call(IPC_CHANNELS.assistantSetSettings, input),
-      onEvent: (listener) =>
-        subscribe(IPC_CHANNELS.assistantEvent, (payload) =>
-          listener(payload as import('../shared/schemas/assistant').AssistantEventPayload)
-        )
-    },
     bots: {
       list: () => call(IPC_CHANNELS.botsList, {}),
       create: (input) => call(IPC_CHANNELS.botsCreate, input),
@@ -380,7 +363,6 @@ export function createIcodeApi(
   Object.freeze(api.worktrees)
   Object.freeze(api.network)
   Object.freeze(api.updates)
-  Object.freeze(api.assistant)
   Object.freeze(api.harness)
   Object.freeze(api.branches)
   Object.freeze(api.remotes)

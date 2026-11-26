@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { BOT_TEMPLATE_CATEGORIES, BOT_TEMPLATES } from './bot-templates'
 
 describe('official bot templates', () => {
-  it('ships 24 unique templates across all categories', () => {
-    expect(BOT_TEMPLATES).toHaveLength(24)
-    expect(new Set(BOT_TEMPLATES.map((template) => template.id)).size).toBe(24)
-    expect(new Set(BOT_TEMPLATES.map((template) => template.name)).size).toBe(24)
+  it('ships 25 unique templates across all categories', () => {
+    expect(BOT_TEMPLATES).toHaveLength(25)
+    expect(new Set(BOT_TEMPLATES.map((template) => template.id)).size).toBe(25)
+    expect(new Set(BOT_TEMPLATES.map((template) => template.name)).size).toBe(25)
     expect(new Set(BOT_TEMPLATES.map((template) => template.category))).toEqual(
       new Set(BOT_TEMPLATE_CATEGORIES)
     )

@@ -390,22 +390,20 @@ export default function BotSettingsDialog({
             >
               {paused ? t('bots.resume') : t('bots.pause')}
             </button>
-            {bot.id !== 'mira' ? (
-              <button
-                type="button"
-                className="h-8 rounded px-2 text-[11px] text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-40"
-                onClick={() => {
-                  if (!window.confirm(t('bots.archiveConfirm', { name: bot.name }))) return
-                  void state.archiveBot(bot.id).then((archived) => {
-                    if (archived) onClose()
-                  })
-                }}
-                disabled={busy}
-                data-testid="bot-settings-archive"
-              >
-                {t('bots.archive')}
-              </button>
-            ) : null}
+            <button
+              type="button"
+              className="h-8 rounded px-2 text-[11px] text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-40"
+              onClick={() => {
+                if (!window.confirm(t('bots.archiveConfirm', { name: bot.name }))) return
+                void state.archiveBot(bot.id).then((archived) => {
+                  if (archived) onClose()
+                })
+              }}
+              disabled={busy}
+              data-testid="bot-settings-archive"
+            >
+              {t('bots.archive')}
+            </button>
           </div>
           <div className="flex items-center gap-2">
             <button

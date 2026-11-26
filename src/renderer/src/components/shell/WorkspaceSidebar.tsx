@@ -28,7 +28,6 @@ import type { Notice, PendingAction } from '../../state/workspace'
 import type { SidebarSessionActions, WorktreeRemovalOptions } from '../../state/session-actions'
 import type { WorktreeRemovalOutcome } from '../../state/use-workspace'
 import type { MenuAnchor } from '../ContextMenu'
-import AssistantAvatar from '../AssistantAvatar'
 import { repositoryPreparationView } from '../../lib/repository-preparation'
 import { isMacPlatform, shortcutLabel } from '../../lib/platform'
 import {
@@ -93,10 +92,7 @@ type Props = {
   orphans: OrphanedHostSession[]
   /** Per-session in-flight action, so the row and its menu match the header. */
   pending: Record<string, PendingAction>
-  assistantName: string
-  assistantUnread: number
   botsUnread: number
-  assistantStatus: 'working' | 'idle' | 'offline' | 'error'
   hostUnreachable: boolean
   platform: string | null
   onOpenProject: (repoId: string, mode?: 'sessions' | 'tasks') => void
@@ -124,7 +120,6 @@ type Props = {
   onQueueTaskInRepo: (repoId: string) => void
   onAddProject: () => void
   onOpenSchedules: () => void
-  onOpenAssistant: () => void
   onOpenSettings: () => void
   onOpenSearch: () => void
   onOpenNotifications: () => void
@@ -181,10 +176,7 @@ export default function WorkspaceSidebar({
   branches,
   orphans,
   pending,
-  assistantName,
-  assistantUnread,
   botsUnread,
-  assistantStatus,
   hostUnreachable,
   platform,
   onOpenProject,
@@ -200,7 +192,6 @@ export default function WorkspaceSidebar({
   onQueueTaskInRepo,
   onAddProject,
   onOpenSchedules,
-  onOpenAssistant,
   onOpenSettings,
   onOpenSearch,
   onOpenNotifications,
@@ -1408,21 +1399,7 @@ export default function WorkspaceSidebar({
 
       {footerStatus ?? null}
 
-      <footer className="flex shrink-0 items-center gap-1 border-t border-border px-2 py-2">
-        <button
-          type="button"
-          className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 py-1 text-left text-muted-foreground hover:bg-muted hover:text-foreground"
-          onClick={onOpenAssistant}
-          data-testid="sidebar-mira"
-        >
-          <AssistantAvatar name={assistantName} status={assistantStatus} size="sm" />
-          <span className="min-w-0 flex-1 truncate text-[13px]">{assistantName}</span>
-          {assistantUnread > 0 ? (
-            <span className="rounded-full bg-signal-weak px-1 text-[10px] font-medium text-signal">
-              {assistantUnread > 9 ? '9+' : assistantUnread}
-            </span>
-          ) : null}
-        </button>
+      <footer className="flex shrink-0 items-center justify-end border-t border-border px-2 py-2">
         <button
           type="button"
           className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"

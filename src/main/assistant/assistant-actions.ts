@@ -13,6 +13,7 @@ import type { GitWorkspaceService } from '../git/git-workspace-service'
 import type { HarnessDetectionResult } from '../harness/harness-detector'
 import type { AssistantCard, AssistantSettings } from '../../shared/domain/assistant'
 import {
+  DEFAULT_ASSISTANT_SETTINGS,
   MIRA_ACTOR_ID,
   MIRA_POLICY_APPROVER
 } from '../../shared/domain/assistant'
@@ -45,7 +46,7 @@ export type AssistantActionDeps = {
   threadId: string
   runId: string
   now: () => number
-  /** The bot executing this run; defaults to Mira for legacy callers. */
+  /** The bot executing this run; defaults to the legacy assistant actor. */
   botId?: string
   /** The bot's configured display name, for user-facing errors. */
   botName?: string
@@ -56,7 +57,7 @@ export type AssistantActionDeps = {
   group?: { isMember(groupId: string, botId: string): boolean }
   /** Resolve per-bot assistant settings (harness priority, auto-dispatch). */
   botSettings?: (botId: string) => AssistantSettings
-  /** Scoped memory; absent means the legacy global Mira memory. */
+  /** Scoped memory; absent makes memory actions unavailable. */
   memoryStore?: BotMemoryStore
   /** Owner-facing item conversation; absent means item actions are unavailable. */
   items?: ItemService
@@ -119,7 +120,7 @@ function compactSession(session: {
 }
 
 /**
- * The in-process control plane behind Mira's typed actions.
+ * The in-process control plane behind a bot's typed actions.
  *
  * Every write is authorized here and audited in `assistant_actions`. The model
  * never receives a task/session handle it can use outside this executor.
@@ -136,7 +137,7 @@ export class AssistantActions {
   }
 
   private settingsFor(botId: string): AssistantSettings {
-    return this.deps.botSettings?.(botId) ?? this.deps.store.getSettings()
+    return this.deps.botSettings?.(botId) ?? DEFAULT_ASSISTANT_SETTINGS
   }
 
   private currentGroupId(): string | null {
@@ -526,7 +527,7 @@ export class AssistantActions {
   /**
    * Continues a stopped task in its existing session and worktree.
    *
-   * The ownership rule is the same as retry: Mira may continue only work she
+   * The ownership rule is the same as retry: a bot may continue only work it
    * or a supervisor created. A person's task needs the person's decision.
    */
   private tasksResume(taskId: string): AssistantActionResult {
@@ -562,7 +563,7 @@ export class AssistantActions {
   }
 
   /**
-   * Archive is the reversible cleanup primitive. Mira may hide finished work
+   * Archive is the reversible cleanup primitive. A bot may hide finished work
    * from the working list, but she never hard-deletes a task.
    */
   private tasksArchive(taskId: string): AssistantActionResult {
@@ -603,7 +604,7 @@ export class AssistantActions {
   /**
    * Messages the project supervisor, creating its session if this is the first
    * time the project needs one. The supervisor is the execution back office;
-   * Mira remains the user's front door.
+   * The bot remains the user's front door.
    */
   private async supervisorMessage(repoId: string, text: string): Promise<AssistantActionResult> {
     const repo = this.deps.repositories.findById(repoId as RepoId)
@@ -757,14 +758,13 @@ export class AssistantActions {
   ): AssistantActionResult {
     const target = this.memoryTarget({ scope, repoId, teamId })
     if (this.deps.memoryStore === undefined || target === null) {
-      this.deps.store.setMemory(key, value, this.deps.now())
-      this.audit('memory.set', true, 'ok', { key })
-      return { op: 'memory.set', ok: true, message: `Remembered "${key}".`, value: { key } }
-    }
-    if (this.actor() === MIRA_ACTOR_ID && target.scope === 'bot') {
-      this.deps.store.setMemory(key, value, this.deps.now())
-      this.audit('memory.set', true, 'ok', { key, scope: target.scope })
-      return { op: 'memory.set', ok: true, message: `Remembered "${key}".`, value: { key } }
+      this.audit('memory.set', false, 'unavailable', { key })
+      return {
+        op: 'memory.set',
+        ok: false,
+        message: 'Memory is not available in this context.',
+        value: { key }
+      }
     }
     const active = this.deps.memoryStore.find(target, key, 'active')
     if (active?.value === value) {
@@ -813,13 +813,12 @@ export class AssistantActions {
   ): AssistantActionResult {
     const target = this.memoryTarget({ scope, repoId, teamId })
     if (this.deps.memoryStore === undefined || target === null) {
-      const removed = this.deps.store.forgetMemory(key)
-      this.audit('memory.forget', true, removed ? 'ok' : 'noop', { key })
+      this.audit('memory.forget', false, 'unavailable', { key })
       return {
         op: 'memory.forget',
-        ok: true,
-        message: removed ? `Forgot "${key}".` : `I did not know "${key}".`,
-        value: { key, removed }
+        ok: false,
+        message: 'Memory is not available in this context.',
+        value: { key, removed: false }
       }
     }
     const proposed = this.deps.memoryStore.find(target, key, 'proposed')
@@ -864,7 +863,7 @@ export class AssistantActions {
   private async resolveHarness(
     repoId: RepoId,
     requested?: string,
-    settings: AssistantSettings = this.deps.store.getSettings()
+    settings: AssistantSettings = DEFAULT_ASSISTANT_SETTINGS
   ): Promise<HarnessId | null> {
     const detection = await this.deps.listHarnesses({ repoId })
     const available = new Set(

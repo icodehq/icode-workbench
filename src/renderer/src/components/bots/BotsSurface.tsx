@@ -70,7 +70,6 @@ function BotHomeHeader({
 function BotHomeView({
   bot,
   assistant,
-  request,
   suggestions,
   repos,
   tasks,
@@ -80,7 +79,6 @@ function BotHomeView({
 }: {
   bot: BotSummaryPayload
   assistant: AssistantState
-  request: null
   suggestions: boolean
   repos: RepositorySummary[]
   tasks: TaskRecordPayload[]
@@ -94,7 +92,6 @@ function BotHomeView({
       <div className="min-h-0 flex-1">
         <AssistantPage
           assistant={assistant}
-          request={request}
           repos={repos}
           tasks={tasks}
           role={bot.role}
@@ -135,7 +132,6 @@ function BotChatView({
     <BotHomeView
       bot={bot}
       assistant={chat}
-      request={null}
       suggestions={false}
       repos={repos}
       tasks={tasks}

@@ -470,7 +470,7 @@ export class TaskStore {
     return row ? taskFromRow(row) : null
   }
 
-  /** How many Mira auto-dispatch tasks were created since a local timestamp. */
+  /** How many bot auto-dispatch tasks were created since a local timestamp. */
   countAutoDispatchedSince(actor: string, since: number, repoId?: RepoId): number {
     const row = repoId
       ? (this.db.raw
@@ -1043,7 +1043,7 @@ export class TaskStore {
     return Number(row.n)
   }
 
-  /** How many Mira tasks are waiting for approval across all projects. */
+  /** How many bot tasks are waiting for approval across all projects. */
   countPendingByActor(actor: string): number {
     const row = this.db.raw
       .prepare(

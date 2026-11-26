@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowDownToLine,
   ArrowUpFromLine,
-  Bot,
   CalendarClock,
   CloudUpload,
   Columns2,
@@ -80,8 +79,6 @@ type Props = {
   onNewSession: () => void
   onQueueTask: () => void
   activeRepoId?: string | null
-  onOpenAssistant?: () => void
-  assistantName?: string
   onBots?: () => void
   onSchedules: () => void
   onSettings: () => void
@@ -150,8 +147,6 @@ export default function CommandPalette({
   onNewSession,
   onQueueTask,
   activeRepoId,
-  onOpenAssistant,
-  assistantName = 'Assistant',
   onBots,
   onSchedules,
   onSettings,
@@ -285,15 +280,6 @@ export default function CommandPalette({
         run: onQueueTask
       },
       {
-        id: 'assistant',
-        kind: 'action',
-        label: t('palette.action.assistant', { name: assistantName }),
-        hint: t('palette.allProjects'),
-        icon: Bot,
-        disabled: !onOpenAssistant,
-        run: () => onOpenAssistant?.()
-      },
-      {
         id: 'bots',
         kind: 'action',
         label: t('bots.label'),
@@ -370,9 +356,7 @@ export default function CommandPalette({
     canStartSession,
     fileSession,
     onNewSession,
-    onOpenAssistant,
-    assistantName,
-    onBots,
+      onBots,
     onQueueTask,
     onSchedules,
     onSettings,
