@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import {
   Bell,
   ChevronRight,
@@ -58,7 +59,11 @@ import {
 } from './sidebar-order'
 import { emptySidebarOrder, type SidebarOrderPayload } from '../../../../shared/schemas/sidebar-order'
 import WorkspaceSidebarDialogs from './WorkspaceSidebarDialogs'
-import { createSidebarMenuItems } from './sidebar-menu-items'
+import { createSidebarMenuItems, type SidebarRowReorder } from './sidebar-menu-items'
+import {
+  resolveSessionWindow,
+  type SessionWindowState
+} from './sidebar-session-window'
 import { sidebarBrandInset } from './window-chrome'
 import {
   SIDEBAR_WIDTH_DEFAULT,
@@ -80,7 +85,20 @@ import {
   subagentTone,
   visibleSubagents
 } from '../status'
-import { useT } from '../../i18n/use-i18n'
+import { useT, useTp } from '../../i18n/use-i18n'
+
+const ROW_PRESS =
+  'transition-transform duration-100 ease-out active:scale-[0.98] motion-reduce:transition-none'
+const ICON_PRESS =
+  'transition-transform duration-100 ease-out active:scale-90 motion-reduce:transition-none'
+// The visual chevrons are 16px wide; expand their hit boxes to 24px without
+// moving the glyphs or the rows beside them.
+const HIT_24 =
+  "relative before:absolute before:-inset-x-1 before:inset-y-0 before:content-['']"
+const HIT_24_TALL =
+  "relative before:absolute before:-inset-x-1 before:-inset-y-0.5 before:content-['']"
+/** Large groups render in batches so one project cannot mount thousands of rows. */
+const SESSION_RENDER_BATCH = 80
 
 type Props = {
   repos: RepositorySummary[]
@@ -142,6 +160,7 @@ type ProjectMenuRequest = {
   y?: number
   returnFocus: HTMLElement | null
   opener?: HTMLElement | null
+  reorder?: SidebarRowReorder
 }
 
 /**
@@ -159,9 +178,23 @@ type CheckoutMenuRequest = RowMenuRequest & {
   repo: RepositorySummary
   /** null is the repository's shared primary checkout row. */
   group: WorktreeSessionGroup | null
+  reorder?: SidebarRowReorder
 }
 
-type SessionMenuRequest = RowMenuRequest & { session: SessionSummary }
+type SessionMenuRequest = RowMenuRequest & {
+  session: SessionSummary
+  reorder?: SidebarRowReorder
+}
+
+type ProjectHoverState = {
+  repo: RepositorySummary
+  left: number
+  top: number
+}
+
+function compactCount(value: number, max: number): string {
+  return value > max ? `${String(max)}+` : String(value)
+}
 
 function menuAnchor(element: Element): MenuAnchor {
   const rect = element.getBoundingClientRect()
@@ -207,6 +240,7 @@ export default function WorkspaceSidebar({
   footerStatus
 }: Props): React.JSX.Element {
   const t = useT()
+  const tp = useTp()
   const [width, setWidth] = useState<number>(() => loadSidebarWidth())
   // On macOS the traffic lights take the header's leading inset, so the
   // narrowest widths need to drop the refresh verb (the status bar still has
@@ -241,6 +275,10 @@ export default function WorkspaceSidebar({
     returnFocus: HTMLElement | null
     opener: HTMLElement | null
   } | null>(null)
+  const [projectHover, setProjectHover] = useState<ProjectHoverState | null>(null)
+  const projectHoverTimer = useRef<number | null>(null)
+  const lastProjectHoverShownAt = useRef(0)
+  const projectHoverCardRef = useRef<HTMLDivElement | null>(null)
 
   /*
    * Sidebar order is a persisted, per-account preference. The ref is the
@@ -251,6 +289,16 @@ export default function WorkspaceSidebar({
   const [dragSource, setDragSource] = useState<SidebarDragSource | null>(null)
   const [dropTarget, setDropTarget] = useState<SidebarDropTarget | null>(null)
   const dragSourceRef = useRef<SidebarDragSource | null>(null)
+  const [pinnedSessionDrag, setPinnedSessionDrag] = useState<string | null>(null)
+  const pinnedSessionDragRef = useRef<string | null>(null)
+  const [sessionWindows, setSessionWindows] = useState<
+    Record<string, SessionWindowState>
+  >({})
+  const activeSessionExists =
+    activeSessionId !== null &&
+    sessions.some((session) => session.id === activeSessionId)
+  const activeRowSeen = useRef(false)
+  const lastActiveRowId = useRef<string | null>(null)
 
   const applyRowOrder = (next: SidebarOrderPayload): void => {
     rowOrderRef.current = next
@@ -295,6 +343,81 @@ export default function WorkspaceSidebar({
   useEffect(() => {
     widthRef.current = width
   }, [width])
+
+  useEffect(
+    () => () => {
+      if (projectHoverTimer.current !== null) {
+        window.clearTimeout(projectHoverTimer.current)
+      }
+    },
+    []
+  )
+
+  // A session opened from search or a tab can sit beyond the rendered window.
+  // Center it only when it is outside the visible scrollport, so clicking a
+  // visible row does not move the sidebar.
+  useEffect(() => {
+    if (activeSessionId === null) {
+      activeRowSeen.current = false
+      lastActiveRowId.current = null
+      return
+    }
+    if (lastActiveRowId.current !== activeSessionId) {
+      lastActiveRowId.current = activeSessionId
+      activeRowSeen.current = false
+    }
+    let inner = 0
+    const outer = window.requestAnimationFrame(() => {
+      // Let the window layout settle before measuring variable-height rows.
+      inner = window.requestAnimationFrame(() => {
+        const id = CSS.escape(activeSessionId)
+        const rows = ['pinned-session', 'session-item'].flatMap((prefix) => {
+          const row = document.querySelector<HTMLElement>(
+            `[data-testid="${prefix}-${id}"]`
+          )
+          return row === null ? [] : [row]
+        })
+        if (rows.length === 0) {
+          activeRowSeen.current = false
+          return
+        }
+        if (activeRowSeen.current) return
+        activeRowSeen.current = true
+        const scroller = rows[0]?.closest<HTMLElement>(
+          '[data-testid="sidebar-projects-scroll"]'
+        )
+        const scrollerRect = scroller?.getBoundingClientRect()
+        const visible = rows.some((row) => {
+          const rect = row.getBoundingClientRect()
+          return (
+            scrollerRect !== undefined &&
+            rect.top >= scrollerRect.top &&
+            rect.bottom <= scrollerRect.bottom
+          )
+        })
+        if (visible) return
+        const target = rows.at(-1)
+        target?.scrollIntoView({ block: 'center', inline: 'nearest' })
+      })
+    })
+    return () => {
+      window.cancelAnimationFrame(outer)
+      if (inner !== 0) window.cancelAnimationFrame(inner)
+    }
+  }, [activeSessionId, activeSessionExists, expandedRepos, collapsedWorktrees])
+
+  useLayoutEffect(() => {
+    if (projectHover === null) return
+    const element = projectHoverCardRef.current
+    if (element === null) return
+    const height = element.getBoundingClientRect().height
+    const maxTop = Math.max(8, window.innerHeight - height - 8)
+    if (projectHover.top > maxTop) {
+      setProjectHover((current) =>
+        current === null ? current : { ...current, top: maxTop }
+      )
+    }
+  }, [projectHover])
 
   const persistWidth = (next: number): void => {
     const clamped = clampSidebarWidth(next)
@@ -379,6 +502,45 @@ export default function WorkspaceSidebar({
           message: error instanceof Error ? error.message : String(error)
         })
       })
+  }
+
+  const cancelProjectHover = (): void => {
+    if (projectHoverTimer.current !== null) {
+      window.clearTimeout(projectHoverTimer.current)
+      projectHoverTimer.current = null
+    }
+    setProjectHover(null)
+  }
+
+  const scheduleProjectHover = (
+    repo: RepositorySummary,
+    element: HTMLElement,
+    instant = false
+  ): void => {
+    if (dragSourceRef.current !== null || pinnedSessionDragRef.current !== null) return
+    if (projectHoverTimer.current !== null) {
+      window.clearTimeout(projectHoverTimer.current)
+    }
+    // Once one card has shown, the next row's card is instant for a moment.
+    const delay =
+      instant || Date.now() - lastProjectHoverShownAt.current < 1000 ? 0 : 320
+    projectHoverTimer.current = window.setTimeout(() => {
+      projectHoverTimer.current = null
+      if (!element.isConnected) return
+      lastProjectHoverShownAt.current = Date.now()
+      const rect = element.getBoundingClientRect()
+      const width = 320
+      const gap = 8
+      const left =
+        document.documentElement.dir === 'rtl'
+          ? Math.max(gap, rect.left - width - gap)
+          : Math.max(
+              gap,
+              Math.min(rect.right + gap, window.innerWidth - width - gap)
+            )
+      const top = Math.max(gap, Math.min(rect.top, window.innerHeight - 200))
+      setProjectHover({ repo, left, top })
+    }, delay)
   }
 
   const resetRowDrag = (): void => {
@@ -485,14 +647,41 @@ export default function WorkspaceSidebar({
     })
   }
 
+  const projectReorderFrom = (
+    repo: RepositorySummary,
+    visibleIds: readonly string[]
+  ): SidebarRowReorder | undefined => {
+    const index = visibleIds.indexOf(repo.id)
+    if (index < 0) return undefined
+    const move = (targetIndex: number, after: boolean): void => {
+      const target = visibleIds[targetIndex]
+      if (target !== undefined) applyProjectDrop(repo.id, target, after)
+    }
+    return {
+      canMoveUp: index > 0,
+      canMoveDown: index < visibleIds.length - 1,
+      onMoveUp: () => move(index - 1, false),
+      onMoveDown: () => move(index + 1, true)
+    }
+  }
+
+  const projectReorder = (repo: RepositorySummary): SidebarRowReorder | undefined =>
+    projectReorderFrom(
+      repo,
+      orderedRepos.map((entry) => entry.id)
+    )
+
   const { pinned } = useMemo(
     () => pinnedProjectsFirst(orderedRepos, pins.projects),
     [orderedRepos, pins.projects]
   )
-  const pinnedSessions = useMemo(
-    () => sessions.filter((session) => pins.sessions.includes(session.id)),
-    [pins.sessions, sessions]
-  )
+  const pinnedSessions = useMemo(() => {
+    const byId = new Map(sessions.map((session) => [session.id, session]))
+    return pins.sessions.flatMap((id) => {
+      const session = byId.get(id)
+      return session === undefined ? [] : [session]
+    })
+  }, [pins.sessions, sessions])
   const activeSession = useMemo(
     () => sessions.find((session) => session.id === activeSessionId) ?? null,
     [activeSessionId, sessions]
@@ -527,6 +716,49 @@ export default function WorkspaceSidebar({
     return count
   }, [sessions])
 
+  const needsForRepo = (repoId: string): number =>
+    attentionTaskCount(
+      tasks.filter((task) => task.repoId === repoId && task.botId === null)
+    )
+
+  const adjustSessionWindow = (
+    groupKey: string,
+    direction: 'earlier' | 'later',
+    start: number,
+    end: number
+  ): void => {
+    setSessionWindows((current) => ({
+      ...current,
+      [groupKey]: {
+        start:
+          direction === 'earlier'
+            ? Math.max(0, start - SESSION_RENDER_BATCH)
+            : start,
+        end: direction === 'later' ? end + SESSION_RENDER_BATCH : end
+      }
+    }))
+  }
+
+  const sessionWindowButton = (
+    groupKey: string,
+    direction: 'earlier' | 'later',
+    hidden: number,
+    start: number,
+    end: number
+  ): React.JSX.Element => (
+    <button
+      type="button"
+      className={`flex h-7 w-full min-w-0 items-center rounded px-1.5 text-left text-[11px] text-muted-foreground hover:bg-hover hover:text-foreground ${ROW_PRESS}`}
+      onClick={() => adjustSessionWindow(groupKey, direction, start, end)}
+      data-testid={`sidebar-${direction}-sessions-${groupKey}`}
+    >
+      {tp(
+        direction === 'earlier' ? 'sidebar.earlierSessions' : 'sidebar.moreSessions',
+        Math.min(hidden, SESSION_RENDER_BATCH)
+      )}
+    </button>
+  )
+
   const updatePins = (updater: (current: SidebarPins) => SidebarPins): void => {
     setPins((current) => {
       const next = updater(current)
@@ -559,6 +791,26 @@ export default function WorkspaceSidebar({
 
   const toggleSessionPin = (sessionId: string): void => {
     updatePins((current) => ({ ...current, sessions: togglePin(current.sessions, sessionId) }))
+  }
+
+  const pinnedSessionReorder = (
+    session: SessionSummary
+  ): SidebarRowReorder | undefined => {
+    const ids = pinnedSessions.map((entry) => entry.id)
+    const index = ids.indexOf(session.id)
+    if (index < 0) return undefined
+    const move = (targetIndex: number, after: boolean): void => {
+      const target = ids[targetIndex]
+      if (target === undefined) return
+      const next = moveRowId(ids, session.id, target, after)
+      updatePins((current) => ({ ...current, sessions: next }))
+    }
+    return {
+      canMoveUp: index > 0,
+      canMoveDown: index < ids.length - 1,
+      onMoveUp: () => move(index - 1, false),
+      onMoveDown: () => move(index + 1, true)
+    }
   }
 
   const menuItems = createSidebarMenuItems({
@@ -605,12 +857,14 @@ export default function WorkspaceSidebar({
   const requestCheckoutMenu = (
     repo: RepositorySummary,
     group: WorktreeSessionGroup | null,
-    request: RowMenuRequest
+    request: Omit<CheckoutMenuRequest, 'repo' | 'group'>
   ): void => setCheckoutMenu({ repo, group, ...request })
 
 
-  const requestSessionMenu = (session: SessionSummary, request: RowMenuRequest): void =>
-    setSessionMenu({ session, ...request })
+  const requestSessionMenu = (
+    session: SessionSummary,
+    request: Omit<SessionMenuRequest, 'session'>
+  ): void => setSessionMenu({ session, ...request })
 
   const pendingFor = (session: SessionSummary): PendingAction | null =>
     pending[session.id] ?? null
@@ -641,7 +895,8 @@ export default function WorkspaceSidebar({
   const sessionRow = (
     session: SessionSummary,
     groupKey: string,
-    orderedGroupIds: readonly string[]
+    orderedGroupIds: readonly string[],
+    visibleGroupIds: readonly string[]
   ): React.JSX.Element => {
     const active = session.id === activeSessionId
     const suffix = activitySuffix(session.activity)
@@ -657,10 +912,27 @@ export default function WorkspaceSidebar({
         }
       })
     }
+    // Rows hidden from the tree (non-agent sessions) do not count as a move.
+    const visibleIndex = visibleGroupIds.indexOf(session.id)
+    const reorder: SidebarRowReorder | undefined =
+      visibleIndex < 0
+        ? undefined
+        : {
+            canMoveUp: visibleIndex > 0,
+            canMoveDown: visibleIndex < visibleGroupIds.length - 1,
+            onMoveUp: () => {
+              const target = visibleGroupIds[visibleIndex - 1]
+              if (target !== undefined) applyDrop(session.id, target, false)
+            },
+            onMoveDown: () => {
+              const target = visibleGroupIds[visibleIndex + 1]
+              if (target !== undefined) applyDrop(session.id, target, true)
+            }
+          }
     return (
       <div
         key={session.id}
-        className={`flex min-h-10 flex-col justify-center rounded-md ${
+        className={`flex min-h-10 flex-col justify-center rounded-md [content-visibility:auto] [contain-intrinsic-size:auto_40px] ${
           menuOpen ? 'bg-hover' : ''
         } ${rowDropClass(dragTarget)} ${rowDraggingClass(dragTarget)}`}
         data-menu-open={menuOpen ? 'true' : undefined}
@@ -670,7 +942,7 @@ export default function WorkspaceSidebar({
       >
         <button
           type="button"
-          className={`flex min-h-10 w-full min-w-0 items-start gap-1.5 rounded-md px-1.5 py-1 text-left ${
+          className={`flex min-h-10 w-full min-w-0 items-start gap-1.5 rounded-md px-1.5 py-1 text-left ${ROW_PRESS} ${
             active
               ? 'bg-sel text-foreground shadow-[inset_2px_0_0_var(--icode-accent)]'
               : 'text-muted-foreground hover:bg-hover hover:text-foreground'
@@ -687,12 +959,17 @@ export default function WorkspaceSidebar({
             requestSessionMenu(session, {
               x: event.clientX,
               y: event.clientY,
-              returnFocus: event.currentTarget
+              returnFocus: event.currentTarget,
+              reorder
             })
           }}
           onKeyDown={(event) =>
             openRowMenuFromKey(event, (anchor) =>
-              requestSessionMenu(session, { anchor, returnFocus: event.currentTarget })
+              requestSessionMenu(session, {
+                anchor,
+                returnFocus: event.currentTarget,
+                reorder
+              })
             )
           }
           aria-current={active ? 'true' : undefined}
@@ -735,7 +1012,7 @@ export default function WorkspaceSidebar({
             )}
             {session.activity?.prompt ? (
               <span
-                className="mt-0.5 block truncate text-[11px] text-muted-foreground/80"
+                className="mt-0.5 block truncate text-[11px] text-muted-foreground"
                 title={session.activity.prompt}
                 data-testid={`session-prompt-${session.id}`}
               >
@@ -780,9 +1057,7 @@ export default function WorkspaceSidebar({
     const repoSessions = sessions.filter((session) => session.repoId === repo.id)
     const hasActiveSession = repoSessions.some((session) => session.id === activeSessionId)
     const isActive = repo.id === activeRepoId && !hasActiveSession
-    const needs = attentionTaskCount(
-      tasks.filter((task) => task.repoId === repo.id && task.botId === null)
-    )
+    const needs = needsForRepo(repo.id)
     const preparation = repositoryPreparationView(repo)
     const sessionCount = directSessionCount.get(repo.id) ?? 0
     const expanded = expandedRepos.has(repo.id)
@@ -799,7 +1074,18 @@ export default function WorkspaceSidebar({
       (session) => session.id
     )
     const orderedDefaultIds = orderedDefaultSessions.map((session) => session.id)
-    const defaultHasAgents = orderedDefaultSessions.some((session) => isAgentHarness(session.harness))
+    const orderedDefaultAgentSessions = orderedDefaultSessions.filter((session) =>
+      isAgentHarness(session.harness)
+    )
+    const defaultWindow = resolveSessionWindow(
+      orderedDefaultAgentSessions,
+      sessionWindows[defaultGroupKey],
+      activeSessionId,
+      SESSION_RENDER_BATCH
+    )
+    const visibleDefaultSessions = defaultWindow.visible
+    const visibleDefaultIds = visibleDefaultSessions.map((session) => session.id)
+    const defaultHasAgents = orderedDefaultAgentSessions.length > 0
     const orderedWorktrees = orderByStoredIds(
       groups.worktrees,
       rowOrder.worktrees[repo.id] ?? [],
@@ -831,37 +1117,64 @@ export default function WorkspaceSidebar({
             menuOpen && !isActive ? 'bg-hover' : ''
           } ${rowDropClass(projectDragTarget)} ${rowDraggingClass(projectDragTarget)}`}
           data-menu-open={menuOpen ? 'true' : undefined}
+          onMouseEnter={(event) => scheduleProjectHover(repo, event.currentTarget)}
+          onMouseLeave={cancelProjectHover}
           onDragOver={(event) => rowDragOver(event, projectDragTarget)}
           onDragLeave={(event) => rowDragLeave(event, projectDragTarget)}
           onDrop={(event) => rowDrop(event, projectDragTarget, applyProjectDrop)}
           onContextMenu={(event) => {
             event.preventDefault()
+            cancelProjectHover()
             requestProjectMenu(repo, {
               x: event.clientX,
               y: event.clientY,
               returnFocus: event.currentTarget.querySelector<HTMLElement>(
                 `[data-testid="pinned-project-${repo.id}"]`
+              ),
+              reorder: projectReorderFrom(
+                repo,
+                pinned.map((entry) => entry.id)
               )
             })
           }}
         >
           <button
             type="button"
-            className={`flex h-9 min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 text-left text-[13px] ${
+            className={`flex h-9 min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 text-left text-[13px] ${ROW_PRESS} ${
               isActive
                 ? 'bg-sel text-foreground'
                 : 'text-muted-foreground hover:bg-hover hover:text-foreground'
             }`}
             draggable
-            onDragStart={(event) => startRowDrag(event, projectDragTarget)}
+            onDragStart={(event) => {
+              cancelProjectHover()
+              startRowDrag(event, projectDragTarget)
+            }}
             onDragEnd={resetRowDrag}
             onDragOver={(event) => rowDragOver(event, projectDragTarget)}
             onDragLeave={(event) => rowDragLeave(event, projectDragTarget)}
             onDrop={(event) => rowDrop(event, projectDragTarget, applyProjectDrop)}
-            onClick={() => onOpenProject(repo.id, 'sessions')}
+            onClick={() => {
+              cancelProjectHover()
+              onOpenProject(repo.id, 'sessions')
+            }}
+            onFocus={(event) => {
+              if (!event.currentTarget.matches(':focus-visible')) return
+              scheduleProjectHover(repo, event.currentTarget, true)
+            }}
+            onBlur={cancelProjectHover}
+            onKeyDown={(event) => {
+              if (event.key !== 'Escape' || projectHover?.repo.id !== repo.id) return
+              event.preventDefault()
+              cancelProjectHover()
+            }}
             aria-haspopup="menu"
             aria-expanded={menuOpen}
-            title={repo.path}
+            aria-current={isActive ? 'page' : undefined}
+            aria-describedby={
+              projectHover?.repo.id === repo.id ? 'project-hover-card' : undefined
+            }
+            title={`${repo.displayName} · ${repo.path} · ${repo.currentBranch || '—'}`}
             data-testid={`pinned-project-${repo.id}`}
             data-active={isActive ? 'true' : 'false'}
           >
@@ -870,45 +1183,57 @@ export default function WorkspaceSidebar({
               {repo.displayName}
             </span>
             {needs > 0 ? (
-              <span className="shrink-0 rounded-full bg-signal-weak px-1 font-mono text-[10px] text-signal">
-                {needs}
+              <span
+                className="shrink-0 rounded-full bg-signal-weak px-1 font-mono text-[10px] text-signal"
+                title={t('projectHeader.needsCount', { count: needs })}
+                aria-label={t('projectHeader.needsCount', { count: needs })}
+              >
+                {needs > 9 ? '9+' : needs}
               </span>
             ) : null}
           </button>
         </div>
       )
     }
+    const reorder = projectReorder(repo)
     return (
       <div key={repo.id} data-testid={`sidebar-project-group-${repo.id}`}>
         <div
-          className={`group flex h-8 min-w-0 items-center rounded-md pr-1 ${
+          className={`group relative flex h-8 min-w-0 items-center rounded-md pr-1 ${
             isActive
               ? 'bg-sel text-foreground shadow-[inset_2px_0_0_var(--icode-accent)]'
               : menuOpen
                 ? 'bg-hover text-foreground'
-                : 'text-muted-foreground hover:bg-hover hover:text-foreground'
+                : 'text-muted-foreground hover:bg-hover focus-within:bg-hover hover:text-foreground'
           } ${rowDropClass(projectDragTarget)} ${rowDraggingClass(projectDragTarget)}`}
           data-testid={`sidebar-project-${repo.id}`}
           data-active={isActive ? 'true' : 'false'}
           data-menu-open={menuOpen ? 'true' : undefined}
+          onMouseEnter={(event) => scheduleProjectHover(repo, event.currentTarget)}
+          onMouseLeave={cancelProjectHover}
           onDragOver={(event) => rowDragOver(event, projectDragTarget)}
           onDragLeave={(event) => rowDragLeave(event, projectDragTarget)}
           onDrop={(event) => rowDrop(event, projectDragTarget, applyProjectDrop)}
           onContextMenu={(event) => {
             event.preventDefault()
+            cancelProjectHover()
             requestProjectMenu(repo, {
               x: event.clientX,
               y: event.clientY,
               returnFocus: event.currentTarget.querySelector<HTMLElement>(
                 `[data-testid="project-row-${repo.id}"]`
-              )
+              ),
+              reorder
             })
           }}
         >
           <button
             type="button"
-            className="ml-1 inline-flex h-6 w-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground"
-            onClick={() => toggleProjectExpanded(repo.id)}
+            className={`ml-1 inline-flex h-6 w-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground ${ICON_PRESS} ${HIT_24}`}
+            onClick={() => {
+              cancelProjectHover()
+              toggleProjectExpanded(repo.id)
+            }}
             aria-expanded={expanded}
             aria-label={
               expanded
@@ -917,27 +1242,49 @@ export default function WorkspaceSidebar({
             }
             data-testid={`sidebar-project-toggle-${repo.id}`}
           >
-            <ChevronRight size={9} className={expanded ? 'rotate-90' : ''} />
+            <ChevronRight
+              size={9}
+              className={`shrink-0 transition-transform duration-150 ease-out motion-reduce:transition-none ${
+                expanded ? 'rotate-90' : ''
+              }`}
+            />
           </button>
           <button
             type="button"
-            className="flex h-full min-w-0 flex-1 items-center gap-1 px-1 text-left"
+            className={`flex h-full min-w-0 flex-1 items-center gap-1 px-1 text-left ${ROW_PRESS}`}
             data-testid={`project-row-${repo.id}`}
             draggable
-            onDragStart={(event) => startRowDrag(event, projectDragTarget)}
+            onDragStart={(event) => {
+              cancelProjectHover()
+              startRowDrag(event, projectDragTarget)
+            }}
             onDragEnd={resetRowDrag}
             onDragOver={(event) => rowDragOver(event, projectDragTarget)}
             onDragLeave={(event) => rowDragLeave(event, projectDragTarget)}
             onDrop={(event) => rowDrop(event, projectDragTarget, applyProjectDrop)}
             onClick={() => {
+              cancelProjectHover()
               // The row is the group's disclosure as well as its open action:
               // clicking a project reveals or hides its sessions.
               onOpenProject(repo.id, 'sessions')
               toggleProjectExpanded(repo.id)
             }}
+            onFocus={(event) => {
+              if (!event.currentTarget.matches(':focus-visible')) return
+              scheduleProjectHover(repo, event.currentTarget, true)
+            }}
+            onBlur={cancelProjectHover}
+            onKeyDown={(event) => {
+              if (event.key !== 'Escape' || projectHover?.repo.id !== repo.id) return
+              event.preventDefault()
+              cancelProjectHover()
+            }}
             aria-current={isActive ? 'page' : undefined}
             aria-expanded={expanded}
-            title={repo.path}
+            aria-describedby={
+              projectHover?.repo.id === repo.id ? 'project-hover-card' : undefined
+            }
+            title={`${repo.displayName} · ${repo.path} · ${repo.currentBranch || '—'}`}
           >
             <FolderGit2 size={12} className="shrink-0" />
             <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
@@ -948,15 +1295,22 @@ export default function WorkspaceSidebar({
               <span
                 className="shrink-0 rounded-full bg-signal-weak px-1 font-mono text-[10px] text-signal"
                 title={t('projectHeader.needsCount', { count: needs })}
+                aria-label={t('projectHeader.needsCount', { count: needs })}
               >
-                {needs}
+                {needs > 9 ? '9+' : needs}
               </span>
             ) : null}
-            <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
-              {sessionCount}
+            <span
+              className="shrink-0 font-mono text-[11px] text-muted-foreground"
+              title={tp('projectHeader.stats.sessions', sessionCount)}
+              aria-label={tp('projectHeader.stats.sessions', sessionCount)}
+            >
+              {compactCount(sessionCount, 999)}
             </span>
             {preparation?.kind === 'failed' ? (
               <span
+                role="img"
+                aria-label={preparation.label}
                 className="h-1.5 w-1.5 shrink-0 rounded-full bg-signal"
                 title={preparation.label}
               />
@@ -964,7 +1318,7 @@ export default function WorkspaceSidebar({
           </button>
           <button
             type="button"
-            className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+            className={`flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100 ${ICON_PRESS}`}
             aria-label={t('projects.row.actionsAria', { name: repo.displayName })}
             aria-haspopup="menu"
             aria-expanded={menuOpen}
@@ -972,6 +1326,7 @@ export default function WorkspaceSidebar({
             data-testid={`sidebar-project-menu-${repo.id}`}
             onClick={(event) => {
               event.stopPropagation()
+              cancelProjectHover()
               if (projectMenu?.repo.id === repo.id) {
                 setProjectMenu(null)
                 return
@@ -979,15 +1334,16 @@ export default function WorkspaceSidebar({
               requestProjectMenu(repo, {
                 anchor: menuAnchor(event.currentTarget),
                 returnFocus: event.currentTarget,
-                opener: event.currentTarget
+                opener: event.currentTarget,
+                reorder
               })
             }}
           >
             <MoreHorizontal size={12} />
           </button>
-          <span className="hidden shrink-0 items-center gap-1 pr-1 font-mono text-[11px] text-muted-foreground group-hover:flex">
-            <GitBranch size={9} />
-            {repo.currentBranch ?? '—'}
+          <span className="pointer-events-none absolute end-16 top-0 flex h-8 max-w-[130px] items-center gap-1 bg-inherit ps-2 pe-1 font-mono text-[11px] text-muted-foreground opacity-0 transition-opacity duration-100 ease-out group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none">
+            <GitBranch size={9} className="shrink-0" />
+            <span className="truncate">{repo.currentBranch || '—'}</span>
           </span>
         </div>
 
@@ -1019,7 +1375,7 @@ export default function WorkspaceSidebar({
                 {defaultHasAgents ? (
                   <button
                     type="button"
-                    className="inline-flex h-5 w-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+                    className={`inline-flex h-5 w-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground ${ICON_PRESS} ${HIT_24_TALL}`}
                     aria-expanded={!defaultCollapsed}
                     aria-label={
                       defaultCollapsed
@@ -1031,7 +1387,9 @@ export default function WorkspaceSidebar({
                   >
                     <ChevronRight
                       size={8}
-                      className={`shrink-0 transition-transform ${defaultCollapsed ? '' : 'rotate-90'}`}
+                      className={`shrink-0 transition-transform duration-150 ease-out motion-reduce:transition-none ${
+                        defaultCollapsed ? '' : 'rotate-90'
+                      }`}
                     />
                   </button>
                 ) : (
@@ -1039,7 +1397,7 @@ export default function WorkspaceSidebar({
                 )}
                 <button
                   type="button"
-                  className={`flex h-full min-w-0 flex-1 items-center gap-1 rounded text-left ${
+                  className={`flex h-full min-w-0 flex-1 items-center gap-1 rounded text-left ${ROW_PRESS} ${
                     activeGroupKey === defaultGroupKey
                       ? 'bg-sel text-foreground'
                       : 'text-muted-foreground hover:text-foreground'
@@ -1061,14 +1419,45 @@ export default function WorkspaceSidebar({
                   <span className="min-w-0 flex-1 truncate">
                     {t('sidebar.defaultCheckout')}
                   </span>
-                  <span>{groups.defaultCheckout.length}</span>
+                  <span
+                    title={tp('projectHeader.stats.sessions', groups.defaultCheckout.length)}
+                    aria-label={tp(
+                      'projectHeader.stats.sessions',
+                      groups.defaultCheckout.length
+                    )}
+                  >
+                    {compactCount(groups.defaultCheckout.length, 999)}
+                  </span>
                 </button>
               </div>
               {defaultCollapsed ? null : (
                 <div className="pl-1">
-                  {orderedDefaultSessions
-                    .filter((session) => isAgentHarness(session.harness))
-                    .map((session) => sessionRow(session, defaultGroupKey, orderedDefaultIds))}
+                  {defaultWindow.hiddenBefore > 0
+                    ? sessionWindowButton(
+                        defaultGroupKey,
+                        'earlier',
+                        defaultWindow.hiddenBefore,
+                        defaultWindow.start,
+                        defaultWindow.end
+                      )
+                    : null}
+                  {visibleDefaultSessions.map((session) =>
+                    sessionRow(
+                      session,
+                      defaultGroupKey,
+                      orderedDefaultIds,
+                      visibleDefaultIds
+                    )
+                  )}
+                  {defaultWindow.hiddenAfter > 0
+                    ? sessionWindowButton(
+                        defaultGroupKey,
+                        'later',
+                        defaultWindow.hiddenAfter,
+                        defaultWindow.start,
+                        defaultWindow.end
+                      )
+                    : null}
                 </div>
               )}
             </div>
@@ -1090,12 +1479,46 @@ export default function WorkspaceSidebar({
                 (session) => session.id
               )
               const orderedGroupIds = orderedGroupSessions.map((session) => session.id)
-              const hasAgents = orderedGroupSessions.some((session) => isAgentHarness(session.harness))
+              const orderedGroupAgentSessions = orderedGroupSessions.filter((session) =>
+                isAgentHarness(session.harness)
+              )
+              const groupWindow = resolveSessionWindow(
+                orderedGroupAgentSessions,
+                sessionWindows[groupKey],
+                activeSessionId,
+                SESSION_RENDER_BATCH
+              )
+              const visibleGroupSessions = groupWindow.visible
+              const visibleGroupIds = visibleGroupSessions.map((session) => session.id)
+              const hasAgents = orderedGroupAgentSessions.length > 0
+              const branch = group.sessions[0]?.worktree?.branch
+              const workspaceLabel =
+                branch !== undefined && branch.length > 0
+                  ? branch
+                  : shared
+                    ? t('sidebar.sharedWorkspace')
+                    : t('sidebar.workspaceGroup')
               const dragTarget: SidebarDragSource = {
                 kind: 'worktree',
                 groupKey: repo.id,
                 id: group.path
               }
+              const worktreeIndex = worktreeIds.indexOf(group.path)
+              const worktreeReorder: SidebarRowReorder | undefined =
+                worktreeIndex < 0
+                  ? undefined
+                  : {
+                      canMoveUp: worktreeIndex > 0,
+                      canMoveDown: worktreeIndex < worktreeIds.length - 1,
+                      onMoveUp: () => {
+                        const target = worktreeIds[worktreeIndex - 1]
+                        if (target !== undefined) applyWorktreeDrop(group.path, target, false)
+                      },
+                      onMoveDown: () => {
+                        const target = worktreeIds[worktreeIndex + 1]
+                        if (target !== undefined) applyWorktreeDrop(group.path, target, true)
+                      }
+                    }
               return (
                 <div key={group.worktreeId} data-testid={`sidebar-worktree-${group.worktreeId}`}>
                   {showHeader ? (
@@ -1117,14 +1540,15 @@ export default function WorkspaceSidebar({
                           returnFocus:
                             event.currentTarget.querySelector<HTMLElement>(
                               `[data-testid="sidebar-worktree-toggle-${group.worktreeId}"]`
-                            ) ?? event.currentTarget
+                            ) ?? event.currentTarget,
+                          reorder: worktreeReorder
                         })
                       }}
                     >
                       {hasAgents ? (
                         <button
                           type="button"
-                          className="inline-flex h-5 w-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+                          className={`inline-flex h-5 w-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground ${ICON_PRESS} ${HIT_24_TALL}`}
                           aria-expanded={!collapsed}
                           aria-label={
                             collapsed
@@ -1142,7 +1566,9 @@ export default function WorkspaceSidebar({
                         >
                           <ChevronRight
                             size={8}
-                            className={`shrink-0 transition-transform ${collapsed ? '' : 'rotate-90'}`}
+                            className={`shrink-0 transition-transform duration-150 ease-out motion-reduce:transition-none ${
+                              collapsed ? '' : 'rotate-90'
+                            }`}
                           />
                         </button>
                       ) : (
@@ -1150,14 +1576,12 @@ export default function WorkspaceSidebar({
                       )}
                       <button
                         type="button"
-                        className={`flex h-full min-w-0 flex-1 items-center gap-1 rounded text-left ${
+                        className={`flex h-full min-w-0 flex-1 items-center gap-1 rounded text-left ${ROW_PRESS} ${
                           activeGroupKey === groupKey
                             ? 'bg-sel text-foreground'
                             : 'text-muted-foreground hover:text-foreground'
                         }`}
-                        aria-label={
-                          shared ? t('sidebar.sharedWorkspace') : t('sidebar.workspaceGroup')
-                        }
+                        aria-label={workspaceLabel}
                         aria-current={activeGroupKey === groupKey ? 'page' : undefined}
                         data-testid={`sidebar-worktree-select-${group.worktreeId}`}
                         data-active={activeGroupKey === groupKey ? 'true' : 'false'}
@@ -1172,24 +1596,55 @@ export default function WorkspaceSidebar({
                           openRowMenuFromKey(event, (anchor) =>
                             requestCheckoutMenu(repo, group, {
                               anchor,
-                              returnFocus: event.currentTarget
+                              returnFocus: event.currentTarget,
+                              reorder: worktreeReorder
                             })
                           )
                         }
                       >
                         <span className="min-w-0 flex-1 truncate" title={group.path}>
-                          {group.sessions[0]?.worktree?.branch ??
-                            (shared ? t('sidebar.sharedWorkspace') : t('sidebar.workspaceGroup'))}
+                          {workspaceLabel}
                         </span>
-                        <span>{group.sessions.length}</span>
+                        <span
+                          title={tp('projectHeader.stats.sessions', group.sessions.length)}
+                          aria-label={tp(
+                            'projectHeader.stats.sessions',
+                            group.sessions.length
+                          )}
+                        >
+                          {compactCount(group.sessions.length, 999)}
+                        </span>
                       </button>
                     </div>
                   ) : null}
                   {collapsed ? null : (
                     <div className="pl-1">
-                      {orderedGroupSessions
-                        .filter((session) => isAgentHarness(session.harness))
-                        .map((session) => sessionRow(session, groupKey, orderedGroupIds))}
+                      {groupWindow.hiddenBefore > 0
+                        ? sessionWindowButton(
+                            groupKey,
+                            'earlier',
+                            groupWindow.hiddenBefore,
+                            groupWindow.start,
+                            groupWindow.end
+                          )
+                        : null}
+                      {visibleGroupSessions.map((session) =>
+                        sessionRow(
+                          session,
+                          groupKey,
+                          orderedGroupIds,
+                          visibleGroupIds
+                        )
+                      )}
+                      {groupWindow.hiddenAfter > 0
+                        ? sessionWindowButton(
+                            groupKey,
+                            'later',
+                            groupWindow.hiddenAfter,
+                            groupWindow.start,
+                            groupWindow.end
+                          )
+                        : null}
                     </div>
                   )}
                 </div>
@@ -1304,6 +1759,7 @@ export default function WorkspaceSidebar({
             botsSection !== undefined ? 'pt-1' : ''
           }`}
           data-testid="sidebar-projects-scroll"
+          onScroll={cancelProjectHover}
         >
           {pinned.length + pinnedSessions.length > 0 ? (
             <section aria-label={t('sidebar.pinned')} data-testid="sidebar-pinned">
@@ -1317,34 +1773,74 @@ export default function WorkspaceSidebar({
                   const repo = repos.find((entry) => entry.id === session.repoId)
                   const active = session.id === activeSessionId
                   const menuOpen = sessionMenu?.session.id === session.id
+                  const reorder = pinnedSessionReorder(session)
                   return (
                     <div
                       key={`pin-session-${session.id}`}
-                      className={`flex min-h-9 items-center rounded-md ${menuOpen ? 'bg-hover' : ''}`}
+                      className={`flex min-h-9 items-center rounded-md [content-visibility:auto] [contain-intrinsic-size:auto_36px] ${
+                        pinnedSessionDrag === session.id ? 'opacity-50' : ''
+                      } ${menuOpen ? 'bg-hover' : ''}`}
                       data-menu-open={menuOpen ? 'true' : undefined}
+                      data-dragging={pinnedSessionDrag === session.id ? 'true' : undefined}
+                      onDragOver={(event) => {
+                        const source = pinnedSessionDragRef.current
+                        if (source === null || source === session.id) return
+                        event.preventDefault()
+                        event.dataTransfer.dropEffect = 'move'
+                      }}
+                      onDrop={(event) => {
+                        event.preventDefault()
+                        const source = pinnedSessionDragRef.current
+                        pinnedSessionDragRef.current = null
+                        setPinnedSessionDrag(null)
+                        if (source === null || source === session.id) return
+                        const ids = pinnedSessions.map((entry) => entry.id)
+                        const rect = event.currentTarget.getBoundingClientRect()
+                        const after = event.clientY > rect.top + rect.height / 2
+                        updatePins((current) => ({
+                          ...current,
+                          sessions: moveRowId(ids, source, session.id, after)
+                        }))
+                      }}
                     >
                       <button
                         type="button"
-                        className={`flex min-h-9 min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 py-1 text-left ${
+                        className={`flex min-h-9 min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 py-1 text-left ${ROW_PRESS} ${
                           active ? 'bg-sel text-foreground' : 'text-muted-foreground hover:bg-hover hover:text-foreground'
                         }`}
+                        draggable
+                        onDragStart={(event) => {
+                          event.dataTransfer.effectAllowed = 'move'
+                          event.dataTransfer.setData(SIDEBAR_ROW_DRAG_TYPE, session.id)
+                          pinnedSessionDragRef.current = session.id
+                          setPinnedSessionDrag(session.id)
+                        }}
+                        onDragEnd={() => {
+                          pinnedSessionDragRef.current = null
+                          setPinnedSessionDrag(null)
+                        }}
                         onClick={() => onOpenSession(session.id)}
                         onContextMenu={(event) => {
                           event.preventDefault()
                           requestSessionMenu(session, {
                             x: event.clientX,
                             y: event.clientY,
-                            returnFocus: event.currentTarget
+                            returnFocus: event.currentTarget,
+                            reorder
                           })
                         }}
                         onKeyDown={(event) =>
                           openRowMenuFromKey(event, (anchor) =>
-                            requestSessionMenu(session, { anchor, returnFocus: event.currentTarget })
+                            requestSessionMenu(session, {
+                              anchor,
+                              returnFocus: event.currentTarget,
+                              reorder
+                            })
                           )
                         }
                         aria-haspopup="menu"
                         aria-expanded={menuOpen}
-                        title={session.title}
+                        title={`${session.title} · ${repo?.displayName ?? session.repoId}`}
                         data-testid={`pinned-session-${session.id}`}
                         data-session-pending={pendingFor(session) ?? ''}
                       >
@@ -1374,14 +1870,22 @@ export default function WorkspaceSidebar({
               >
                 <ChevronRight
                   size={9}
-                  className={projectsCollapsed ? '' : 'rotate-90'}
+                  className={`shrink-0 transition-transform duration-150 ease-out motion-reduce:transition-none ${
+                    projectsCollapsed ? '' : 'rotate-90'
+                  }`}
                 />
                 {t('sidebar.projects')}
-                <span className="text-muted-foreground/70">{repos.length}</span>
+                <span
+                  className="text-muted-foreground"
+                  title={String(repos.length)}
+                  aria-label={String(repos.length)}
+                >
+                  {compactCount(repos.length, 99)}
+                </span>
               </button>
               <button
                 type="button"
-                className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+                className={`inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground ${ICON_PRESS}`}
                 onClick={onAddProject}
                 aria-label={t('projects.addProject')}
                 title={t('projects.addProject')}
@@ -1395,7 +1899,7 @@ export default function WorkspaceSidebar({
                 {repos.length === 0 ? (
                   <button
                     type="button"
-                    className="w-full rounded-md px-2 py-2 text-left text-[12px] leading-relaxed text-muted-foreground hover:bg-hover hover:text-foreground"
+                    className={`w-full rounded-md px-2 py-2 text-left text-[12px] leading-relaxed text-muted-foreground hover:bg-hover hover:text-foreground ${ROW_PRESS}`}
                     onClick={onAddProject}
                     data-testid="sidebar-empty-add-project"
                   >
@@ -1430,7 +1934,7 @@ export default function WorkspaceSidebar({
           projectMenu === null
             ? null
             : {
-                items: menuItems.project(projectMenu.repo),
+                items: menuItems.project(projectMenu.repo, projectMenu.reorder),
                 ariaLabel: t('projects.row.actionsAria', {
                   name: projectMenu.repo.displayName
                 }),
@@ -1471,7 +1975,7 @@ export default function WorkspaceSidebar({
           sessionMenu === null
             ? null
             : {
-                items: menuItems.session(sessionMenu.session),
+                items: menuItems.session(sessionMenu.session, sessionMenu.reorder),
                 ariaLabel: t('session.actions'),
                 testId: 'sidebar-session-menu',
                 width: 208,
@@ -1609,6 +2113,61 @@ export default function WorkspaceSidebar({
         }
       }}
     />
+    {projectHover !== null
+      ? createPortal(
+          <div
+            ref={projectHoverCardRef}
+            id="project-hover-card"
+            role="tooltip"
+            className="pointer-events-none fixed z-[110] w-80 rounded-lg border border-border bg-card p-3 shadow-2xl"
+            style={{ left: projectHover.left, top: projectHover.top }}
+            data-testid="project-hover-card"
+          >
+            <div className="flex items-center gap-1.5 text-[12px] font-semibold text-foreground">
+              <FolderGit2 size={12} className="shrink-0 text-muted-foreground" />
+              <span className="min-w-0 line-clamp-2 [overflow-wrap:anywhere]">
+                {projectHover.repo.displayName}
+              </span>
+              {pins.projects.includes(projectHover.repo.id) ? (
+                <span
+                  role="img"
+                  aria-label={t('sidebar.pinned')}
+                  className="ml-auto shrink-0 text-muted-foreground"
+                >
+                  <Pin size={10} />
+                </span>
+              ) : null}
+            </div>
+            <p className="mt-1 line-clamp-3 font-mono text-[10.5px] leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
+              {projectHover.repo.path}
+            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10.5px] text-muted-foreground">
+              <span className="inline-flex min-w-0 items-center gap-1">
+                <GitBranch size={10} className="shrink-0" />
+                <span className="min-w-0 line-clamp-2 [overflow-wrap:anywhere]">
+                  {projectHover.repo.currentBranch || '—'}
+                </span>
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <TerminalSquare size={10} className="shrink-0" />
+                {tp(
+                  'projectHeader.stats.sessions',
+                  directSessionCount.get(projectHover.repo.id) ?? 0
+                )}
+              </span>
+              {needsForRepo(projectHover.repo.id) > 0 ? (
+                <span className="inline-flex items-center gap-1 text-signal">
+                  <Bell size={10} className="shrink-0" />
+                  {t('projectHeader.needsCount', {
+                    count: needsForRepo(projectHover.repo.id)
+                  })}
+                </span>
+              ) : null}
+            </div>
+          </div>,
+          document.body
+        )
+      : null}
     </>
   )
 }

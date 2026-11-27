@@ -1,4 +1,6 @@
 import {
+  ArrowDown,
+  ArrowUp,
   ChevronRight,
   Copy,
   GitBranch,
@@ -89,9 +91,53 @@ function withPlan<Id extends string>(
   }))
 }
 
+/** Move-up/Move-down availability for the row a menu was opened on. */
+export type SidebarRowReorder = {
+  canMoveUp: boolean
+  canMoveDown: boolean
+  onMoveUp: () => void
+  onMoveDown: () => void
+}
+
 /** Maps the pure sidebar plans to labelled menu items with stable test ids. */
 export function createSidebarMenuItems(context: SidebarMenuContext) {
   const { t, pins } = context
+
+  /**
+   * Reorder is the keyboard path for drag-only ordering, so it leads the menu.
+   * A separator keeps it apart from the row's lifecycle actions.
+   */
+  const withReorder = (
+    items: ContextMenuItem[],
+    reorder: SidebarRowReorder | undefined,
+    testId: (direction: 'up' | 'down') => string
+  ): ContextMenuItem[] => {
+    if (reorder === undefined) return items
+    const moves: ContextMenuItem[] = [
+      {
+        id: 'move-up',
+        label: t('session.moveUp'),
+        icon: <ArrowUp size={12} />,
+        testId: testId('up'),
+        disabled: !reorder.canMoveUp,
+        onSelect: reorder.onMoveUp
+      },
+      {
+        id: 'move-down',
+        label: t('session.moveDown'),
+        icon: <ArrowDown size={12} />,
+        testId: testId('down'),
+        disabled: !reorder.canMoveDown,
+        onSelect: reorder.onMoveDown
+      }
+    ]
+    return [
+      ...moves,
+      ...items.map((item, index) =>
+        index === 0 ? { ...item, separatorBefore: true } : item
+      )
+    ]
+  }
 
   /** One clipboard behavior for every row that offers Copy path. */
   const copyPathItem = (input: { path: string; testId: string }): ContextMenuItem => ({
@@ -155,6 +201,7 @@ export function createSidebarMenuItems(context: SidebarMenuContext) {
   const worktree = (request: {
     repo: RepositorySummary
     group: WorktreeSessionGroup
+    reorder?: SidebarRowReorder
   }): ContextMenuItem[] => {
     const { repo, group } = request
     const status = group.sessions[0]?.worktree?.status ?? null
@@ -188,19 +235,26 @@ export function createSidebarMenuItems(context: SidebarMenuContext) {
         onSelect: () => context.onRequestRemoveWorktree(repo, group)
       })
     }
-    return withPlan(
-      worktreeMenuEntries({
-        status,
-        unavailableReason: t('newSession.worktreeUnavailable'),
-        creatingReason: t('sidebar.worktreeCreating'),
-        hostUnreachable: context.hostUnreachable,
-        hostUnreachableReason: context.hostUnreachableReason
-      }),
-      build
+    return withReorder(
+      withPlan(
+        worktreeMenuEntries({
+          status,
+          unavailableReason: t('newSession.worktreeUnavailable'),
+          creatingReason: t('sidebar.worktreeCreating'),
+          hostUnreachable: context.hostUnreachable,
+          hostUnreachableReason: context.hostUnreachableReason
+        }),
+        build
+      ),
+      request.reorder,
+      (direction) => `sidebar-worktree-${group.worktreeId}-move-${direction}`
     )
   }
 
-  const project = (repo: RepositorySummary): ContextMenuItem[] => {
+  const project = (
+    repo: RepositorySummary,
+    reorder?: SidebarRowReorder
+  ): ContextMenuItem[] => {
     const build: Record<ProjectMenuEntryId, () => ContextMenuItem> = {
       retry: () => ({
         id: 'retry',
@@ -267,13 +321,17 @@ export function createSidebarMenuItems(context: SidebarMenuContext) {
         onSelect: () => context.setRemoveRepo(repo)
       })
     }
-    return withPlan(
-      projectMenuEntries({
-        preparation: context.preparationFor(repo),
-        hostUnreachable: context.hostUnreachable,
-        hostUnreachableReason: context.hostUnreachableReason
-      }),
-      build
+    return withReorder(
+      withPlan(
+        projectMenuEntries({
+          preparation: context.preparationFor(repo),
+          hostUnreachable: context.hostUnreachable,
+          hostUnreachableReason: context.hostUnreachableReason
+        }),
+        build
+      ),
+      reorder,
+      (direction) => `sidebar-project-${repo.id}-move-${direction}`
     )
   }
 
@@ -315,7 +373,10 @@ export function createSidebarMenuItems(context: SidebarMenuContext) {
     )
   }
 
-  const session = (record: SessionSummary): ContextMenuItem[] => {
+  const session = (
+    record: SessionSummary,
+    reorder?: SidebarRowReorder
+  ): ContextMenuItem[] => {
     const build: Record<SessionMenuEntryId, () => ContextMenuItem> = {
       details: () => ({
         id: 'details',
@@ -370,15 +431,19 @@ export function createSidebarMenuItems(context: SidebarMenuContext) {
         onSelect: () => context.setRemoveSession(record)
       })
     }
-    return withPlan(
-      sessionMenuEntries(
-        sessionActionState(record, context.pendingFor(record), true)
-      ).map((entry) =>
-        entry.reason === undefined
-          ? entry
-          : { ...entry, reason: sessionMenuReasonLabel(entry.reason) }
+    return withReorder(
+      withPlan(
+        sessionMenuEntries(
+          sessionActionState(record, context.pendingFor(record), true)
+        ).map((entry) =>
+          entry.reason === undefined
+            ? entry
+            : { ...entry, reason: sessionMenuReasonLabel(entry.reason) }
+        ),
+        build
       ),
-      build
+      reorder,
+      (direction) => `sidebar-session-${record.id}-move-${direction}`
     )
   }
 
@@ -389,10 +454,11 @@ export function createSidebarMenuItems(context: SidebarMenuContext) {
   const checkout = (request: {
     repo: RepositorySummary
     group: WorktreeSessionGroup | null
+    reorder?: SidebarRowReorder
   }): ContextMenuItem[] =>
     request.group === null
       ? defaultCheckout(request.repo)
-      : worktree({ repo: request.repo, group: request.group })
+      : worktree({ repo: request.repo, group: request.group, reorder: request.reorder })
 
   return { checkout, project, newWork, session }
 }
