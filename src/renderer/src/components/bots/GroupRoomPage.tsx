@@ -279,7 +279,7 @@ export default function GroupRoomPage({
               <Loader2 size={11} className="animate-spin" /> {t('bots.room.loading')}
             </p>
           ) : (
-            <div className="mx-auto flex w-full max-w-3xl flex-col gap-3">
+            <div className="icode-chat-measure mx-auto flex flex-col gap-3">
               {room.hasEarlier ? (
                 <button
                   type="button"

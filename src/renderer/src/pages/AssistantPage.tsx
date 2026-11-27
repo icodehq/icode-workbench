@@ -411,7 +411,7 @@ export default function AssistantPage({
         onScroll={onScroll}
         data-testid="assistant-thread"
       >
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-3">
+        <div className="icode-chat-measure mx-auto flex flex-col gap-3">
           {assistant.hasMore ? (
             <button
               type="button"
