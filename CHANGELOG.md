@@ -5,6 +5,13 @@ All notable changes to iCode are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.38.1] - 2026-11-27
+
+### Fixed
+
+- Bot home and side-chat panes fill the workspace width. They no longer shrink
+  to a narrow centered column and leave unused space beside the Items rail.
+
 ## [0.38.0] - 2026-11-27
 
 ### Added
