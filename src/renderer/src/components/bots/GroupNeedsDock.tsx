@@ -41,12 +41,15 @@ function lastOutputLines(snapshot: string, limit = 20): string {
 export default function GroupNeedsDock({
   group,
   notify,
+  suppressed,
   onOpenTask,
   onOpenSession,
   onTaskAction
 }: {
   group: GroupSummaryPayload
   notify: (notice: Notice) => void
+  /** The Items rail is open and owns the needs list. */
+  suppressed: boolean
   onOpenTask: (taskId: string) => void
   onOpenSession: (sessionId: string) => void
   onTaskAction: (action: AssistantTaskAction, taskId: string) => void
@@ -61,6 +64,9 @@ export default function GroupNeedsDock({
       ),
     [state.items]
   )
+  // The rail lists every need; the dock keeps only permission prompts that
+  // cannot be answered there.
+  const dockNeeds = suppressed ? [] : needs
   const waitingSessionId =
     needs.find((item) => item.task.status === 'waiting' && item.task.sessionId !== null)?.task
       .sessionId ?? null
@@ -98,7 +104,10 @@ export default function GroupNeedsDock({
       window.clearInterval(timer)
     }
   }, [waitingSessionId, previewNonce])
-  if (state.loading || (needs.length === 0 && permissionState.permissions.length === 0)) {
+  if (
+    state.loading ||
+    (dockNeeds.length === 0 && permissionState.permissions.length === 0)
+  ) {
     return null
   }
   const sendReply = async (): Promise<void> => {
@@ -124,12 +133,13 @@ export default function GroupNeedsDock({
   }
   return (
     <div
-      className="shrink-0 border-t border-border bg-card/70 px-3 py-2"
+      className="max-h-[45vh] shrink-0 overflow-y-auto overscroll-contain border-t border-border bg-card/70 px-3 py-2"
       data-testid="group-needs-dock"
     >
-      <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-signal">
+      <div className="flex items-center gap-1.5 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-signal">
         <AlertCircle size={10} />
-        {t('activity.needsYou')} · {needs.length + permissionState.permissions.length}
+        {t('activity.needsYou')} ·{' '}
+        {dockNeeds.length + permissionState.permissions.length}
       </div>
       {permissionState.permissions.length > 0 ? (
         <div className="mt-1 space-y-1.5" data-testid="group-permissions">
@@ -140,20 +150,20 @@ export default function GroupNeedsDock({
               data-testid={`group-permission-${permission.id}`}
             >
               <div className="flex items-center gap-2">
-                <span className="min-w-0 flex-1 truncate text-[11.5px] font-medium text-foreground">
+                <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-foreground">
                   {t('items.permission.title')}
                   {permission.toolName !== null ? ` · ${permission.toolName}` : ''}
                 </span>
               </div>
               {permission.input !== null && permission.input.length > 0 ? (
-                <pre className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap rounded bg-background/70 p-1.5 font-mono text-[9px] leading-snug text-muted-foreground">
+                <pre className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap rounded bg-background/70 p-1.5 font-mono text-[10px] leading-snug text-muted-foreground">
                   {permission.input}
                 </pre>
               ) : null}
               <div className="mt-1 flex flex-wrap items-center gap-1">
                 <button
                   type="button"
-                  className="inline-flex h-6 items-center rounded bg-accent px-2 text-[10px] font-medium text-accent-ink hover:opacity-90"
+                  className="inline-flex h-6 items-center rounded bg-accent px-2 text-[10.5px] font-medium text-accent-ink hover:opacity-90"
                   onClick={() =>
                     void permissionState.respond(permission.id, { behavior: 'allow' })
                   }
@@ -163,7 +173,7 @@ export default function GroupNeedsDock({
                 </button>
                 <button
                   type="button"
-                  className="inline-flex h-6 items-center rounded border border-destructive/40 px-2 text-[10px] text-destructive hover:bg-destructive/5"
+                  className="inline-flex h-6 items-center rounded border border-destructive/40 px-2 text-[10.5px] text-destructive hover:bg-destructive/5"
                   onClick={() =>
                     void permissionState.respond(permission.id, {
                       behavior: 'deny',
@@ -180,36 +190,36 @@ export default function GroupNeedsDock({
         </div>
       ) : null}
       <div className="mt-1 space-y-1.5">
-        {needs.slice(0, SHOW_LIMIT).map((item) => (
+        {dockNeeds.slice(0, SHOW_LIMIT).map((item) => (
           <div
             key={item.task.id}
             className="rounded-md border border-signal/30 bg-signal-weak/20 px-2 py-1.5"
             data-testid={`group-need-${item.task.id}`}
           >
             <div className="flex items-center gap-2">
-              <span className="min-w-0 flex-1 truncate text-[11.5px] font-medium text-foreground">
+              <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-foreground">
                 {item.task.title}
               </span>
-              <span className="shrink-0 text-[9px] text-muted-foreground">
+              <span className="shrink-0 text-[10px] text-muted-foreground">
                 {t(STATUS_LABEL[item.status])}
               </span>
             </div>
             {item.openQuestion !== null ? (
-              <p className="mt-0.5 line-clamp-2 text-[10px] leading-relaxed text-muted-foreground">
+              <p className="mt-0.5 line-clamp-2 text-[10.5px] leading-relaxed text-muted-foreground">
                 {item.openQuestion.body}
               </p>
             ) : null}
             {preview !== null &&
             item.task.sessionId === preview.sessionId &&
             preview.text.length > 0 ? (
-              <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-background/70 p-1.5 font-mono text-[9px] leading-snug text-muted-foreground">
+              <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-background/70 p-1.5 font-mono text-[10px] leading-snug text-muted-foreground">
                 {preview.text}
               </pre>
             ) : null}
             {preview !== null && item.task.sessionId === preview.sessionId ? (
               <div className="mt-1 flex items-center gap-1">
                 <input
-                  className="h-6 min-w-0 flex-1 rounded border border-border bg-background px-1.5 text-[10px] text-foreground outline-none focus:border-line-strong"
+                  className="h-6 min-w-0 flex-1 rounded border border-border bg-background px-1.5 text-[10.5px] text-foreground outline-none focus:border-line-strong"
                   value={reply}
                   onChange={(event) => setReply(event.target.value)}
                   onKeyDown={(event) => {
@@ -223,7 +233,7 @@ export default function GroupNeedsDock({
                 />
                 <button
                   type="button"
-                  className="inline-flex h-6 items-center rounded border border-border bg-card px-1.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
+                  className="inline-flex h-6 items-center rounded border border-border bg-card px-1.5 text-[10.5px] text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
                   onClick={() => void sendReply()}
                   disabled={sendingReply || reply.trim().length === 0}
                   data-testid={`group-need-reply-send-${item.task.id}`}
@@ -237,7 +247,7 @@ export default function GroupNeedsDock({
                 <button
                   key={option}
                   type="button"
-                  className="inline-flex h-6 items-center rounded border border-signal/40 bg-card px-1.5 text-[10px] text-foreground hover:bg-muted"
+                  className="inline-flex h-6 items-center rounded border border-signal/40 bg-card px-1.5 text-[10.5px] text-foreground hover:bg-muted"
                   onClick={() => answer(item, option)}
                   data-testid={`group-need-answer-${option}`}
                 >
@@ -247,7 +257,7 @@ export default function GroupNeedsDock({
               {item.task.sessionId !== null ? (
                 <button
                   type="button"
-                  className="inline-flex h-6 items-center rounded border border-border bg-card px-1.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
+                  className="inline-flex h-6 items-center rounded border border-border bg-card px-1.5 text-[10.5px] text-muted-foreground hover:bg-muted hover:text-foreground"
                   onClick={() => onOpenSession(item.task.sessionId!)}
                   data-testid={`group-need-session-${item.task.id}`}
                 >
@@ -256,7 +266,7 @@ export default function GroupNeedsDock({
               ) : null}
               <button
                 type="button"
-                className="inline-flex h-6 items-center rounded border border-border bg-card px-1.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
+                className="inline-flex h-6 items-center rounded border border-border bg-card px-1.5 text-[10.5px] text-muted-foreground hover:bg-muted hover:text-foreground"
                 onClick={() => onOpenTask(item.task.id)}
                 data-testid={`group-need-item-${item.task.id}`}
               >
@@ -266,14 +276,14 @@ export default function GroupNeedsDock({
                 <>
                   <button
                     type="button"
-                    className="inline-flex h-6 items-center rounded border border-border bg-card px-1.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
+                    className="inline-flex h-6 items-center rounded border border-border bg-card px-1.5 text-[10.5px] text-muted-foreground hover:bg-muted hover:text-foreground"
                     onClick={() => onTaskAction('approve', item.task.id)}
                   >
                     {t('taskOverview.approve')}
                   </button>
                   <button
                     type="button"
-                    className="inline-flex h-6 items-center rounded border border-border bg-card px-1.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
+                    className="inline-flex h-6 items-center rounded border border-border bg-card px-1.5 text-[10.5px] text-muted-foreground hover:bg-muted hover:text-foreground"
                     onClick={() => onTaskAction('reject', item.task.id)}
                   >
                     {t('taskOverview.reject')}
@@ -284,7 +294,7 @@ export default function GroupNeedsDock({
           </div>
         ))}
         {needs.length > SHOW_LIMIT ? (
-          <p className="px-0.5 text-[9.5px] text-muted-foreground">
+          <p className="px-0.5 text-[10.5px] text-muted-foreground">
             {t('items.moreInRail', { count: needs.length - SHOW_LIMIT })}
           </p>
         ) : null}

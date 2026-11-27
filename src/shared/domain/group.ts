@@ -94,6 +94,24 @@ export function groupThreadIsUntitled(
   return !thread.isDefault && thread.title === NEW_GROUP_THREAD_TITLE
 }
 
+/**
+ * Two untouched threads both read "New thread" in tabs and pickers. Number them
+ * only when more than one exists, so the first one stays clean.
+ */
+export function groupThreadDisplayLabel(
+  groupName: string,
+  thread: Pick<BotGroupThread, 'id' | 'title' | 'isDefault'>,
+  threads: readonly Pick<BotGroupThread, 'id' | 'title' | 'isDefault'>[],
+  untitledLabel: string = NEW_GROUP_THREAD_TITLE
+): string {
+  const label = groupThreadLabel(groupName, thread, untitledLabel)
+  if (!groupThreadIsUntitled(thread)) return label
+  const untitled = threads.filter((entry) => groupThreadIsUntitled(entry))
+  if (untitled.length < 2) return label
+  const index = untitled.findIndex((entry) => entry.id === thread.id)
+  return index < 0 ? label : `${label} #${index + 1}`
+}
+
 /** The room with the newest line, for the sidebar row's preview. */
 export function groupLatestThread<
   T extends Pick<BotGroupThread, 'latestAt' | 'isDefault'>

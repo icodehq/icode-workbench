@@ -9,7 +9,7 @@ import type { BotSummaryPayload } from '../../../../shared/schemas/bots'
 import type { RepositorySummary } from '../../../../shared/schemas/ipc'
 import type { Notice } from '../../state/workspace'
 import { useGroupRoom } from '../../state/use-group-room'
-import { groupThreadLabel } from '../../../../shared/domain/group'
+import { groupThreadDisplayLabel } from '../../../../shared/domain/group'
 import { groupDraftAudience } from '../../../../shared/domain/group-mentions'
 import AssistantAvatar from '../AssistantAvatar'
 import AssistantCardView, { type AssistantTaskAction } from '../AssistantCardView'
@@ -75,6 +75,7 @@ export default function GroupRoomPage({
   notify,
   visible,
   attended,
+  showIdentity,
   onOpenTask,
   onTaskAction,
   onNewThread,
@@ -87,6 +88,8 @@ export default function GroupRoomPage({
   notify: (notice: Notice) => void
   visible: boolean
   attended: boolean
+  /** Split panes need a per-pane room label; a single pane uses the tab strip. */
+  showIdentity: boolean
   onOpenTask: (taskId: string) => void
   onTaskAction: (action: AssistantTaskAction, taskId: string) => void
   onNewThread: () => void
@@ -240,36 +243,26 @@ export default function GroupRoomPage({
     return false
   }
 
-  const roomLabel = groupThreadLabel(group.name, thread, t('bots.thread.untitled'))
-
+  const roomLabel = groupThreadDisplayLabel(
+    group.name,
+    thread,
+    group.threads,
+    t('bots.thread.untitled')
+  )
   const repoName = (repoId: string | undefined): string | undefined =>
     repoId === undefined ? undefined : repos.find((repo) => repo.id === repoId)?.displayName
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex shrink-0 items-center gap-2 border-b border-border bg-card px-3 py-2">
-          <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent/12 text-accent">
-            <MessageSquare size={11} />
-          </span>
-          <div className="min-w-0 flex-1">
-            <h1 className="truncate text-[12px] font-semibold">{roomLabel}</h1>
-            <div className="truncate text-[9.5px] text-muted-foreground">
-              {group.name} · {t('bots.room.members', { count: members.length })}
-            </div>
-          </div>
-          {room.busy ? (
-            <button
-              type="button"
-              className="inline-flex h-6 items-center gap-1 rounded border border-border px-2 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
-              onClick={() => void room.stop()}
-              data-testid="bots-stop-all"
-            >
-              <Square size={8} /> {t('bots.room.stopAll')}
-            </button>
-          ) : null}
-        </header>
-
+    <div className="flex h-full min-h-0 w-full min-w-0 flex-col bg-background">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        {showIdentity ? (
+          <header className="flex h-8 shrink-0 items-center gap-2 border-b border-border bg-card px-3">
+            <MessageSquare size={11} className="shrink-0 text-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate text-[11.5px] font-medium">
+              {roomLabel}
+            </span>
+          </header>
+        ) : null}
         <div
           ref={threadRef}
           className="min-h-0 flex-1 overflow-y-auto px-4 py-3"
@@ -282,7 +275,7 @@ export default function GroupRoomPage({
           data-testid="bots-room-thread"
         >
           {room.loading ? (
-            <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <p className="flex items-center gap-1.5 text-[11.5px] text-muted-foreground">
               <Loader2 size={11} className="animate-spin" /> {t('bots.room.loading')}
             </p>
           ) : (
@@ -290,7 +283,7 @@ export default function GroupRoomPage({
               {room.hasEarlier ? (
                 <button
                   type="button"
-                  className="mx-auto inline-flex h-6 items-center gap-1 rounded border border-border px-2 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
+                  className="mx-auto inline-flex h-6 items-center gap-1 rounded border border-border px-2 text-[10.5px] text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
                   onClick={() => void room.loadEarlier()}
                   disabled={room.loadingEarlier}
                 >
@@ -299,7 +292,7 @@ export default function GroupRoomPage({
                 </button>
               ) : null}
               {room.messages.length === 0 ? (
-                <div className="mx-auto mt-8 max-w-sm rounded-md border border-dashed border-border p-4 text-center text-[11px] leading-relaxed text-muted-foreground">
+                <div className="mx-auto mt-8 max-w-sm rounded-md border border-dashed border-border p-4 text-center text-[11.5px] leading-relaxed text-muted-foreground">
                   {t('bots.room.empty')}
                 </div>
               ) : (
@@ -308,7 +301,7 @@ export default function GroupRoomPage({
                     return (
                       <div
                         key={message.id}
-                        className="mx-auto max-w-[86%] rounded-md border border-dashed border-border bg-muted/30 px-3 py-2 text-[10.5px] text-muted-foreground"
+                        className="mx-auto max-w-[86%] rounded-md border border-dashed border-border bg-muted/30 px-3 py-2 text-[11.5px] text-muted-foreground"
                         data-testid={`bots-message-${message.id}`}
                       >
                         <div className="whitespace-pre-wrap">{message.body}</div>
@@ -348,11 +341,11 @@ export default function GroupRoomPage({
                           />
                         ) : null}
                         <div className="min-w-0">
-                          <div className="mb-0.5 text-[9.5px] text-muted-foreground">
+                          <div className="mb-0.5 text-[10.5px] text-muted-foreground">
                             {mine ? t('bots.you') : (message.authorName ?? message.authorBotId)}
                           </div>
                           <div
-                            className={`break-words rounded-lg px-3 py-2 text-[12px] leading-relaxed ${
+                            className={`break-words rounded-lg px-3 py-2 text-[13px] leading-relaxed ${
                               mine
                                 ? 'bg-accent/12 text-foreground'
                                 : 'border border-border bg-card text-foreground'
@@ -400,10 +393,10 @@ export default function GroupRoomPage({
                                     mascot={turnBot?.avatarMascot}
                                     outfit={turnBot?.avatarOutfit}
                                   />
-                                  <span className="min-w-0 truncate text-[11px] font-medium text-foreground">
+                                  <span className="min-w-0 truncate text-[11.5px] font-medium text-foreground">
                                     {turn.botName}
                                   </span>
-                                  <span className={`text-[9.5px] ${status.tone}`}>
+                                  <span className={`text-[10.5px] ${status.tone}`}>
                                     {active ? (
                                       <Loader2 size={9} className="mr-1 inline animate-spin" />
                                     ) : null}
@@ -413,7 +406,7 @@ export default function GroupRoomPage({
                                     {active ? (
                                       <button
                                         type="button"
-                                        className="inline-flex h-5 items-center gap-1 rounded px-1.5 text-[9.5px] text-muted-foreground hover:bg-muted hover:text-foreground"
+                                        className="inline-flex h-6 items-center gap-1 rounded px-1.5 text-[10.5px] text-muted-foreground hover:bg-muted hover:text-foreground"
                                         onClick={() => void room.stop(turn.botId)}
                                         data-testid={`bots-turn-stop-${turn.operationId}`}
                                       >
@@ -422,7 +415,7 @@ export default function GroupRoomPage({
                                     ) : null}
                                     <button
                                       type="button"
-                                      className="inline-flex h-5 items-center gap-1 rounded px-1.5 text-[9.5px] text-muted-foreground hover:bg-muted hover:text-foreground"
+                                      className="inline-flex h-6 items-center gap-1 rounded px-1.5 text-[10.5px] text-muted-foreground hover:bg-muted hover:text-foreground"
                                       onClick={() => {
                                         setDraft(`@${turn.botName} `)
                                         setCaret(turn.botName.length + 2)
@@ -434,14 +427,14 @@ export default function GroupRoomPage({
                                   </span>
                                 </div>
                                 {turn.reply !== null ? (
-                                  <div className="mt-1.5 text-[12px] leading-relaxed text-foreground">
+                                  <div className="mt-1.5 text-[13px] leading-relaxed text-foreground">
                                     <Markdown text={turn.reply} />
                                   </div>
                                 ) : null}
                                 {turn.status === 'failed' && turn.error !== null ? (
-                                  <p className="mt-1 text-[10px] text-destructive">{turn.error}</p>
+                                  <p className="mt-1 text-[10.5px] text-destructive">{turn.error}</p>
                                 ) : null}
-                                <details className="mt-1.5 text-[9.5px] text-muted-foreground">
+                                <details className="mt-1.5 text-[10.5px] text-muted-foreground">
                                   <summary className="cursor-pointer select-none hover:text-foreground">
                                     {t('bots.turn.details')}
                                   </summary>
@@ -507,13 +500,25 @@ export default function GroupRoomPage({
           placeholder={t('bots.composer.placeholder')}
           footerLeft={
             <span
-              className={`truncate text-[9.5px] ${
+              className={`truncate text-[10.5px] ${
                 audience === 'invalid' ? 'text-destructive' : 'text-muted-foreground'
               }`}
               data-testid="bots-audience"
             >
               {audienceLabel}
             </span>
+          }
+          footerRight={
+            room.busy ? (
+              <button
+                type="button"
+                className="inline-flex h-6 items-center gap-1 rounded px-1.5 text-[10.5px] text-muted-foreground hover:bg-muted hover:text-foreground"
+                onClick={() => void room.stop()}
+                data-testid="bots-stop-all"
+              >
+                <Square size={8} /> {t('bots.room.stopAll')}
+              </button>
+            ) : undefined
           }
           attachments={attachments}
           onAttachFiles={addFiles}
@@ -536,7 +541,7 @@ export default function GroupRoomPage({
                   <button
                     key={bot.id}
                     type="button"
-                    className={`flex w-full items-center gap-2 px-2 py-1.5 text-left text-[11px] ${
+                    className={`flex w-full items-center gap-2 px-2 py-1.5 text-left text-[11.5px] ${
                       mentionIndex === index ? 'bg-muted' : 'hover:bg-muted'
                     }`}
                     onMouseDown={(event) => {
@@ -559,7 +564,7 @@ export default function GroupRoomPage({
                 {mentionMenu.everyone ? (
                   <button
                     type="button"
-                    className={`flex w-full items-center gap-2 px-2 py-1.5 text-left text-[11px] ${
+                    className={`flex w-full items-center gap-2 px-2 py-1.5 text-left text-[11.5px] ${
                       mentionIndex === mentionMenu.items.length ? 'bg-muted' : 'hover:bg-muted'
                     }`}
                     onMouseDown={(event) => {

@@ -5,6 +5,34 @@ All notable changes to iCode are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.38.0] - 2026-11-27
+
+### Added
+
+- The group room now has a conversation-first layout. A single-room workspace
+  drops the redundant tab strip and Items rail, and the header exposes an
+  Items toggle when the work rail is needed.
+- Single-room actions move to a header room menu with Pin and Close; untouched
+  threads are numbered when several share the default title.
+- The Needs list has one home at a time: the bottom dock when Items is closed,
+  or the rail when it is open. Permission prompts stay in the dock.
+
+### Changed
+
+- The group chat uses a 13px body with a 10.5-11.5px metadata scale, larger
+  message actions, a 24px tab close target, and an 11px split-divider hit area.
+- The Needs dock is capped at 45vh and scrolls, so it cannot consume the room.
+- New split panes are only offered at xl and above; an existing split can still
+  be unsplit at narrower widths.
+
+### Fixed
+
+- Long group histories now scroll inside the room instead of pushing the
+  composer out of the window.
+- Room content fills the pane instead of shrinking to its content width, and
+  split panes no longer overflow horizontally.
+- The duplicate room header and empty Items rail are gone.
+
 ## [0.37.0] - 2026-11-27
 
 ### Added

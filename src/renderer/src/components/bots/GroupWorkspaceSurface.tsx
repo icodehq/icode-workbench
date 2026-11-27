@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { MessageSquare, Plus } from 'lucide-react'
+import { MessageSquare, Pin, PinOff, Plus, X } from 'lucide-react'
 import type { BotSummaryPayload } from '../../../../shared/schemas/bots'
 import type { GroupSummaryPayload, GroupThreadPayload } from '../../../../shared/schemas/groups'
 import type { RepositorySummary } from '../../../../shared/schemas/ipc'
-import { groupThreadIsUntitled } from '../../../../shared/domain/group'
+import {
+  groupThreadDisplayLabel,
+  groupThreadIsUntitled
+} from '../../../../shared/domain/group'
 import type { Notice } from '../../state/workspace'
 import type { BotsWorkspaceState } from '../../state/use-bots'
 import {
@@ -37,6 +40,7 @@ import { useWindowAttention } from '../../lib/window-attention'
 import { useT } from '../../i18n/use-i18n'
 import GroupWorkspaceHeader from './GroupWorkspaceHeader'
 import GroupRoomPage from './GroupRoomPage'
+import ContextMenu, { type MenuAnchor } from '../ContextMenu'
 import GroupSettingsDialog from './GroupSettingsDialog'
 import GroupNeedsDock from './GroupNeedsDock'
 import ItemsRail from './ItemsRail'
@@ -80,6 +84,12 @@ export default function GroupWorkspaceSurface({
   )
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [creatingThread, setCreatingThread] = useState(false)
+  const [itemsOpen, setItemsOpen] = useState(false)
+  const [roomMenu, setRoomMenu] = useState<{
+    anchor: MenuAnchor
+    returnFocus: HTMLElement | null
+    opener: HTMLElement | null
+  } | null>(null)
   const [dropPane, setDropPane] = useState<{
     paneId: string
     side: SplitSide | 'center'
@@ -366,7 +376,12 @@ export default function GroupWorkspaceSurface({
             >
               <MessageSquare size={10} className="shrink-0 text-muted-foreground" />
               <span className="min-w-0 flex-1 truncate">
-                {thread.isDefault ? group.name : thread.title}
+                {groupThreadDisplayLabel(
+                  group.name,
+                  thread,
+                  group.threads,
+                  t('bots.thread.untitled')
+                )}
               </span>
               <Plus size={10} className="shrink-0 text-muted-foreground" />
             </button>
@@ -410,6 +425,9 @@ export default function GroupWorkspaceSurface({
         notify={notify}
         visible
         attended={attended}
+        showIdentity={
+          split.root.kind === 'split' || (tabs.length <= 1 && !thread.isDefault)
+        }
         onOpenTask={onOpenTask}
         onTaskAction={onTaskAction}
         onNewThread={() => void createThread()}
@@ -418,47 +436,65 @@ export default function GroupWorkspaceSurface({
     )
   }
 
+  const showTabStrip = tabs.length > 1 || split.root.kind === 'split'
+  const activeTab =
+    tabs.find((tab) => tab.key === split.focusedTabKey) ?? tabs[0] ?? null
+  const openRoomMenu = (opener: HTMLElement): void => {
+    const rect = opener.getBoundingClientRect()
+    setRoomMenu({
+      anchor: { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right },
+      returnFocus: opener,
+      opener
+    })
+  }
+
   return (
     <div className="flex h-full min-h-0 bg-background" data-testid="bots-room">
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <GroupWorkspaceHeader
           group={group}
           members={members}
           activeThreadId={activeThreadId}
           creatingThread={creatingThread}
+          itemsOpen={itemsOpen}
+          roomMenuAvailable={!showTabStrip}
+          onToggleItems={() => setItemsOpen((current) => !current)}
+          onOpenRoomMenu={openRoomMenu}
           onOpenThread={openRoomInPane}
           onNewThread={() => void createThread()}
           onUpdateGroup={state.updateGroup}
           onOpenSettings={() => setSettingsOpen(true)}
         />
-        <RoomTabStrip
-          group={group}
-          members={members}
-          tabs={tabs}
-          threads={group.threads}
-          activeKey={split.focusedTabKey}
-          splitActive={split.root.kind === 'split'}
-          zoomed={split.zoomedPaneId !== null}
-          creatingThread={creatingThread}
-          onActivate={(key) => {
-            splitRef.current.activateTab(key)
-          }}
-          onClose={closeTab}
-          onCloseOthers={closeOthers}
-          onCloseAll={closeAll}
-          onClosePane={closePane}
-          onPin={(key, pinned) => openFilesStore.setPinned(scopeKey, key, pinned)}
-          onRename={(key, label) =>
-            openFilesStore.setRoomCustomLabel(scopeKey, key, label)
-          }
-          onColor={(key, color) => openFilesStore.setRoomColor(scopeKey, key, color)}
-          onReorder={(source, target) => openFilesStore.moveTab(scopeKey, source, target)}
-          onSplitWithTab={splitWithTab}
-          onSplit={splitPane}
-          onUnsplit={unsplit}
-          onToggleZoom={toggleZoom}
-          onNewThread={() => void createThread()}
-        />
+        {showTabStrip ? (
+          <RoomTabStrip
+            group={group}
+            members={members}
+            tabs={tabs}
+            threads={group.threads}
+            activeKey={split.focusedTabKey}
+            splitActive={split.root.kind === 'split'}
+            zoomed={split.zoomedPaneId !== null}
+            creatingThread={creatingThread}
+            onActivate={(key) => {
+              splitRef.current.activateTab(key)
+            }}
+            onClose={closeTab}
+            onCloseOthers={closeOthers}
+            onCloseAll={closeAll}
+            onClosePane={closePane}
+            onPin={(key, pinned) => openFilesStore.setPinned(scopeKey, key, pinned)}
+            onRename={(key, label) =>
+              openFilesStore.setRoomCustomLabel(scopeKey, key, label)
+            }
+            onColor={(key, color) => openFilesStore.setRoomColor(scopeKey, key, color)}
+            onReorder={(source, target) => openFilesStore.moveTab(scopeKey, source, target)}
+            onSplitWithTab={splitWithTab}
+            onSplit={splitPane}
+            onUnsplit={unsplit}
+            onToggleZoom={toggleZoom}
+            onNewThread={() => void createThread()}
+          />
+        ) : null}
         <div className="flex min-h-0 min-w-0 flex-1">
           {tabs.length === 0 ? (
             <div
@@ -530,18 +566,63 @@ export default function GroupWorkspaceSurface({
         <GroupNeedsDock
           group={group}
           notify={notify}
+          suppressed={itemsOpen}
           onOpenTask={onOpenTask}
           onOpenSession={onOpenSession}
           onTaskAction={onTaskAction}
         />
       </div>
-      <ItemsRail
-        filter={{ groupId: group.id }}
-        members={members}
-        notify={notify}
-        onOpenTask={onOpenTask}
-        onTaskAction={onTaskAction}
-      />
+      {itemsOpen ? (
+        <ItemsRail
+          filter={{ groupId: group.id }}
+          members={members}
+          notify={notify}
+          onOpenTask={onOpenTask}
+          onTaskAction={onTaskAction}
+        />
+      ) : null}
+      {roomMenu !== null && activeTab !== null ? (
+        <ContextMenu
+          items={[
+            {
+              id: 'pin',
+              label:
+                activeTab.pinned === true
+                  ? t('bots.tab.unpin')
+                  : t('bots.tab.pin'),
+              icon:
+                activeTab.pinned === true ? <PinOff size={11} /> : <Pin size={11} />,
+              testId: 'bots-room-pin',
+              onSelect: () => {
+                openFilesStore.setPinned(
+                  scopeKey,
+                  activeTab.key,
+                  activeTab.pinned !== true
+                )
+                setRoomMenu(null)
+              }
+            },
+            {
+              id: 'close',
+              label: t('session.close'),
+              icon: <X size={11} />,
+              testId: 'bots-room-close',
+              disabled: activeTab.pinned === true,
+              onSelect: () => {
+                closeTab(activeTab.key)
+                setRoomMenu(null)
+              }
+            }
+          ]}
+          ariaLabel={t('session.actions')}
+          testId="bots-room-menu"
+          anchor={roomMenu.anchor}
+          align="end"
+          returnFocus={roomMenu.returnFocus}
+          opener={roomMenu.opener}
+          onClose={() => setRoomMenu(null)}
+        />
+      ) : null}
       {settingsOpen ? (
         <GroupSettingsDialog
           group={group}

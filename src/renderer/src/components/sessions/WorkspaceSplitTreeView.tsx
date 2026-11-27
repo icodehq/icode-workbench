@@ -95,8 +95,10 @@ function WorkspaceSplitBranchView({
         aria-valuemin={Math.round(SPLIT_MIN_RATIO * 100)}
         aria-valuemax={Math.round(SPLIT_MAX_RATIO * 100)}
         tabIndex={0}
-        className={`shrink-0 bg-border/70 transition-colors hover:bg-accent/60 focus-visible:bg-accent focus-visible:outline-none ${
-          horizontal ? 'w-[3px] cursor-col-resize' : 'h-[3px] cursor-row-resize'
+        className={`relative shrink-0 bg-border/70 transition-colors after:absolute after:content-[''] hover:bg-accent/60 focus-visible:bg-accent focus-visible:outline-none ${
+          horizontal
+            ? 'w-[3px] cursor-col-resize after:inset-y-0 after:-inset-x-1'
+            : 'h-[3px] cursor-row-resize after:inset-x-0 after:-inset-y-1'
         }`}
         data-testid="session-split-divider"
         data-branch-id={node.id}

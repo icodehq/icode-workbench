@@ -3,6 +3,7 @@ import {
   BOT_GROUP_LIMITS,
   NEW_GROUP_THREAD_TITLE,
   groupLatestThread,
+  groupThreadDisplayLabel,
   groupThreadIsUntitled,
   groupThreadLabel,
   groupThreadTitleFromText
@@ -61,5 +62,42 @@ describe('group latest thread', () => {
     expect(groupLatestThread({ threads })?.title).toBe('Original')
     expect(groupLatestThread({ threads: [threads[2]!] })).toBeNull()
     expect(groupLatestThread({ threads: [] })).toBeNull()
+  })
+})
+
+describe('group thread display labels', () => {
+  it('numbers only when several untouched threads share the default name', () => {
+    const defaultThread = { id: 'default', title: 'Builders', isDefault: true }
+    const firstThread = {
+      id: 'one',
+      title: NEW_GROUP_THREAD_TITLE,
+      isDefault: false
+    }
+    const namedThread = { id: 'named', title: 'Login revamp', isDefault: false }
+    const secondThread = {
+      id: 'two',
+      title: NEW_GROUP_THREAD_TITLE,
+      isDefault: false
+    }
+    const threads = [defaultThread, firstThread, namedThread, secondThread]
+    expect(
+      groupThreadDisplayLabel('Builders', defaultThread, threads, 'New thread')
+    ).toBe('Builders')
+    expect(
+      groupThreadDisplayLabel('Builders', firstThread, threads, 'New thread')
+    ).toBe('New thread #1')
+    expect(
+      groupThreadDisplayLabel('Builders', secondThread, threads, 'New thread')
+    ).toBe('New thread #2')
+    expect(
+      groupThreadDisplayLabel('Builders', namedThread, threads, 'New thread')
+    ).toBe('Login revamp')
+  })
+
+  it('keeps a single untouched thread unnumbered', () => {
+    const thread = { id: 'one', title: NEW_GROUP_THREAD_TITLE, isDefault: false }
+    expect(groupThreadDisplayLabel('Builders', thread, [thread], 'New thread')).toBe(
+      'New thread'
+    )
   })
 })

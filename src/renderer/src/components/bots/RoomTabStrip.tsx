@@ -15,7 +15,10 @@ import {
 import type { BotSummaryPayload } from '../../../../shared/schemas/bots'
 import type { GroupSummaryPayload, GroupThreadPayload } from '../../../../shared/schemas/groups'
 import type { RoomTab } from '../../files/open-files'
-import { groupThreadLabel } from '../../../../shared/domain/group'
+import {
+  groupThreadDisplayLabel,
+  groupThreadLabel
+} from '../../../../shared/domain/group'
 import type { SplitSide } from '../../state/workspace-split'
 import { useT } from '../../i18n/use-i18n'
 import AssistantAvatar from '../AssistantAvatar'
@@ -119,7 +122,12 @@ export default function RoomTabStrip({
           { title: tab.threadId, isDefault: tab.isDefault },
           t('bots.thread.untitled')
         )
-      : groupThreadLabel(group.name, thread, t('bots.thread.untitled'))
+      : groupThreadDisplayLabel(
+          group.name,
+          thread,
+          group.threads,
+          t('bots.thread.untitled')
+        )
   }
 
   const cancelHover = (): void => {
@@ -350,7 +358,7 @@ export default function RoomTabStrip({
             >
               {activeRename !== null ? (
                 <input
-                  className="h-7 w-[160px] rounded border border-line-strong bg-background px-1.5 text-[11px] text-foreground outline-none"
+                  className="h-7 w-[160px] rounded border border-line-strong bg-background px-1.5 text-[11.5px] text-foreground outline-none"
                   value={activeRename.draft}
                   autoFocus
                   maxLength={80}
@@ -378,7 +386,7 @@ export default function RoomTabStrip({
                 aria-selected={active}
                 tabIndex={active ? 0 : -1}
                 draggable
-                className={`inline-flex h-9 max-w-[220px] items-center gap-1.5 border-b-2 px-2.5 text-[11px] ${
+                className={`inline-flex h-9 max-w-[220px] items-center gap-1.5 border-b-2 px-2.5 text-[11.5px] ${
                   active
                     ? 'border-accent text-foreground'
                     : 'border-transparent text-muted-foreground hover:bg-muted/50 hover:text-foreground'
@@ -454,13 +462,13 @@ export default function RoomTabStrip({
               {tab.pinned === true ? null : (
                 <button
                   type="button"
-                  className="ml-0.5 inline-flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+                  className="ml-0.5 inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
                   onClick={() => onClose(tab.key)}
                   aria-label={t('session.close')}
                   title={t('session.close')}
                   data-testid={`${testId}-close`}
                 >
-                  <X size={10} />
+                  <X size={11} />
                 </button>
               )}
             </div>
@@ -498,7 +506,9 @@ export default function RoomTabStrip({
         <div className="ml-auto flex shrink-0 items-center gap-1">
           <button
             type="button"
-            className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground ${
+            className={`${
+              splitActive ? 'inline-flex' : 'hidden xl:inline-flex'
+            } h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground ${
               splitActive ? 'bg-accent-weak text-accent' : ''
             }`}
             onClick={splitActive ? onUnsplit : onSplit}
@@ -583,19 +593,19 @@ export default function RoomTabStrip({
                   <Users size={12} className="shrink-0 text-muted-foreground" />
                   <span className="min-w-0 truncate">{labelFor(tab)}</span>
                   {thread !== undefined && thread.unread > 0 ? (
-                    <span className="ml-auto rounded-full bg-signal-weak px-1 text-[8px] font-medium text-signal">
+                    <span className="ml-auto rounded-full bg-signal-weak px-1 text-[9px] font-medium text-signal">
                       {thread.unread > 9 ? '9+' : thread.unread}
                     </span>
                   ) : null}
                 </div>
-                <div className="mt-0.5 truncate text-[10px] text-muted-foreground">
+                <div className="mt-0.5 truncate text-[11.5px] text-muted-foreground">
                   {group.name}
                 </div>
                 <div className="mt-2 space-y-1">
                   {members.slice(0, 6).map((member) => (
                     <div
                       key={member.id}
-                      className="flex items-center gap-1.5 text-[10.5px]"
+                      className="flex items-center gap-1.5 text-[11.5px]"
                     >
                       <AssistantAvatar
                         name={member.name}
@@ -616,7 +626,7 @@ export default function RoomTabStrip({
                   ))}
                 </div>
                 {thread?.latestText !== null && thread?.latestText !== undefined ? (
-                  <p className="mt-2 line-clamp-2 text-[10px] leading-relaxed text-muted-foreground">
+                  <p className="mt-2 line-clamp-2 text-[11.5px] leading-relaxed text-muted-foreground">
                     {thread.latestText}
                   </p>
                 ) : null}

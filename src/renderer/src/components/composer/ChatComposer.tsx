@@ -259,7 +259,7 @@ export default function ChatComposer({
           ) : null}
           <textarea
             ref={textareaRef}
-            className="max-h-40 min-h-[44px] w-full resize-none bg-transparent px-2 py-1.5 text-[12px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
+            className="max-h-40 min-h-[44px] w-full resize-none bg-transparent px-2 py-1.5 text-[13px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
             rows={1}
             value={value}
             disabled={disabled}

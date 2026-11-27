@@ -45,17 +45,21 @@ export default function ItemsRail({
   const botName = (item: ItemPayload): string =>
     members.find((bot) => bot.id === item.task.botId)?.name ?? t('bots.fallback')
 
+  // An empty rail is a permanent 280px column with "Nothing here"; hide it so
+  // the room can use the full surface until the first Item exists.
+  if (state.items.length === 0) return <></>
+
   return (
     <aside
       className="hidden w-[280px] shrink-0 flex-col gap-3 overflow-y-auto border-l border-border bg-card/30 p-2 xl:flex"
       data-testid="bots-work-rail"
     >
-      <div className="px-1 pt-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+      <div className="px-1 pt-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
         {t('items.title')}
       </div>
       {members.length > 1 ? (
         <select
-          className="h-6 w-full rounded border border-border bg-background px-1 text-[10px] text-foreground"
+          className="h-6 w-full rounded border border-border bg-background px-1 text-[11px] text-foreground"
           value={memberId}
           onChange={(event) => setMemberId(event.target.value)}
           data-testid="items-member-filter"
@@ -69,14 +73,14 @@ export default function ItemsRail({
         </select>
       ) : null}
       {visibleItems.length === 0 && !state.loading ? (
-        <p className="px-1 py-2 text-[10.5px] text-muted-foreground">{t('items.empty')}</p>
+        <p className="px-1 py-2 text-[11px] text-muted-foreground">{t('items.empty')}</p>
       ) : null}
       {ITEM_SECTIONS.map((section) => {
         const rows = visibleItems.filter((item) => item.status === section.status)
         if (rows.length === 0) return null
         return (
           <div key={section.status} className="space-y-1.5">
-            <div className="px-1 text-[9px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+            <div className="px-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
               {t(section.label)}
               <span className="ml-1 text-muted-foreground/60">{rows.length}</span>
             </div>
@@ -88,10 +92,10 @@ export default function ItemsRail({
                 onClick={() => setOpenItemId(item.task.id)}
                 data-testid={`bots-item-${item.task.id}`}
               >
-                <span className="line-clamp-2 text-[11.5px] font-medium text-foreground">
+                <span className="line-clamp-2 text-[12px] font-medium text-foreground">
                   {item.task.title}
                 </span>
-                <span className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
+                <span className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
                   <span className="truncate">{botName(item)}</span>
                   <span className={`rounded px-1 py-0.5 ${itemStatusTone(item.status)}`}>
                     {t(section.label)}
@@ -107,7 +111,7 @@ export default function ItemsRail({
         )
       })}
       {state.loading ? (
-        <p className="flex items-center gap-1 px-1 text-[10px] text-muted-foreground">
+        <p className="flex items-center gap-1 px-1 text-[11px] text-muted-foreground">
           <Loader2 size={9} className="animate-spin" /> {t('items.loading')}
         </p>
       ) : null}
