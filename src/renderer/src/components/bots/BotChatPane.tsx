@@ -123,7 +123,7 @@ export default function BotChatPane({
 }): React.JSX.Element {
   const chat = useBotChat(bot.id, notify, undefined, threadId)
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col">
       <BotChatHeader
         bot={bot}
         title={title}

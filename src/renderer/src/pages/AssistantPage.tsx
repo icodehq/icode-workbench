@@ -311,7 +311,7 @@ export default function AssistantPage({
   const hasUserMessage = visible.some((message) => message.role === 'user')
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background" data-testid="assistant-view">
+    <div className="flex h-full min-h-0 w-full min-w-0 flex-col bg-background" data-testid="assistant-view">
       {showHeader ? (
       <header className="flex shrink-0 items-center gap-3 border-b border-border bg-card px-5 py-3">
         <AssistantAvatar name={assistant.personaName} status={assistant.status} size="lg" color={color} image={image}

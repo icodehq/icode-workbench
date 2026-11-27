@@ -857,6 +857,15 @@ async function main() {
       ),
       'The bot home did not open with a Home tab'
     )
+    const fillsPane = await cdp.evaluate(`(() => {
+      const pane = document.querySelector('[data-testid^="bot-chat-pane-"]');
+      const view = document.querySelector('[data-testid="assistant-view"]');
+      if (pane === null || view === null) return false;
+      const p = pane.getBoundingClientRect();
+      const v = view.getBoundingClientRect();
+      return v.width >= p.width - 2;
+    })()`)
+    assert(fillsPane, 'The bot chat did not fill its workspace pane')
     await cdp.evaluate(`(() => {
       const input = document.querySelector('[data-testid="assistant-composer"]')
       const setter = Object.getOwnPropertyDescriptor(
