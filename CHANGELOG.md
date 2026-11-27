@@ -5,6 +5,34 @@ All notable changes to iCode are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.36.1] - 2026-11-27
+
+### Added
+
+- The Bots sidebar row menu can move a group or bot up or down, so reordering
+  no longer requires a drag.
+- The Bots sidebar shows a loading skeleton and an inline load error with Retry
+  instead of a blank section.
+
+### Fixed
+
+- Long bot and group names are available from the row title and wrap in the
+  hover card; long previews are clipped in accessible labels and tooltips.
+- One-member groups say "1 member" in every locale, and needs counts keep their
+  full value in accessible labels while the row stays compact.
+- Emoji-first names get the correct avatar initial, broken avatar images fall
+  back to initials, and a multi-character mascot renders as one grapheme.
+- The Bots hover card clamps to the viewport using its real height and opens on
+  the correct side in RTL; the selected-row accent follows the reading
+  direction.
+- The Bots search field has an accessible name, and groups with long rosters
+  skip offscreen paint/layout with content-visibility.
+
+### Changed
+
+- Bots sidebar rows now have press and drag feedback, and keyboard focus opens
+  the same hover card as the mouse.
+
 ## [0.36.0] - 2026-11-27
 
 ### Added
