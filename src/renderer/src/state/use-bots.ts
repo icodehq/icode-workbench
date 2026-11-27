@@ -40,6 +40,7 @@ export type BotsWorkspaceState = {
   chatRequest: { botId: string; threadId: string; nonce: number } | null
   groupHomeRead: Record<string, boolean>
   loading: boolean
+  error: string | null
   unread: number
   reload: () => Promise<void>
   openGroup: (groupId: string, threadId?: string) => void
@@ -141,6 +142,7 @@ export function useBots(notify: (notice: Notice) => void): BotsWorkspaceState {
   const [groupHomeRead, setGroupHomeReadState] =
     useState<Record<string, boolean>>(readGroupHomeRead)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const mounted = useRef(true)
   const selectedRef = useRef<BotsSelection>(null)
   selectedRef.current = selected
@@ -218,15 +220,20 @@ export function useBots(notify: (notice: Notice) => void): BotsWorkspaceState {
     ])
     if (!mounted.current) return
     if (!groupsResult.ok) {
-      notify(errorNotice(groupsResult.error))
+      const notice = errorNotice(groupsResult.error)
+      notify(notice)
+      setError(notice.message)
       setLoading(false)
       return
     }
     if (!botsResult.ok) {
-      notify(errorNotice(botsResult.error))
+      const notice = errorNotice(botsResult.error)
+      notify(notice)
+      setError(notice.message)
       setLoading(false)
       return
     }
+    setError(null)
     const nextGroups = groupsResult.value.map(mergeGroupRead)
     const nextBots = botsResult.value
     setGroups(nextGroups)
@@ -689,6 +696,7 @@ export function useBots(notify: (notice: Notice) => void): BotsWorkspaceState {
     chatRequest,
     groupHomeRead,
     loading,
+    error,
     unread,
     reload,
     openGroup,

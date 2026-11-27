@@ -2555,6 +2555,8 @@ export const ja = {
   'bots.empty.body': "ボットを作成し、グループに入れて他のボットと協力させましょう。",
   'bots.select': "ボットまたはグループを選択してください。",
   'bots.room.members': "{count} 人のメンバー",
+  'bots.room.members.one': "{count} 人のメンバー",
+  'bots.room.members.other': "{count} 人のメンバー",
   'bots.room.thread': "メインスレッド",
   'bots.room.newThread': "新しいスレッド",
   'bots.room.stopAll': "すべて停止",

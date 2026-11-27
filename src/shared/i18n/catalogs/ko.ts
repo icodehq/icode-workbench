@@ -2555,6 +2555,8 @@ export const ko = {
   'bots.empty.body': "봇을 만든 뒤 그룹에 넣어 다른 봇과 협업하세요.",
   'bots.select': "봇이나 그룹을 선택하세요.",
   'bots.room.members': "{count}명의 멤버",
+  'bots.room.members.one': "{count}명의 멤버",
+  'bots.room.members.other': "{count}명의 멤버",
   'bots.room.thread': "기본 스레드",
   'bots.room.newThread': "새 스레드",
   'bots.room.stopAll': "모두 중지",

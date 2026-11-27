@@ -2558,6 +2558,8 @@ export const es = {
   'bots.empty.body': "Crea un bot y luego añádelo a un grupo para trabajar con otros.",
   'bots.select': "Elige un bot o un grupo.",
   'bots.room.members': "{count} miembros",
+  'bots.room.members.one': "{count} miembro",
+  'bots.room.members.other': "{count} miembros",
   'bots.room.thread': "Hilo principal",
   'bots.room.newThread': "Nuevo hilo",
   'bots.room.stopAll': "Detener todo",

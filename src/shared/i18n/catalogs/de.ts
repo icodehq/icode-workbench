@@ -2557,6 +2557,8 @@ export const de = {
   'bots.empty.body': "Erstelle einen Bot und füge ihn dann einer Gruppe hinzu, um mit anderen zusammenzuarbeiten.",
   'bots.select': "Wähle einen Bot oder eine Gruppe.",
   'bots.room.members': "{count} Mitglieder",
+  'bots.room.members.one': "{count} Mitglied",
+  'bots.room.members.other': "{count} Mitglieder",
   'bots.room.thread': "Hauptthread",
   'bots.room.newThread': "Neuer Thread",
   'bots.room.stopAll': "Alle stoppen",
