@@ -2555,6 +2555,8 @@ export const en = {
   'bots.empty.body': "Create a bot, then put it in a group to work with others.",
   'bots.select': "Pick a bot or a group.",
   'bots.room.members': "{count} members",
+  'bots.room.members.one': "{count} member",
+  'bots.room.members.other': "{count} members",
   'bots.room.thread': "Main thread",
   'bots.room.newThread': "New thread",
   'bots.room.stopAll': "Stop all",

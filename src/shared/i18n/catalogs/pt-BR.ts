@@ -2558,6 +2558,8 @@ export const ptBR = {
   'bots.empty.body': "Crie um bot e coloque-o em um grupo para trabalhar com os outros.",
   'bots.select': "Escolha um bot ou um grupo.",
   'bots.room.members': "{count} membros",
+  'bots.room.members.one': "{count} membro",
+  'bots.room.members.other': "{count} membros",
   'bots.room.thread': "Tópico principal",
   'bots.room.newThread': "Novo tópico",
   'bots.room.stopAll': "Parar tudo",

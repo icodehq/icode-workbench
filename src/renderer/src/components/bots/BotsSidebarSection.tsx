@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Archive,
+  ArrowDown,
+  ArrowUp,
   Bell,
   BellMinus,
   BellOff,
@@ -10,6 +12,7 @@ import {
   ChevronDown,
   ChevronRight,
   History,
+  Loader2,
   Pause,
   Pencil,
   Play,
@@ -40,7 +43,7 @@ import {
   matchBotsSearchFields,
   matchBotsSearchText
 } from '../../lib/bots-search'
-import { useT } from '../../i18n/use-i18n'
+import { useT, useTp } from '../../i18n/use-i18n'
 import {
   arrangeBotsRows,
   countActiveBotsFilters,
@@ -115,6 +118,11 @@ type ViewRow = Row & BotsRowFacts
 
 type HoverCardState = { row: ViewRow; left: number; top: number }
 
+/** Keep long previews out of accessible names and tooltip text. */
+function clipped(text: string, limit: number): string {
+  return text.length > limit ? `${text.slice(0, limit - 1)}…` : text
+}
+
 function HighlightedName({ text, query }: { text: string; query: string }): React.JSX.Element {
   return (
     <>
@@ -161,13 +169,16 @@ export default function BotsSidebarSection({
   onOpenBot: (botId: string) => void
 }): React.JSX.Element {
   const t = useT()
+  const tp = useTp()
   const [open, setOpen] = useState(true)
+  const [retrying, setRetrying] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [dialog, setDialog] = useState<'bot' | 'group' | null>(null)
   const [query, setQuery] = useState('')
   const [rowOrder, setRowOrder] = useState<string[]>(() => readOrder(ROW_ORDER_KEY))
   const [dropTarget, setDropTarget] = useState<DropTarget | null>(null)
+  const [draggingKey, setDraggingKey] = useState<string | null>(null)
   const [sectionHeight, setSectionHeight] = useState<number | null>(() => loadSectionHeight())
   const [rowMenu, setRowMenu] = useState<RowMenu | null>(null)
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null)
@@ -180,13 +191,25 @@ export default function BotsSidebarSection({
   const [hover, setHover] = useState<HoverCardState | null>(null)
   const [renaming, setRenaming] = useState<RenamingRow | null>(null)
   const hoverTimer = useRef<number | null>(null)
+  const lastHoverShownAt = useRef(0)
   const listRef = useRef<HTMLDivElement | null>(null)
+  const hoverCardRef = useRef<HTMLDivElement | null>(null)
   useEffect(
     () => () => {
       if (hoverTimer.current !== null) window.clearTimeout(hoverTimer.current)
     },
     []
   )
+  useLayoutEffect(() => {
+    if (hover === null) return
+    const element = hoverCardRef.current
+    if (element === null) return
+    const height = element.getBoundingClientRect().height
+    const maxTop = Math.max(8, window.innerHeight - height - 8)
+    if (hover.top > maxTop) {
+      setHover((current) => (current === null ? current : { ...current, top: maxTop }))
+    }
+  }, [hover])
   const { handleProps } = usePanelResize({
     kind: 'split',
     panelRef: listRef,
@@ -215,6 +238,7 @@ export default function BotsSidebarSection({
     return { groups, bots }
   }, [tasks])
   const normalizedQuery = query.trim().toLocaleLowerCase()
+  const canReorder = normalizedQuery.length === 0 && view.sortBy === 'manual'
   const rows = useMemo<Row[]>(
     () => [
       ...state.groups.map((group) => ({
@@ -310,20 +334,29 @@ export default function BotsSidebarSection({
     }
     setHover(null)
   }
-  const scheduleHover = (row: ViewRow, element: HTMLElement): void => {
+  const scheduleHover = (row: ViewRow, element: HTMLElement, instant = false): void => {
     if (hoverTimer.current !== null) window.clearTimeout(hoverTimer.current)
+    // A card that has already shown makes the next row's card instant for a
+    // moment, the way a toolbar's tooltips skip their delay after the first.
+    const delay = instant || Date.now() - lastHoverShownAt.current < 1000 ? 0 : 320
     hoverTimer.current = window.setTimeout(() => {
       hoverTimer.current = null
+      lastHoverShownAt.current = Date.now()
       const rect = element.getBoundingClientRect()
+      const left =
+        document.documentElement.dir === 'rtl'
+          ? Math.max(8, rect.left - 296)
+          : Math.min(rect.right + 8, window.innerWidth - 300)
       setHover({
         row,
-        left: Math.min(rect.right + 8, window.innerWidth - 300),
+        left,
         top: Math.max(8, Math.min(rect.top, window.innerHeight - 190))
       })
-    }, 320)
+    }, delay)
   }
   const beginDrag = (key: string) => (event: React.DragEvent<HTMLDivElement>) => {
     cancelHover()
+    setDraggingKey(key)
     event.dataTransfer.setData(DRAG_TYPE, key)
     event.dataTransfer.effectAllowed = 'move'
   }
@@ -340,6 +373,7 @@ export default function BotsSidebarSection({
     if (sourceKey.length === 0) return
     const after = dropTarget !== null && dropTarget.key === key ? dropTarget.after : false
     setDropTarget(null)
+    setDraggingKey(null)
     reorder(sourceKey, key, after)
   }
   const openRowMenuFromKey =
@@ -366,6 +400,21 @@ export default function BotsSidebarSection({
       : null
   const menuBot =
     rowMenu?.kind === 'bot' ? (botsById.get(rowMenu.id) ?? null) : null
+  const menuRowKey =
+    menuGroup !== null ? `group:${menuGroup.id}` : menuBot !== null ? `bot:${menuBot.id}` : null
+  const menuIndex =
+    menuRowKey === null ? -1 : orderedRows.findIndex((row) => row.key === menuRowKey)
+  const canMoveUp = menuIndex > 0
+  const canMoveDown = menuIndex !== -1 && menuIndex < orderedRows.length - 1
+  const moveRow = (key: string, direction: -1 | 1): void => {
+    if (!canReorder) return
+    const keys = orderedRows.map((row) => row.key)
+    const index = keys.indexOf(key)
+    const target = keys[index + direction]
+    if (index === -1 || target === undefined) return
+    reorder(key, target, direction > 0)
+    cancelHover()
+  }
   const editingGroup =
     editingGroupId === null
       ? null
@@ -427,7 +476,10 @@ export default function BotsSidebarSection({
         >
           {t('bots.label')}
           {state.unread > 0 ? (
-            <span className="rounded-full bg-signal-weak px-1 text-[9px] font-medium text-signal">
+            <span
+              className="shrink-0 rounded-full bg-signal-weak px-1 text-[9px] font-medium text-signal"
+              aria-label={t('bots.activity.unread', { count: state.unread })}
+            >
               {state.unread > 9 ? '9+' : state.unread}
             </span>
           ) : null}
@@ -513,7 +565,7 @@ export default function BotsSidebarSection({
             const member = row.kind === 'group' ? membersOf(row.group)[0] : row.bot
             const label =
               row.kind === 'group'
-                ? `${row.group.name} · ${String(row.group.memberBotIds.length)} members`
+                ? `${row.group.name} · ${tp('bots.room.members', row.group.memberBotIds.length)}`
                 : `${row.bot.name} · ${botActivity(row.bot)}`
             return (
               <button
@@ -564,6 +616,7 @@ export default function BotsSidebarSection({
           } space-y-0.5 overflow-y-auto`}
           style={sectionHeight === null ? undefined : { height: `${String(sectionHeight)}px` }}
           onScroll={cancelHover}
+          aria-busy={state.loading}
           data-testid="sidebar-bots-list"
         >
           <div className="sticky top-0 z-10 flex h-6 items-center gap-1 rounded border border-border bg-background px-1.5">
@@ -573,6 +626,7 @@ export default function BotsSidebarSection({
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder={t('bots.search')}
+              aria-label={t('bots.search')}
               data-testid="sidebar-bots-search"
             />
             {query.length > 0 ? (
@@ -641,20 +695,49 @@ export default function BotsSidebarSection({
             }
             const over = dropTarget?.key === row.key ? dropTarget : null
             const members = row.kind === 'group' ? membersOf(row.group) : null
+            const needsCount =
+              row.kind === 'group'
+                ? (needs.groups.get(row.group.id) ?? 0)
+                : (needs.bots.get(row.bot.id) ?? 0)
+            const groupPreview =
+              row.kind === 'group'
+                ? (groupLatestThread(row.group)?.latestText ??
+                  tp('bots.room.members', row.group.memberBotIds.length))
+                : ''
             return (
               <div
                 key={row.key}
-                className="relative rounded-md"
-                draggable={normalizedQuery.length === 0 && view.sortBy === 'manual'}
+                className={`relative rounded-md [content-visibility:auto] [contain-intrinsic-size:auto_44px] ${
+                  draggingKey === row.key ? 'opacity-50' : ''
+                }`}
+                draggable={canReorder}
                 onMouseEnter={(event) => scheduleHover(row, event.currentTarget)}
                 onMouseLeave={cancelHover}
+                onFocus={(event) => {
+                  if (!(event.target as HTMLElement).matches(':focus-visible')) return
+                  scheduleHover(row, event.currentTarget, true)
+                }}
+                onBlur={(event) => {
+                  if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                    cancelHover()
+                  }
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape' && hover?.row.key === row.key) {
+                    event.preventDefault()
+                    cancelHover()
+                  }
+                }}
                 onDragStart={beginDrag(row.key)}
                 onDragOver={dragOverRow(row.key)}
                 onDragLeave={() =>
                   setDropTarget((current) => (current?.key === row.key ? null : current))
                 }
                 onDrop={dropOnRow(row.key)}
-                onDragEnd={() => setDropTarget(null)}
+                onDragEnd={() => {
+                  setDraggingKey(null)
+                  setDropTarget(null)
+                }}
               >
                 {over !== null ? (
                   <span
@@ -666,11 +749,17 @@ export default function BotsSidebarSection({
                 {row.kind === 'group' ? (
                   <button
                     type="button"
-                    className={`flex min-h-9 w-full items-center gap-2 rounded-md px-1.5 py-1 text-left ${
+                    className={`flex min-h-9 w-full items-center gap-2 rounded-md px-1.5 py-1 text-left transition-transform duration-100 ease-out active:scale-[0.99] motion-reduce:transition-none ${
                       selected?.kind === 'group' && selected.groupId === row.group.id
-                        ? 'bg-sel text-foreground shadow-[inset_2px_0_0_var(--icode-accent)]'
+                        ? 'bg-sel text-foreground shadow-[inset_2px_0_0_var(--icode-accent)] rtl:shadow-[inset_-2px_0_0_var(--icode-accent)]'
                         : 'text-muted-foreground hover:bg-hover hover:text-foreground'
-                    }${over !== null ? ' bg-accent/10' : ''}`}
+                    }${over !== null ? ' bg-accent/10' : ''}${
+                      canReorder
+                        ? draggingKey === row.key
+                          ? ' cursor-grabbing'
+                          : ' cursor-grab'
+                        : ''
+                    }`}
                     onClick={() => {
                       cancelHover()
                       onOpenGroup(row.group.id)
@@ -687,7 +776,12 @@ export default function BotsSidebarSection({
                       })
                     }}
                     onKeyDown={openRowMenuFromKey('group', row.group.id)}
+                    title={row.group.name}
+                    aria-label={`${row.group.name} · ${clipped(groupPreview, 160)}`}
                     aria-haspopup="menu"
+                    aria-describedby={
+                      hover?.row.key === row.key ? 'bots-hover-card' : undefined
+                    }
                     data-testid={`sidebar-bots-group-${row.group.id}`}
                   >
                     {members !== null && members.length > 0 ? (
@@ -725,22 +819,26 @@ export default function BotsSidebarSection({
                         <HighlightedName text={row.group.name} query={query} />
                       </span>
                       <span className="block truncate text-[10px] text-muted-foreground">
-                        {groupLatestThread(row.group)?.latestText ??
-                          t('bots.room.members', { count: row.group.memberBotIds.length })}
+                        {groupPreview}
                       </span>
                     </span>
                     {row.group.mutedAt !== null ? (
                       <BellOff size={9} className="shrink-0 text-muted-foreground" />
                     ) : null}
-                    {needs.groups.get(row.group.id) ? (
-                      <span className="rounded bg-signal-weak px-1 text-[9px] font-medium text-signal">
-                        {needs.groups.get(row.group.id)}
+                    {needsCount > 0 ? (
+                      <span
+                        className="shrink-0 rounded bg-signal-weak px-1 text-[9px] font-medium text-signal"
+                        aria-label={t('tasks.needsYou', { count: needsCount })}
+                      >
+                        {needsCount > 9 ? '9+' : needsCount}
                       </span>
                     ) : null}
                     {row.unread > 0 ? (
                       <span
                         className="h-1.5 w-1.5 shrink-0 rounded-full bg-signal"
                         title={t('bots.unread', { count: row.unread })}
+                        aria-label={t('bots.unread', { count: row.unread })}
+                        role="img"
                         data-testid={`sidebar-bots-group-unread-${row.group.id}`}
                       />
                     ) : null}
@@ -748,11 +846,17 @@ export default function BotsSidebarSection({
                 ) : (
                   <button
                     type="button"
-                    className={`flex min-h-9 w-full items-center gap-2 rounded-md px-1.5 py-1 text-left ${
+                    className={`flex min-h-9 w-full items-center gap-2 rounded-md px-1.5 py-1 text-left transition-transform duration-100 ease-out active:scale-[0.99] motion-reduce:transition-none ${
                       selected?.kind === 'bot' && selected.botId === row.bot.id
-                        ? 'bg-sel text-foreground shadow-[inset_2px_0_0_var(--icode-accent)]'
+                        ? 'bg-sel text-foreground shadow-[inset_2px_0_0_var(--icode-accent)] rtl:shadow-[inset_-2px_0_0_var(--icode-accent)]'
                         : 'text-muted-foreground hover:bg-hover hover:text-foreground'
-                    }${over !== null ? ' bg-accent/10' : ''}`}
+                    }${over !== null ? ' bg-accent/10' : ''}${
+                      canReorder
+                        ? draggingKey === row.key
+                          ? ' cursor-grabbing'
+                          : ' cursor-grab'
+                        : ''
+                    }`}
                     onClick={() => {
                       cancelHover()
                       onOpenBot(row.bot.id)
@@ -769,7 +873,11 @@ export default function BotsSidebarSection({
                       })
                     }}
                     onKeyDown={openRowMenuFromKey('bot', row.bot.id)}
+                    title={`${row.bot.name} · ${botActivity(row.bot)}`}
                     aria-haspopup="menu"
+                    aria-describedby={
+                      hover?.row.key === row.key ? 'bots-hover-card' : undefined
+                    }
                     data-testid={`sidebar-bots-bot-${row.bot.id}`}
                   >
                     <AssistantAvatar
@@ -796,15 +904,20 @@ export default function BotsSidebarSection({
                     {row.bot.status === 'working' ? (
                       <span className="text-[8.5px] text-info">●</span>
                     ) : null}
-                    {needs.bots.get(row.bot.id) ? (
-                      <span className="rounded bg-signal-weak px-1 text-[9px] font-medium text-signal">
-                        {needs.bots.get(row.bot.id)}
+                    {needsCount > 0 ? (
+                      <span
+                        className="shrink-0 rounded bg-signal-weak px-1 text-[9px] font-medium text-signal"
+                        aria-label={t('tasks.needsYou', { count: needsCount })}
+                      >
+                        {needsCount > 9 ? '9+' : needsCount}
                       </span>
                     ) : null}
                     {row.bot.unread > 0 ? (
                       <span
                         className="h-1.5 w-1.5 shrink-0 rounded-full bg-signal"
                         title={t('bots.unread', { count: row.bot.unread })}
+                        aria-label={t('bots.unread', { count: row.bot.unread })}
+                        role="img"
                       />
                     ) : null}
                   </button>
@@ -813,7 +926,53 @@ export default function BotsSidebarSection({
             )
           })}
 
-          {rows.length === 0 && !state.loading ? (
+          {state.loading && rows.length === 0 ? (
+            <div
+              className="space-y-1 px-1 py-1"
+              data-testid="sidebar-bots-loading"
+              aria-busy="true"
+            >
+              {[0, 1, 2].map((index) => (
+                <div
+                  key={index}
+                  className="flex min-h-9 items-center gap-2 rounded-md px-1.5 py-1"
+                >
+                  <span className="h-5 w-5 shrink-0 animate-pulse rounded-full bg-muted motion-reduce:animate-none" />
+                  <span className="min-w-0 flex-1 space-y-1">
+                    <span className="block h-2.5 w-2/3 animate-pulse rounded bg-muted motion-reduce:animate-none" />
+                    <span className="block h-2 w-1/2 animate-pulse rounded bg-muted motion-reduce:animate-none" />
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {state.error !== null && rows.length === 0 && !state.loading ? (
+            <div
+              className="mx-0.5 my-1 rounded-md border border-destructive/30 bg-destructive/5 px-2 py-2"
+              role="alert"
+              data-testid="sidebar-bots-error"
+            >
+              <p className="text-[10.5px] leading-relaxed text-muted-foreground">
+                {state.error}
+              </p>
+              <button
+                type="button"
+                className="mt-1.5 inline-flex h-6 items-center gap-1 rounded border border-border px-1.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+                disabled={retrying}
+                onClick={() => {
+                  setRetrying(true)
+                  void state.reload().finally(() => setRetrying(false))
+                }}
+                data-testid="sidebar-bots-retry"
+              >
+                {retrying ? (
+                  <Loader2 size={9} className="animate-spin motion-reduce:animate-none" />
+                ) : null}
+                {t('common.retry')}
+              </button>
+            </div>
+          ) : null}
+          {rows.length === 0 && !state.loading && state.error === null ? (
             <div className="mx-0.5 my-1 rounded-md border border-dashed border-border px-2 py-2">
               <p className="text-[10.5px] leading-relaxed text-muted-foreground">
                 {t('bots.empty.body')}
@@ -888,10 +1047,29 @@ export default function BotsSidebarSection({
           items={
             menuGroup !== null
               ? [
+                  ...(canReorder
+                    ? [
+                        {
+                          id: 'group-move-up',
+                          label: t('session.moveUp'),
+                          icon: <ArrowUp size={11} />,
+                          disabled: !canMoveUp,
+                          onSelect: () => moveRow(`group:${menuGroup.id}`, -1)
+                        },
+                        {
+                          id: 'group-move-down',
+                          label: t('session.moveDown'),
+                          icon: <ArrowDown size={11} />,
+                          disabled: !canMoveDown,
+                          onSelect: () => moveRow(`group:${menuGroup.id}`, 1)
+                        }
+                      ]
+                    : []),
                   {
                     id: 'group-rename',
                     label: t('bots.row.rename'),
                     icon: <Pencil size={11} />,
+                    separatorBefore: canReorder,
                     onSelect: () => startRenaming('group', menuGroup.id, menuGroup.name)
                   },
                   {
@@ -956,10 +1134,29 @@ export default function BotsSidebarSection({
                 ]
               : menuBot !== null
                 ? [
+                    ...(canReorder
+                      ? [
+                          {
+                            id: 'bot-move-up',
+                            label: t('session.moveUp'),
+                            icon: <ArrowUp size={11} />,
+                            disabled: !canMoveUp,
+                            onSelect: () => moveRow(`bot:${menuBot.id}`, -1)
+                          },
+                          {
+                            id: 'bot-move-down',
+                            label: t('session.moveDown'),
+                            icon: <ArrowDown size={11} />,
+                            disabled: !canMoveDown,
+                            onSelect: () => moveRow(`bot:${menuBot.id}`, 1)
+                          }
+                        ]
+                      : []),
                     {
                       id: 'bot-rename',
                       label: t('bots.row.rename'),
                       icon: <Pencil size={11} />,
+                      separatorBefore: canReorder,
                       onSelect: () => startRenaming('bot', menuBot.id, menuBot.name)
                     },
                     {
@@ -1073,6 +1270,9 @@ export default function BotsSidebarSection({
       {hover !== null
         ? createPortal(
             <div
+              ref={hoverCardRef}
+              id="bots-hover-card"
+              role="tooltip"
               className="pointer-events-none fixed z-[110] w-72 rounded-lg border border-border bg-card p-3 shadow-2xl"
               style={{ left: hover.left, top: hover.top }}
               data-testid="bots-hover-card"
@@ -1081,7 +1281,9 @@ export default function BotsSidebarSection({
                 <>
                   <div className="flex items-center gap-1.5 text-[12px] font-semibold text-foreground">
                     <Users size={12} className="shrink-0 text-muted-foreground" />
-                    <span className="min-w-0 truncate">{hover.row.group.name}</span>
+                    <span className="min-w-0 line-clamp-3 [overflow-wrap:anywhere]">
+                      {hover.row.group.name}
+                    </span>
                   </div>
                   <div className="mt-2 space-y-1">
                     {membersOf(hover.row.group)
@@ -1105,8 +1307,11 @@ export default function BotsSidebarSection({
                       ))}
                   </div>
                   <p className="mt-2 line-clamp-3 text-[10px] leading-relaxed text-muted-foreground">
-                    {groupLatestThread(hover.row.group)?.latestText ??
-                      t('bots.room.members', { count: hover.row.group.memberBotIds.length })}
+                    {clipped(
+                      groupLatestThread(hover.row.group)?.latestText ??
+                        tp('bots.room.members', hover.row.group.memberBotIds.length),
+                      500
+                    )}
                   </p>
                 </>
               ) : (
@@ -1122,10 +1327,10 @@ export default function BotsSidebarSection({
                       outfit={hover.row.bot.avatarOutfit}
                     />
                     <div className="min-w-0">
-                      <div className="truncate text-[12px] font-semibold text-foreground">
+                      <div className="line-clamp-2 text-[12px] font-semibold text-foreground [overflow-wrap:anywhere]">
                         {hover.row.bot.name}
                       </div>
-                      <div className="truncate text-[10px] text-muted-foreground">
+                      <div className="line-clamp-3 text-[10px] text-muted-foreground [overflow-wrap:anywhere]">
                         {hover.row.bot.role}
                       </div>
                     </div>

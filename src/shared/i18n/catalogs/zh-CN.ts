@@ -2550,6 +2550,8 @@ export const zhCN = {
   'bots.empty.body': "先创建一个机器人，再把它加入群组与其他机器人协作。",
   'bots.select': "选择一个机器人或群组。",
   'bots.room.members': "{count} 位成员",
+  'bots.room.members.one': "{count} 位成员",
+  'bots.room.members.other': "{count} 位成员",
   'bots.room.thread': "主线程",
   'bots.room.newThread': "新建线程",
   'bots.room.stopAll': "全部停止",
