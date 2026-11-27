@@ -24,7 +24,7 @@ for native review.
 | Français | [README.fr.md](README.fr.md) | Needs native review | AI-assisted overview |
 
 All translations were last synced with the English README at commit
-`b34d94e` on 2026-11-27.
+`b97bf81` on 2026-11-27.
 
 ## Maintenance
 
