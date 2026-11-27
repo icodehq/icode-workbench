@@ -11,14 +11,15 @@
   <strong>Français</strong>
 </p>
 
-<h3 align="center">Tous les agents. Toutes les plateformes. Un seul atelier.</h3>
+<h3 align="center">Faites tourner une flotte d’agents. Mettez les bots au travail. Gardez le jugement.</h3>
 
 <p align="center">
   iCode Workbench est l’environnement de développement pour les flottes d’agents : 44
   agents CLI exécutables travaillent en parallèle, chacun dans son propre worktree Git.
-  Les bots voient les projets, les tâches, les sessions et les décisions de revue, et vous
-  indiquent ce qui demande votre attention. Relisez les changements dans le checkout où
-  l’agent a travaillé et gardez le terminal actif lorsque l’application redémarre.
+  Les bots voient les projets, les tâches, les sessions et les décisions de revue, et ne
+  s’arrêtent pas à une réponse de chat : ils font avancer le travail via la file de tâches
+  et s’arrêtent à votre revue. Relisez les changements dans le checkout où l’agent a
+  travaillé et gardez le terminal actif lorsque l’application redémarre.
 </p>
 
 <p align="center">
@@ -46,9 +47,10 @@
   terminaux, fichiers et diffs ; les divisions s’imbriquent et l’inspecteur permanent
   propose Files, Search et Source Control.
 - **Des bots entre les projets (25 modèles officiels, dont Yarcy).** Chaque bot a son Home
-  Chat et peut rejoindre des salles de groupe avec fils, modes de réponse et relais par
-  @mention. Ils créent, annulent, relancent et archivent des tâches, mais ne peuvent pas
-  approuver une revue, fusionner ni pousser.
+  Chat, sa mémoire, ses compétences et ses automatisations, et peut rejoindre des salles de
+  groupe avec fils, modes de réponse et relais par @mention. Ils créent, annulent, relancent
+  et archivent des tâches, mais s’arrêtent à votre revue : ils ne peuvent pas approuver une
+  revue, fusionner ni pousser.
 - **Relire là où l’agent a travaillé.** Accepter une revue enregistre le jugement et ne
   commit, fusionne, pousse ou supprime jamais rien. **Accept & merge…** accepte d’abord,
   puis ouvre le sélecteur de fusion pour confirmer la fusion comme un acte séparé.

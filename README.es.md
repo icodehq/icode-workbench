@@ -11,14 +11,15 @@
   <a href="README.fr.md">Français</a>
 </p>
 
-<h3 align="center">Todos los agentes. Todas las plataformas. Un solo banco de trabajo.</h3>
+<h3 align="center">Ejecuta una flota de agentes. Pon a trabajar a los bots. Conserva el juicio.</h3>
 
 <p align="center">
   iCode Workbench es el entorno de desarrollo para flotas de agentes: 44 agentes CLI
   ejecutables trabajan en paralelo, cada uno en su propio worktree de Git. Los bots ven
-  proyectos, tareas, sesiones y decisiones de revisión, y te dicen qué necesita tu
-  atención. Revisa los cambios en el checkout donde trabajó el agente y conserva la
-  terminal aunque la aplicación se reinicie.
+  proyectos, tareas, sesiones y decisiones de revisión, y no se quedan en una respuesta
+  de chat: avanzan el trabajo por la cola de tareas y se detienen en tu revisión. Revisa
+  los cambios en el checkout donde trabajó el agente y conserva la terminal aunque la
+  aplicación se reinicie.
 </p>
 
 <p align="center">
@@ -46,9 +47,9 @@
   terminales, archivos y diffs; las divisiones se anidan y el inspector permanente
   ofrece Files, Search y Source Control.
 - **Bots entre proyectos (25 plantillas oficiales, incluida Yarcy).** Cada bot tiene su
-  Home Chat y puede entrar en salas de grupo con hilos, modos de respuesta y relevos por
-  @mención. Crean, cancelan, reintentan y archivan tareas, pero no pueden aprobar una
-  revisión, fusionar ni hacer push.
+  Home Chat, memoria, habilidades y automatizaciones, y puede entrar en salas de grupo con
+  hilos, modos de respuesta y relevos por @mención. Crean, cancelan, reintentan y archivan
+  tareas, pero se detienen en tu revisión: no pueden aprobar, fusionar ni hacer push.
 - **Revisión donde trabajó el agente.** Aceptar una revisión registra el juicio y nunca
   hace commit, merge, push ni borra nada. **Accept & merge…** acepta primero y luego
   abre el selector de merge para confirmar la fusión como un acto aparte.

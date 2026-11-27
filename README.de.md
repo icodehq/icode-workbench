@@ -11,14 +11,15 @@
   <a href="README.fr.md">Français</a>
 </p>
 
-<h3 align="center">Jeder Agent. Jede Plattform. Eine Werkbank.</h3>
+<h3 align="center">Betreibe eine Agentenflotte. Setze Bots ein. Behalte das Urteil.</h3>
 
 <p align="center">
   iCode Workbench ist die Entwicklungsumgebung für Agentenflotten: 44 startbare CLI-Agenten
   arbeiten parallel, jeder in einem eigenen Git-Worktree. Bots sehen Projekte, Aufgaben,
-  Sitzungen und Review-Entscheidungen und sagen dir, was deine Aufmerksamkeit braucht.
-  Prüfe Änderungen in dem Checkout, in dem der Agent gearbeitet hat, und behalte das
-  Terminal, wenn die App neu startet.
+  Sitzungen und Review-Entscheidungen und enden nicht in einer Chat-Antwort: Sie bringen
+  Arbeit über die Aufgabenwarteschlange voran und halten bei deinem Review an. Prüfe
+  Änderungen in dem Checkout, in dem der Agent gearbeitet hat, und behalte das Terminal,
+  wenn die App neu startet.
 </p>
 
 <p align="center">
@@ -46,9 +47,10 @@
   Dateien und Diffs; Splits lassen sich verschachteln, und der dauerhafte Inspektor bietet
   Files, Search und Source Control.
 - **Bots über Projekte hinweg (25 offizielle Vorlagen, inklusive Yarcy).** Jeder Bot hat
-  seinen eigenen Home-Chat und kann Gruppenräume mit Threads, Antwortmodi und
-  @mention-Übergaben betreten. Sie erstellen, stornieren, wiederholen und archivieren
-  Aufgaben, können aber keinen Review genehmigen, mergen oder pushen.
+  seinen eigenen Home-Chat, Erinnerung, Skills und Automatisierungen und kann Gruppenräume
+  mit Threads, Antwortmodi und @mention-Übergaben betreten. Sie erstellen, stornieren,
+  wiederholen und archivieren Aufgaben, halten aber bei deinem Review an: Sie können keinen
+  Review genehmigen, mergen oder pushen.
 - **Prüfen, wo der Agent gearbeitet hat.** Ein Review anzunehmen protokolliert das Urteil
   und committet, mergt, pusht oder löscht nie etwas. **Accept & merge…** nimmt zuerst an
   und öffnet dann die Merge-Auswahl, in der der Merge als eigener Schritt bestätigt wird.

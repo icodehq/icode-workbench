@@ -23,9 +23,9 @@
 </p>
 
 <p align="center">
-  <strong>Run a fleet of agents. One workbench. Keep the judgment.</strong><br/>
+  <strong>Run a fleet of agents. Put bots to work. Keep the judgment.</strong><br/>
   The open-source agent development environment for Claude Code, Codex, OpenCode, and 40+ more CLI agents.<br/>
-  Isolated Git worktrees by default; every change reviewed in the checkout where it was made.
+  Isolated Git worktrees by default. Bots work the real queue. Every change reviewed where it was made.
 </p>
 
 <p align="center">
@@ -37,6 +37,7 @@
 <h3 align="center">
   <a href="https://icodehq.vercel.app/workbench/#install"><ins>Download</ins></a> &nbsp;·&nbsp;
   <a href="https://icodehq.vercel.app/guides/"><ins>Guides</ins></a> &nbsp;·&nbsp;
+  <a href="#meet-your-bots"><ins>Bots</ins></a> &nbsp;·&nbsp;
   <a href="#features"><ins>Features</ins></a> &nbsp;·&nbsp;
   <a href="#supported-harnesses"><ins>Harnesses</ins></a> &nbsp;·&nbsp;
   <a href="CHANGELOG.md"><ins>Changelog</ins></a>
@@ -183,42 +184,16 @@ made.
 
 ## Features
 
-### One sidebar, two work surfaces
-
-**Bots** sit above **Projects** in the main sidebar. Pinned projects and sessions
-are shortcuts above the complete Projects tree. A project expands to an
-always-present **Project folder** (the repository's default checkout) plus one
-workspace per direct-session worktree. Agent sessions appear as rows with live
-activity; shell sessions stay as tabs in their workspace. The needs-you bell carries the
-cross-project queue. The footer keeps host status, task slots, live session
-count, harness count, and app version in view.
-
-The main column has two work surfaces: **Sessions** (each worktree is a workspace
-with its own tab strip in the title bar for terminals, files, and diffs, a
-resizable nested split, and the persistent Files/Search/Source Control
-inspector) and the **Task workbench** (Overview, Terminal, Source Control, and
-Files for one task, opened from the needs queue rather than as an app tab). Bots,
-Settings, and Schedules open as auxiliary tabs; bot homes and group rooms are
-dynamic app tabs.
-
-Every project and agent session row has its own right-click menu. A session row
-carries its whole lifecycle — **Session details**, **Sleep** or **Wake**,
-**Resume**, **Restart**, **Pin**, and **Remove** — without switching to it
-first.
-
-<p align="center">
-  <a href=".github/assets/workbench-1127-session-menu.png"><img src=".github/assets/workbench-1127-session-menu.png" alt="The session row context menu with Session details, Sleep session, Restart session, Pin to top, and Remove session" width="100%" /></a>
-</p>
-
-*Right-click an agent session row, including one you are not viewing, to reach
-its lifecycle actions.*
-
 ### Meet your bots
 
+Most bots stop at a chat reply. An iCode bot acts through the task queue: it
+opens work, chases it, and stops at your review.
+
 Bots live above Projects in the main sidebar. Each bot has its own home chat,
-role, instructions, avatar and memory. Create one from 25 official templates
-across coding, releases, support, planning, ops and personal work, or start
-blank. Yarcy, the cross-project Chief of Staff, is one of those templates.
+role, instructions, avatar, memory, skills, and automations. Create one from 25
+official templates across coding, releases, support, planning, ops and personal
+work, or start blank. Yarcy, the cross-project Chief of Staff, is one of those
+templates.
 
 - **They can see the work.** Projects, tasks, sessions, review state and diffs
   are in a bot's context, so "what needs me?" is answered from the real queue.
@@ -226,6 +201,9 @@ blank. Yarcy, the cross-project Chief of Staff, is one of those templates.
   tasks, message task sessions and project supervisors, record non-binding
   review recommendations, and remember durable preferences. They have no shell
   or project working directory and cannot approve a review, merge, or push.
+- **They stop at your review.** A bot can move work forward, but the verdict
+  stays with you. Accept, reject, or request changes in the task workbench; a
+  bot's review recommendation is never binding.
 - **Groups work together.** Put bots in a room with threads, reply modes,
   @mention hand-offs, Stop and quoted history. Task milestones and owner
   questions appear in the room as Items.
@@ -235,8 +213,9 @@ blank. Yarcy, the cross-project Chief of Staff, is one of those templates.
 - **They come to you.** Approvals, failed or waiting tasks, and review-ready
   work become proactive messages with unread badges and OS notifications.
 
-Bot identity, agent, access and memory are in bot settings; auto-dispatch and
-notifications are per bot. Bots, Settings and Schedules open as auxiliary tabs.
+Bot identity, agent, access, memory, skills, and automations are in bot
+settings; auto-dispatch and notifications are per bot. Bots, Settings and
+Schedules open as auxiliary tabs.
 
 <p align="center">
   <a href=".github/assets/workbench-1127-bots.png"><img src=".github/assets/workbench-1127-bots.png" alt="The Atlas crew group room with an owner question, Yarcy's reply, the Items rail on the right, and the group composer" width="100%" /></a>
@@ -263,6 +242,36 @@ the task workbench and Items — no chat surface sits between you and the queue.
 
 *The needs-you queue spans projects. Each row opens the task workbench where the
 decision is made.*
+
+### One sidebar, two work surfaces
+
+**Bots** sit above **Projects** in the main sidebar. Pinned projects and sessions
+are shortcuts above the complete Projects tree. A project expands to an
+always-present **Project folder** (the repository's default checkout) plus one
+workspace per direct-session worktree. Agent sessions appear as rows with live
+activity; shell sessions stay as tabs in their workspace. The needs-you bell
+carries the cross-project queue. The footer keeps host status, task slots, live
+session count, harness count, and app version in view.
+
+The main column has two work surfaces: **Sessions** (each worktree is a workspace
+with its own tab strip in the title bar for terminals, files, and diffs, a
+resizable nested split, and the persistent Files/Search/Source Control
+inspector) and the **Task workbench** (Overview, Terminal, Source Control, and
+Files for one task, opened from the needs queue rather than as an app tab). Bots,
+Settings, and Schedules open as auxiliary tabs; bot homes and group rooms are
+dynamic app tabs.
+
+Every project and agent session row has its own right-click menu. A session row
+carries its whole lifecycle — **Session details**, **Sleep** or **Wake**,
+**Resume**, **Restart**, **Pin**, and **Remove** — without switching to it
+first.
+
+<p align="center">
+  <a href=".github/assets/workbench-1127-session-menu.png"><img src=".github/assets/workbench-1127-session-menu.png" alt="The session row context menu with Session details, Sleep session, Restart session, Pin to top, and Remove session" width="100%" /></a>
+</p>
+
+*Right-click an agent session row, including one you are not viewing, to reach
+its lifecycle actions.*
 
 ### Isolated sessions by default
 
@@ -444,6 +453,8 @@ updates, and About share one page.*
   terminals follow the same appearance.
 - **Session diagnostics**: host authority, PTY incarnation, worktree state, and
   exit codes in Session details.
+- **Bot automations**: recurring prompts in a bot's home chat, with per-bot
+  intervals and pause/resume.
 - **Task history**: archive/restore, collapsed retry attempts, and seven-day
   retention for reviewed completions and cancellations.
 - **Sessions & branches**: retained branches and orphan terminal reporting from
