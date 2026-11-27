@@ -73,6 +73,7 @@ export const assistantThreadSchema = z.strictObject({
   kind: z.enum(['main', 'system', 'bot', 'room']),
   title: z.string().min(1).max(200),
   botId: z.string().min(1).max(120).nullable(),
+  isHome: z.boolean(),
   groupThreadId: z.string().min(1).max(120).nullable(),
   createdAt: z.number().int(),
   updatedAt: z.number().int(),

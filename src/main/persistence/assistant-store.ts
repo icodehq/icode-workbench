@@ -23,8 +23,8 @@ import {
 } from '../../shared/domain/assistant'
 import { MODEL_HARNESSES, type ModelHarness } from '../../shared/domain/harness'
 
-const THREAD_COLUMNS = `id, kind, title, bot_id, group_thread_id, created_at, updated_at,
-  last_message_at, last_read_seq, active_run_id, archived_at`
+const THREAD_COLUMNS = `id, kind, title, bot_id, is_home, harness, group_thread_id,
+  created_at, updated_at, last_message_at, last_read_seq, active_run_id, archived_at`
 
 const MESSAGE_COLUMNS = `id, thread_id, seq, run_id, role, kind, body, card_json,
   notification_kind, notification_priority, notification_state,
@@ -43,6 +43,8 @@ type ThreadRow = {
   kind: string
   title: string
   bot_id: string | null
+  is_home: number
+  harness: string | null
   group_thread_id: string | null
   created_at: number
   updated_at: number
@@ -154,6 +156,11 @@ function threadFromRow(row: ThreadRow): AssistantThread {
             : 'main',
     title: requireString(row.title, 'assistant_threads.title'),
     botId: row.bot_id === null ? null : requireString(row.bot_id, 'assistant_threads.bot_id'),
+    isHome: row.is_home === 1,
+    harness:
+      row.harness === null
+        ? null
+        : requireEnum(row.harness, MODEL_HARNESSES, 'assistant_threads.harness'),
     groupThreadId:
       row.group_thread_id === null
         ? null
@@ -309,15 +316,18 @@ export class AssistantStore {
     this.db.raw
       .prepare(
         `INSERT INTO assistant_threads (
-           id, kind, title, bot_id, group_thread_id, created_at, updated_at,
-           last_message_at, last_read_seq, active_run_id, archived_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           id, kind, title, bot_id, is_home, harness, group_thread_id,
+           created_at, updated_at, last_message_at, last_read_seq, active_run_id,
+           archived_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         thread.id,
         thread.kind,
         thread.title,
         thread.botId,
+        thread.isHome ? 1 : 0,
+        thread.harness,
         thread.groupThreadId,
         thread.createdAt,
         thread.updatedAt,
@@ -338,11 +348,67 @@ export class AssistantStore {
     const row = this.db.raw
       .prepare(
         `SELECT ${THREAD_COLUMNS} FROM assistant_threads
-         WHERE bot_id = ? AND group_thread_id IS NULL
+         WHERE bot_id = ? AND is_home = 1
          ORDER BY created_at ASC LIMIT 1`
       )
       .get(botId) as ThreadRow | undefined
     return row ? threadFromRow(row) : null
+  }
+
+  /** A bot's home chat first, then its side chats, newest activity first. */
+  listChatsForBot(botId: string): AssistantThread[] {
+    const rows = this.db.raw
+      .prepare(
+        `SELECT ${THREAD_COLUMNS} FROM assistant_threads
+         WHERE bot_id = ? AND kind = 'bot' AND archived_at IS NULL
+         ORDER BY is_home DESC, COALESCE(last_message_at, created_at) DESC`
+      )
+      .all(botId) as ThreadRow[]
+    return rows.map(threadFromRow)
+  }
+
+  /**
+   * Makes `threadId` the bot's one home chat. The previous home becomes an
+   * ordinary side chat instead of being archived, matching the reference's
+   * "New Home Chat" flow.
+   */
+  setHomeThread(botId: string, threadId: string, now: number): AssistantThread | null {
+    return this.db.transaction(() => {
+      const target = this.findThread(threadId)
+      if (
+        target === null ||
+        target.botId !== botId ||
+        target.kind !== 'bot' ||
+        target.archivedAt !== null ||
+        target.groupThreadId !== null
+      ) {
+        return null
+      }
+      const previous = this.findHomeThreadByBotId(botId)
+      if (previous !== null && previous.id !== threadId) {
+        this.db.raw
+          .prepare(
+            `UPDATE assistant_threads SET is_home = 0, updated_at = ? WHERE id = ?`
+          )
+          .run(now, previous.id)
+      }
+      this.db.raw
+        .prepare(`UPDATE assistant_threads SET is_home = 1, updated_at = ? WHERE id = ?`)
+        .run(now, threadId)
+      return this.findThread(threadId)
+    })
+  }
+
+  /** The text a released home chat is named from when it becomes a side chat. */
+  latestUserMessageBody(threadId: string): string | null {
+    const row = this.db.raw
+      .prepare(
+        `SELECT body FROM assistant_messages
+         WHERE thread_id = ? AND role = 'user'
+         ORDER BY seq DESC LIMIT 1`
+      )
+      .get(threadId) as { body: string } | undefined
+    return row?.body ?? null
   }
 
   findRoomThread(botId: string, groupThreadId: string): AssistantThread | null {
@@ -394,6 +460,39 @@ export class AssistantStore {
     this.db.raw
       .prepare(`UPDATE assistant_threads SET title = ?, updated_at = ? WHERE id = ?`)
       .run(title, now, id)
+  }
+
+  /**
+   * Durable bot-chat transcript search for Session History. Room sessions are
+   * skipped because their messages live in the group store.
+   */
+  searchBotMessages(
+    query: string,
+    limit: number
+  ): Array<{ threadId: string; botId: string; body: string; createdAt: number }> {
+    const pattern = `%${query.replace(/[\\%_]/g, '\\$&')}%`
+    const rows = this.db.raw
+      .prepare(
+        `SELECT m.thread_id AS thread_id, t.bot_id AS bot_id, m.body AS body,
+                m.created_at AS created_at
+         FROM assistant_messages m
+         JOIN assistant_threads t ON t.id = m.thread_id
+         WHERE t.kind = 'bot' AND t.group_thread_id IS NULL
+           AND t.archived_at IS NULL AND m.body LIKE ? ESCAPE '\\'
+         ORDER BY m.created_at DESC LIMIT ?`
+      )
+      .all(pattern, limit) as Array<{
+      thread_id: string
+      bot_id: string
+      body: string
+      created_at: number
+    }>
+    return rows.map((row) => ({
+      threadId: row.thread_id,
+      botId: row.bot_id,
+      body: row.body,
+      createdAt: row.created_at
+    }))
   }
 
   findConversation(id: string): AssistantConversation | null {

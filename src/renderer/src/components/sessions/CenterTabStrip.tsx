@@ -15,6 +15,8 @@ import { translate } from '../../i18n/i18n-store'
 export function centerTabTestId(tab: CenterTab): string {
   if (isFileTab(tab)) return `center-tab-${tab.path}`
   if (tab.kind === 'session') return `center-tab-session-${tab.sessionId}`
+  if (tab.kind === 'room') return `center-tab-room-${tab.groupId}-${tab.threadId}`
+  if (tab.kind === 'chat') return `center-tab-chat-${tab.botId}-${tab.threadId}`
   return tab.request.kind === 'committed'
     ? `center-tab-diff-committed-${tab.request.file.path}`
     : `center-tab-diff-${tab.request.entry.area}-${tab.request.entry.entry.path}`
@@ -108,7 +110,11 @@ export default function CenterTabStrip({
               ? diffTabLabel(diff)
               : tab.kind === 'session'
                 ? tab.sessionId
-                : ''
+                : tab.kind === 'room'
+                  ? tab.threadId
+                  : tab.kind === 'chat'
+                    ? tab.label
+                    : ''
           const path = isFileTab(tab)
             ? tab.path
             : diff !== null

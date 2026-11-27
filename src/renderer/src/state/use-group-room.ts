@@ -58,7 +58,8 @@ function mergeTurn(
 export function useGroupRoom(
   groupId: string,
   threadId: string,
-  notify: (notice: Notice) => void
+  notify: (notice: Notice) => void,
+  attention: { visible: boolean; attended: boolean }
 ): GroupRoomState {
   const [messages, setMessages] = useState<GroupMessageWithTurnsPayload[]>([])
   const [hasEarlier, setHasEarlier] = useState(false)
@@ -69,6 +70,9 @@ export function useGroupRoom(
   const threadRef = useRef(threadId)
   threadRef.current = threadId
   messagesRef.current = messages
+  const readEnabled = attention.visible && attention.attended
+  const readEnabledRef = useRef(readEnabled)
+  readEnabledRef.current = readEnabled
 
   const markRead = useCallback((seq: number): void => {
     if (seq <= 0) return
@@ -76,6 +80,13 @@ export function useGroupRoom(
       .markRead({ threadId, seq })
       .catch(() => undefined)
   }, [threadId])
+
+  /** A room is read only while it is on screen and the window has focus. */
+  const markLatestRead = useCallback((): void => {
+    if (!readEnabledRef.current) return
+    const latest = messagesRef.current.at(-1)
+    if (latest !== undefined) markRead(latest.seq)
+  }, [markRead])
 
   const reload = useCallback(async (): Promise<void> => {
     const result = await callApi<GroupMessagesResult>(
@@ -91,7 +102,7 @@ export function useGroupRoom(
     setHasEarlier(result.value.hasEarlier)
     setLoading(false)
     const latest = result.value.messages.at(-1)
-    if (latest !== undefined) markRead(latest.seq)
+    if (latest !== undefined && readEnabledRef.current) markRead(latest.seq)
   }, [markRead, notify, threadId])
 
   useEffect(() => {
@@ -104,7 +115,7 @@ export function useGroupRoom(
       if (event.type === 'message') {
         if (event.message.threadId !== threadRef.current) return
         setMessages((current) => mergeMessage(current, event.message))
-        markRead(event.message.seq)
+        if (readEnabledRef.current) markRead(event.message.seq)
         return
       }
       if (event.type === 'turn') {
@@ -122,6 +133,7 @@ export function useGroupRoom(
               : message
           )
         )
+        markLatestRead()
         return
       }
       if (event.type === 'thread' && event.threadId === threadRef.current) {
@@ -129,7 +141,12 @@ export function useGroupRoom(
       }
     })
     return unsubscribe
-  }, [groupId, markRead, reload])
+  }, [groupId, markLatestRead, markRead, reload])
+
+  // Regaining focus or revealing a split pane reads what arrived meanwhile.
+  useEffect(() => {
+    if (readEnabled) markLatestRead()
+  }, [markLatestRead, readEnabled])
 
   const send = useCallback(
     async (text: string): Promise<boolean> => {
@@ -145,9 +162,10 @@ export function useGroupRoom(
         return false
       }
       setMessages((current) => mergeMessage(current, result.value.message))
+      if (readEnabledRef.current) markRead(result.value.message.seq)
       return true
     },
-    [groupId, notify, sending, threadId]
+    [groupId, markRead, notify, sending, threadId]
   )
 
   const stop = useCallback(

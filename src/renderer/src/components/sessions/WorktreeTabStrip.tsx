@@ -341,13 +341,21 @@ export default function WorktreeTabStrip({
               ? (session?.title ?? tab.sessionId)
               : isFileTab(tab)
                 ? basenameOf(tab.path)
-                : diffLabel(tab)
+                : tab.kind === 'room'
+                  ? tab.threadId
+                  : tab.kind === 'chat'
+                    ? tab.label
+                    : diffLabel(tab)
           const title =
             tab.kind === 'session'
               ? (session?.title ?? tab.sessionId)
               : isFileTab(tab)
                 ? tab.path
-                : diffTitle(tab)
+                : tab.kind === 'room'
+                  ? tab.key
+                  : tab.kind === 'chat'
+                    ? tab.label
+                    : diffTitle(tab)
           const kindLabel =
             tab.kind === 'session'
               ? session !== null && isAgentHarness(session.harness)
@@ -359,13 +367,21 @@ export default function WorktreeTabStrip({
               ? `session-tab-${tab.sessionId}`
               : isFileTab(tab)
                 ? `center-tab-${tab.path}`
-                : diffTestId(tab)
+                : tab.kind === 'room'
+                  ? `room-tab-${tab.key.replace(/:/g, '-')}`
+                  : tab.kind === 'chat'
+                    ? `chat-tab-${tab.key.replace(/:/g, '-')}`
+                    : diffTestId(tab)
           const closeTestId =
             tab.kind === 'session'
               ? `session-tab-close-${tab.sessionId}`
               : isFileTab(tab)
                 ? `center-tab-close-${tab.path}`
-                : `center-tab-close-${key}`
+                : tab.kind === 'room'
+                  ? `room-tab-close-${tab.key.replace(/:/g, '-')}`
+                  : tab.kind === 'chat'
+                    ? `chat-tab-close-${tab.key.replace(/:/g, '-')}`
+                    : `center-tab-close-${key}`
           const isDragged = draggingKey === key
           const isDropTarget = dropKey === key
           return (

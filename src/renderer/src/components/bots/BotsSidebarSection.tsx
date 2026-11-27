@@ -9,6 +9,7 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  History,
   Pause,
   Pencil,
   Play,
@@ -21,6 +22,7 @@ import {
   X
 } from 'lucide-react'
 import type { BotsWorkspaceState } from '../../state/use-bots'
+import { groupLatestThread } from '../../../../shared/domain/group'
 import type { TaskRecordPayload } from '../../../../shared/icode-api'
 import type { Notice } from '../../state/workspace'
 import AssistantAvatar from '../AssistantAvatar'
@@ -30,6 +32,7 @@ import { NewBotDialog } from './NewBotDialog'
 import { NewGroupDialog } from './NewGroupDialog'
 import GroupSettingsDialog from './GroupSettingsDialog'
 import BotSettingsDialog from './BotSettingsDialog'
+import BotsHistoryDialog from './BotsHistoryDialog'
 import { moveRowId, orderByStoredIds } from '../../lib/row-order'
 import { usePanelResize } from '../../lib/use-panel-resize'
 import {
@@ -154,12 +157,13 @@ export default function BotsSidebarSection({
   state: BotsWorkspaceState
   tasks: TaskRecordPayload[]
   notify: (notice: Notice) => void
-  onOpenGroup: (groupId: string) => void
+  onOpenGroup: (groupId: string, threadId?: string) => void
   onOpenBot: (botId: string) => void
 }): React.JSX.Element {
   const t = useT()
   const [open, setOpen] = useState(true)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
   const [dialog, setDialog] = useState<'bot' | 'group' | null>(null)
   const [query, setQuery] = useState('')
   const [rowOrder, setRowOrder] = useState<string[]>(() => readOrder(ROW_ORDER_KEY))
@@ -244,7 +248,8 @@ export default function BotsSidebarSection({
           row.kind === 'group'
             ? (needs.groups.get(row.group.id) ?? 0)
             : (needs.bots.get(row.bot.id) ?? 0),
-        unread: row.kind === 'group' ? row.group.unread : row.bot.unread,
+        unread:
+          row.kind === 'group' ? state.groupHomeUnread(row.group) : row.bot.unread,
         working: row.kind === 'bot' && row.bot.status === 'working',
         sleeping:
           row.kind === 'bot' &&
@@ -258,7 +263,7 @@ export default function BotsSidebarSection({
             ? Math.max(0, ...row.group.threads.map((thread) => thread.latestAt ?? 0))
             : (row.bot.lastActivityAt ?? 0)
       })),
-    [needs, orderedRows]
+    [needs, orderedRows, state.groupHomeUnread]
   )
   const arrangedRows = useMemo(() => arrangeBotsRows(viewRows, view), [view, viewRows])
   const filteredRows = useMemo(
@@ -426,6 +431,16 @@ export default function BotsSidebarSection({
               {state.unread > 9 ? '9+' : state.unread}
             </span>
           ) : null}
+        </button>
+        <button
+          type="button"
+          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+          onClick={() => setHistoryOpen(true)}
+          aria-label={t('bots.history.title')}
+          title={t('bots.history.title')}
+          data-testid="sidebar-bots-history"
+        >
+          <History size={11} />
         </button>
         <button
           type="button"
@@ -702,12 +717,15 @@ export default function BotsSidebarSection({
                       </span>
                     )}
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[12px]">
+                      <span
+                        className={`block truncate text-[12px] ${
+                          row.unread > 0 ? 'font-medium text-foreground' : ''
+                        }`}
+                      >
                         <HighlightedName text={row.group.name} query={query} />
                       </span>
                       <span className="block truncate text-[10px] text-muted-foreground">
-                        {row.group.threads.find((thread) => thread.isDefault)?.latestText ??
-                          row.group.threads[0]?.latestText ??
+                        {groupLatestThread(row.group)?.latestText ??
                           t('bots.room.members', { count: row.group.memberBotIds.length })}
                       </span>
                     </span>
@@ -719,10 +737,12 @@ export default function BotsSidebarSection({
                         {needs.groups.get(row.group.id)}
                       </span>
                     ) : null}
-                    {row.group.unread > 0 ? (
-                      <span className="rounded-full bg-signal-weak px-1 text-[9px] font-medium text-signal">
-                        {row.group.unread > 9 ? '9+' : row.group.unread}
-                      </span>
+                    {row.unread > 0 ? (
+                      <span
+                        className="h-1.5 w-1.5 shrink-0 rounded-full bg-signal"
+                        title={t('bots.unread', { count: row.unread })}
+                        data-testid={`sidebar-bots-group-unread-${row.group.id}`}
+                      />
                     ) : null}
                   </button>
                 ) : (
@@ -762,7 +782,11 @@ export default function BotsSidebarSection({
                       outfit={row.bot.avatarOutfit}
                     />
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[12px]">
+                      <span
+                        className={`block truncate text-[12px] ${
+                          row.bot.unread > 0 ? 'font-medium text-foreground' : ''
+                        }`}
+                      >
                         <HighlightedName text={row.bot.name} query={query} />
                       </span>
                       <span className="block truncate text-[10px] text-muted-foreground">
@@ -778,9 +802,10 @@ export default function BotsSidebarSection({
                       </span>
                     ) : null}
                     {row.bot.unread > 0 ? (
-                      <span className="rounded-full bg-signal-weak px-1 text-[9px] font-medium text-signal">
-                        {row.bot.unread > 9 ? '9+' : row.bot.unread}
-                      </span>
+                      <span
+                        className="h-1.5 w-1.5 shrink-0 rounded-full bg-signal"
+                        title={t('bots.unread', { count: row.bot.unread })}
+                      />
                     ) : null}
                   </button>
                 )}
@@ -878,13 +903,20 @@ export default function BotsSidebarSection({
                   {
                     id: 'group-read',
                     label:
-                      menuGroup.unread > 0
+                      state.groupHomeUnread(menuGroup) > 0
                         ? t('bots.row.markRead')
                         : t('bots.row.markUnread'),
                     icon:
-                      menuGroup.unread > 0 ? <BellOff size={11} /> : <Bell size={11} />,
+                      state.groupHomeUnread(menuGroup) > 0 ? (
+                        <BellOff size={11} />
+                      ) : (
+                        <Bell size={11} />
+                      ),
                     onSelect: () => {
-                      void state.setGroupRead(menuGroup.id, menuGroup.unread === 0)
+                      state.setGroupHomeRead(
+                        menuGroup.id,
+                        state.groupHomeUnread(menuGroup) === 0
+                      )
                     }
                   },
                   {
@@ -1073,8 +1105,7 @@ export default function BotsSidebarSection({
                       ))}
                   </div>
                   <p className="mt-2 line-clamp-3 text-[10px] leading-relaxed text-muted-foreground">
-                    {hover.row.group.threads.find((thread) => thread.isDefault)?.latestText ??
-                      hover.row.group.threads[0]?.latestText ??
+                    {groupLatestThread(hover.row.group)?.latestText ??
                       t('bots.room.members', { count: hover.row.group.memberBotIds.length })}
                   </p>
                 </>
@@ -1139,6 +1170,16 @@ export default function BotsSidebarSection({
           groups={state.groups.filter((group) => group.memberBotIds.includes(editingBot.id))}
           notify={notify}
           onClose={() => setEditingBotId(null)}
+        />
+      ) : null}
+      {historyOpen ? (
+        <BotsHistoryDialog
+          groups={state.groups}
+          onOpenGroup={(groupId, threadId) => {
+            setHistoryOpen(false)
+            onOpenGroup(groupId, threadId)
+          }}
+          onClose={() => setHistoryOpen(false)}
         />
       ) : null}
     </section>

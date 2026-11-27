@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AssistantService, type AssistantRunnerLike } from './assistant-service'
 import { AssistantStore } from '../persistence/assistant-store'
-import { DEFAULT_ASSISTANT_SETTINGS } from '../../shared/domain/assistant'
+import {
+  ASSISTANT_SIDE_CHAT_TITLE,
+  DEFAULT_ASSISTANT_SETTINGS
+} from '../../shared/domain/assistant'
 import { makeTempRoot, openTempDatabase } from '../persistence/persistence-test-fixtures'
 
 const cleanups: Array<() => void> = []
@@ -10,7 +13,10 @@ afterEach(() => {
   while (cleanups.length > 0) cleanups.pop()?.()
 })
 
-function fixture(runner?: AssistantRunnerLike): {
+function fixture(
+  runner?: AssistantRunnerLike,
+  threadInput?: { title?: string; isHome?: boolean }
+): {
   service: AssistantService
   store: AssistantStore
 } {
@@ -25,7 +31,9 @@ function fixture(runner?: AssistantRunnerLike): {
     id: 'thread_test',
     kind: 'bot',
     groupThreadId: null,
-    title: settings.personaName,
+    isHome: threadInput?.isHome ?? false,
+    harness: null,
+    title: threadInput?.title ?? settings.personaName,
     botId: null,
     createdAt: 1_000,
     updatedAt: 1_000,
@@ -100,6 +108,28 @@ describe('AssistantService', () => {
     expect(service.state().unread).toBe(1)
 
     expect(service.markRead({ threadId: state.threadId })).toBe(0)
+  })
+
+  it('names a side chat from its first user message and never retitles it', async () => {
+    const { service, store } = fixture(undefined, {
+      title: ASSISTANT_SIDE_CHAT_TITLE,
+      isHome: false
+    })
+    const threadId = service.state().threadId
+    await service.send({ text: 'Fix the parser\nThen add tests' })
+    expect(store.findThread(threadId)?.title).toBe('Fix the parser')
+    await service.send({ text: 'A later message' })
+    expect(store.findThread(threadId)?.title).toBe('Fix the parser')
+  })
+
+  it('never names a home chat from its first message', async () => {
+    const { service, store } = fixture(undefined, {
+      title: ASSISTANT_SIDE_CHAT_TITLE,
+      isHome: true
+    })
+    const threadId = service.state().threadId
+    await service.send({ text: 'This must not rename Home' })
+    expect(store.findThread(threadId)?.title).toBe(ASSISTANT_SIDE_CHAT_TITLE)
   })
 
   it('marks one notification read without emitting a Mira focus event', () => {

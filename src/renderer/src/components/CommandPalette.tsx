@@ -80,6 +80,7 @@ type Props = {
   onQueueTask: () => void
   activeRepoId?: string | null
   onBots?: () => void
+  onHistory: () => void
   onSchedules: () => void
   onSettings: () => void
   /** Focuses the active session's Source Control tab. */
@@ -148,6 +149,7 @@ export default function CommandPalette({
   onQueueTask,
   activeRepoId,
   onBots,
+  onHistory,
   onSchedules,
   onSettings,
   onSourceControl,
@@ -287,6 +289,14 @@ export default function CommandPalette({
         icon: Users,
         disabled: !onBots,
         run: () => onBots?.()
+      },
+      {
+        id: 'history',
+        kind: 'action',
+        label: t('history.title'),
+        hint: t('history.search'),
+        icon: History,
+        run: onHistory
       },
       {
         id: 'source-control',

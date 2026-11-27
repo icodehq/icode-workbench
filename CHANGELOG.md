@@ -5,6 +5,58 @@ All notable changes to iCode are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.36.0] - 2026-11-27
+
+### Added
+
+- **Bot home side chats.** A bot's pinned Home tab now sits beside side chats in
+  the bot's own workspace. The `+` menu starts a New Home Chat or a chat on any
+  available agent (Claude, Codex, OpenCode). The first owner message names a
+  side chat; every chat has its own transcript, runtime, sandbox, unread dot and
+  persisted tab, and closed chats can be reopened from Session History.
+- **Per-chat agents.** A side chat remembers the agent it was started with,
+  independently of the bot's configured harness priority. Its header shows the
+  agent, and unavailable agents are disabled in the menu.
+- **Global Session History.** A searchable dialog spans project sessions,
+  tasks, group rooms and bot chats. Open it from the sidebar History button,
+  Ctrl/Cmd+K, or a bot chat header; filter by kind and search titles, task
+  prompts, and durable room/chat message bodies.
+- **Workspace room tabs.** Group rooms are now tabs in a group workspace with
+  split panes, drag reorder, pin, rename, color, copy tab ID,
+  close-others/left/right/all, and hot-exit restore. Closing a room never
+  deletes its thread.
+- **Room history and thread discovery.** A room history dialog lists every
+  thread, including closed rooms, and the group header offers a Threads menu.
+- **Per-room unread.** Each room tracks message and bot-turn activity, lights
+  only while hidden or unfocused, and clears when visible with the window
+  attended. The sidebar group row previews the latest room and keeps a separate
+  group-home unread flag.
+- **Group workspace chrome.** One group header owns the name, member faces,
+  reply mode, Threads menu, settings and Stop; one Items rail and one
+  Needs-you dock stay group-wide while rooms split.
+
+### Changed
+
+- Replaced the fixed app-level bots tab strip with workspace-scoped tabs,
+  matching the center workspace model used by project sessions. Settings,
+  Schedules and Tasks keep a title bar.
+- Bot home and group rooms share the workspace tab engine: pin order,
+  move-to-split, drop zones and per-workspace split persistence.
+- The first post to a group thread titles it from its first line, up to 80
+  characters, and never retitles it. The thread cap is removed.
+- Group room chrome moved to the workspace header and tab strip; each room pane
+  keeps the transcript, composer, turn cards and local Stop.
+- `assistant_threads` gains one Home thread per bot plus side chats (schema
+  v38) and a per-chat harness (v39). Existing databases upgrade automatically.
+
+### Fixed
+
+- Bot chats and group rooms now merge local read watermarks so a refresh that
+  left before a read cannot raise its unread count again, and per-group thread
+  refreshes are coalesced during message bursts.
+- A bot's Home tab cannot be closed; a new Home Chat demotes the old one to a
+  side chat instead of discarding its transcript.
+
 ## [0.35.1] - 2026-11-27
 
 ### Fixed

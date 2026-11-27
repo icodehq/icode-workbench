@@ -135,6 +135,7 @@ export default function BotSettingsDialog({
             type="button"
             className="inline-flex h-6 items-center rounded px-2 text-[10.5px] text-muted-foreground hover:bg-muted hover:text-foreground"
             onClick={onClose}
+            data-testid="bot-settings-close"
           >
             {t('common.close')}
           </button>

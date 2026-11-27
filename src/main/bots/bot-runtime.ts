@@ -1,6 +1,17 @@
-import type { AssistantEvent, AssistantSettings, AssistantStatus } from '../../shared/domain/assistant'
+import type {
+  AssistantEvent,
+  AssistantSettings,
+  AssistantStatus,
+  AssistantThread
+} from '../../shared/domain/assistant'
+import {
+  ASSISTANT_PREVIOUS_HOME_TITLE,
+  ASSISTANT_SIDE_CHAT_TITLE,
+  assistantThreadTitleFromText
+} from '../../shared/domain/assistant'
 import type { BotRecord, BotStatus } from '../../shared/domain/bot'
 import type { HarnessDetectionResult } from '../harness/harness-detector'
+import type { ModelHarness } from '../../shared/domain/harness'
 import type { WorkspaceTrustService } from '../harness/trust/workspace-trust'
 import type { WslCommandRunner } from '../wsl/exec'
 import type { WslDistroListPayload } from '../../shared/schemas/ipc'
@@ -34,6 +45,8 @@ export type BotRuntimeDeps = {
   groupThreadId?: string | null
   /** Home uses the bot id; a room session uses bot id + assistant thread id. */
   sandboxKey?: string
+  /** A side chat's chosen agent; overrides the bot's own priority for this chat. */
+  harnessOverride?: ModelHarness
   bots: BotStore
   botService: BotService
   memoryFiles: MemoryService
@@ -89,8 +102,21 @@ export class BotRuntime {
   constructor(private readonly deps: BotRuntimeDeps) {
     const bot = deps.bot
     const groupId = deps.groupId ?? null
+    const botSettings = (): AssistantSettings => deps.botService.settingsFor(bot.id)
+    const chatSettings = (): AssistantSettings => {
+      const settings = botSettings()
+      const override = deps.harnessOverride
+      if (override === undefined) return settings
+      return {
+        ...settings,
+        harnessPriority: [
+          override,
+          ...settings.harnessPriority.filter((harness) => harness !== override)
+        ] as AssistantSettings['harnessPriority']
+      }
+    }
     const settingsPort = {
-      get: () => deps.botService.settingsFor(bot.id),
+      get: chatSettings,
       save: (settings: AssistantSettings) => deps.botService.saveSettings(bot.id, settings)
     }
     this.runner = new AssistantRunner({
@@ -322,19 +348,23 @@ export type BotRuntimeRegistryDeps = Omit<
 export class BotRuntimeRegistry {
   private readonly homeRuntimes = new Map<string, BotRuntime>()
   private readonly threadRuntimes = new Map<string, BotRuntime>()
-  private readonly listeners = new Set<(botId: string, event: AssistantEvent) => void>()
+  private readonly listeners = new Set<
+    (botId: string, threadId: string, event: AssistantEvent) => void
+  >()
 
   constructor(private readonly deps: BotRuntimeRegistryDeps) {}
 
-  subscribe(listener: (botId: string, event: AssistantEvent) => void): () => void {
+  subscribe(
+    listener: (botId: string, threadId: string, event: AssistantEvent) => void
+  ): () => void {
     this.listeners.add(listener)
     return () => this.listeners.delete(listener)
   }
 
-  private emit(botId: string, event: AssistantEvent): void {
+  private emit(botId: string, threadId: string, event: AssistantEvent): void {
     for (const listener of this.listeners) {
       try {
-        listener(botId, event)
+        listener(botId, threadId, event)
       } catch {
         // A broken renderer must not block a run.
       }
@@ -357,11 +387,167 @@ export class BotRuntimeRegistry {
       bot,
       threadId: thread.id,
       sandboxKey: bot.id,
-      onEvent: (id, event) => this.emit(id, event)
+      onEvent: (id, event) => this.emit(id, thread.id, event)
     })
     this.homeRuntimes.set(botId, runtime)
     this.threadRuntimes.set(runtime.threadId, runtime)
     return runtime
+  }
+
+  /** A bot's home chat, or one of its side chats, chosen by assistant thread id. */
+  ensureChat(botId: string, threadId?: string | null): BotRuntime {
+    if (threadId === undefined || threadId === null) return this.ensureHome(botId)
+    const thread = this.deps.store.findThread(threadId)
+    // A caller may pass the home thread's id (the state payload always names
+    // it); that is still the home runtime, not a side chat.
+    if (thread !== null && thread.botId === botId && thread.isHome) {
+      return this.ensureHome(botId)
+    }
+    return this.ensureSideChat(botId, threadId)
+  }
+
+  /** A side chat shares the bot's home workspace but has its own transcript and run. */
+  ensureSideChat(botId: string, threadId: string): BotRuntime {
+    const cached = this.threadRuntimes.get(threadId)
+    if (cached !== undefined) return cached
+    const bot = this.requireBot(botId)
+    const thread = this.deps.store.findThread(threadId)
+    if (
+      thread === null ||
+      thread.botId !== botId ||
+      thread.kind !== 'bot' ||
+      thread.isHome ||
+      thread.groupThreadId !== null ||
+      thread.archivedAt !== null
+    ) {
+      throw new Error('That side chat does not exist.')
+    }
+    const runtime = new BotRuntime({
+      ...this.deps,
+      bot,
+      threadId: thread.id,
+      sandboxKey: `${bot.id}__${thread.id}`,
+      ...(thread.harness === null ? {} : { harnessOverride: thread.harness }),
+      onEvent: (id, event) => this.emit(id, thread.id, event)
+    })
+    this.threadRuntimes.set(thread.id, runtime)
+    return runtime
+  }
+
+  /** Starts an empty side chat; its first owner message names it. */
+  createSideChat(botId: string, harness?: ModelHarness): AssistantThread {
+    const bot = this.requireBot(botId)
+    const now = this.deps.now()
+    const thread = this.deps.store.insertThread({
+      id: this.deps.newId('athread'),
+      kind: 'bot',
+      title: ASSISTANT_SIDE_CHAT_TITLE,
+      botId: bot.id,
+      isHome: false,
+      harness: harness ?? null,
+      groupThreadId: null,
+      createdAt: now,
+      updatedAt: now,
+      lastMessageAt: null,
+      lastReadSeq: 0,
+      activeRunId: null,
+      archivedAt: null
+    })
+    this.deps.botService.notifyChanged(botId)
+    return thread
+  }
+
+  /** Search durable bot-chat and room transcripts for global history. */
+  searchHistory(
+    query: string,
+    limit: number
+  ): {
+    chats: Array<{
+      threadId: string
+      botId: string
+      snippet: string
+      createdAt: number
+    }>
+    rooms: Array<{
+      groupId: string
+      threadId: string
+      snippet: string
+      createdAt: number
+    }>
+  } {
+    const chats = this.deps.store.searchBotMessages(query, limit)
+    const rooms =
+      this.deps.groups === undefined
+        ? []
+        : this.deps.groups.searchMessages(query, limit)
+    return {
+      chats: chats.map((hit) => ({
+        threadId: hit.threadId,
+        botId: hit.botId,
+        snippet: hit.body,
+        createdAt: hit.createdAt
+      })),
+      rooms: rooms.map((hit) => ({
+        groupId: hit.groupId,
+        threadId: hit.threadId,
+        snippet: hit.body,
+        createdAt: hit.createdAt
+      }))
+    }
+  }
+
+  /** A bot's home chat plus every side chat, home first. */
+  listChats(botId: string): Array<AssistantThread & { unread: number }> {
+    this.requireBot(botId)
+    return this.deps.store
+      .listChatsForBot(botId)
+      .map((thread) => ({ ...thread, unread: this.deps.store.unreadCount(thread.id) }))
+  }
+
+  /**
+   * Starts a fresh Home Chat. The old home keeps its transcript as an
+   * ordinary side chat, so nothing is lost and its tab can be reopened.
+   */
+  newHomeChat(botId: string): {
+    thread: AssistantThread
+    replacedThreadId: string | null
+  } {
+    const bot = this.requireBot(botId)
+    if (this.homeRuntimes.get(botId)?.status() === 'working') {
+      throw new Error('That bot is still answering. Stop it before starting a new home chat.')
+    }
+    const previous = this.deps.store.findHomeThreadByBotId(botId)
+    const now = this.deps.now()
+    const created = this.deps.store.insertThread({
+      id: this.deps.newId('athread'),
+      kind: 'bot',
+      title: bot.name,
+      botId: bot.id,
+      isHome: false,
+      harness: null,
+      groupThreadId: null,
+      createdAt: now,
+      updatedAt: now,
+      lastMessageAt: null,
+      lastReadSeq: 0,
+      activeRunId: null,
+      archivedAt: null
+    })
+    const thread = this.deps.store.setHomeThread(botId, created.id, now)
+    if (thread === null) throw new Error('The new home chat could not be created.')
+    if (previous !== null) {
+      const latest = this.deps.store.latestUserMessageBody(previous.id)
+      const title =
+        (latest === null ? null : assistantThreadTitleFromText(latest)) ??
+        ASSISTANT_PREVIOUS_HOME_TITLE
+      this.deps.store.updateThreadTitle(previous.id, title, now)
+      const runtime = this.homeRuntimes.get(botId)
+      runtime?.stop()
+      this.homeRuntimes.delete(botId)
+      this.threadRuntimes.delete(previous.id)
+    }
+    this.deps.botService.notifyChanged(botId)
+    return { thread, replacedThreadId: previous?.id ?? null }
   }
 
   /** A bot's session in one group thread; created lazily and persisted. */
@@ -382,6 +568,8 @@ export class BotRuntimeRegistry {
           kind: 'room',
           title: groupThread.title,
           botId,
+          isHome: false,
+          harness: null,
           groupThreadId,
           createdAt: this.deps.now(),
           updatedAt: this.deps.now(),
@@ -404,7 +592,7 @@ export class BotRuntimeRegistry {
       groupId: group.id,
       groupThreadId,
       sandboxKey: `${bot.id}__${thread.id}`,
-      onEvent: (id, event) => this.emit(id, event)
+      onEvent: (id, event) => this.emit(id, thread.id, event)
     })
     groups.setThreadMemberSession(groupThreadId, botId, thread.id)
     this.threadRuntimes.set(thread.id, runtime)

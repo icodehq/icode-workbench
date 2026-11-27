@@ -1,29 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import {
-  ArrowDown,
-  Loader2,
-  MessageSquare,
-  Plus,
-  Settings,
-  Square,
-  Users
-} from 'lucide-react'
+import { ArrowDown, Loader2, MessageSquare, Square, Users } from 'lucide-react'
 import type {
   GroupSummaryPayload,
   GroupThreadPayload,
-  GroupTurnPayload,
-  GroupUpdateInput
+  GroupTurnPayload
 } from '../../../../shared/schemas/groups'
 import type { BotSummaryPayload } from '../../../../shared/schemas/bots'
 import type { RepositorySummary } from '../../../../shared/schemas/ipc'
 import type { Notice } from '../../state/workspace'
 import { useGroupRoom } from '../../state/use-group-room'
+import { groupThreadLabel } from '../../../../shared/domain/group'
 import { groupDraftAudience } from '../../../../shared/domain/group-mentions'
 import AssistantAvatar from '../AssistantAvatar'
 import AssistantCardView, { type AssistantTaskAction } from '../AssistantCardView'
-import GroupSettingsDialog from './GroupSettingsDialog'
-import ItemsRail from './ItemsRail'
-import GroupNeedsDock from './GroupNeedsDock'
 import Markdown from '../Markdown'
 import { useT } from '../../i18n/use-i18n'
 import {
@@ -84,39 +73,32 @@ export default function GroupRoomPage({
   bots,
   repos,
   notify,
+  visible,
+  attended,
   onOpenTask,
-  onOpenSession,
   onTaskAction,
-  onSelectThread,
   onNewThread,
-  onUpdateGroup,
-  onArchiveGroup,
-  onDeleteGroup
+  onOpenSettings
 }: {
   group: GroupSummaryPayload
   thread: GroupThreadPayload
   bots: BotSummaryPayload[]
   repos: RepositorySummary[]
   notify: (notice: Notice) => void
+  visible: boolean
+  attended: boolean
   onOpenTask: (taskId: string) => void
-  onOpenSession: (sessionId: string) => void
   onTaskAction: (action: AssistantTaskAction, taskId: string) => void
-  onSelectThread: (threadId: string) => void
-  onNewThread: () => Promise<GroupThreadPayload | null>
-  onUpdateGroup: (input: GroupUpdateInput) => Promise<GroupSummaryPayload | null>
-  onArchiveGroup: () => Promise<boolean>
-  onDeleteGroup: () => Promise<boolean>
+  onNewThread: () => void
+  onOpenSettings: () => void
 }): React.JSX.Element {
   const t = useT()
-  const room = useGroupRoom(group.id, thread.id, notify)
+  const room = useGroupRoom(group.id, thread.id, notify, { visible, attended })
   const [draft, setDraft] = usePersistentDraft(`group:${group.id}:${thread.id}`)
   const [caret, setCaret] = useState(0)
   const [mentionIndex, setMentionIndex] = useState(0)
   const [mentionDismissed, setMentionDismissed] = useState(false)
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([])
-  const [creatingThread, setCreatingThread] = useState(false)
-  const [updatingMode, setUpdatingMode] = useState(false)
-  const [settingsOpen, setSettingsOpen] = useState(false)
   const threadRef = useRef<HTMLDivElement | null>(null)
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
   const stickBottom = useRef(true)
@@ -258,151 +240,35 @@ export default function GroupRoomPage({
     return false
   }
 
-  const changeReplyMode = async (value: string): Promise<void> => {
-    if (updatingMode) return
-    setUpdatingMode(true)
-    const patch: GroupUpdateInput =
-      value === 'all'
-        ? { groupId: group.id, revision: group.revision, replyMode: { kind: 'all' } }
-        : value === 'mentions'
-          ? { groupId: group.id, revision: group.revision, replyMode: { kind: 'mentions' } }
-          : {
-              groupId: group.id,
-              revision: group.revision,
-              defaultBotId: value.slice('bot:'.length),
-              replyMode: { kind: 'bot', botId: value.slice('bot:'.length) }
-            }
-    await onUpdateGroup(patch)
-    setUpdatingMode(false)
-  }
-
-  const createThread = async (): Promise<void> => {
-    if (creatingThread) return
-    setCreatingThread(true)
-    await onNewThread()
-    setCreatingThread(false)
-  }
-
-  const replyModeValue =
-    group.replyMode.kind === 'bot' ? `bot:${group.replyMode.botId}` : group.replyMode.kind
+  const roomLabel = groupThreadLabel(group.name, thread, t('bots.thread.untitled'))
 
   const repoName = (repoId: string | undefined): string | undefined =>
     repoId === undefined ? undefined : repos.find((repo) => repo.id === repoId)?.displayName
 
   return (
-    <div className="flex h-full min-h-0 bg-background" data-testid="bots-room">
+    <div className="flex h-full min-h-0 flex-col bg-background">
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex shrink-0 items-start gap-3 border-b border-border bg-card px-4 py-2.5">
-          <span className="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent/12 text-accent">
-            <Users size={13} />
+        <header className="flex shrink-0 items-center gap-2 border-b border-border bg-card px-3 py-2">
+          <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent/12 text-accent">
+            <MessageSquare size={11} />
           </span>
           <div className="min-w-0 flex-1">
-            <div className="flex min-w-0 items-center gap-2">
-              <h1 className="truncate text-[14px] font-semibold">{group.name}</h1>
-              <span className="shrink-0 text-[10px] text-muted-foreground">
-                {t('bots.room.members', { count: members.length })}
-              </span>
-            </div>
-            <div className="mt-0.5 truncate text-[10px] text-muted-foreground">
-              {thread.isDefault ? t('bots.room.thread') : thread.title}
+            <h1 className="truncate text-[12px] font-semibold">{roomLabel}</h1>
+            <div className="truncate text-[9.5px] text-muted-foreground">
+              {group.name} · {t('bots.room.members', { count: members.length })}
             </div>
           </div>
-          <div className="mt-0.5 flex -space-x-1">
-            {members.map((bot) => (
-              <span key={bot.id} className="relative inline-flex" title={`${bot.name} · ${bot.role}`}>
-                <AssistantAvatar
-                  name={bot.name}
-                  status={bot.status}
-                  size="sm"
-                  color={bot.avatarColor}
-                  image={bot.avatarImage}
-            mascot={bot.avatarMascot}
-            outfit={bot.avatarOutfit}
-                />
-              </span>
-            ))}
-          </div>
-          <div className="ml-2 flex items-center gap-1.5">
+          {room.busy ? (
             <button
               type="button"
-              className="inline-flex h-7 w-7 items-center justify-center rounded border border-border text-muted-foreground hover:bg-muted hover:text-foreground"
-              onClick={() => setSettingsOpen(true)}
-              aria-label={t('bots.groupSettings.title')}
-              title={t('bots.groupSettings.title')}
-              data-testid="bots-group-settings"
+              className="inline-flex h-6 items-center gap-1 rounded border border-border px-2 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
+              onClick={() => void room.stop()}
+              data-testid="bots-stop-all"
             >
-              <Settings size={11} />
+              <Square size={8} /> {t('bots.room.stopAll')}
             </button>
-            <label className="sr-only" htmlFor="bots-reply-mode">
-              {t('bots.reply.label')}
-            </label>
-            <select
-              id="bots-reply-mode"
-              className="h-7 max-w-[180px] rounded border border-border bg-background px-1.5 text-[10.5px] text-foreground outline-none focus:border-line-strong"
-              value={replyModeValue}
-              onChange={(event) => void changeReplyMode(event.target.value)}
-              disabled={updatingMode || members.length === 0}
-              data-testid="bots-reply-mode"
-            >
-              {members.map((bot) => (
-                <option key={bot.id} value={`bot:${bot.id}`}>
-                  {t('bots.reply.bot', { name: bot.name })}
-                  {bot.pausedAt !== null ? ` · ${t('bots.paused')}` : ''}
-                </option>
-              ))}
-              <option value="all">{t('bots.reply.all')}</option>
-              <option value="mentions">{t('bots.reply.mentions')}</option>
-            </select>
-            {room.busy ? (
-              <button
-                type="button"
-                className="inline-flex h-7 items-center gap-1 rounded border border-border px-2 text-[10.5px] text-muted-foreground hover:bg-muted hover:text-foreground"
-                onClick={() => void room.stop()}
-                data-testid="bots-stop-all"
-              >
-                <Square size={9} /> {t('bots.room.stopAll')}
-              </button>
-            ) : null}
-          </div>
+          ) : null}
         </header>
-
-        <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border bg-card/40 px-3 py-1.5">
-          {group.threads.map((entry) => {
-            const active = entry.id === thread.id
-            return (
-              <button
-                key={entry.id}
-                type="button"
-                className={`inline-flex h-6 max-w-[200px] shrink-0 items-center gap-1 rounded px-2 text-[10.5px] ${
-                  active
-                    ? 'bg-accent/15 text-foreground'
-                    : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                }`}
-                onClick={() => onSelectThread(entry.id)}
-                title={entry.title}
-                data-testid={`bots-thread-${entry.id}`}
-              >
-                <MessageSquare size={9} />
-                <span className="truncate">{entry.title}</span>
-                {entry.unread > 0 && !active ? (
-                  <span className="rounded-full bg-signal-weak px-1 text-[8px] text-signal">
-                    {entry.unread > 9 ? '9+' : entry.unread}
-                  </span>
-                ) : null}
-              </button>
-            )
-          })}
-          <button
-            type="button"
-            className="inline-flex h-6 shrink-0 items-center gap-1 rounded px-2 text-[10.5px] text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
-            onClick={() => void createThread()}
-            disabled={creatingThread}
-            data-testid="bots-thread-new"
-          >
-            {creatingThread ? <Loader2 size={9} className="animate-spin" /> : <Plus size={9} />}
-            {t('bots.room.newThread')}
-          </button>
-        </div>
 
         <div
           ref={threadRef}
@@ -624,14 +490,6 @@ export default function GroupRoomPage({
           )}
         </div>
 
-        <GroupNeedsDock
-          group={group}
-          notify={notify}
-          onOpenTask={onOpenTask}
-          onOpenSession={onOpenSession}
-          onTaskAction={onTaskAction}
-        />
-
         <ChatComposer
           textareaRef={composerRef}
           value={draft}
@@ -663,9 +521,9 @@ export default function GroupRoomPage({
             setAttachments((current) => current.filter((file) => file.id !== id))
           }
           commands={[
-            { name: '/thread', run: () => void onNewThread() },
+            { name: '/thread', run: onNewThread },
             { name: '/stop', run: () => void room.stop() },
-            { name: '/settings', run: () => setSettingsOpen(true) }
+            { name: '/settings', run: onOpenSettings }
           ]}
           testIds={{ textarea: 'bots-composer', send: 'bots-send' }}
           menu={
@@ -718,24 +576,6 @@ export default function GroupRoomPage({
           }
         />
       </div>
-
-      <ItemsRail
-        filter={{ groupId: group.id }}
-        members={members}
-        notify={notify}
-        onOpenTask={onOpenTask}
-        onTaskAction={onTaskAction}
-      />
-      {settingsOpen ? (
-        <GroupSettingsDialog
-          group={group}
-          bots={bots}
-          onUpdateGroup={onUpdateGroup}
-          onArchive={onArchiveGroup}
-          onDelete={onDeleteGroup}
-          onClose={() => setSettingsOpen(false)}
-        />
-      ) : null}
     </div>
   )
 }

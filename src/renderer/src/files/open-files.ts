@@ -5,9 +5,13 @@ import type { GitRangeFile } from '../../../shared/domain/git-workspace'
 import type { SessionSummary } from '../../../shared/schemas/ipc'
 import type { WorkingTreeEntry } from '../review/working-tree'
 import {
+  botIdFromWorkspaceKey,
+  chatTabKey,
   fileTabKey,
+  groupIdFromWorkspaceKey,
   moveTabKey,
   parseTabKey,
+  roomTabKey,
   sessionTabKey,
   workspaceKeyForSession
 } from '../workspace/workspace-key'
@@ -33,6 +37,8 @@ export type FileTab = {
   kind: 'file'
   /** A single click opens a preview tab the next single click replaces. */
   preview: boolean
+  /** Pinned tabs sort first and survive close-others/close-all. */
+  pinned?: boolean
   /** Worktree-relative, normalized by main. */
   path: string
   text: string
@@ -54,6 +60,7 @@ export type DiffTabRequest =
 export type DiffTab = {
   kind: 'diff'
   preview: boolean
+  pinned?: boolean
   /** Stable identity: scope + path, or base + path for committed rows. */
   key: string
   request: DiffTabRequest
@@ -66,11 +73,53 @@ export type DiffTab = {
 export type SessionTab = {
   kind: 'session'
   preview: false
+  pinned?: boolean
   key: string
   sessionId: string
 }
 
-export type CenterTab = FileTab | DiffTab | SessionTab
+/**
+ * One room of a bot group: the original room or a thread. A room tab is a
+ * center tab in the group's own workspace; its transcript is loaded by the
+ * pane, not stored here.
+ */
+export type RoomTab = {
+  kind: 'room'
+  preview: false
+  pinned?: boolean
+  key: string
+  groupId: string
+  threadId: string
+  isDefault: boolean
+  /** The label captured when the room opened; a later group rename leaves it. */
+  label?: string
+  /** An owner-set tab label; it wins over the captured/title label. */
+  customLabel?: string
+  /** An owner-set tab color, as a CSS color. */
+  color?: string
+}
+
+/**
+ * One chat of a bot's own workspace: the fixed Home tab or a side chat. The
+ * transcript lives with the assistant thread; this only holds tab identity.
+ */
+export type ChatTab = {
+  kind: 'chat'
+  preview: false
+  pinned?: boolean
+  key: string
+  botId: string
+  threadId: string
+  isHome: boolean
+  /** The chat's title at last read; a side chat's first post updates it. */
+  label: string
+  /** An owner-set tab label; it wins over the captured title. */
+  customLabel?: string
+  /** An owner-set tab color, as a CSS color. */
+  color?: string
+}
+
+export type CenterTab = FileTab | DiffTab | SessionTab | RoomTab | ChatTab
 
 /** File tabs keep this name for the existing Files panel composition. */
 export type OpenFileTab = FileTab
@@ -115,6 +164,14 @@ export function isSessionTab(tab: CenterTab): tab is SessionTab {
   return tab.kind === 'session'
 }
 
+export function isRoomTab(tab: CenterTab): tab is RoomTab {
+  return tab.kind === 'room'
+}
+
+export function isChatTab(tab: CenterTab): tab is ChatTab {
+  return tab.kind === 'chat'
+}
+
 export function fileTabs(state: FilesSessionState): FileTab[] {
   return state.tabs.filter(isFileTab)
 }
@@ -136,7 +193,14 @@ export function activeFileTab(state: FilesSessionState): FileTab | null {
 /** The file or diff path the tree should highlight for the active tab. */
 export function activeRevealPath(state: FilesSessionState): string | null {
   const tab = activeTab(state)
-  if (tab === null || tab.kind === 'session') return null
+  if (
+    tab === null ||
+    tab.kind === 'session' ||
+    tab.kind === 'room' ||
+    tab.kind === 'chat'
+  ) {
+    return null
+  }
   if (isFileTab(tab)) return tab.path
   return tab.request.kind === 'working'
     ? tab.request.entry.entry.path
@@ -176,6 +240,8 @@ export const FILES_TABS_STORAGE_KEY_V1 = 'icode.files.tabs.v1'
 /** @deprecated Use FILES_TABS_STORAGE_KEY_V1. */
 export const FILES_TABS_STORAGE_KEY = FILES_TABS_STORAGE_KEY_V1
 export const FILES_TABS_STORAGE_KEY_V2 = 'icode.files.tabs.v2'
+/** v3 adds room tabs and the pinned flag; v2/v1 stay readable. */
+export const FILES_TABS_STORAGE_KEY_V3 = 'icode.files.tabs.v3'
 
 export type OpenFilesPersistence = {
   load(key: string): Promise<unknown>
@@ -187,6 +253,7 @@ const fileTabSchema = z.object({
   /** Absent on payloads written before center tabs. */
   kind: z.literal('file').optional(),
   preview: z.boolean().optional(),
+  pinned: z.boolean().optional(),
   path: z.string().min(1).max(4096),
   text: z.string().max(FILES_MAX_BUFFERED_CHARS),
   savedText: z.string().max(FILES_MAX_BUFFERED_CHARS),
@@ -214,6 +281,7 @@ export type PersistedOpenFiles = z.infer<typeof legacyPayloadSchema>
 
 const v2SessionTabSchema = z.object({
   kind: z.literal('session'),
+  pinned: z.boolean().optional(),
   sessionId: z.string().min(1).max(128)
 })
 
@@ -229,12 +297,49 @@ const v2PayloadSchema = z.object({
   workspaces: z.record(z.string(), v2StateSchema)
 })
 
-export type PersistedWorkspaceTabs = z.infer<typeof v2PayloadSchema>
+const v3RoomTabSchema = z.object({
+  kind: z.literal('room'),
+  pinned: z.boolean().optional(),
+  groupId: z.string().min(1).max(120),
+  threadId: z.string().min(1).max(120),
+  isDefault: z.boolean(),
+  label: z.string().min(1).max(200).optional(),
+  customLabel: z.string().min(1).max(200).optional(),
+  color: z.string().min(1).max(64).optional()
+})
+
+const v3ChatTabSchema = z.object({
+  kind: z.literal('chat'),
+  pinned: z.boolean().optional(),
+  botId: z.string().min(1).max(120),
+  threadId: z.string().min(1).max(120),
+  isHome: z.boolean(),
+  label: z.string().min(1).max(200),
+  customLabel: z.string().min(1).max(200).optional(),
+  color: z.string().min(1).max(64).optional()
+})
+
+const v3StateSchema = z.object({
+  tabs: z
+    .array(z.union([v3RoomTabSchema, v3ChatTabSchema, v2SessionTabSchema, fileTabSchema]))
+    .max(200),
+  activePath: z.string().max(4096).nullable().optional(),
+  activeKey: z.string().max(4096).nullable().optional(),
+  mode: z.enum(['terminal', 'editor']).optional()
+})
+
+const v3PayloadSchema = z.object({
+  version: z.literal(3),
+  workspaces: z.record(z.string(), v3StateSchema)
+})
+
+export type PersistedWorkspaceTabs = z.infer<typeof v3PayloadSchema>
 
 function restoredFileTab(tab: z.infer<typeof fileTabSchema>): FileTab {
   return {
     kind: 'file',
     preview: false,
+    ...(tab.pinned === true ? { pinned: true } : {}),
     path: tab.path,
     text: tab.text,
     savedText: tab.savedText,
@@ -305,6 +410,7 @@ export function parsePersistedOpenFilesV2(
         tabs.push({
           kind: 'session',
           preview: false,
+          ...(tab.pinned === true ? { pinned: true } : {}),
           key: sessionTabKey(tab.sessionId),
           sessionId: tab.sessionId
         })
@@ -329,7 +435,106 @@ export function parsePersistedOpenFilesV2(
           ? 'terminal'
           : ('editor' as const)
     result.set(scopeKey, {
-      tabs,
+      tabs: orderPinnedFirst(tabs),
+      activeKey,
+      activePath,
+      mode,
+      hiddenSessionIds: []
+    })
+  }
+  return result
+}
+
+/**
+ * Turns a v3 payload into usable state. Room tabs restore with their group
+ * and thread identity; the group workspace reconciles them against live
+ * groups before drawing them.
+ */
+export function parsePersistedOpenFilesV3(
+  raw: unknown
+): Map<string, FilesSessionState> | null {
+  const parsed = v3PayloadSchema.safeParse(raw)
+  if (!parsed.success) return null
+  const result = new Map<string, FilesSessionState>()
+  for (const [scopeKey, state] of Object.entries(parsed.data.workspaces)) {
+    const tabs: CenterTab[] = []
+    const seen = new Set<string>()
+    for (const tab of state.tabs) {
+      if ('sessionId' in tab) {
+        const key = sessionTabKey(tab.sessionId)
+        if (seen.has(key)) continue
+        seen.add(key)
+        tabs.push({
+          kind: 'session',
+          preview: false,
+          ...(tab.pinned === true ? { pinned: true } : {}),
+          key,
+          sessionId: tab.sessionId
+        })
+        continue
+      }
+      if ('groupId' in tab) {
+        const key = roomTabKey(tab.groupId, tab.threadId, tab.isDefault)
+        if (seen.has(key)) continue
+        seen.add(key)
+        tabs.push({
+          kind: 'room',
+          preview: false,
+          ...(tab.pinned === true ? { pinned: true } : {}),
+          ...(tab.label === undefined ? {} : { label: tab.label }),
+          ...(tab.customLabel === undefined
+            ? {}
+            : { customLabel: tab.customLabel }),
+          ...(tab.color === undefined ? {} : { color: tab.color }),
+          key,
+          groupId: tab.groupId,
+          threadId: tab.threadId,
+          isDefault: tab.isDefault
+        })
+        continue
+      }
+      if ('botId' in tab) {
+        const key = chatTabKey(tab.botId, tab.threadId)
+        if (seen.has(key)) continue
+        seen.add(key)
+        tabs.push({
+          kind: 'chat',
+          preview: false,
+          ...(tab.pinned === true ? { pinned: true } : {}),
+          key,
+          botId: tab.botId,
+          threadId: tab.threadId,
+          isHome: tab.isHome,
+          label: tab.label,
+          ...(tab.customLabel === undefined ? {} : { customLabel: tab.customLabel }),
+          ...(tab.color === undefined ? {} : { color: tab.color })
+        })
+        continue
+      }
+      const restored = restoredFileTab(tab)
+      const key = tabKey(restored)
+      if (seen.has(key)) continue
+      seen.add(key)
+      tabs.push(restored)
+    }
+    if (tabs.length === 0) continue
+    const keys = new Set(tabs.map(tabKey))
+    const activeKey =
+      state.activeKey !== undefined &&
+      state.activeKey !== null &&
+      keys.has(state.activeKey)
+        ? state.activeKey
+        : tabKey(tabs[0]!)
+    const active = tabs.find((tab) => tabKey(tab) === activeKey) ?? null
+    const activePath = active !== null && isFileTab(active) ? active.path : null
+    const mode =
+      active === null || active.kind === 'session' || active.kind === 'room' || active.kind === 'chat'
+        ? 'terminal'
+        : state.mode === 'terminal'
+          ? 'terminal'
+          : ('editor' as const)
+    result.set(scopeKey, {
+      tabs: orderPinnedFirst(tabs),
       activeKey,
       activePath,
       mode,
@@ -422,6 +627,13 @@ function previewTarget(state: FilesSessionState, replaceKey?: string): CenterTab
   return state.tabs.find(replaceablePreview)
 }
 
+/** Pinned tabs lead the strip; the sort is stable, so the rest keep their order. */
+function orderPinnedFirst(tabs: readonly CenterTab[]): CenterTab[] {
+  return [...tabs].sort(
+    (left, right) => Number(right.pinned === true) - Number(left.pinned === true)
+  )
+}
+
 /**
  * Picks the active tab and mode after a close/rename: a still-valid key wins,
  * one tab replaced by its neighbour, no tabs by the terminal.
@@ -432,16 +644,17 @@ function normalizeTabs(
   mode: CenterMode,
   hiddenSessionIds: readonly string[] = []
 ): FilesSessionState {
+  const ordered = orderPinnedFirst(tabs)
   const valid =
-    activeKey !== null && tabs.some((tab) => tabKey(tab) === activeKey) ? activeKey : null
-  const active = valid === null ? null : tabs.find((tab) => tabKey(tab) === valid) ?? null
+    activeKey !== null && ordered.some((tab) => tabKey(tab) === activeKey) ? activeKey : null
+  const active = valid === null ? null : ordered.find((tab) => tabKey(tab) === valid) ?? null
   const activeFile = active !== null && isFileTab(active) ? active : null
   return {
-    tabs,
+    tabs: ordered,
     activeKey: active === null ? null : valid,
     activePath: activeFile?.path ?? null,
     mode:
-      active === null || active.kind === 'session'
+      active === null || active.kind === 'session' || active.kind === 'room' || active.kind === 'chat'
         ? 'terminal'
         : mode === 'terminal'
           ? 'terminal'
@@ -511,6 +724,20 @@ export class OpenFilesStore {
   private async hydrate(): Promise<void> {
     if (this.persistence === null) return
     try {
+      const loadedV3 = parsePersistedOpenFilesV3(
+        await this.persistence.load(FILES_TABS_STORAGE_KEY_V3)
+      )
+      if (loadedV3 !== null) {
+        for (const [scopeKey, state] of loadedV3) {
+          if (state.tabs.length === 0) continue
+          if (this.retained !== null && !this.retained.has(scopeKey)) continue
+          this.states.set(scopeKey, state)
+        }
+        this.migrated = true
+        if (this.states.size > 0) this.emit()
+        return
+      }
+
       const loadedV2 = parsePersistedOpenFilesV2(
         await this.persistence.load(FILES_TABS_STORAGE_KEY_V2)
       )
@@ -639,6 +866,7 @@ export class OpenFilesStore {
           tabs.push({
             kind: 'file',
             preview: false,
+            ...(tab.pinned === true ? { pinned: true } : {}),
             path: tab.path,
             text: tab.text,
             savedText: tab.savedText,
@@ -649,7 +877,35 @@ export class OpenFilesStore {
             failure: tab.failure
           })
         } else if (tab.kind === 'session') {
-          tabs.push({ kind: 'session', sessionId: tab.sessionId })
+          tabs.push({
+            kind: 'session',
+            ...(tab.pinned === true ? { pinned: true } : {}),
+            sessionId: tab.sessionId
+          })
+        } else if (tab.kind === 'room') {
+          tabs.push({
+            kind: 'room',
+            ...(tab.pinned === true ? { pinned: true } : {}),
+            ...(tab.label === undefined ? {} : { label: tab.label }),
+            ...(tab.customLabel === undefined
+              ? {}
+              : { customLabel: tab.customLabel }),
+            ...(tab.color === undefined ? {} : { color: tab.color }),
+            groupId: tab.groupId,
+            threadId: tab.threadId,
+            isDefault: tab.isDefault
+          })
+        } else if (tab.kind === 'chat') {
+          tabs.push({
+            kind: 'chat',
+            ...(tab.pinned === true ? { pinned: true } : {}),
+            botId: tab.botId,
+            threadId: tab.threadId,
+            isHome: tab.isHome,
+            label: tab.label,
+            ...(tab.customLabel === undefined ? {} : { customLabel: tab.customLabel }),
+            ...(tab.color === undefined ? {} : { color: tab.color })
+          })
         }
         // Diff tabs are transient.
       }
@@ -663,12 +919,12 @@ export class OpenFilesStore {
         mode: activeFile !== null && state.mode === 'editor' ? 'editor' : 'terminal'
       }
     }
-    const payload: PersistedWorkspaceTabs = { version: 2, workspaces }
+    const payload: PersistedWorkspaceTabs = { version: 3, workspaces }
     this.saveChain = this.saveChain
       .catch(() => undefined)
       .then(async () => {
         try {
-          await this.persistence!.save(FILES_TABS_STORAGE_KEY_V2, payload)
+          await this.persistence!.save(FILES_TABS_STORAGE_KEY_V3, payload)
         } catch (error) {
           this.warning = translate('fileIndex.backupFailed', {
             detail: error instanceof Error ? error.message : String(error)
@@ -775,6 +1031,249 @@ export class OpenFilesStore {
     return { tab, created: true, replacedKey }
   }
 
+  /**
+   * Opens or focuses a room tab in a group workspace. Room tabs have no
+   * preview state; closing one only closes the view of the thread.
+   */
+  openRoom(
+    scopeKey: string,
+    room: {
+      groupId: string
+      threadId: string
+      isDefault: boolean
+      label?: string
+    },
+    options?: { activate?: boolean }
+  ): { tab: RoomTab; created: boolean } {
+    const state = this.get(scopeKey)
+    const key = roomTabKey(room.groupId, room.threadId, room.isDefault)
+    const existing = state.tabs.find(
+      (tab): tab is RoomTab => tab.kind === 'room' && tab.key === key
+    )
+    if (existing !== undefined) {
+      if (options?.activate !== false && state.activeKey !== key) {
+        this.states.set(
+          scopeKey,
+          normalizeTabs(state.tabs, key, 'terminal', state.hiddenSessionIds)
+        )
+        this.emit()
+      }
+      return { tab: existing, created: false }
+    }
+    const tab: RoomTab = {
+      kind: 'room',
+      preview: false,
+      ...(room.label === undefined ? {} : { label: room.label }),
+      key,
+      groupId: room.groupId,
+      threadId: room.threadId,
+      isDefault: room.isDefault
+    }
+    const activeKey =
+      options?.activate === false && state.activeKey !== null ? state.activeKey : key
+    this.states.set(
+      scopeKey,
+      normalizeTabs(
+        [...state.tabs, tab],
+        activeKey,
+        'terminal',
+        state.hiddenSessionIds
+      )
+    )
+    this.emit()
+    return { tab, created: true }
+  }
+
+  /**
+   * Opens or focuses a chat tab in a bot's own workspace. The Home tab is
+   * pinned and cannot be closed by close-others/close-all.
+   */
+  openChat(
+    scopeKey: string,
+    chat: {
+      botId: string
+      threadId: string
+      isHome: boolean
+      label: string
+    },
+    options?: { activate?: boolean }
+  ): { tab: ChatTab; created: boolean } {
+    const state = this.get(scopeKey)
+    const key = chatTabKey(chat.botId, chat.threadId)
+    const existing = state.tabs.find(
+      (tab): tab is ChatTab => tab.kind === 'chat' && tab.key === key
+    )
+    if (existing !== undefined) {
+      const needsPin = chat.isHome && existing.pinned !== true
+      const next: ChatTab =
+        existing.label === chat.label && !needsPin
+          ? existing
+          : {
+              ...existing,
+              label: chat.label,
+              ...(chat.isHome ? { pinned: true } : {})
+            }
+      const activate = options?.activate !== false && state.activeKey !== key
+      if (next === existing && !activate) return { tab: existing, created: false }
+      this.states.set(
+        scopeKey,
+        normalizeTabs(
+          state.tabs.map((tab) => (tab === existing ? next : tab)),
+          activate ? key : state.activeKey,
+          'terminal',
+          state.hiddenSessionIds
+        )
+      )
+      this.emit()
+      return { tab: next, created: false }
+    }
+    const tab: ChatTab = {
+      kind: 'chat',
+      preview: false,
+      ...(chat.isHome ? { pinned: true } : {}),
+      key,
+      botId: chat.botId,
+      threadId: chat.threadId,
+      isHome: chat.isHome,
+      label: chat.label
+    }
+    const activeKey =
+      options?.activate === false && state.activeKey !== null ? state.activeKey : key
+    this.states.set(
+      scopeKey,
+      normalizeTabs(
+        [...state.tabs, tab],
+        activeKey,
+        'terminal',
+        state.hiddenSessionIds
+      )
+    )
+    this.emit()
+    return { tab, created: true }
+  }
+
+  /**
+   * Removes a chat tab even when it is the Home tab. Used only when a new Home
+   * Chat replaces it; the old thread remains available as a side chat.
+   */
+  removeChatTab(scopeKey: string, keyOrPath: string): void {
+    const state = this.get(scopeKey)
+    const key = resolveTabKey(keyOrPath)
+    const tab = state.tabs.find(
+      (entry): entry is ChatTab => entry.kind === 'chat' && entry.key === key
+    )
+    if (tab === undefined) return
+    if (tab.isHome) {
+      this.states.set(scopeKey, {
+        ...state,
+        tabs: state.tabs.map((entry) =>
+          entry.kind === 'chat' && entry.key === key
+            ? { ...entry, isHome: false, pinned: undefined }
+            : entry
+        )
+      })
+    }
+    this.closeTab(scopeKey, key)
+  }
+
+  /** Keeps a chat tab's title in step with its assistant thread. */
+  setChatLabel(scopeKey: string, keyOrPath: string, label: string): void {
+    const state = this.get(scopeKey)
+    const key = resolveTabKey(keyOrPath)
+    const tab = state.tabs.find(
+      (entry): entry is ChatTab => entry.kind === 'chat' && entry.key === key
+    )
+    if (tab === undefined || tab.label === label) return
+    this.states.set(scopeKey, {
+      ...state,
+      tabs: state.tabs.map((entry) =>
+        entry.kind === 'chat' && entry.key === key ? { ...entry, label } : entry
+      )
+    })
+    this.emit()
+  }
+
+  setChatCustomLabel(
+    scopeKey: string,
+    keyOrPath: string,
+    customLabel: string | undefined
+  ): void {
+    this.patchChat(scopeKey, keyOrPath, customLabel === '' ? undefined : customLabel, 'customLabel')
+  }
+
+  setChatColor(scopeKey: string, keyOrPath: string, color: string | undefined): void {
+    this.patchChat(scopeKey, keyOrPath, color, 'color')
+  }
+
+  private patchChat(
+    scopeKey: string,
+    keyOrPath: string,
+    value: string | undefined,
+    field: 'customLabel' | 'color'
+  ): void {
+    const state = this.get(scopeKey)
+    const key = resolveTabKey(keyOrPath)
+    const tab = state.tabs.find(
+      (entry): entry is ChatTab => entry.kind === 'chat' && entry.key === key
+    )
+    if (tab === undefined || tab[field] === value) return
+    const tabs = state.tabs.map((entry) =>
+      entry.kind === 'chat' && entry.key === key ? { ...entry, [field]: value } : entry
+    )
+    this.states.set(scopeKey, { ...state, tabs })
+    this.emit()
+  }
+
+  /** Updates a room tab's captured label, as when a thread's first post names it. */
+  setRoomLabel(scopeKey: string, keyOrPath: string, label: string | undefined): void {
+    const state = this.get(scopeKey)
+    const key = resolveTabKey(keyOrPath)
+    const tab = state.tabs.find(
+      (entry): entry is RoomTab => entry.kind === 'room' && entry.key === key
+    )
+    if (tab === undefined || tab.label === label) return
+    const tabs = state.tabs.map((entry) =>
+      entry.kind === 'room' && entry.key === key
+        ? { ...entry, ...(label === undefined ? { label: undefined } : { label }) }
+        : entry
+    )
+    this.states.set(scopeKey, { ...state, tabs })
+    this.emit()
+  }
+
+  setRoomCustomLabel(
+    scopeKey: string,
+    keyOrPath: string,
+    customLabel: string | undefined
+  ): void {
+    this.patchRoom(scopeKey, keyOrPath, customLabel === '' ? undefined : customLabel, 'customLabel')
+  }
+
+  setRoomColor(scopeKey: string, keyOrPath: string, color: string | undefined): void {
+    this.patchRoom(scopeKey, keyOrPath, color, 'color')
+  }
+
+  private patchRoom(
+    scopeKey: string,
+    keyOrPath: string,
+    value: string | undefined,
+    field: 'customLabel' | 'color'
+  ): void {
+    const state = this.get(scopeKey)
+    const key = resolveTabKey(keyOrPath)
+    const tab = state.tabs.find(
+      (entry): entry is RoomTab => entry.kind === 'room' && entry.key === key
+    )
+    if (tab === undefined || tab[field] === value) return
+    const tabs = state.tabs.map((entry) =>
+      entry.kind === 'room' && entry.key === key
+        ? { ...entry, [field]: value }
+        : entry
+    )
+    this.states.set(scopeKey, { ...state, tabs })
+    this.emit()
+  }
+
   /** Opens or focuses a diff tab. Diff tabs are never dirty and never persisted. */
   openDiff(
     scopeKey: string,
@@ -830,12 +1329,35 @@ export class OpenFilesStore {
     this.emit()
   }
 
+  /** Pins a tab to the front; pinned tabs survive close-others/close-all. */
+  setPinned(scopeKey: string, keyOrPath: string, pinned: boolean): void {
+    const state = this.get(scopeKey)
+    const key = resolveTabKey(keyOrPath)
+    const existing = findTab(state, key)
+    if (existing === null || (existing.pinned === true) === pinned) return
+    if (existing.kind === 'chat' && existing.isHome && !pinned) return
+    const tabs = state.tabs.map((tab) =>
+      tabKey(tab) === key ? ({ ...tab, pinned } as CenterTab) : tab
+    )
+    this.states.set(
+      scopeKey,
+      normalizeTabs(tabs, state.activeKey, state.mode, state.hiddenSessionIds)
+    )
+    this.emit()
+  }
+
+  /** Waits for the hot-exit restore before a workspace chooses its first tab. */
+  async whenHydrated(): Promise<void> {
+    await this.hydration
+  }
+
   setActiveKey(scopeKey: string, keyOrPath: string): void {
     const state = this.get(scopeKey)
     const key = resolveTabKey(keyOrPath)
     const active = findTab(state, key)
     if (active === null) return
-    const mode: CenterMode = active.kind === 'session' ? 'terminal' : 'editor'
+    const mode: CenterMode =
+      active.kind === 'session' || active.kind === 'room' || active.kind === 'chat' ? 'terminal' : 'editor'
     if (state.activeKey === key && state.mode === mode) return
     this.states.set(
       scopeKey,
@@ -976,6 +1498,10 @@ export class OpenFilesStore {
         tabs.push({ ...tab, path: nextPath, original: null })
         continue
       }
+      if (tab.kind === 'room' || tab.kind === 'chat') {
+        tabs.push(tab)
+        continue
+      }
       const path =
         tab.request.kind === 'working'
           ? tab.request.entry.entry.path
@@ -1012,6 +1538,7 @@ export class OpenFilesStore {
       this.hideSession(scopeKey, removed.sessionId)
       return
     }
+    if (removed.kind === 'chat' && removed.isHome) return
     const tabs = state.tabs.filter((_, position) => position !== index)
     const wasActive = state.activeKey === key
     const fallback = tabs[Math.min(index, tabs.length - 1)]
@@ -1041,7 +1568,7 @@ export class OpenFilesStore {
       candidate !== null &&
       (candidate === path || candidate.startsWith(`${path}/`))
     const matches = (tab: CenterTab): boolean => {
-      if (tab.kind === 'session') return false
+      if (tab.kind === 'session' || tab.kind === 'room' || tab.kind === 'chat') return false
       if (isFileTab(tab)) return under(tab.path)
       if (tab.request.kind === 'working') {
         return (
@@ -1077,11 +1604,11 @@ export class OpenFilesStore {
     this.emit()
   }
 
-  /** Closes every file/diff tab; session tabs stay in the worktree bar. */
+  /** Closes every unpinned file/diff/room tab; session tabs stay in the worktree bar. */
   closeAll(scopeKey: string): void {
     const state = this.states.get(scopeKey)
     if (state === undefined) return
-    const tabs = state.tabs.filter((tab) => tab.kind === 'session')
+    const tabs = state.tabs.filter((tab) => tab.kind === 'session' || tab.pinned === true)
     if (tabs.length === 0 && state.hiddenSessionIds.length === 0) {
       this.states.delete(scopeKey)
       this.emit()
@@ -1146,7 +1673,7 @@ export class OpenFilesStore {
       const tab = byKey.get(key)
       return tab === undefined ? [] : [tab]
     })
-    this.states.set(scopeKey, { ...state, tabs })
+    this.states.set(scopeKey, { ...state, tabs: orderPinnedFirst(tabs) })
     this.emit()
   }
 
@@ -1194,6 +1721,61 @@ export class OpenFilesStore {
     const next = normalizeTabs(tabs, activeKey, state.mode, hiddenSessionIds)
     if (sameState(state, next)) return
     this.states.set(scopeKey, next)
+    this.emit()
+  }
+
+  /**
+   * Drops room tabs whose group or thread disappeared, keeping the surviving
+   * order. The group workspace calls this after every groups refresh.
+   */
+  reconcileRooms(scopeKey: string, validKeys: ReadonlySet<string>): void {
+    const state = this.states.get(scopeKey)
+    if (state === undefined) return
+    const tabs = state.tabs.filter(
+      (tab) => tab.kind !== 'room' || validKeys.has(tab.key)
+    )
+    if (tabs.length === state.tabs.length) return
+    if (tabs.length === 0 && state.hiddenSessionIds.length === 0) {
+      this.states.delete(scopeKey)
+      this.emit()
+      return
+    }
+    const activeKey =
+      state.activeKey !== null && tabs.some((tab) => tabKey(tab) === state.activeKey)
+        ? state.activeKey
+        : tabs[0] === undefined
+          ? null
+          : tabKey(tabs[0])
+    this.states.set(
+      scopeKey,
+      normalizeTabs(tabs, activeKey, state.mode, state.hiddenSessionIds)
+    )
+    this.emit()
+  }
+
+  /** Drops chat tabs whose assistant thread disappeared from the bot. */
+  reconcileChats(scopeKey: string, validKeys: ReadonlySet<string>): void {
+    const state = this.states.get(scopeKey)
+    if (state === undefined) return
+    const tabs = state.tabs.filter(
+      (tab) => tab.kind !== 'chat' || validKeys.has(tab.key)
+    )
+    if (tabs.length === state.tabs.length) return
+    if (tabs.length === 0 && state.hiddenSessionIds.length === 0) {
+      this.states.delete(scopeKey)
+      this.emit()
+      return
+    }
+    const activeKey =
+      state.activeKey !== null && tabs.some((tab) => tabKey(tab) === state.activeKey)
+        ? state.activeKey
+        : tabs[0] === undefined
+          ? null
+          : tabKey(tabs[0])
+    this.states.set(
+      scopeKey,
+      normalizeTabs(tabs, activeKey, state.mode, state.hiddenSessionIds)
+    )
     this.emit()
   }
 
@@ -1251,6 +1833,10 @@ export class OpenFilesStore {
     if (!this.migrated) return
     let changed = false
     for (const scopeKey of [...this.states.keys()]) {
+      // Group rooms and bot chats belong to their own workspaces, not to a
+      // session list.
+      if (groupIdFromWorkspaceKey(scopeKey) !== null) continue
+      if (botIdFromWorkspaceKey(scopeKey) !== null) continue
       if (scopeKeys.has(scopeKey)) continue
       this.states.delete(scopeKey)
       changed = true

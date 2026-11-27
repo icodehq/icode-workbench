@@ -16,7 +16,7 @@ export const groupReplyModeSchema = z.discriminatedUnion('kind', [
 export const groupThreadPayloadSchema = z.strictObject({
   id: groupThreadIdSchema,
   groupId: groupIdSchema,
-  title: z.string().min(1).max(200),
+  title: z.string().min(1).max(BOT_GROUP_LIMITS.maxThreadTitleLength),
   isDefault: z.boolean(),
   lastReadSeq: z.number().int().min(0),
   lastReadAt: z.number().int().min(0),
@@ -36,7 +36,7 @@ export const groupSummarySchema = z.strictObject({
   defaultBotId: z.string().min(1).max(120).nullable(),
   replyMode: groupReplyModeSchema,
   memberBotIds: z.array(z.string().min(1).max(120)).max(BOT_GROUP_LIMITS.maxMembers),
-  threads: z.array(groupThreadPayloadSchema).max(BOT_GROUP_LIMITS.maxThreads),
+  threads: z.array(groupThreadPayloadSchema),
   unread: z.number().int().min(0),
   archivedAt: z.number().int().nullable(),
   mutedAt: z.number().int().nullable(),
@@ -208,6 +208,13 @@ export const groupEventSchema = z.discriminatedUnion('type', [
     type: z.literal('thread'),
     groupId: groupIdSchema,
     threadId: groupThreadIdSchema
+  }),
+  z.strictObject({
+    type: z.literal('read'),
+    groupId: groupIdSchema,
+    threadId: groupThreadIdSchema,
+    seq: z.number().int().min(0),
+    unread: z.number().int().min(0)
   })
 ])
 

@@ -544,6 +544,38 @@ export class GroupStore {
     return turns
   }
 
+  /** Durable room transcript search for Session History. */
+  searchMessages(
+    query: string,
+    limit: number
+  ): Array<{
+    groupId: string
+    threadId: string
+    body: string
+    createdAt: number
+  }> {
+    const pattern = `%${query.replace(/[\\%_]/g, '\\$&')}%`
+    const rows = this.db.raw
+      .prepare(
+        `SELECT group_id, thread_id, body, created_at
+         FROM bot_group_messages
+         WHERE body LIKE ? ESCAPE '\\'
+         ORDER BY created_at DESC LIMIT ?`
+      )
+      .all(pattern, limit) as Array<{
+      group_id: string
+      thread_id: string
+      body: string
+      created_at: number
+    }>
+    return rows.map((row) => ({
+      groupId: row.group_id,
+      threadId: row.thread_id,
+      body: row.body,
+      createdAt: row.created_at
+    }))
+  }
+
   unreadCount(threadId: string): number {
     const row = this.db.raw
       .prepare(
@@ -554,6 +586,21 @@ export class GroupStore {
       )
       .get(threadId, threadId) as { n: number }
     return Number(row.n)
+  }
+
+  /**
+   * A member's finished turn updates the thread's latest line but adds no
+   * message row. It is unread until the thread is read after that line.
+   */
+  hasUnreadActivity(threadId: string): boolean {
+    const row = this.db.raw
+      .prepare(
+        `SELECT CASE WHEN latest_at IS NOT NULL AND latest_at > last_read_at
+                THEN 1 ELSE 0 END AS unread
+         FROM bot_group_threads WHERE id = ?`
+      )
+      .get(threadId) as { unread: number } | undefined
+    return row !== undefined && Number(row.unread) === 1
   }
 
   ensureThreadMembers(threadId: string, botIds: readonly string[], now: number): void {

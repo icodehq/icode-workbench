@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest'
+import { BOT_GROUP_LIMITS } from '../../shared/domain/group'
 import { GroupStore } from '../persistence/group-store'
 import { openTempDatabase, makeTempRoot, type TempRoot } from '../persistence/persistence-test-fixtures'
 import {
   GroupChatService,
+  type GroupChatEvent,
   type GroupRuntimePort,
   type GroupTurnContext,
   type GroupTurnResult
@@ -38,6 +40,7 @@ function createService() {
   const stopped: string[] = []
   let release: (() => void) | null = null
   let callCount = 0
+  let currentTime = now
   const runtime: GroupRuntimePort = {
     async ensureRoomSession({ botId, groupThreadId }) {
       const assistantThreadId = `athread_${botId}_${groupThreadId}`
@@ -77,7 +80,7 @@ function createService() {
     botInfo,
     runtime,
     composeTurnPrompt: (context: GroupTurnContext) => `prompt:${context.bot.id}`,
-    now: () => now,
+    now: () => currentTime,
     newId: (() => {
       let id = 0
       return (prefix: string) => `${prefix}_${++id}`
@@ -91,7 +94,11 @@ function createService() {
     replies,
     stopped,
     calls: () => callCount,
-    release: () => release?.()
+    release: () => release?.(),
+    advance: (ms = 1) => {
+      currentTime += ms
+      return currentTime
+    }
   }
 }
 
@@ -241,6 +248,81 @@ describe('group chat service', () => {
     })
     await service.waitForIdle()
     expect(service.getThread(thread.id)?.title).toBe('Login revamp')
+    await service.sendOwnerMessage({
+      groupId: group.id,
+      threadId: thread.id,
+      text: 'A later line'
+    })
+    await service.waitForIdle()
+    expect(service.getThread(thread.id)?.title).toBe('Login revamp')
+  })
+
+  it('cuts a thread title to the thread-title limit', async () => {
+    const { service, group } = await setup()
+    const thread = service.createThread(group.id)
+    await service.sendOwnerMessage({
+      groupId: group.id,
+      threadId: thread.id,
+      text: 'x'.repeat(BOT_GROUP_LIMITS.maxThreadTitleLength + 30)
+    })
+    await service.waitForIdle()
+    expect(service.getThread(thread.id)?.title).toHaveLength(
+      BOT_GROUP_LIMITS.maxThreadTitleLength
+    )
+  })
+
+  it('keeps creating threads without a fixed group limit', async () => {
+    const { service, group } = await setup()
+    for (let index = 0; index < 40; index += 1) {
+      service.createThread(group.id)
+    }
+    expect(service.listThreads(group.id)).toHaveLength(41)
+  })
+
+  it('keeps a finished bot reply unread after its owner message is read', async () => {
+    const { service, replies, group, thread, calls, advance, release } = await setup()
+    replies.set('backend', 'defer')
+    advance(5)
+    const sent = await service.sendOwnerMessage({
+      groupId: group.id,
+      threadId: thread.id,
+      text: 'Work on this'
+    })
+    while (calls() === 0) await new Promise((resolve) => setTimeout(resolve, 0))
+    service.markRead(thread.id, sent.message.seq)
+    expect(service.hasUnreadActivity(thread.id)).toBe(false)
+    expect(service.unreadCount(thread.id)).toBe(0)
+
+    advance(5)
+    release()
+    await service.waitForIdle()
+    expect(service.unreadCount(thread.id)).toBe(0)
+    expect(service.hasUnreadActivity(thread.id)).toBe(true)
+
+    service.markRead(thread.id, sent.message.seq)
+    expect(service.hasUnreadActivity(thread.id)).toBe(false)
+  })
+
+  it('emits a read event instead of reloading the whole group', async () => {
+    const { service, store, group, thread } = await setup()
+    const events: GroupChatEvent[] = []
+    service.subscribe((event) => events.push(event))
+    const sent = await service.sendOwnerMessage({
+      groupId: group.id,
+      threadId: thread.id,
+      text: 'Read me'
+    })
+    await service.waitForIdle()
+    const unread = service.markRead(thread.id, sent.message.seq)
+    expect(unread).toBe(0)
+    expect(events.at(-1)).toMatchObject({
+      type: 'read',
+      groupId: group.id,
+      threadId: thread.id,
+      seq: sent.message.seq,
+      unread: 0
+    })
+    expect(store.findThread(thread.id)?.lastReadSeq).toBe(sent.message.seq)
   })
 
   it('caps hand-offs per root across turns', async () => {

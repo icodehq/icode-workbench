@@ -599,16 +599,28 @@ describe('migration 24: groups, threads and room sessions', () => {
     ).toEqual({ group_thread_id: 'gthread_team_1' })
     expect(
       migrated.raw
-        .prepare("SELECT kind, group_thread_id FROM assistant_threads WHERE id = 'thread_backend'")
+        .prepare(
+          "SELECT kind, group_thread_id, is_home FROM assistant_threads WHERE id = 'thread_backend'"
+        )
         .get()
-    ).toEqual({ kind: 'bot', group_thread_id: null })
+    ).toEqual({ kind: 'bot', group_thread_id: null, is_home: 1 })
+    // A side chat is another bot thread with no group thread; only one thread
+    // may be the bot's Home.
+    migrated.raw
+      .prepare(
+        `INSERT INTO assistant_threads (
+           id, kind, title, bot_id, group_thread_id, created_at, updated_at,
+           last_message_at, last_read_seq, active_run_id, archived_at
+         ) VALUES ('thread_backend_2', 'bot', 'Backend 2', 'backend', NULL, 1, 1, NULL, 0, NULL, NULL)`
+      )
+      .run()
     expect(() =>
       migrated.raw
         .prepare(
           `INSERT INTO assistant_threads (
-             id, kind, title, bot_id, group_thread_id, created_at, updated_at,
+             id, kind, title, bot_id, is_home, group_thread_id, created_at, updated_at,
              last_message_at, last_read_seq, active_run_id, archived_at
-           ) VALUES ('thread_backend_2', 'bot', 'Backend 2', 'backend', NULL, 1, 1, NULL, 0, NULL, NULL)`
+           ) VALUES ('thread_backend_3', 'bot', 'Backend 3', 'backend', 1, NULL, 1, 1, NULL, 0, NULL, NULL)`
         )
         .run()
     ).toThrow(/UNIQUE/i)

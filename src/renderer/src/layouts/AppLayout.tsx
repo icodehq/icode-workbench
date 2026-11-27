@@ -11,8 +11,9 @@ type Props = {
   sidebarOpen: boolean
   onOpenSidebar: () => void
   onCloseSidebar: () => void
-  appTabs: ReactNode
-  /** Non-modal app-wide notices, rendered below the tab strip. */
+  /** A drag bar for surfaces that do not own a workspace tab strip. */
+  chromeBar?: ReactNode
+  /** Non-modal app-wide notices, rendered below the title area. */
   banner?: ReactNode
   windowChrome: ReactNode
   /** Global overlays stay mounted at the shell root. */
@@ -34,7 +35,7 @@ export default function AppLayout({
   sidebarOpen,
   onOpenSidebar,
   onCloseSidebar,
-  appTabs,
+  chromeBar,
   banner,
   windowChrome,
   overlays,
@@ -99,7 +100,7 @@ export default function AppLayout({
           </div>
         ) : null}
 
-        {!focusActive ? appTabs : null}
+        {!focusActive ? chromeBar : null}
         {!focusActive ? banner : null}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</div>
       </main>

@@ -14,6 +14,11 @@ import type {
 } from '../../../shared/schemas/groups'
 import type { Notice } from './workspace'
 import { callApi, errorNotice } from '../lib/api'
+import { openFilesStore } from '../files/open-files'
+import { groupWorkspaceKey } from '../workspace/workspace-key'
+import { mergeLocalRead } from './group-thread-read'
+import { setRoomWorkspaceEmpty } from './room-workspace-empty'
+import { clearWorkspaceSplit } from './use-workspace-split'
 
 export type BotsSelection =
   | { kind: 'group'; groupId: string; threadId: string }
@@ -22,10 +27,6 @@ export type BotsSelection =
 
 export type OpenBotsTab = Exclude<BotsSelection, null>
 
-export function botsTabKey(tab: OpenBotsTab): string {
-  return tab.kind === 'group' ? `group:${tab.groupId}` : `bot:${tab.botId}`
-}
-
 export type BotsWorkspaceState = {
   groups: GroupSummaryPayload[]
   bots: BotSummaryPayload[]
@@ -33,15 +34,21 @@ export type BotsWorkspaceState = {
   thread: GroupThreadPayload | null
   bot: BotSummaryPayload | null
   selected: BotsSelection
-  openTabs: OpenBotsTab[]
+  /** An explicit open from the sidebar or a notification, not a background refresh. */
+  roomRequest: { groupId: string; threadId: string; nonce: number } | null
+  /** An explicit open of one bot chat, e.g. from Session History. */
+  chatRequest: { botId: string; threadId: string; nonce: number } | null
+  groupHomeRead: Record<string, boolean>
   loading: boolean
   unread: number
   reload: () => Promise<void>
+  openGroup: (groupId: string, threadId?: string) => void
   selectGroup: (groupId: string, threadId?: string) => void
   selectThread: (threadId: string) => void
   selectBot: (botId: string) => void
-  activateTab: (tab: OpenBotsTab) => void
-  closeTab: (tab: OpenBotsTab) => void
+  openBotChat: (botId: string, threadId: string) => void
+  groupHomeUnread: (group: GroupSummaryPayload) => number
+  setGroupHomeRead: (groupId: string, read: boolean) => void
   createGroup: (input: GroupCreateInput) => Promise<GroupSummaryPayload | null>
   updateGroup: (input: GroupUpdateInput) => Promise<GroupSummaryPayload | null>
   archiveGroup: (groupId: string) => Promise<boolean>
@@ -61,6 +68,56 @@ function defaultThread(group: GroupSummaryPayload): GroupThreadPayload | null {
   return group.threads.find((thread) => thread.isDefault) ?? group.threads[0] ?? null
 }
 
+const ACTIVE_GROUP_KEY = 'icode.bots.active-group.v1'
+
+function readStoredActiveGroup(): string | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = window.localStorage.getItem(ACTIVE_GROUP_KEY)
+    return raw !== null && raw.length > 0 ? raw : null
+  } catch {
+    return null
+  }
+}
+
+function writeStoredActiveGroup(groupId: string): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(ACTIVE_GROUP_KEY, groupId)
+  } catch {
+    // A blocked storage is only a lost selection preference.
+  }
+}
+
+/** A group-home read/unread toggle, independent of each room's tab markers. */
+const GROUP_HOME_READ_KEY = 'icode.bots.group-home-read.v1'
+
+function readGroupHomeRead(): Record<string, boolean> {
+  if (typeof window === 'undefined') return {}
+  try {
+    const raw = window.localStorage.getItem(GROUP_HOME_READ_KEY)
+    if (raw === null) return {}
+    const parsed: unknown = JSON.parse(raw)
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return {}
+    const result: Record<string, boolean> = {}
+    for (const [groupId, value] of Object.entries(parsed)) {
+      if (typeof value === 'boolean') result[groupId] = value
+    }
+    return result
+  } catch {
+    return {}
+  }
+}
+
+function writeGroupHomeRead(value: Record<string, boolean>): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(GROUP_HOME_READ_KEY, JSON.stringify(value))
+  } catch {
+    // A blocked storage is only a lost unread preference.
+  }
+}
+
 /**
  * Global bot/group state for the Bots surface.
  *
@@ -71,15 +128,90 @@ export function useBots(notify: (notice: Notice) => void): BotsWorkspaceState {
   const [groups, setGroups] = useState<GroupSummaryPayload[]>([])
   const [bots, setBots] = useState<BotSummaryPayload[]>([])
   const [selected, setSelected] = useState<BotsSelection>(null)
-  const [openTabs, setOpenTabs] = useState<OpenBotsTab[]>([])
+  const [roomRequest, setRoomRequest] = useState<{
+    groupId: string
+    threadId: string
+    nonce: number
+  } | null>(null)
+  const [chatRequest, setChatRequest] = useState<{
+    botId: string
+    threadId: string
+    nonce: number
+  } | null>(null)
+  const [groupHomeRead, setGroupHomeReadState] =
+    useState<Record<string, boolean>>(readGroupHomeRead)
   const [loading, setLoading] = useState(true)
   const mounted = useRef(true)
   const selectedRef = useRef<BotsSelection>(null)
   selectedRef.current = selected
-  const openTabsRef = useRef<OpenBotsTab[]>([])
-  openTabsRef.current = openTabs
+  const groupRefreshTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>())
+  const botsRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const preferredGroupId = useRef<string | null>(readStoredActiveGroup())
+  const readSeqByThread = useRef(new Map<string, number>())
+  const groupRefreshEpoch = useRef(0)
+  const groupsRef = useRef<GroupSummaryPayload[]>([])
+  groupsRef.current = groups
+
+  const setGroupHomeRead = useCallback((groupId: string, read: boolean): void => {
+    setGroupHomeReadState((current) => {
+      const next = { ...current, [groupId]: read }
+      writeGroupHomeRead(next)
+      return next
+    })
+  }, [])
+
+  const clearGroupHomeRead = useCallback((groupId: string): void => {
+    setGroupHomeReadState((current) => {
+      if (!(groupId in current)) return current
+      const next = { ...current }
+      delete next[groupId]
+      writeGroupHomeRead(next)
+      return next
+    })
+  }, [])
+
+  const groupHomeUnread = useCallback(
+    (group: GroupSummaryPayload): number => {
+      const override = groupHomeRead[group.id]
+      if (override === true) return 0
+      if (override === false) return Math.max(1, group.unread)
+      return group.unread
+    },
+    [groupHomeRead]
+  )
+
+  /** An explicit group-wide read/unread is authoritative over this window's reads. */
+  const clearReadForGroup = useCallback((groupId: string): void => {
+    const group = groupsRef.current.find((entry) => entry.id === groupId)
+    if (group === undefined) return
+    for (const thread of group.threads) readSeqByThread.current.delete(thread.id)
+  }, [])
+
+  /** A refresh that left before a read must not raise that read's unread again. */
+  const mergeThreadRead = useCallback(
+    (thread: GroupThreadPayload): GroupThreadPayload =>
+      mergeLocalRead(thread, readSeqByThread.current.get(thread.id)),
+    []
+  )
+
+  const mergeGroupRead = useCallback(
+    (group: GroupSummaryPayload): GroupSummaryPayload => {
+      const threads = group.threads.map(mergeThreadRead)
+      if (threads.every((thread, index) => thread === group.threads[index])) {
+        return group
+      }
+      return {
+        ...group,
+        threads,
+        unread: threads.reduce((total, thread) => total + thread.unread, 0)
+      }
+    },
+    [mergeThreadRead]
+  )
 
   const reload = useCallback(async (): Promise<void> => {
+    // A full reload supersedes any per-group refresh already in flight.
+    groupRefreshEpoch.current += 1
     const [groupsResult, botsResult] = await Promise.all([
       callApi<GroupSummaryPayload[]>(window.icode.groups.list()),
       callApi<BotSummaryPayload[]>(window.icode.bots.list())
@@ -95,7 +227,7 @@ export function useBots(notify: (notice: Notice) => void): BotsWorkspaceState {
       setLoading(false)
       return
     }
-    const nextGroups = groupsResult.value
+    const nextGroups = groupsResult.value.map(mergeGroupRead)
     const nextBots = botsResult.value
     setGroups(nextGroups)
     setBots(nextBots)
@@ -113,7 +245,9 @@ export function useBots(notify: (notice: Notice) => void): BotsWorkspaceState {
       if (current?.kind === 'bot') {
         if (nextBots.some((bot) => bot.id === current.botId)) return current
       }
-      const firstGroup = nextGroups[0]
+      const firstGroup =
+        nextGroups.find((group) => group.id === preferredGroupId.current) ??
+        nextGroups[0]
       if (firstGroup !== undefined) {
         const thread = defaultThread(firstGroup)
         if (thread !== null) {
@@ -124,59 +258,150 @@ export function useBots(notify: (notice: Notice) => void): BotsWorkspaceState {
       return firstBot === undefined ? null : { kind: 'bot', botId: firstBot.id }
     })
     setLoading(false)
-  }, [notify])
+  }, [mergeGroupRead, notify])
+
+  /** A burst of room events costs one thread refresh per group. */
+  const refreshGroupSoon = useCallback((groupId: string): void => {
+    const existing = groupRefreshTimers.current.get(groupId)
+    if (existing !== undefined) clearTimeout(existing)
+    const timer = setTimeout(() => {
+      groupRefreshTimers.current.delete(groupId)
+      const epoch = groupRefreshEpoch.current
+      void (async () => {
+        const result = await callApi<GroupThreadPayload[]>(
+          window.icode.groups.threads({ groupId })
+        )
+        if (
+          !mounted.current ||
+          !result.ok ||
+          epoch !== groupRefreshEpoch.current
+        ) {
+          return
+        }
+        const threads = result.value.map(mergeThreadRead)
+        setGroups((current) =>
+          current.map((group) =>
+            group.id === groupId
+              ? {
+                  ...group,
+                  threads,
+                  unread: threads.reduce(
+                    (total, thread) => total + thread.unread,
+                    0
+                  )
+                }
+              : group
+          )
+        )
+      })()
+    }, 75)
+    groupRefreshTimers.current.set(groupId, timer)
+  }, [mergeThreadRead])
+
+  const refreshBotsSoon = useCallback((): void => {
+    if (botsRefreshTimer.current !== null) clearTimeout(botsRefreshTimer.current)
+    botsRefreshTimer.current = setTimeout(() => {
+      botsRefreshTimer.current = null
+      void (async () => {
+        const result = await callApi<BotSummaryPayload[]>(window.icode.bots.list())
+        if (!mounted.current || !result.ok) return
+        setBots(result.value)
+      })()
+    }, 75)
+  }, [])
 
   useEffect(() => {
     mounted.current = true
     void reload()
     return () => {
       mounted.current = false
+      for (const timer of groupRefreshTimers.current.values()) clearTimeout(timer)
+      groupRefreshTimers.current.clear()
+      if (botsRefreshTimer.current !== null) {
+        clearTimeout(botsRefreshTimer.current)
+        botsRefreshTimer.current = null
+      }
     }
   }, [reload])
 
   useEffect(() => {
-    const unsubscribeGroups = window.icode.groups.onEvent(() => {
-      void reload()
+    const unsubscribeGroups = window.icode.groups.onEvent((event) => {
+      if (event.type === 'read') {
+        clearGroupHomeRead(event.groupId)
+        readSeqByThread.current.set(
+          event.threadId,
+          Math.max(readSeqByThread.current.get(event.threadId) ?? 0, event.seq)
+        )
+        setGroups((current) =>
+          current.map((group) => {
+            if (group.id !== event.groupId) return group
+            const threads = group.threads.map((thread) =>
+              thread.id === event.threadId
+                ? {
+                    ...thread,
+                    lastReadSeq: Math.max(thread.lastReadSeq, event.seq),
+                    unread: event.unread
+                  }
+                : thread
+            )
+            return {
+              ...group,
+              threads,
+              unread: threads.reduce((total, thread) => total + thread.unread, 0)
+            }
+          })
+        )
+        return
+      }
+      clearGroupHomeRead(event.groupId)
+      if (event.type === 'changed') {
+        clearReadForGroup(event.groupId)
+        void reload()
+        return
+      }
+      if (event.type === 'thread') {
+        // A new thread invalidates a list refresh that started before it.
+        groupRefreshEpoch.current += 1
+      }
+      refreshGroupSoon(event.groupId)
     })
     const unsubscribeBots = window.icode.bots.onEvent((event) => {
-      if (event.type === 'changed' || event.event.type !== 'delta') void reload()
+      if (event.type === 'changed' || event.event.type !== 'delta') refreshBotsSoon()
     })
-    const unsubscribeTasks = window.icode.onTaskEvent(() => {
-      void reload()
-    })
+    const unsubscribeTasks = window.icode.onTaskEvent(() => refreshBotsSoon())
     return () => {
       unsubscribeGroups()
       unsubscribeBots()
       unsubscribeTasks()
     }
-  }, [reload])
+  }, [
+    clearGroupHomeRead,
+    clearReadForGroup,
+    refreshBotsSoon,
+    refreshGroupSoon,
+    reload
+  ])
 
-  // The active selection always has an open tab; selecting an open room only
-  // activates it, and a group keeps one tab while its thread changes.
+  // Restore the group the owner last used, while keeping it valid.
   useEffect(() => {
-    if (selected === null) return
-    setOpenTabs((current) => {
-      const key = botsTabKey(selected)
-      const index = current.findIndex((tab) => botsTabKey(tab) === key)
-      if (index === -1) return [...current, selected]
-      if (selected.kind !== 'group') return current
-      const existing = current[index]
-      if (existing?.kind !== 'group' || existing.threadId === selected.threadId) return current
-      return current.map((tab, position) =>
-        position === index ? { ...existing, threadId: selected.threadId } : tab
-      )
-    })
+    if (selected?.kind !== 'group') return
+    preferredGroupId.current = selected.groupId
+    writeStoredActiveGroup(selected.groupId)
   }, [selected])
 
+  // A per-group refresh can drop a removed thread; keep the selection valid.
   useEffect(() => {
-    setOpenTabs((current) =>
-      current.filter((tab) =>
-        tab.kind === 'group'
-          ? groups.some((group) => group.id === tab.groupId)
-          : bots.some((bot) => bot.id === tab.botId)
-      )
-    )
-  }, [bots, groups])
+    setSelected((current) => {
+      if (current?.kind !== 'group') return current
+      const group = groups.find((entry) => entry.id === current.groupId)
+      if (group === undefined) return null
+      if (group.threads.some((thread) => thread.id === current.threadId)) return current
+      const fallback = defaultThread(group)
+      return fallback === null
+        ? null
+        : { kind: 'group', groupId: group.id, threadId: fallback.id }
+    })
+  }, [groups])
 
   const selectGroup = useCallback(
     (groupId: string, threadId?: string): void => {
@@ -192,6 +417,23 @@ export function useBots(notify: (notice: Notice) => void): BotsWorkspaceState {
     [groups]
   )
 
+  /** An explicit open: select the group and ask its workspace for that room. */
+  const openGroup = useCallback(
+    (groupId: string, threadId?: string): void => {
+      const group = groups.find((entry) => entry.id === groupId)
+      if (group === undefined) return
+      const thread =
+        (threadId === undefined
+          ? undefined
+          : group.threads.find((entry) => entry.id === threadId)) ?? defaultThread(group)
+      if (thread === null) return
+      clearGroupHomeRead(groupId)
+      setSelected({ kind: 'group', groupId, threadId: thread.id })
+      setRoomRequest({ groupId, threadId: thread.id, nonce: Date.now() })
+    },
+    [clearGroupHomeRead, groups]
+  )
+
   const selectThread = useCallback((threadId: string): void => {
     const current = selectedRef.current
     if (current?.kind !== 'group') return
@@ -202,20 +444,9 @@ export function useBots(notify: (notice: Notice) => void): BotsWorkspaceState {
     setSelected({ kind: 'bot', botId })
   }, [])
 
-  const activateTab = useCallback((tab: OpenBotsTab): void => {
-    setSelected(tab)
-  }, [])
-
-  const closeTab = useCallback((tab: OpenBotsTab): void => {
-    const current = openTabsRef.current
-    const index = current.findIndex((entry) => botsTabKey(entry) === botsTabKey(tab))
-    if (index === -1) return
-    const next = current.filter((_, position) => position !== index)
-    setOpenTabs(next)
-    const active = selectedRef.current
-    if (active !== null && botsTabKey(active) === botsTabKey(tab)) {
-      setSelected(next[Math.min(index, next.length - 1)] ?? null)
-    }
+  const openBotChat = useCallback((botId: string, threadId: string): void => {
+    setSelected({ kind: 'bot', botId })
+    setChatRequest({ botId, threadId, nonce: Date.now() })
   }, [])
 
   const createGroup = useCallback(
@@ -280,6 +511,7 @@ export function useBots(notify: (notice: Notice) => void): BotsWorkspaceState {
 
   const setGroupRead = useCallback(
     async (groupId: string, read: boolean): Promise<number | null> => {
+      clearReadForGroup(groupId)
       const result = await callApi<{ unread: number }>(
         window.icode.groups.setRead({ groupId, read })
       )
@@ -290,7 +522,7 @@ export function useBots(notify: (notice: Notice) => void): BotsWorkspaceState {
       await reload()
       return result.value.unread
     },
-    [notify, reload]
+    [clearReadForGroup, notify, reload]
   )
 
   const deleteGroup = useCallback(
@@ -299,6 +531,12 @@ export function useBots(notify: (notice: Notice) => void): BotsWorkspaceState {
       if (!result.ok) {
         notify(errorNotice(result.error))
         return false
+      }
+      if (result.value) {
+        const scopeKey = groupWorkspaceKey(groupId)
+        openFilesStore.clearScope(scopeKey)
+        clearWorkspaceSplit(scopeKey)
+        setRoomWorkspaceEmpty(scopeKey, false)
       }
       await reload()
       return result.value
@@ -317,6 +555,11 @@ export function useBots(notify: (notice: Notice) => void): BotsWorkspaceState {
       }
       await reload()
       setSelected({ kind: 'group', groupId, threadId: result.value.thread.id })
+      setRoomRequest({
+        groupId,
+        threadId: result.value.thread.id,
+        nonce: Date.now()
+      })
       return result.value.thread
     },
     [notify, reload]
@@ -442,15 +685,19 @@ export function useBots(notify: (notice: Notice) => void): BotsWorkspaceState {
     thread,
     bot,
     selected,
-    openTabs,
+    roomRequest,
+    chatRequest,
+    groupHomeRead,
     loading,
     unread,
     reload,
+    openGroup,
     selectGroup,
     selectThread,
     selectBot,
-    activateTab,
-    closeTab,
+    openBotChat,
+    groupHomeUnread,
+    setGroupHomeRead,
     createGroup,
     updateGroup,
     archiveGroup,
