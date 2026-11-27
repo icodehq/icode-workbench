@@ -553,11 +553,15 @@ async function main() {
       `document.body.innerText.includes('Probe Group')`,
       'group room title'
     )
+    await waitFor(
+      `Boolean(document.querySelector('[data-testid="room-tabs"]'))`,
+      'group room tabs'
+    )
     assert(
       await cdp.evaluate(
-        `Boolean(document.querySelector('[data-testid="app-tab-bots-group:${groupId}"]'))`
+        `Array.from(document.querySelectorAll('[data-testid="room-tabs"] [role="tab"]')).some((tab) => tab.innerText.includes('Probe Group'))`
       ),
-      'The group did not open as a center tab'
+      'The original room did not open as a room tab'
     )
     const compose = async (text) => {
       await cdp.evaluate(`(() => {
@@ -638,6 +642,207 @@ async function main() {
     )
   })
 
+  await step('create a thread, split rooms, and reopen a closed room', async () => {
+    await cdp.evaluate(
+      `document.querySelector('[data-testid="bots-threads-menu"]').click()`
+    )
+    await waitFor(
+      `Boolean(document.querySelector('[data-testid="bots-thread-new"]'))`,
+      'threads menu'
+    )
+    await cdp.evaluate(
+      `document.querySelector('[data-testid="bots-thread-new"]').click()`
+    )
+    await waitFor(
+      `document.querySelectorAll('[data-testid="room-tabs"] [role="tab"]').length >= 2`,
+      'second room tab'
+    )
+
+    const title = 'Smoke thread title'
+    await cdp.evaluate(`(() => {
+      const input = document.querySelector('[data-testid="bots-composer"]')
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLTextAreaElement.prototype,
+        'value'
+      ).set
+      setter.call(input, ${JSON.stringify(`${title}\nsecond line`)})
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })()`)
+    await waitFor(
+      `!document.querySelector('[data-testid="bots-send"]').disabled`,
+      'thread composer ready'
+    )
+    await cdp.evaluate(
+      `document.querySelector('[data-testid="bots-send"]').click()`
+    )
+    await waitFor(
+      `document.body.innerText.includes(${JSON.stringify(title)})`,
+      'thread message',
+      8000
+    )
+    await waitFor(
+      `Array.from(document.querySelectorAll('[data-testid="room-tabs"] [role="tab"]')).some((tab) => tab.innerText.includes(${JSON.stringify(title)}))`,
+      'thread tab titled',
+      8000
+    )
+    assert(
+      await cdp.evaluate(
+        `document.querySelector('[data-testid="sidebar-bots-group-${groupId}"]')?.innerText.includes(${JSON.stringify(title)})`
+      ),
+      'The sidebar preview did not follow the newest room'
+    )
+    await screenshot('03b-thread')
+
+    await cdp.evaluate(
+      `document.querySelector('[data-testid="room-tabs-split"]').click()`
+    )
+    await waitFor(
+      `Boolean(document.querySelector('[data-testid="room-pane-empty"]'))`,
+      'split picker'
+    )
+    await cdp.evaluate(
+      `document.querySelector('[data-testid^="room-pick-"]').click()`
+    )
+    await waitFor(
+      `document.querySelectorAll('[data-testid="session-split-divider"]').length >= 1`,
+      'split divider'
+    )
+    await waitFor(
+      `document.querySelectorAll('[data-testid="bots-room-thread"]').length >= 2`,
+      'two room panes'
+    )
+    await screenshot('03c-split')
+
+    await cdp.evaluate(`(() => {
+      const tab = Array.from(
+        document.querySelectorAll('[data-testid="room-tabs"] [role="tab"]')
+      ).find((entry) => entry.innerText.includes(${JSON.stringify(title)}))
+      tab?.parentElement?.querySelector('button[data-testid$="-close"]')?.click()
+    })()`)
+    await waitFor(
+      `document.querySelectorAll('[data-testid="room-tabs"] [role="tab"]').length === 1`,
+      'closed room tab'
+    )
+    await cdp.evaluate(
+      `document.querySelector('[data-testid="bots-threads-menu"]').click()`
+    )
+    await waitFor(
+      `Boolean(document.querySelector('[data-testid="bots-thread-new"]'))`,
+      'threads menu reopened'
+    )
+    await cdp.evaluate(
+      `Array.from(document.querySelectorAll('[data-testid^="bots-thread-"]:not([data-testid="bots-thread-new"])')).find((item) => item.innerText.includes(${JSON.stringify(title)}))?.click()`
+    )
+    await waitFor(
+      `document.querySelectorAll('[data-testid="room-tabs"] [role="tab"]').length === 2`,
+      'reopened room tab'
+    )
+    await screenshot('03d-reopened')
+
+    await cdp.evaluate(
+      `document.querySelector('[data-testid="room-tabs-new"]').click()`
+    )
+    await waitFor(
+      `Boolean(document.querySelector('[data-testid="room-tabs-new-item"]'))`,
+      'tab strip new thread menu'
+    )
+    await cdp.evaluate(
+      `document.querySelector('[data-testid="room-tabs-new-item"]').click()`
+    )
+    await waitFor(
+      `document.querySelectorAll('[data-testid="room-tabs"] [role="tab"]').length >= 3`,
+      'third room tab from the strip'
+    )
+    await screenshot('03e-third-room')
+
+    const openTabMenu = async () => {
+      await cdp.evaluate(`(() => {
+        const tab = document.querySelectorAll('[data-testid="room-tabs"] [role="tab"]')[0]
+        const rect = tab.getBoundingClientRect()
+        tab.dispatchEvent(new MouseEvent('contextmenu', {
+          bubbles: true,
+          clientX: rect.left + 10,
+          clientY: rect.top + 10
+        }))
+      })()`)
+      await waitFor(
+        `Boolean(document.querySelector('[data-testid="room-tab-menu"]'))`,
+        'room tab menu'
+      )
+    }
+    await openTabMenu()
+    await cdp.evaluate(
+      `Array.from(document.querySelectorAll('[role="menuitem"]')).find((item) => item.textContent.trim() === 'Rename')?.click()`
+    )
+    await waitFor(
+      `Boolean(document.querySelector('[data-testid="room-tab-rename"]'))`,
+      'room tab rename input'
+    )
+    await cdp.evaluate(`(() => {
+      const input = document.querySelector('[data-testid="room-tab-rename"]')
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        'value'
+      ).set
+      setter.call(input, 'Pinned room')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    })()`)
+    await waitFor(
+      `Array.from(document.querySelectorAll('[data-testid="room-tabs"] [role="tab"]')).some((tab) => tab.innerText.includes('Pinned room'))`,
+      'renamed room tab'
+    )
+
+    await openTabMenu()
+    await cdp.evaluate(
+      `Array.from(document.querySelectorAll('[role="menuitem"]')).find((item) => item.textContent.trim() === 'Pin tab')?.click()`
+    )
+    await waitFor(
+      `!document.querySelectorAll('[data-testid="room-tabs"] [role="tab"]')[0]?.parentElement?.querySelector('button[data-testid$="-close"]')`,
+      'pinned room tab'
+    )
+
+    await openTabMenu()
+    await cdp.evaluate(
+      `Array.from(document.querySelectorAll('[role="menuitem"]')).find((item) => item.textContent.trim() === 'Blue')?.click()`
+    )
+    await waitFor(
+      `Boolean(document.querySelector('[data-testid$="-color"]'))`,
+      'room tab color'
+    )
+    await cdp.evaluate(`(() => {
+      const tab = document.querySelectorAll('[data-testid="room-tabs"] [role="tab"]')[0]
+      tab.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+    })()`)
+    await waitFor(
+      `Boolean(document.querySelector('[data-testid="room-tab-hover"]'))`,
+      'room tab hover card',
+      3000
+    )
+    await cdp.evaluate(`(() => {
+      const tab = document.querySelectorAll('[data-testid="room-tabs"] [role="tab"]')[0]
+      tab.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }))
+    })()`)
+    await screenshot('03f-tab-chrome')
+
+    await cdp.evaluate(
+      `document.querySelector('[data-testid="sidebar-bots-history"]').click()`
+    )
+    await waitFor(
+      `Boolean(document.querySelector('[data-testid="bots-history-dialog"]'))`,
+      'room history dialog'
+    )
+    assert(
+      (await cdp.evaluate(
+        `document.querySelectorAll('[data-testid^="bots-history-row-"]').length`
+      )) >= 3,
+      'Room history did not list every room'
+    )
+    await cdp.evaluate(
+      `document.querySelector('[data-testid="bots-history-close"]').click()`
+    )
+  })
+
   await step('open a bot home, pause it, and read its memory tab', async () => {
     await cdp.evaluate(
       `document.querySelector('[data-testid="sidebar-bots-bot-${botId}"]').click()`
@@ -645,6 +850,12 @@ async function main() {
     await waitFor(
       `Boolean(document.querySelector('[data-testid="bots-open-settings"]'))`,
       'bot settings entry'
+    )
+    assert(
+      await cdp.evaluate(
+        `Boolean(document.querySelector('[data-testid="bot-home-tab"]'))`
+      ),
+      'The bot home did not open with a Home tab'
     )
     await cdp.evaluate(`(() => {
       const input = document.querySelector('[data-testid="assistant-composer"]')
@@ -823,6 +1034,198 @@ async function main() {
     await screenshot('05-bot-agent')
     await cdp.evaluate(
       `document.querySelector('[data-testid="app-tab-close-bots-bot:${botId}"]')?.click()`
+    )
+  })
+
+  await step('open a side chat and reopen it from global history', async () => {
+    // The previous step paused the bot; a side chat needs a turn to be named
+    // and to appear in global history, so resume it first.
+    await cdp.evaluate(
+      `document.querySelector('[data-testid="bot-settings-pause"]').click()`
+    )
+    await waitFor(
+      `document.body.innerText.includes('Pause bot')`,
+      'resumed bot state'
+    )
+    await cdp.evaluate(
+      `document.querySelector('[data-testid="bot-settings-close"]').click()`
+    )
+    await waitFor(
+      `!document.querySelector('[data-testid="bot-settings-dialog"]')`,
+      'bot settings closed'
+    )
+    await cdp.evaluate(
+      `document.querySelector('[data-testid="bot-chat-new"]').click()`
+    )
+    await waitFor(
+      `Boolean(document.querySelector('[data-testid="bot-chat-new-menu"]'))`,
+      'new chat menu'
+    )
+    await waitFor(
+      `Boolean(document.querySelector('[data-testid="bot-chat-new-menu"] [data-testid^="bot-chat-new-"]:not([aria-disabled="true"])'))`,
+      'available agent chat item'
+    )
+    const pickedHarness = await cdp.evaluate(`(() => {
+      const item = document.querySelector(
+        '[data-testid="bot-chat-new-menu"] [data-testid^="bot-chat-new-"]:not([aria-disabled="true"])'
+      )
+      const id = item.getAttribute('data-testid')
+      item.click()
+      return id.slice('bot-chat-new-'.length)
+    })()`)
+    await waitFor(
+      `document.querySelectorAll('[data-testid^="bot-chat-tab-"]').length >= 1`,
+      'side chat tab'
+    )
+    await waitFor(
+      `document.querySelector('[data-testid="bot-chat-header"]')?.getAttribute('data-harness') === ${JSON.stringify(pickedHarness)}`,
+      'side chat agent'
+    )
+    assert(
+      await cdp.evaluate(
+        `Boolean(document.querySelector('[data-testid="bots-open-settings"]'))`
+      ),
+      'The side chat pane did not render'
+    )
+    await cdp.evaluate(`(() => {
+      const input = document.querySelector('[data-testid="assistant-composer"]')
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLTextAreaElement.prototype,
+        'value'
+      ).set
+      setter.call(input, 'Side chat smoke')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })()`)
+    await waitFor(
+      `!document.querySelector('[data-testid="assistant-send"]').disabled`,
+      'side chat send ready'
+    )
+    await cdp.evaluate(
+      `document.querySelector('[data-testid="assistant-send"]').click()`
+    )
+    await waitFor(
+      `Array.from(document.querySelectorAll('[data-testid^="bot-chat-tab-"]')).some(
+        (tab) => tab.textContent.includes('Side chat smoke')
+      )`,
+      'side chat title'
+    )
+    const sideChatKey = await cdp.evaluate(
+      `document.querySelector('[data-testid^="bot-chat-tab-"]').getAttribute('data-tab-key')`
+    )
+    assert(typeof sideChatKey === 'string', 'The side chat tab lost its key')
+    await screenshot('05a-bot-side-chat')
+    await cdp.evaluate(
+      `document.querySelector('[data-testid^="bot-chat-close-"]').click()`
+    )
+    await waitFor(
+      `document.querySelectorAll('[data-testid^="bot-chat-tab-"]').length === 0`,
+      'side chat closed'
+    )
+    await cdp.evaluate(
+      `document.querySelector('[data-testid="bots-open-history"]').click()`
+    )
+    await waitFor(
+      `Boolean(document.querySelector('[data-testid="session-history"]'))`,
+      'global history'
+    )
+    const sideChatId = sideChatKey.split(':').slice(2).join(':')
+    await waitFor(
+      `Boolean(document.querySelector('[data-testid="session-history-item-chat:${botId}:${sideChatId}"]'))`,
+      'side chat history row'
+    )
+    await cdp.evaluate(
+      `document.querySelector('[data-testid="session-history-item-chat:${botId}:${sideChatId}"]').click()`
+    )
+    await waitFor(
+      `document.querySelectorAll('[data-testid^="bot-chat-tab-"]').length >= 1`,
+      'reopened side chat'
+    )
+    await screenshot('05b-bot-side-chat-reopened')
+
+    // The sidebar's global history spans sessions, tasks, rooms and chats.
+    await cdp.evaluate(
+      `document.querySelector('[data-testid="sidebar-history"]').click()`
+    )
+    await waitFor(
+      `Boolean(document.querySelector('[data-testid="session-history"]'))`,
+      'sidebar global history'
+    )
+    await waitFor(
+      `document.querySelectorAll('[data-testid^="session-history-item-room:"]').length >= 1`,
+      'room history row'
+    )
+    // Chat bodies are durable and searchable, not just their titles.
+    await cdp.evaluate(`(() => {
+      const input = document.querySelector('[data-testid="session-history-input"]')
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        'value'
+      ).set
+      setter.call(input, "Tell me what you're working on")
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })()`)
+    await waitFor(
+      `document.querySelectorAll('[data-testid^="session-history-item-chat:"]').length >= 1`,
+      'chat transcript search'
+    )
+    await cdp.evaluate(`(() => {
+      const input = document.querySelector('[data-testid="session-history-input"]')
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        'value'
+      ).set
+      setter.call(input, '')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })()`)
+    await cdp.evaluate(
+      `document.querySelector('[data-testid="session-history-filter-chat"]').click()`
+    )
+    await waitFor(
+      `document.querySelectorAll('[data-testid^="session-history-item-chat:"]').length >= 1`,
+      'chat history filter'
+    )
+    await screenshot('05c-global-history')
+    await cdp.evaluate(
+      `document.querySelector('[data-testid="session-history-close"]').click()`
+    )
+  })
+
+  await step('start a new Home Chat and keep the old one in history', async () => {
+    const oldHomeKey = await cdp.evaluate(
+      `document.querySelector('[data-testid="bot-home-tab"]').getAttribute('data-tab-key')`
+    )
+    assert(typeof oldHomeKey === 'string', 'The Home tab lost its key')
+    await cdp.evaluate(
+      `document.querySelector('[data-testid="bot-chat-new"]').click()`
+    )
+    await waitFor(
+      `Boolean(document.querySelector('[data-testid="bot-new-home-chat-item"]'))`,
+      'new home chat menu item'
+    )
+    await cdp.evaluate(
+      `document.querySelector('[data-testid="bot-new-home-chat-item"]').click()`
+    )
+    await waitFor(
+      `document.querySelector('[data-testid="bot-home-tab"]')?.getAttribute('data-tab-key') !== ${JSON.stringify(oldHomeKey)}`,
+      'replaced Home tab'
+    )
+    assert(
+      (await cdp.evaluate(
+        `document.querySelectorAll('[data-testid^="bot-chat-tab-"]').length`
+      )) >= 1,
+      'A new Home Chat closed the open side chat'
+    )
+    const oldHomeId = oldHomeKey.split(':').slice(2).join(':')
+    await cdp.evaluate(
+      `document.querySelector('[data-testid="bots-open-history"]').click()`
+    )
+    await waitFor(
+      `Boolean(document.querySelector('[data-testid="session-history-item-chat:${botId}:${oldHomeId}"]'))`,
+      'replaced Home Chat in history'
+    )
+    await screenshot('05d-new-home-chat')
+    await cdp.evaluate(
+      `document.querySelector('[data-testid="session-history-close"]').click()`
     )
   })
 

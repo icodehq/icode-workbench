@@ -96,30 +96,48 @@ export const botSetPausedInputSchema = z.strictObject({
 })
 
 
-export const botStateInputSchema = z.strictObject({ botId: botIdSchema })
+export const botThreadIdSchema = z.string().min(1).max(120)
 
-export const botConversationsInputSchema = z.strictObject({ botId: botIdSchema })
+export const botStateInputSchema = z.strictObject({
+  botId: botIdSchema,
+  threadId: botThreadIdSchema.optional()
+})
+
+export const botConversationsInputSchema = z.strictObject({
+  botId: botIdSchema,
+  threadId: botThreadIdSchema.optional()
+})
 
 export const botNotificationsInputSchema = z.strictObject({
   botId: botIdSchema,
+  threadId: botThreadIdSchema.optional(),
   limit: z.number().int().min(1).max(50).optional()
 })
 
-export const botStopInputSchema = z.strictObject({ botId: botIdSchema })
-export const botNewConversationInputSchema = z.strictObject({ botId: botIdSchema })
+export const botStopInputSchema = z.strictObject({
+  botId: botIdSchema,
+  threadId: botThreadIdSchema.optional()
+})
+export const botNewConversationInputSchema = z.strictObject({
+  botId: botIdSchema,
+  threadId: botThreadIdSchema.optional()
+})
 export const botFocusInputSchema = z.strictObject({
   botId: botIdSchema,
+  threadId: botThreadIdSchema.optional(),
   messageId: z.string().min(1).max(120)
 })
 
 export const botSendInputSchema = z.strictObject({
   botId: botIdSchema,
+  threadId: botThreadIdSchema.optional(),
   text: z.string().trim().min(1).max(4_000),
   repoId: repoIdSchema.optional()
 })
 
 export const botMessagesInputSchema = z.strictObject({
   botId: botIdSchema,
+  threadId: botThreadIdSchema.optional(),
   beforeSeq: z.number().int().min(1).optional(),
   limit: z.number().int().min(1).max(100).optional(),
   conversationId: z.string().min(1).max(120).optional()
@@ -127,8 +145,56 @@ export const botMessagesInputSchema = z.strictObject({
 
 export const botMarkReadInputSchema = z.strictObject({
   botId: botIdSchema,
+  threadId: botThreadIdSchema.optional(),
   messageId: z.string().min(1).max(120).optional(),
   read: z.boolean().optional()
+})
+
+export const botChatSchema = z.strictObject({
+  id: botThreadIdSchema,
+  title: z.string().min(1).max(200),
+  isHome: z.boolean(),
+  harness: z.enum(MODEL_HARNESSES).nullable(),
+  unread: z.number().int().min(0),
+  createdAt: z.number().int(),
+  updatedAt: z.number().int(),
+  lastMessageAt: z.number().int().nullable(),
+  archivedAt: z.number().int().nullable()
+})
+
+export const botChatsInputSchema = z.strictObject({ botId: botIdSchema })
+
+export const botHistorySearchInputSchema = z.strictObject({
+  query: z.string().trim().min(1).max(200),
+  limit: z.number().int().min(1).max(100).optional()
+})
+
+const botHistoryChatHitSchema = z.strictObject({
+  threadId: botThreadIdSchema,
+  botId: botIdSchema,
+  snippet: z.string().max(20_000),
+  createdAt: z.number().int()
+})
+
+const botHistoryRoomHitSchema = z.strictObject({
+  groupId: botGroupIdSchema,
+  threadId: z.string().min(1).max(120),
+  snippet: z.string().max(20_000),
+  createdAt: z.number().int()
+})
+
+export const botHistorySearchResultSchema = z.strictObject({
+  chats: z.array(botHistoryChatHitSchema).max(100),
+  rooms: z.array(botHistoryRoomHitSchema).max(100)
+})
+export const botChatCreateInputSchema = z.strictObject({
+  botId: botIdSchema,
+  harness: z.enum(MODEL_HARNESSES).optional()
+})
+export const botNewHomeChatInputSchema = z.strictObject({ botId: botIdSchema })
+export const botNewHomeChatResultSchema = z.strictObject({
+  thread: botChatSchema,
+  replacedThreadId: botThreadIdSchema.nullable()
 })
 
 export const botHomeInputSchema = z.strictObject({ botId: botIdSchema })
@@ -226,3 +292,6 @@ export type BotEventPayload = z.infer<typeof botEventSchema>
 export type BotSkillPayload = z.infer<typeof botSkillSchema>
 export type BotAutomationPayload = z.infer<typeof botAutomationSchema>
 export type BotCardPayload = z.infer<typeof assistantCardSchema>
+export type BotChatPayload = z.infer<typeof botChatSchema>
+export type BotNewHomeChatResult = z.infer<typeof botNewHomeChatResultSchema>
+export type BotHistorySearchResult = z.infer<typeof botHistorySearchResultSchema>

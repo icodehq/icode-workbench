@@ -90,6 +90,13 @@ import type {
   botMessagesInputSchema,
   botConversationsInputSchema,
   botNewConversationInputSchema,
+  botNewHomeChatInputSchema,
+  botNewHomeChatResultSchema,
+  botChatCreateInputSchema,
+  botChatsInputSchema,
+  botHistorySearchInputSchema,
+  botHistorySearchResultSchema,
+  BotChatPayload,
   botNotificationsInputSchema,
   botSendInputSchema,
   botSetSettingsInputSchema,
@@ -761,6 +768,18 @@ export type IcodeProductApi = {
       newConversation: (
         input: z.infer<typeof botNewConversationInputSchema>
       ) => Promise<IpcResult<AssistantNewConversationResult>>
+      newHomeChat: (
+        input: z.infer<typeof botNewHomeChatInputSchema>
+      ) => Promise<IpcResult<z.infer<typeof botNewHomeChatResultSchema>>>
+      chats: (
+        input: z.infer<typeof botChatsInputSchema>
+      ) => Promise<IpcResult<BotChatPayload[]>>
+      createChat: (
+        input: z.infer<typeof botChatCreateInputSchema>
+      ) => Promise<IpcResult<BotChatPayload>>
+      historySearch: (
+        input: z.infer<typeof botHistorySearchInputSchema>
+      ) => Promise<IpcResult<z.infer<typeof botHistorySearchResultSchema>>>
       focus: (input: z.infer<typeof botFocusInputSchema>) => Promise<IpcResult<null>>
       home: (
         input: z.infer<typeof botHomeInputSchema>

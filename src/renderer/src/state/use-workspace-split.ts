@@ -30,6 +30,16 @@ function storageKeyFor(workspaceKey: string | null): string | null {
   return workspaceKey === null ? null : `${STORAGE_PREFIX}${workspaceKey}`
 }
 
+/** Drops a removed workspace's saved split so a re-created key starts fresh. */
+export function clearWorkspaceSplit(workspaceKey: string): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.removeItem(`${STORAGE_PREFIX}${workspaceKey}`)
+  } catch {
+    // A blocked storage is only a lost layout preference.
+  }
+}
+
 function readStored(key: string | null): PersistedSplit | null {
   if (key === null || typeof window === 'undefined') return null
   try {
@@ -62,6 +72,9 @@ type Options = {
   /** The store's last focused tab, used to seed a new workspace split. */
   activeKey: string | null
   activeSessionId: string | null
+  /** Called for any activated tab key; Sessions maps session keys to selection. */
+  onActivateTabKey?: (key: string) => void
+  /** Legacy session-only selection callback. */
   onSelectSession?: (sessionId: string) => void
 }
 
@@ -77,6 +90,7 @@ export type WorkspaceSplit = {
   splitPane: (side: SplitSide) => void
   splitWithTab: (key: string, side: SplitSide) => void
   moveTabToPane: (key: string, paneId: string) => void
+  placeTabInPane: (key: string, paneId: string, side: SplitSide | 'center') => void
   closePane: (paneId: string) => void
   unsplit: () => void
   toggleZoom: () => void
@@ -98,6 +112,7 @@ export function useWorkspaceSplit({
   tabs,
   activeKey,
   activeSessionId,
+  onActivateTabKey,
   onSelectSession
 }: Options): WorkspaceSplit {
   const storageKey = storageKeyFor(workspaceKey)
@@ -194,12 +209,16 @@ export function useWorkspaceSplit({
 
   const selectForTab = useCallback(
     (key: string) => {
+      if (onActivateTabKey !== undefined) {
+        onActivateTabKey(key)
+        return
+      }
       const sessionId = sessionIdFromTabKey(key)
       if (sessionId !== null && sessionId !== activeSessionId) {
         onSelectSession?.(sessionId)
       }
     },
-    [activeSessionId, onSelectSession]
+    [activeSessionId, onActivateTabKey, onSelectSession]
   )
 
   const focusedPane = findPane(state.root, state.focusedPaneId)
@@ -216,7 +235,8 @@ export function useWorkspaceSplit({
 
   const activateTabInPane = useCallback(
     (paneId: string, key: string) => {
-      if (!validKeys.has(key)) return
+      // Surfaces can add a tab and place it in the same handler, before the
+      // new tab reaches `tabs`; reconciliation clears a genuinely bad key.
       selectForTab(key)
       setState((current) => {
         if (!containsPane(current.root, paneId)) return current
@@ -228,7 +248,7 @@ export function useWorkspaceSplit({
         return { ...current, root, focusedPaneId: paneId }
       })
     },
-    [selectForTab, validKeys]
+    [selectForTab]
   )
 
   const activateTab = useCallback(
@@ -326,6 +346,34 @@ export function useWorkspaceSplit({
     [activateTabInPane]
   )
 
+  /** A tab dropped on a pane's center moves there; an edge splits the pane. */
+  const placeTabInPane = useCallback(
+    (key: string, paneId: string, side: SplitSide | 'center') => {
+      selectForTab(key)
+      setState((current) => {
+        if (!containsPane(current.root, paneId)) return current
+        if (side === 'center') {
+          const root = setPaneTabKey(
+            clearTabEverywhere(current.root, key, paneId),
+            paneId,
+            key
+          )
+          return { ...current, root, focusedPaneId: paneId }
+        }
+        const leaf = createLeaf(key)
+        const root = splitAround(
+          clearTabEverywhere(current.root, key, leaf.paneId),
+          paneId,
+          side,
+          leaf
+        )
+        return { ...current, root, focusedPaneId: leaf.paneId }
+      })
+      setZoomedPaneId(null)
+    },
+    [selectForTab]
+  )
+
   const closePane = useCallback((paneId: string) => {
     setState((current) => {
       if (!containsPane(current.root, paneId)) return current
@@ -399,6 +447,7 @@ export function useWorkspaceSplit({
     splitPane,
     splitWithTab,
     moveTabToPane,
+    placeTabInPane,
     closePane,
     unsplit,
     toggleZoom,

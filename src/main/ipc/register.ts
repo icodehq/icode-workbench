@@ -145,6 +145,10 @@ export const HANDLED_CHANNELS: readonly string[] = [
   IPC_CHANNELS.botsMarkRead,
   IPC_CHANNELS.botsStop,
   IPC_CHANNELS.botsNewConversation,
+  IPC_CHANNELS.botsNewHomeChat,
+  IPC_CHANNELS.botsChats,
+  IPC_CHANNELS.botsChatCreate,
+  IPC_CHANNELS.botsHistorySearch,
   IPC_CHANNELS.botsFocus,
   IPC_CHANNELS.botsHome,
   IPC_CHANNELS.botsAutomationsList,
@@ -251,7 +255,10 @@ export function createAppDispatcher(
   })
   const groupThreadPayload = (thread: BotGroupThread) => ({
     ...thread,
-    unread: runtime.groupChat.unreadCount(thread.id)
+    unread: Math.max(
+      runtime.groupChat.unreadCount(thread.id),
+      runtime.groupChat.hasUnreadActivity(thread.id) ? 1 : 0
+    )
   })
   const groupSummaryPayload = (group: BotGroupRecord) => {
     const threads = runtime.groupChat.listThreads(group.id).map(groupThreadPayload)
@@ -269,6 +276,27 @@ export function createAppDispatcher(
   const groupMessagePayload = (message: BotGroupMessage, turns: BotGroupTurn[]) => ({
     ...message,
     turns: turns.map(groupTurnPayload)
+  })
+  const botChatPayload = (thread: {
+    id: string
+    title: string
+    isHome: boolean
+    harness: import('../../shared/domain/harness').ModelHarness | null
+    unread: number
+    createdAt: number
+    updatedAt: number
+    lastMessageAt: number | null
+    archivedAt: number | null
+  }) => ({
+    id: thread.id,
+    title: thread.title,
+    isHome: thread.isHome,
+    harness: thread.harness,
+    unread: thread.unread,
+    createdAt: thread.createdAt,
+    updatedAt: thread.updatedAt,
+    lastMessageAt: thread.lastMessageAt,
+    archivedAt: thread.archivedAt
   })
   const memoryRead = async (botId: string) => {
     const [read, history] = await Promise.all([
@@ -588,10 +616,16 @@ export function createAppDispatcher(
     },
     botsSetPaused: (input) => Promise.resolve(runtime.bots.setPaused(input.botId, input.paused)),
     botsState: (input) =>
-      Promise.resolve(runtime.botRuntimes.ensure(input.botId).service.state()),
+      Promise.resolve(
+        runtime.botRuntimes.ensureChat(input.botId, input.threadId).service.state()
+      ),
     botsMessages: (input) => {
-      const runtimeForBot = runtime.botRuntimes.ensure(input.botId)
-      const { botId: _botId, ...rest } = input
+      const runtimeForBot = runtime.botRuntimes.ensureChat(input.botId, input.threadId)
+      const {
+        botId: _botId,
+        threadId: _threadId,
+        ...rest
+      } = input
       return Promise.resolve(
         runtimeForBot.service.listMessages({
           threadId: runtimeForBot.threadId,
@@ -600,20 +634,22 @@ export function createAppDispatcher(
       )
     },
     botsConversations: (input) =>
-      Promise.resolve(runtime.botRuntimes.ensure(input.botId).service.listConversations()),
+      Promise.resolve(
+        runtime.botRuntimes.ensureChat(input.botId, input.threadId).service.listConversations()
+      ),
     botsNotifications: (input) =>
       Promise.resolve(
-        runtime.botRuntimes.ensure(input.botId).service.listNotifications({
-          limit: input.limit
-        })
+        runtime.botRuntimes
+          .ensureChat(input.botId, input.threadId)
+          .service.listNotifications({ limit: input.limit })
       ),
     botsSend: (input) =>
-      runtime.botRuntimes.ensure(input.botId).service.send({
+      runtime.botRuntimes.ensureChat(input.botId, input.threadId).service.send({
         text: input.text,
         ...(input.repoId === undefined ? {} : { repoId: input.repoId })
       }),
     botsMarkRead: (input) => {
-      const runtimeForBot = runtime.botRuntimes.ensure(input.botId)
+      const runtimeForBot = runtime.botRuntimes.ensureChat(input.botId, input.threadId)
       return Promise.resolve(
         runtimeForBot.service.markRead({
           threadId: runtimeForBot.threadId,
@@ -623,13 +659,32 @@ export function createAppDispatcher(
       )
     },
     botsStop: (input) => {
-      runtime.botRuntimes.ensure(input.botId).service.stop()
+      runtime.botRuntimes.ensureChat(input.botId, input.threadId).service.stop()
       return Promise.resolve(null)
     },
     botsNewConversation: (input) =>
-      Promise.resolve(runtime.botRuntimes.ensure(input.botId).service.newConversation()),
+      Promise.resolve(
+        runtime.botRuntimes
+          .ensureChat(input.botId, input.threadId)
+          .service.newConversation()
+      ),
+    botsNewHomeChat: (input) => {
+      const result = runtime.botRuntimes.newHomeChat(input.botId)
+      return Promise.resolve({
+        thread: botChatPayload({ ...result.thread, unread: 0 }),
+        replacedThreadId: result.replacedThreadId
+      })
+    },
+    botsChats: (input) =>
+      Promise.resolve(runtime.botRuntimes.listChats(input.botId).map(botChatPayload)),
+    botsChatCreate: (input) => {
+      const thread = runtime.botRuntimes.createSideChat(input.botId, input.harness)
+      return Promise.resolve(botChatPayload({ ...thread, unread: 0 }))
+    },
+    botsHistorySearch: (input) =>
+      Promise.resolve(runtime.botRuntimes.searchHistory(input.query, input.limit ?? 50)),
     botsFocus: (input) => {
-      runtime.botRuntimes.ensure(input.botId).service.focus(input.messageId)
+      runtime.botRuntimes.ensureChat(input.botId, input.threadId).service.focus(input.messageId)
       return Promise.resolve(null)
     },
     botsAutomationsList: (input) =>
@@ -1041,11 +1096,11 @@ export function registerAppIpc(
   const unsubscribeBotChanges = runtime.onBotChange(() => {
     broadcast(IPC_CHANNELS.botsEvent, { type: 'changed', botId: null })
   })
-  const unsubscribeBotChat = runtime.botRuntimes.subscribe((botId, event) => {
+  const unsubscribeBotChat = runtime.botRuntimes.subscribe((botId, threadId, event) => {
     broadcast(IPC_CHANNELS.botsEvent, {
       type: 'chat',
       botId,
-      threadId: runtime.botRuntimes.get(botId)?.threadId ?? '',
+      threadId,
       event
     })
   })

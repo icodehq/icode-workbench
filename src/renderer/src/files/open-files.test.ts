@@ -236,6 +236,172 @@ describe('open files store', () => {
     expect(store.get('ses_a')).toMatchObject({ mode: 'terminal', activeKey: 'file:d.ts' })
   })
 
+  it('opens and reconciles room tabs in a group workspace', () => {
+    const store = new OpenFilesStore()
+    const scope = 'group:g1'
+    store.openRoom(scope, { groupId: 'g1', threadId: 't0', isDefault: true })
+    store.openRoom(scope, { groupId: 'g1', threadId: 't1', isDefault: false })
+    expect(store.get(scope).tabs.map(tabKey)).toEqual(['room:g1', 'room:g1:t1'])
+    expect(store.get(scope).activeKey).toBe('room:g1:t1')
+
+    store.openRoom(scope, { groupId: 'g1', threadId: 't1', isDefault: false })
+    expect(store.get(scope).tabs).toHaveLength(2)
+
+    store.reconcileRooms(scope, new Set(['room:g1']))
+    expect(store.get(scope).tabs.map(tabKey)).toEqual(['room:g1'])
+    expect(store.get(scope).activeKey).toBe('room:g1')
+
+    store.reconcileRooms(scope, new Set())
+    expect(store.get(scope).tabs).toEqual([])
+  })
+
+  it('captures room labels and restores owner rename/color', async () => {
+    const memory = memoryPersistence()
+    const first = new OpenFilesStore(memory.persistence, 0)
+    const scope = 'group:g1'
+    first.openRoom(scope, {
+      groupId: 'g1',
+      threadId: 't0',
+      isDefault: true,
+      label: 'Original name'
+    })
+    first.openRoom(scope, {
+      groupId: 'g1',
+      threadId: 't1',
+      isDefault: false
+    })
+    first.setRoomLabel(scope, 'room:g1:t1', 'Thread title')
+    first.setRoomCustomLabel(scope, 'room:g1:t1', 'Pinned room')
+    first.setRoomColor(scope, 'room:g1:t1', '#3b82f6')
+    await first.flush()
+
+    const second = new OpenFilesStore(memory.persistence, 0)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(second.get(scope).tabs[0]).toMatchObject({
+      kind: 'room',
+      key: 'room:g1',
+      label: 'Original name'
+    })
+    expect(second.get(scope).tabs[1]).toMatchObject({
+      kind: 'room',
+      key: 'room:g1:t1',
+      label: 'Thread title',
+      customLabel: 'Pinned room',
+      color: '#3b82f6'
+    })
+  })
+
+  it('keeps pinned tabs first and through close all', () => {
+    const store = new OpenFilesStore()
+    const scope = 'group:g1'
+    store.openRoom(scope, { groupId: 'g1', threadId: 't0', isDefault: true })
+    store.openRoom(scope, { groupId: 'g1', threadId: 't1', isDefault: false })
+    store.openRoom(scope, { groupId: 'g1', threadId: 't2', isDefault: false })
+    store.setPinned(scope, 'room:g1:t1', true)
+    expect(store.get(scope).tabs.map(tabKey)).toEqual([
+      'room:g1:t1',
+      'room:g1',
+      'room:g1:t2'
+    ])
+    store.closeAll(scope)
+    expect(store.get(scope).tabs.map(tabKey)).toEqual(['room:g1:t1'])
+  })
+
+  it('restores room tabs and their pin after a hot exit', async () => {
+    const memory = memoryPersistence()
+    const first = new OpenFilesStore(memory.persistence, 0)
+    const scope = 'group:g1'
+    first.openRoom(scope, { groupId: 'g1', threadId: 't0', isDefault: true })
+    first.openRoom(scope, { groupId: 'g1', threadId: 't1', isDefault: false })
+    first.setPinned(scope, 'room:g1:t1', true)
+    await first.flush()
+
+    const second = new OpenFilesStore(memory.persistence, 0)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(second.get(scope).tabs.map(tabKey)).toEqual(['room:g1:t1', 'room:g1'])
+    expect(second.get(scope).activeKey).toBe('room:g1:t1')
+    expect(second.get(scope).tabs[0]).toMatchObject({
+      kind: 'room',
+      groupId: 'g1',
+      threadId: 't1',
+      isDefault: false,
+      pinned: true
+    })
+  })
+
+  it('opens chat tabs with a fixed Home tab and reconciles closed chats', () => {
+    const store = new OpenFilesStore()
+    const scope = 'bot:b1'
+    store.openChat(scope, {
+      botId: 'b1',
+      threadId: 'home',
+      isHome: true,
+      label: 'Home'
+    })
+    store.openChat(scope, {
+      botId: 'b1',
+      threadId: 'side1',
+      isHome: false,
+      label: 'New chat'
+    })
+    expect(store.get(scope).tabs.map(tabKey)).toEqual(['chat:b1:home', 'chat:b1:side1'])
+    expect(store.get(scope).activeKey).toBe('chat:b1:side1')
+
+    store.setChatLabel(scope, 'chat:b1:side1', 'Fix the parser')
+    expect(store.get(scope).tabs[1]).toMatchObject({ label: 'Fix the parser' })
+
+    // Home cannot be closed, but close-all leaves it as the pinned survivor.
+    store.closeTab(scope, 'chat:b1:home')
+    expect(store.get(scope).tabs).toHaveLength(2)
+    store.closeAll(scope)
+    expect(store.get(scope).tabs.map(tabKey)).toEqual(['chat:b1:home'])
+
+    store.openChat(scope, {
+      botId: 'b1',
+      threadId: 'side1',
+      isHome: false,
+      label: 'Fix the parser'
+    })
+    store.reconcileChats(scope, new Set(['chat:b1:home']))
+    expect(store.get(scope).tabs.map(tabKey)).toEqual(['chat:b1:home'])
+  })
+
+  it('restores chat tabs and their pin after a hot exit', async () => {
+    const memory = memoryPersistence()
+    const first = new OpenFilesStore(memory.persistence, 0)
+    const scope = 'bot:b1'
+    first.openChat(scope, {
+      botId: 'b1',
+      threadId: 'home',
+      isHome: true,
+      label: 'Home'
+    })
+    first.openChat(scope, {
+      botId: 'b1',
+      threadId: 'side1',
+      isHome: false,
+      label: 'Side chat'
+    })
+    first.setPinned(scope, 'chat:b1:side1', true)
+    first.setChatCustomLabel(scope, 'chat:b1:side1', 'Pinned chat')
+    first.setChatColor(scope, 'chat:b1:side1', '#3b82f6')
+    await first.flush()
+
+    const second = new OpenFilesStore(memory.persistence, 0)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(second.get(scope).tabs.map(tabKey)).toEqual(['chat:b1:home', 'chat:b1:side1'])
+    expect(second.get(scope).tabs[1]).toMatchObject({
+      kind: 'chat',
+      botId: 'b1',
+      threadId: 'side1',
+      isHome: false,
+      pinned: true,
+      label: 'Side chat',
+      customLabel: 'Pinned chat',
+      color: '#3b82f6'
+    })
+  })
+
   it('keeps diff tabs in the shared list without making them dirty or persistent', async () => {
     const memory = memoryPersistence()
     const store = new OpenFilesStore(memory.persistence, 0)
@@ -415,6 +581,6 @@ describe('open files store', () => {
     ])
     expect(state.activeKey).toBe('file:b.ts')
     expect(store.get('ses_a').tabs).toEqual([])
-    expect(memory.read('icode.files.tabs.v2')).toBeTruthy()
+    expect(memory.read('icode.files.tabs.v3')).toBeTruthy()
   })
 })

@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { RendererSessionEvent, SessionSummary } from '../../shared/schemas/ipc'
 import type { TaskRecordPayload } from '../../shared/icode-api'
-import AppTabStrip, { type AppBotsTab } from './components/AppTabStrip'
 import WindowChrome from './components/shell/WindowChrome'
 import WorkspaceSidebar from './components/shell/WorkspaceSidebar'
 import type { ActivityEntry, BotsNotificationEntry } from './components/NotificationsDrawer'
@@ -39,7 +38,7 @@ import {
 } from './state/pending-create'
 import { useTaskQueue } from './state/use-task-queue'
 import { useRemovalJobs } from './state/use-removal-jobs'
-import { botsTabKey, useBots, type OpenBotsTab } from './state/use-bots'
+import { useBots } from './state/use-bots'
 import { useThemePreference } from './theme/use-theme'
 import { useLocale } from './i18n/use-i18n'
 import { translate } from './i18n/i18n-store'
@@ -54,6 +53,7 @@ import { WorkbenchDraftStore } from './review/drafts'
 import { openFilesStore } from './files/open-files'
 import { pruneTreeStates } from './files/tree-state'
 import { filesClipboardStore } from './files/files-clipboard'
+import { headerRightInset } from './components/shell/window-chrome'
 import { workspaceKeyForSession } from './workspace/workspace-key'
 
 /** What the New Session dialog should preselect when it opens. */
@@ -76,8 +76,6 @@ export default function App(): React.JSX.Element {
 
   const {
     displaySurface,
-    activeTab,
-    auxTabs,
     taskSession,
     selectedTaskId,
     taskSessionIds,
@@ -99,8 +97,8 @@ export default function App(): React.JSX.Element {
   const botsState = useBots(workspace.notify)
 
   const openBotsGroup = useCallback(
-    (groupId: string): void => {
-      botsState.selectGroup(groupId)
+    (groupId: string, threadId?: string): void => {
+      botsState.openGroup(groupId, threadId)
       commands.openAppTab('bots')
     },
     [commands, botsState]
@@ -112,42 +110,13 @@ export default function App(): React.JSX.Element {
     },
     [commands, botsState]
   )
-  const activateBotsTab = useCallback(
-    (tab: OpenBotsTab): void => {
-      botsState.activateTab(tab)
+  const openBotsChat = useCallback(
+    (botId: string, threadId: string): void => {
+      botsState.openBotChat(botId, threadId)
       commands.openAppTab('bots')
     },
     [botsState, commands]
   )
-  const closeBotsTab = useCallback(
-    (tab: OpenBotsTab): void => {
-      botsState.closeTab(tab)
-    },
-    [botsState]
-  )
-  const botsTabs = useMemo<AppBotsTab[]>(
-    () =>
-      botsState.openTabs.map((tab) => {
-        if (tab.kind === 'group') {
-          const group = botsState.groups.find((entry) => entry.id === tab.groupId)
-          return {
-            key: botsTabKey(tab),
-            tab,
-            label: group?.name ?? tab.groupId,
-            ...(group === undefined || group.unread === 0 ? {} : { badge: group.unread })
-          }
-        }
-        const bot = botsState.bots.find((entry) => entry.id === tab.botId)
-        return {
-          key: botsTabKey(tab),
-          tab,
-          label: bot?.name ?? tab.botId,
-          ...(bot === undefined || bot.unread === 0 ? {} : { badge: bot.unread })
-        }
-      }),
-    [botsState.bots, botsState.groups, botsState.openTabs]
-  )
-  const activeBotsKey = botsState.selected === null ? null : botsTabKey(botsState.selected)
   const botsNotifications = useMemo<BotsNotificationEntry[]>(() => {
     const needsByGroup = new Map<string, number>()
     const needsByBot = new Map<string, number>()
@@ -165,13 +134,14 @@ export default function App(): React.JSX.Element {
       const thread = group.threads.find((entry) => entry.isDefault) ?? group.threads[0]
       if (thread === undefined) continue
       const needs = needsByGroup.get(group.id) ?? 0
-      if (group.unread === 0 && needs === 0) continue
+      const unread = botsState.groupHomeUnread(group)
+      if (unread === 0 && needs === 0) continue
       entries.push({
         key: `group:${group.id}`,
         kind: 'group',
         tab: { kind: 'group', groupId: group.id, threadId: thread.id },
         label: group.name,
-        unread: group.unread,
+        unread,
         needs
       })
     }
@@ -190,7 +160,7 @@ export default function App(): React.JSX.Element {
     return entries.sort(
       (left, right) => right.needs - left.needs || right.unread - left.unread
     )
-  }, [botsState.bots, botsState.groups, tasks.tasks])
+  }, [botsState.bots, botsState.groupHomeUnread, botsState.groups, tasks.tasks])
 
   const runBotsTaskAction = useCallback(
     async (action: AssistantTaskAction, taskId: string): Promise<void> => {
@@ -316,6 +286,7 @@ export default function App(): React.JSX.Element {
   const [addOpen, setAddOpen] = useState(false)
   const [quickOpenOpen, setQuickOpenOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [markingActivity, setMarkingActivity] = useState(false)
   const [refreshToken, setRefreshToken] = useState(0)
@@ -354,6 +325,28 @@ export default function App(): React.JSX.Element {
   const repo = activeRepo(state)
   const active = activeSession(state)
   const hostUnreachable = hostStatus(state) === 'unreachable'
+  const hasWorkspaceStrip =
+    (displaySurface === 'sessions' && projectSession !== null) ||
+    (displaySurface === 'bots' && botsState.selected !== null)
+  const chromeBarLabel =
+    displaySurface === 'settings'
+      ? translate('settings.title')
+      : displaySurface === 'schedules'
+        ? translate('rail.schedules')
+        : displaySurface === 'bots'
+          ? translate('bots.label')
+          : displaySurface === 'tasks'
+            ? translate('tasks.title')
+            : ''
+  const chromeBar = hasWorkspaceStrip ? null : (
+    <div
+      className="icode-titlebar window-chrome-safe flex h-9 shrink-0 items-center border-b border-border bg-card px-3 text-[10.5px] text-muted-foreground"
+      style={{ paddingRight: headerRightInset(workspace.runtime?.platform ?? null) + 8 }}
+      data-testid="workspace-titlebar"
+    >
+      {chromeBarLabel}
+    </div>
+  )
 
   // A project selection is not persisted across launches; with registered
   // projects the shell stays on the sessions surface instead of the welcome.
@@ -760,6 +753,7 @@ export default function App(): React.JSX.Element {
         notify={workspace.notify}
         onOpenTask={commands.openTaskById}
         onOpenSession={(sessionId) => commands.openTaskSession(sessionId, 'terminal')}
+        onOpenHistory={() => setHistoryOpen(true)}
         onTaskAction={(action, taskId) => void runBotsTaskAction(action, taskId)}
       />
     ),
@@ -874,6 +868,7 @@ export default function App(): React.JSX.Element {
             setQuickOpenOpen(false)
             setPaletteOpen(true)
           }}
+          onOpenHistory={() => setHistoryOpen(true)}
           onOpenNotifications={() => setNotificationsOpen(true)}
           onRefresh={refreshEverything}
           onRetryPreparation={(repoId) => void workspace.retryPreparation(repoId)}
@@ -898,20 +893,7 @@ export default function App(): React.JSX.Element {
           }
         />
       }
-      appTabs={
-        <AppTabStrip
-          activeTab={activeTab}
-          auxTabs={auxTabs}
-          botsTabs={auxTabs.includes('bots') ? botsTabs : []}
-          activeBotsKey={activeBotsKey}
-          botsUnread={botsState.unread}
-          platform={workspace.runtime?.platform ?? null}
-          onActivate={(tab) => commands.openAppTab(tab)}
-          onClose={(tab) => commands.closeAppTab(tab)}
-          onActivateBots={activateBotsTab}
-          onCloseBots={closeBotsTab}
-        />
-      }
+      chromeBar={chromeBar}
       banner={<UpdateBanner platform={workspace.runtime?.platform ?? null} />}
       windowChrome={<WindowChrome platform={workspace.runtime?.platform ?? null} />}
       overlays={
@@ -926,7 +908,8 @@ export default function App(): React.JSX.Element {
             onOpenTask: commands.openTask,
             onOpenSession: commands.openDirectSession,
             onOpenBots: (tab) => {
-              activateBotsTab(tab)
+              if (tab.kind === 'group') openBotsGroup(tab.groupId, tab.threadId)
+              else openBotsBot(tab.botId)
               setNotificationsOpen(false)
             },
             onMarkRead: () => void markActivityRead()
@@ -953,6 +936,7 @@ export default function App(): React.JSX.Element {
             onQueueTask: openQueueTask,
             activeRepoId: repo?.id ?? null,
             onBots: () => commands.openAppTab('bots'),
+            onHistory: () => setHistoryOpen(true),
             onSchedules: commands.showSchedules,
             onSettings: commands.showSettings,
             onSourceControl: () => commands.requestView('changes'),
@@ -963,6 +947,19 @@ export default function App(): React.JSX.Element {
             onOpenTask: commands.openTask,
             onOpenFile: commands.openFileFromPalette
           }}
+          history={
+            historyOpen
+              ? {
+                  open: true,
+                  repos: state.repos,
+                  onClose: () => setHistoryOpen(false),
+                  onOpenSession: commands.openDirectSession,
+                  onOpenTask: commands.openTaskById,
+                  onOpenGroup: openBotsGroup,
+                  onOpenBotChat: openBotsChat
+                }
+              : null
+          }
           quickOpen={
             quickOpenSession !== null
               ? {

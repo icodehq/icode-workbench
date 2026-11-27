@@ -1371,7 +1371,10 @@ export async function startAppRuntime(): Promise<AppRuntime> {
     composeTurnPrompt: composeGroupTurnPrompt,
     now: () => Date.now(),
     newId: newAssistantId,
-    onEvent: () => emitBotChange(),
+    onEvent: (event) => {
+      // A read only changes the reader's watermark, not bot activity.
+      if (event.type !== 'read') emitBotChange()
+    },
     onDeleteGroup: (groupId, threadIds) => {
       taskStore.clearGroup(groupId)
       assistantStore.archiveRoomThreadsForGroupThreads(threadIds, Date.now())

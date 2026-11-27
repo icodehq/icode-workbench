@@ -335,7 +335,11 @@ export default function WorktreePane({
                   ? (sessions.get(tab.sessionId)?.title ?? tab.sessionId)
                   : tab.kind === 'file'
                     ? fileLabel(tab)
-                    : diffLabel(tab)
+                    : tab.kind === 'room'
+                      ? tab.threadId
+                      : tab.kind === 'chat'
+                        ? tab.label
+                        : diffLabel(tab)
               return (
                 <button
                   key={key}

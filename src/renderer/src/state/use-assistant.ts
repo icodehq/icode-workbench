@@ -94,45 +94,55 @@ export type ChatClient = {
   onEvent: (listener: (event: AssistantEventPayload) => void) => () => void
 }
 
-function botChatClient(botId: string): ChatClient {
+function botChatClient(botId: string, threadId?: string): ChatClient {
+  const thread = threadId === undefined ? {} : { threadId }
   return {
-    state: () => window.icode.bots.state({ botId }),
+    state: () => window.icode.bots.state({ botId, ...thread }),
     messages: (input) =>
       window.icode.bots.messages({
         botId,
+        threadId: input.threadId,
         ...(input.beforeSeq === undefined ? {} : { beforeSeq: input.beforeSeq }),
         ...(input.limit === undefined ? {} : { limit: input.limit }),
         ...(input.conversationId === undefined
           ? {}
           : { conversationId: input.conversationId })
       }),
-    conversations: () => window.icode.bots.conversations({ botId }),
+    conversations: () => window.icode.bots.conversations({ botId, ...thread }),
     notifications: (input) =>
       window.icode.bots.notifications({
         botId,
+        ...thread,
         ...(input.limit === undefined ? {} : { limit: input.limit })
       }),
-    focus: (input) => window.icode.bots.focus({ botId, messageId: input.messageId }),
+    focus: (input) =>
+      window.icode.bots.focus({ botId, ...thread, messageId: input.messageId }),
     send: (input) =>
       window.icode.bots.send({
         botId,
+        ...thread,
         text: input.text,
         ...(input.repoId === undefined ? {} : { repoId: input.repoId })
       }),
     markRead: (input) =>
       window.icode.bots.markRead({
         botId,
+        threadId: input.threadId,
         ...(input.messageId === undefined ? {} : { messageId: input.messageId })
       }),
-    stop: () => window.icode.bots.stop({ botId }),
-    newConversation: () => window.icode.bots.newConversation({ botId }),
+    stop: () => window.icode.bots.stop({ botId, ...thread }),
+    newConversation: () => window.icode.bots.newConversation({ botId, ...thread }),
     settings: () => window.icode.bots.settings({ botId }),
     setSettings: (input) =>
       window.icode.bots.setSettings({ botId, settings: input.settings }),
     onEvent: (listener) =>
       window.icode.bots.onEvent((event) => {
         if (event.type === 'chat') {
-          if (event.botId === botId) listener(event.event)
+          if (event.botId !== botId) return
+          // Home and side chats share one bot event channel; a transcript
+          // change belongs only to its own thread.
+          if (threadId !== undefined && event.threadId !== threadId) return
+          listener(event.event)
           return
         }
         // A roster change can rename or re-configure this bot; re-read state
@@ -572,12 +582,13 @@ function useChat(
   }
 }
 
-/** The chat state machine, talking to one bot's IPC namespace. */
+/** The chat state machine, talking to one bot's home or side-chat thread. */
 export function useBotChat(
   botId: string,
   notify: (notice: Notice) => void,
-  onFocus?: (event: Extract<AssistantEventPayload, { type: 'focus' }>) => void
+  onFocus?: (event: Extract<AssistantEventPayload, { type: 'focus' }>) => void,
+  threadId?: string
 ): AssistantState {
-  const client = useMemo(() => botChatClient(botId), [botId])
+  const client = useMemo(() => botChatClient(botId, threadId), [botId, threadId])
   return useChat(notify, onFocus, client)
 }

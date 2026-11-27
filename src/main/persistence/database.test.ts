@@ -758,6 +758,7 @@ describe('migrations', () => {
       'assistant_threads_home_idx',
       'assistant_threads_main_idx',
       'assistant_threads_room_idx',
+      'assistant_threads_side_idx',
       'assistant_threads_updated_idx',
       // v37: due automations and their bot.
       'bot_automations_bot_idx',

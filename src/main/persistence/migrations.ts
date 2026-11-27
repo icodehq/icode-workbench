@@ -1908,5 +1908,38 @@ export const MIGRATIONS: readonly Migration[] = [
       `CREATE INDEX bot_automations_bot_idx
          ON bot_automations (bot_id, created_at)`
     ]
+  },
+  {
+    version: 38,
+    name: 'bot-side-chats',
+    /**
+     * A bot's home chat is one thread; every other bot thread is a side chat
+     * in the same home workspace. Until now the unique home index also covered
+     * side chats, so this marks the existing home thread and narrows the index
+     * to it before side chats can be inserted.
+     */
+    statements: [
+      `ALTER TABLE assistant_threads
+         ADD COLUMN is_home INTEGER NOT NULL DEFAULT 0 CHECK (is_home IN (0, 1))`,
+      `UPDATE assistant_threads SET is_home = 1
+       WHERE kind = 'bot' AND group_thread_id IS NULL`,
+      `DROP INDEX IF EXISTS assistant_threads_home_idx`,
+      `CREATE UNIQUE INDEX assistant_threads_home_idx
+         ON assistant_threads (bot_id) WHERE is_home = 1`,
+      `CREATE INDEX assistant_threads_side_idx
+         ON assistant_threads (bot_id, updated_at DESC)
+         WHERE kind = 'bot' AND is_home = 0`
+    ]
+  },
+  {
+    version: 39,
+    name: 'side-chat-harness',
+    /**
+     * A side chat may run on a different agent than the bot's Home chat.
+     * Null keeps the bot's configured priority; only side chats set it.
+     */
+    statements: [
+      `ALTER TABLE assistant_threads ADD COLUMN harness TEXT`
+    ]
   }
 ]

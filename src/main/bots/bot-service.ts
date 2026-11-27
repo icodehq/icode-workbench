@@ -122,6 +122,8 @@ export class BotService {
         id: threadId,
         kind: 'bot',
         groupThreadId: null,
+        isHome: true,
+        harness: null,
         title: input.name,
         botId,
         createdAt: now,
@@ -201,6 +203,12 @@ export class BotService {
     this.refreshHome(bot.id)
     this.emit({ type: 'changed', botId: bot.id })
     return updated
+  }
+
+  /** A chat tree change (a new home chat, a new side chat) refreshes the roster. */
+  notifyChanged(botId: string): void {
+    this.refreshHome(botId)
+    this.emit({ type: 'changed', botId })
   }
 
   private refreshHome(botId: string): void {

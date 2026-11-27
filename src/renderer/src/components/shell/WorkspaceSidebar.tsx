@@ -6,6 +6,7 @@ import {
   Folder,
   FolderGit2,
   GitBranch,
+  History,
   MoreHorizontal,
   Pin,
   Plus,
@@ -122,6 +123,7 @@ type Props = {
   onOpenSchedules: () => void
   onOpenSettings: () => void
   onOpenSearch: () => void
+  onOpenHistory: () => void
   onOpenNotifications: () => void
   onRefresh: () => void
   onRetryPreparation: (repoId: string) => void
@@ -194,6 +196,7 @@ export default function WorkspaceSidebar({
   onOpenSchedules,
   onOpenSettings,
   onOpenSearch,
+  onOpenHistory,
   onOpenNotifications,
   onRefresh,
   onRetryPreparation,
@@ -1235,6 +1238,16 @@ export default function WorkspaceSidebar({
           data-testid="global-search"
         >
           <Search size={13} />
+        </button>
+        <button
+          type="button"
+          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+          onClick={onOpenHistory}
+          aria-label={t('history.title')}
+          title={t('history.title')}
+          data-testid="sidebar-history"
+        >
+          <History size={13} />
         </button>
         <button
           type="button"

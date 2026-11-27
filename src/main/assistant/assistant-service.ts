@@ -11,7 +11,11 @@ import type {
   AssistantStatus,
   AssistantThread
 } from '../../shared/domain/assistant'
-import { DEFAULT_ASSISTANT_SETTINGS } from '../../shared/domain/assistant'
+import {
+  ASSISTANT_SIDE_CHAT_TITLE,
+  assistantThreadTitleFromText,
+  DEFAULT_ASSISTANT_SETTINGS
+} from '../../shared/domain/assistant'
 import type { AssistantConversationPayload } from '../../shared/schemas/assistant'
 import { mainT } from '../i18n/main-i18n'
 import type {
@@ -413,6 +417,25 @@ export class AssistantService {
     return unread
   }
 
+  /** The first owner message names a side chat; a later message never retitles it. */
+  private maybeTitleSideChat(
+    thread: AssistantThread,
+    text: string,
+    role: 'user' | 'system',
+    now: number
+  ): void {
+    if (
+      role !== 'user' ||
+      thread.kind !== 'bot' ||
+      thread.isHome ||
+      thread.title !== ASSISTANT_SIDE_CHAT_TITLE
+    ) {
+      return
+    }
+    const title = assistantThreadTitleFromText(text)
+    if (title !== null) this.deps.store.updateThreadTitle(thread.id, title, now)
+  }
+
   async send(input: { text: string; repoId?: string; role?: 'user' | 'system' }): Promise<{
     message: AssistantMessageRecord
     runId: string
@@ -440,6 +463,7 @@ export class AssistantService {
       this.deps.store.releaseRun(thread.id, runId)
       throw new AssistantServiceError('INTERNAL', mainT('assistant.messageNotRecorded'))
     }
+    this.maybeTitleSideChat(thread, input.text, input.role ?? 'user', now)
 
     const runner = this.deps.runner
     this.deps.store.createRun({

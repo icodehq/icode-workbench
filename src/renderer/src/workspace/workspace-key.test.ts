@@ -1,13 +1,21 @@
 import { describe, expect, it } from 'vitest'
 import {
+  botIdFromWorkspaceKey,
+  botWorkspaceKey,
+  chatTabKey,
+  chatTabParts,
   defaultWorkspaceKey,
   filePathFromTabKey,
   fileTabKey,
+  groupIdFromWorkspaceKey,
+  groupWorkspaceKey,
   isFileTabKey,
   isSessionTabKey,
   moveTabKey,
   orderTabKeys,
   parseTabKey,
+  roomTabKey,
+  roomTabParts,
   sessionGroupKey,
   sessionIdFromTabKey,
   sessionTabKey,
@@ -28,6 +36,34 @@ describe('workspace keys', () => {
         worktree: { path: '/checkouts/one' } as never
       })
     ).toBe('worktree:/checkouts/one')
+  })
+})
+
+describe('group workspace keys', () => {
+  it('round-trips a group workspace key', () => {
+    expect(groupWorkspaceKey('group_1')).toBe('group:group_1')
+    expect(groupIdFromWorkspaceKey('group:group_1')).toBe('group_1')
+    expect(groupIdFromWorkspaceKey('group:')).toBeNull()
+    expect(groupIdFromWorkspaceKey('default:repo_1')).toBeNull()
+  })
+
+  it('names the original room and each thread distinctly', () => {
+    expect(roomTabKey('group_1', 'gthread_1', true)).toBe('room:group_1')
+    expect(roomTabKey('group_1', 'gthread_1', false)).toBe('room:group_1:gthread_1')
+    expect(roomTabKey('group_1', null, false)).toBe('room:group_1')
+    expect(roomTabParts('room:group_1')).toEqual({
+      key: 'room:group_1',
+      groupId: 'group_1',
+      threadId: null
+    })
+    expect(roomTabParts('room:group_1:gthread_1')).toEqual({
+      key: 'room:group_1:gthread_1',
+      groupId: 'group_1',
+      threadId: 'gthread_1'
+    })
+    expect(roomTabParts('room:')).toBeNull()
+    expect(roomTabParts('room:group_1:')).toBeNull()
+    expect(roomTabParts('session:ses_a')).toBeNull()
   })
 })
 
@@ -58,9 +94,30 @@ describe('tab keys', () => {
       kind: 'diff',
       key: 'diff:unstaged:src/a.ts'
     })
+    expect(parseTabKey('room:group_1')).toEqual({
+      kind: 'room',
+      key: 'room:group_1',
+      groupId: 'group_1',
+      threadId: null
+    })
+    expect(parseTabKey('room:group_1:gthread_1')).toEqual({
+      kind: 'room',
+      key: 'room:group_1:gthread_1',
+      groupId: 'group_1',
+      threadId: 'gthread_1'
+    })
+    expect(parseTabKey('chat:bot_1:athread_1')).toEqual({
+      kind: 'chat',
+      key: 'chat:bot_1:athread_1',
+      botId: 'bot_1',
+      threadId: 'athread_1'
+    })
     expect(parseTabKey('unknown')).toBeNull()
     expect(parseTabKey('session:')).toBeNull()
     expect(parseTabKey('file:')).toBeNull()
+    expect(parseTabKey('room:')).toBeNull()
+    expect(parseTabKey('chat:')).toBeNull()
+    expect(parseTabKey('chat:bot_1')).toBeNull()
   })
 })
 
@@ -79,5 +136,21 @@ describe('tab ordering', () => {
     expect(moveTabKey(ids, 'd', 'b')).toEqual(['a', 'd', 'b', 'c'])
     expect(moveTabKey(ids, 'a', 'a')).toEqual(ids)
     expect(moveTabKey(ids, 'x', 'a')).toEqual(ids)
+  })
+})
+
+
+describe('bot workspace keys', () => {
+  it('round-trips a bot workspace and its chat tabs', () => {
+    expect(botWorkspaceKey('bot_1')).toBe('bot:bot_1')
+    expect(botIdFromWorkspaceKey('bot:bot_1')).toBe('bot_1')
+    expect(botIdFromWorkspaceKey('group:g1')).toBeNull()
+    expect(chatTabKey('bot_1', 'athread_1')).toBe('chat:bot_1:athread_1')
+    expect(chatTabParts('chat:bot_1:athread_1')).toEqual({
+      key: 'chat:bot_1:athread_1',
+      botId: 'bot_1',
+      threadId: 'athread_1'
+    })
+    expect(chatTabParts('chat:bot_1')).toBeNull()
   })
 })

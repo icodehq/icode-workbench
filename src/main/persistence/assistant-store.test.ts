@@ -4,6 +4,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { SCHEMA_VERSION, openDatabase } from './database'
 import { MIGRATIONS } from './migrations'
 import { AssistantStore } from './assistant-store'
+import { BotStore } from './bot-store'
 import { makeTempRoot, openTempDatabase } from './persistence-test-fixtures'
 
 const cleanups: Array<() => void> = []
@@ -25,6 +26,8 @@ function thread(store: AssistantStore, now = 1_000) {
     id: 'thread_main',
     kind: 'main',
     groupThreadId: null,
+    isHome: false,
+    harness: null,
     botId: null,
     title: 'Mira',
     createdAt: now,
@@ -80,6 +83,149 @@ describe('assistant store', () => {
       'msg_1',
       'msg_2',
       'msg_3'
+    ])
+  })
+
+  it('keeps one home chat per bot and demotes the old home to a side chat', () => {
+    const { db, store } = fixture()
+    const bots = new BotStore(db)
+    bots.insert({
+      id: 'bot_side',
+      name: 'Side',
+      role: 'Helper',
+      avatarColor: '#123456',
+      avatarImage: null,
+      avatarMascot: null,
+      avatarOutfit: null,
+      instructions: '',
+      settings: null,
+      archivedAt: null,
+      pausedAt: null,
+      createdAt: 1_000,
+      updatedAt: 1_000
+    })
+    const home = store.insertThread({
+      id: 'thread_home',
+      kind: 'bot',
+      groupThreadId: null,
+      isHome: true,
+      harness: null,
+      botId: 'bot_side',
+      title: 'Side',
+      createdAt: 1_000,
+      updatedAt: 1_000,
+      lastMessageAt: null,
+      lastReadSeq: 0,
+      activeRunId: null,
+      archivedAt: null
+    })
+    const side = store.insertThread({
+      id: 'thread_side',
+      kind: 'bot',
+      groupThreadId: null,
+      isHome: false,
+      harness: 'codex',
+      botId: 'bot_side',
+      title: 'New chat',
+      createdAt: 1_001,
+      updatedAt: 1_001,
+      lastMessageAt: null,
+      lastReadSeq: 0,
+      activeRunId: null,
+      archivedAt: null
+    })
+    expect(store.findHomeThreadByBotId('bot_side')?.id).toBe(home.id)
+    expect(store.listChatsForBot('bot_side').map((entry) => entry.id)).toEqual([
+      'thread_home',
+      'thread_side'
+    ])
+    expect(store.listChatsForBot('bot_side')[1]?.harness).toBe('codex')
+    expect(store.setHomeThread('bot_side', side.id, 1_002)?.isHome).toBe(true)
+    expect(store.findHomeThreadByBotId('bot_side')?.id).toBe(side.id)
+    expect(store.findThread(home.id)?.isHome).toBe(false)
+    store.appendMessage({
+      id: 'msg_side',
+      threadId: side.id,
+      role: 'user',
+      kind: 'text',
+      body: 'Name this chat',
+      createdAt: 1_003
+    })
+    expect(store.latestUserMessageBody(side.id)).toBe('Name this chat')
+    expect(() =>
+      store.insertThread({
+        id: 'thread_home_2',
+        kind: 'bot',
+        groupThreadId: null,
+        isHome: true,
+        harness: null,
+        botId: 'bot_side',
+        title: 'Another home',
+        createdAt: 1_004,
+        updatedAt: 1_004,
+        lastMessageAt: null,
+        lastReadSeq: 0,
+        activeRunId: null,
+        archivedAt: null
+      })
+    ).toThrow(/UNIQUE/i)
+  })
+
+  it('searches bot transcripts but not non-bot threads', () => {
+    const { store } = fixture()
+    const home = store.insertThread({
+      id: 'thread_search_home',
+      kind: 'bot',
+      groupThreadId: null,
+      isHome: true,
+      harness: null,
+      botId: null,
+      title: 'Home',
+      createdAt: 1_000,
+      updatedAt: 1_000,
+      lastMessageAt: null,
+      lastReadSeq: 0,
+      activeRunId: null,
+      archivedAt: null
+    })
+    store.insertThread({
+      id: 'thread_search_other',
+      kind: 'main',
+      groupThreadId: null,
+      isHome: false,
+      harness: null,
+      botId: null,
+      title: 'Other',
+      createdAt: 1_000,
+      updatedAt: 1_000,
+      lastMessageAt: null,
+      lastReadSeq: 0,
+      activeRunId: null,
+      archivedAt: null
+    })
+    store.appendMessage({
+      id: 'msg_search_1',
+      threadId: home.id,
+      role: 'user',
+      kind: 'text',
+      body: 'Deploy the release today',
+      createdAt: 1_100
+    })
+    store.appendMessage({
+      id: 'msg_search_2',
+      threadId: 'thread_search_other',
+      role: 'user',
+      kind: 'text',
+      body: 'Deploy the other reply',
+      createdAt: 1_200
+    })
+    expect(store.searchBotMessages('deploy', 10)).toEqual([
+      {
+        threadId: home.id,
+        botId: null,
+        body: 'Deploy the release today',
+        createdAt: 1_100
+      }
     ])
   })
 

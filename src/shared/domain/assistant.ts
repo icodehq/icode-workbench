@@ -185,13 +185,46 @@ export const DEFAULT_ASSISTANT_SETTINGS: AssistantSettings = {
   }
 }
 
+/** The placeholder a side chat carries until its first owner message names it. */
+export const ASSISTANT_SIDE_CHAT_TITLE = 'New chat'
+export const ASSISTANT_PREVIOUS_HOME_TITLE = 'Previous chat'
+export const ASSISTANT_SIDE_CHAT_TITLE_LENGTH = 48
+
+/**
+ * A side chat is named from its first line, cut at a word boundary like the
+ * reference's generated conversation names. The ellipsis makes truncation
+ * visible instead of presenting half a word as the whole title.
+ */
+export function assistantThreadTitleFromText(text: string): string | null {
+  const firstLine = text
+    .split(/\r?\n/u)
+    .map((line) => line.replace(/\s+/gu, ' ').trim())
+    .find((line) => line.length > 0)
+  if (firstLine === undefined) return null
+  if (firstLine.length <= ASSISTANT_SIDE_CHAT_TITLE_LENGTH) return firstLine
+  const clipped = firstLine.slice(0, ASSISTANT_SIDE_CHAT_TITLE_LENGTH)
+  const boundary = clipped.lastIndexOf(' ')
+  const head =
+    boundary >= Math.floor(ASSISTANT_SIDE_CHAT_TITLE_LENGTH / 2)
+      ? clipped.slice(0, boundary)
+      : clipped
+  return `${head}…`
+}
+
 export type AssistantThread = {
   id: string
   kind: 'main' | 'system' | 'bot' | 'room'
   title: string
   /** The bot that owns this thread. Null for the global main/system threads. */
   botId: string | null
-  /** The group thread a room session belongs to; null for a bot's home chat. */
+  /** The one home chat of a bot; every other bot thread is a side chat. */
+  isHome: boolean
+  /**
+   * A side chat's chosen agent. Null uses the bot's configured harness
+   * priority; Home chats stay null so they follow the bot's settings.
+   */
+  harness: ModelHarness | null
+  /** The group thread a room session belongs to; null for a bot's own chats. */
   groupThreadId: string | null
   createdAt: number
   updatedAt: number

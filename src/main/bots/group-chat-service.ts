@@ -7,7 +7,12 @@ import type {
   GroupReplyMode,
   GroupRoom
 } from '../../shared/domain/group'
-import { BOT_GROUP_LIMITS } from '../../shared/domain/group'
+import {
+  BOT_GROUP_LIMITS,
+  NEW_GROUP_THREAD_TITLE,
+  groupThreadIsUntitled,
+  groupThreadTitleFromText
+} from '../../shared/domain/group'
 import {
   GroupMentionError,
   groupAudience,
@@ -135,6 +140,13 @@ export type GroupChatEvent =
   | { type: 'message'; groupId: string; message: BotGroupMessage }
   | { type: 'turn'; groupId: string; turn: BotGroupTurn }
   | { type: 'thread'; groupId: string; threadId: string }
+  | {
+      type: 'read'
+      groupId: string
+      threadId: string
+      seq: number
+      unread: number
+    }
 
 export type GroupMessagePage = {
   messages: BotGroupMessage[]
@@ -259,6 +271,10 @@ export class GroupChatService {
     return this.deps.store.unreadCount(threadId)
   }
 
+  hasUnreadActivity(threadId: string): boolean {
+    return this.deps.store.hasUnreadActivity(threadId)
+  }
+
   turnsForMessage(messageId: string): BotGroupTurn[] {
     return this.deps.store.turnsForMessage(messageId)
   }
@@ -280,7 +296,13 @@ export class GroupChatService {
     const thread = this.deps.store.findThread(threadId)
     if (thread === null) throw new GroupChatError('GROUP_THREAD_NOT_FOUND')
     const unread = this.deps.store.markRead(threadId, seq, this.deps.now())
-    this.emit({ type: 'changed', groupId: thread.groupId })
+    this.emit({
+      type: 'read',
+      groupId: thread.groupId,
+      threadId,
+      seq,
+      unread
+    })
     return unread
   }
 
@@ -449,7 +471,7 @@ export class GroupChatService {
     const thread = this.deps.store.insertThread({
       id: this.deps.newId('gthread'),
       groupId: group.id,
-      title: 'New thread',
+      title: NEW_GROUP_THREAD_TITLE,
       isDefault: false,
       lastReadSeq: 0,
       lastReadAt: now,
@@ -524,13 +546,7 @@ export class GroupChatService {
       taskId: input.taskId ?? null,
       createdAt: now
     })
-    if (message.seq === 1 && !thread.isDefault) {
-      this.deps.store.updateThreadTitle(
-        thread.id,
-        text.split('\n')[0]?.slice(0, 60) || 'New thread',
-        now
-      )
-    }
+    this.titleThread(thread, message, now)
     const turns: BotGroupTurn[] = []
     for (const botId of audience) {
       const info = this.deps.botInfo(botId)
@@ -627,6 +643,7 @@ export class GroupChatService {
       dedupeKey,
       createdAt: now
     })
+    this.titleThread(thread, message, now)
     const turn = this.deps.store.insertTurn({
       operationId: this.deps.newId('turn'),
       messageId: message.id,
@@ -679,6 +696,7 @@ export class GroupChatService {
       taskId: input.taskId ?? null,
       createdAt: this.deps.now()
     })
+    this.titleThread(thread, message, message.createdAt)
     this.emit({ type: 'message', groupId: group.id, message })
     return message
   }
@@ -902,6 +920,7 @@ export class GroupChatService {
         dedupeKey: `handoff:${turn.operationId}:${info.id}`,
         createdAt: now
       })
+      this.titleThread(thread, handoff, now)
       const next = this.deps.store.insertTurn({
         operationId: this.deps.newId('turn'),
         messageId: handoff.id,
@@ -924,6 +943,21 @@ export class GroupChatService {
       this.emit({ type: 'turn', groupId: group.id, turn: next })
       this.scheduleDelivery(next.operationId)
     }
+  }
+
+  /** The first line posted in a thread names it once; later lines never rename it. */
+  private titleThread(
+    thread: BotGroupThread,
+    message: BotGroupMessage,
+    now: number
+  ): void {
+    if (thread.isDefault || message.seq !== 1) return
+    if (!groupThreadIsUntitled(thread)) return
+    this.deps.store.updateThreadTitle(
+      thread.id,
+      groupThreadTitleFromText(message.body),
+      now
+    )
   }
 
   private requireGroup(groupId: string): BotGroupRecord {

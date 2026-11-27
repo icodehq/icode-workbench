@@ -245,6 +245,10 @@ export function createIcodeApi(
       markRead: (input) => call(IPC_CHANNELS.botsMarkRead, input),
       stop: (input) => call(IPC_CHANNELS.botsStop, input),
       newConversation: (input) => call(IPC_CHANNELS.botsNewConversation, input),
+      newHomeChat: (input) => call(IPC_CHANNELS.botsNewHomeChat, input),
+      chats: (input) => call(IPC_CHANNELS.botsChats, input),
+      createChat: (input) => call(IPC_CHANNELS.botsChatCreate, input),
+      historySearch: (input) => call(IPC_CHANNELS.botsHistorySearch, input),
       focus: (input) => call(IPC_CHANNELS.botsFocus, input),
       home: (input) => call(IPC_CHANNELS.botsHome, input),
       automations: {

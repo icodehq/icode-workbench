@@ -74,6 +74,8 @@ function makeFixture(input: {
     id: 'thread_main',
     kind: 'main',
     groupThreadId: null,
+    isHome: false,
+    harness: null,
     botId: null,
     title: 'Mira',
     createdAt: 1_000,

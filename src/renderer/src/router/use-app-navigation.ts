@@ -11,6 +11,57 @@ import {
 } from '../components/shell/app-tabs'
 import type { ProjectMode, Surface } from './routes'
 
+const APP_TABS_KEY = 'icode.app.tabs.v1'
+
+type StoredAppTabs = { surface: Surface; auxTabs: AuxAppTab[] }
+
+function isAuxSurface(value: Surface | undefined): value is AuxAppTab {
+  return value === 'bots' || value === 'settings' || value === 'schedules'
+}
+
+function isAuxValue(value: unknown): value is AuxAppTab {
+  return value === 'bots' || value === 'settings' || value === 'schedules'
+}
+
+function isSurface(value: unknown): value is Surface {
+  return (
+    value === 'projects' ||
+    value === 'sessions' ||
+    value === 'tasks' ||
+    value === 'schedules' ||
+    value === 'bots' ||
+    value === 'settings'
+  )
+}
+
+function readStoredAppTabs(): StoredAppTabs | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = window.localStorage.getItem(APP_TABS_KEY)
+    if (raw === null) return null
+    const parsed: unknown = JSON.parse(raw)
+    if (typeof parsed !== 'object' || parsed === null || !('surface' in parsed)) return null
+    const surface = (parsed as { surface: unknown }).surface
+    if (!isSurface(surface)) return null
+    const rawAux = 'auxTabs' in parsed ? (parsed as { auxTabs?: unknown }).auxTabs : []
+    const auxTabs = Array.isArray(rawAux)
+      ? rawAux.filter(isAuxValue)
+      : []
+    return { surface, auxTabs }
+  } catch {
+    return null
+  }
+}
+
+function writeStoredAppTabs(surface: Surface, auxTabs: readonly AuxAppTab[]): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(APP_TABS_KEY, JSON.stringify({ surface, auxTabs }))
+  } catch {
+    // A blocked storage is only a lost surface preference.
+  }
+}
+
 export type ViewName = 'terminal' | 'changes' | 'files'
 
 export type TaskSessionRoute = {
@@ -105,8 +156,15 @@ export function useAppNavigation({
   tasks
 }: UseAppNavigationInput): AppNavigation {
   const { state } = workspace
-  const [surface, setSurface] = useState<Surface>('sessions')
-  const [auxTabs, setAuxTabs] = useState<AuxAppTab[]>([])
+  const [storedTabs] = useState(readStoredAppTabs)
+  const [surface, setSurface] = useState<Surface>(() => storedTabs?.surface ?? 'sessions')
+  const [auxTabs, setAuxTabs] = useState<AuxAppTab[]>(() => {
+    const restored = storedTabs?.auxTabs ?? []
+    const restoring = storedTabs?.surface
+    return isAuxSurface(restoring) && !restored.includes(restoring)
+      ? [...restored, restoring]
+      : restored
+  })
   const [taskSession, setTaskSession] = useState<TaskSessionRoute | null>(null)
   const [focusTaskId, setFocusTaskId] = useState<string | null>(null)
   const [focusComposerNonce, setFocusComposerNonce] = useState(0)
@@ -115,6 +173,11 @@ export function useAppNavigation({
   const [taskViewRequest, setTaskViewRequest] = useState<TaskViewRequest | null>(null)
   const [openRequest, setOpenRequest] = useState<OpenFileRequest | null>(null)
 
+
+  // Restore the surface the owner left, including its workspace tabs.
+  useEffect(() => {
+    writeStoredAppTabs(surface, auxTabs)
+  }, [auxTabs, surface])
 
   const repo = activeRepo(state)
   const active = activeSession(state)
@@ -205,6 +268,7 @@ export function useAppNavigation({
   }, [displaySurface, repo, selectedTaskId])
 
   useEffect(() => {
+    if (state.boot !== 'ready') return
     if (repo === null) {
       if (surface === 'sessions' || surface === 'tasks') setSurface('projects')
       return
@@ -212,7 +276,7 @@ export function useAppNavigation({
     // Repositories load asynchronously; the welcome surface is only for an
     // empty workspace and must yield once a project exists.
     if (surface === 'projects') setSurface('sessions')
-  }, [repo, surface])
+  }, [repo, state.boot, surface])
 
   useEffect(() => {
     if (taskSession === null) return

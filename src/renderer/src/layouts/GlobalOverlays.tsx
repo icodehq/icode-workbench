@@ -6,6 +6,7 @@ import CommandPalette from '../components/CommandPalette'
 import NewSessionDialog from '../components/NewSessionDialog'
 import NotificationsDrawer from '../components/NotificationsDrawer'
 import QuickOpen from '../components/QuickOpen'
+import SessionHistoryDialog from '../components/SessionHistoryDialog'
 import WorktreeCleanupDialog from '../components/WorktreeCleanupDialog'
 import UpdateRestartDialog from '../updates/UpdateRestartDialog'
 
@@ -16,6 +17,8 @@ type Props = {
   palette: ComponentProps<typeof CommandPalette>
   /** Mounted only while a session owns the file palette. */
   quickOpen: ComponentProps<typeof QuickOpen> | null
+  /** Mounted only while the global history is open. */
+  history: ComponentProps<typeof SessionHistoryDialog> | null
   addRepository: ComponentProps<typeof AddRepositoryDialog> | null
   newSession: ComponentProps<typeof NewSessionDialog> | null
   sessionCleanup: ComponentProps<typeof WorktreeCleanupDialog> | null
@@ -33,6 +36,7 @@ export default function GlobalOverlays({
   notifications,
   palette,
   quickOpen,
+  history,
   addRepository,
   newSession,
   sessionCleanup,
@@ -46,6 +50,8 @@ export default function GlobalOverlays({
       <CommandPalette {...palette} />
 
       {quickOpen !== null ? <QuickOpen {...quickOpen} /> : null}
+
+      {history !== null ? <SessionHistoryDialog {...history} /> : null}
 
       {addRepository !== null ? <AddRepositoryDialog {...addRepository} /> : null}
 

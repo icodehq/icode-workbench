@@ -117,6 +117,43 @@ function turn(overrides: Partial<BotGroupTurn> = {}): BotGroupTurn {
 }
 
 describe('group store', () => {
+  it('marks a finished member line unread until the thread is read after it', () => {
+    const { store } = seed()
+    store.insertGroup(group())
+    store.insertThread(thread({ lastReadAt: 1_000 }))
+    expect(store.hasUnreadActivity('thread_1')).toBe(false)
+
+    store.updateThreadLatest('thread_1', 'Backend', 'done', 2_000)
+    expect(store.hasUnreadActivity('thread_1')).toBe(true)
+
+    store.markRead('thread_1', 0, 3_000)
+    expect(store.hasUnreadActivity('thread_1')).toBe(false)
+
+    store.updateThreadLatest('thread_1', 'Backend', 'done again', 4_000)
+    expect(store.hasUnreadActivity('thread_1')).toBe(true)
+  })
+
+  it('searches durable room transcripts and escapes LIKE wildcards', () => {
+    const { store } = seed()
+    store.insertGroup(group())
+    store.insertThread(thread())
+    store.appendMessage({
+      ...message({ body: 'Deploy failed on staging' }),
+      rootRequestId: null,
+      rootSequence: null
+    })
+    store.appendMessage({
+      ...message({ id: 'message_2', body: '100% complete' }),
+      createdAt: now + 1
+    })
+    expect(store.searchMessages('deploy', 10)).toEqual([
+      { groupId: 'group_1', threadId: 'thread_1', body: 'Deploy failed on staging', createdAt: now }
+    ])
+    expect(store.searchMessages('%', 10)).toEqual([
+      { groupId: 'group_1', threadId: 'thread_1', body: '100% complete', createdAt: now + 1 }
+    ])
+  })
+
   it('stores groups, members and threads with revision CAS', () => {
     const { store } = seed()
     expect(store.insertGroup(group())).toMatchObject({ revision: 1 })

@@ -106,6 +106,10 @@ import {
   botSendInputSchema,
   botSettingsInputSchema,
   botSetSettingsInputSchema,
+  botChatCreateInputSchema,
+  botHistorySearchInputSchema,
+  botChatsInputSchema,
+  botNewHomeChatInputSchema,
   botStateInputSchema,
   botStopInputSchema,
   botUpdateInputSchema,
@@ -349,20 +353,49 @@ export type DispatcherServices = {
   botsUpdate: (input: z.infer<typeof botUpdateInputSchema>) => Promise<unknown>
   botsArchive: (input: { botId: string }) => Promise<unknown>
   botsSetPaused: (input: { botId: string; paused: boolean }) => Promise<unknown>
-  botsState: (input: { botId: string }) => Promise<unknown>
+  botsState: (input: { botId: string; threadId?: string }) => Promise<unknown>
   botsMessages: (input: {
     botId: string
+    threadId?: string
     beforeSeq?: number
     limit?: number
     conversationId?: string
   }) => Promise<unknown>
-  botsConversations: (input: { botId: string }) => Promise<unknown>
-  botsNotifications: (input: { botId: string; limit?: number }) => Promise<unknown>
-  botsSend: (input: { botId: string; text: string; repoId?: string }) => Promise<unknown>
-  botsMarkRead: (input: { botId: string; messageId?: string; read?: boolean }) => Promise<unknown>
-  botsStop: (input: { botId: string }) => Promise<unknown>
-  botsNewConversation: (input: { botId: string }) => Promise<unknown>
-  botsFocus: (input: { botId: string; messageId: string }) => Promise<unknown>
+  botsConversations: (input: { botId: string; threadId?: string }) => Promise<unknown>
+  botsNotifications: (input: {
+    botId: string
+    threadId?: string
+    limit?: number
+  }) => Promise<unknown>
+  botsSend: (input: {
+    botId: string
+    threadId?: string
+    text: string
+    repoId?: string
+  }) => Promise<unknown>
+  botsMarkRead: (input: {
+    botId: string
+    threadId?: string
+    messageId?: string
+    read?: boolean
+  }) => Promise<unknown>
+  botsStop: (input: { botId: string; threadId?: string }) => Promise<unknown>
+  botsNewConversation: (input: { botId: string; threadId?: string }) => Promise<unknown>
+  botsNewHomeChat: (input: { botId: string }) => Promise<unknown>
+  botsChats: (input: { botId: string }) => Promise<unknown>
+  botsChatCreate: (input: {
+    botId: string
+    harness?: 'claude' | 'codex' | 'opencode'
+  }) => Promise<unknown>
+  botsHistorySearch: (input: {
+    query: string
+    limit?: number
+  }) => Promise<unknown>
+  botsFocus: (input: {
+    botId: string
+    threadId?: string
+    messageId: string
+  }) => Promise<unknown>
   botsHome: (input: { botId: string }) => Promise<unknown>
   botsAutomationsList: (input: { botId: string }) => Promise<unknown>
   botsAutomationsCreate: (input: {
@@ -1123,6 +1156,30 @@ export function createDispatcher(services: DispatcherServices): Dispatcher {
         const input = parse(botNewConversationInputSchema, rawInput)
         if ('code' in input) return { ok: false, error: input }
         return run(() => services.botsNewConversation(input))
+      }
+
+      case IPC_CHANNELS.botsNewHomeChat: {
+        const input = parse(botNewHomeChatInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.botsNewHomeChat(input))
+      }
+
+      case IPC_CHANNELS.botsChats: {
+        const input = parse(botChatsInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.botsChats(input))
+      }
+
+      case IPC_CHANNELS.botsChatCreate: {
+        const input = parse(botChatCreateInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.botsChatCreate(input))
+      }
+
+      case IPC_CHANNELS.botsHistorySearch: {
+        const input = parse(botHistorySearchInputSchema, rawInput)
+        if ('code' in input) return { ok: false, error: input }
+        return run(() => services.botsHistorySearch(input))
       }
 
       case IPC_CHANNELS.botsFocus: {

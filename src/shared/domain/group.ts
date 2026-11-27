@@ -2,12 +2,16 @@ export const BOT_GROUP_LIMITS = {
   maxNameLength: 60,
   maxBodyLength: 8_000,
   maxMembers: 32,
-  maxThreads: 32,
+  /** A thread is named by its first post, cut to one line. */
+  maxThreadTitleLength: 80,
   /** Room history quoted into a turn, in characters. */
   maxContextChars: 24_000,
   maxHandoffsPerRoot: 8,
   pageSize: 40
 } as const
+
+/** Stored title of a thread until its first post names it; the UI localizes it. */
+export const NEW_GROUP_THREAD_TITLE = 'New thread'
 
 export const GROUP_REPLY_MODES = ['bot', 'all', 'mentions'] as const
 
@@ -62,6 +66,53 @@ export type BotGroupThreadMember = {
   assistantThreadId: string | null
   stoppedThroughSequence: number
   joinedAt: number
+}
+
+/** A room tab's name: the group's name for the original room, or the thread's title. */
+export function groupThreadLabel(
+  groupName: string,
+  thread: Pick<BotGroupThread, 'title' | 'isDefault'>,
+  untitledLabel: string = NEW_GROUP_THREAD_TITLE
+): string {
+  if (thread.isDefault) return groupName
+  return thread.title === NEW_GROUP_THREAD_TITLE ? untitledLabel : thread.title
+}
+
+/** The first post names a thread: its first non-empty line, cut to one line. */
+export function groupThreadTitleFromText(text: string): string {
+  const line = text
+    .split(/\r?\n/u)
+    .map((part) => part.trim())
+    .find((part) => part.length > 0)
+  const title = (line ?? '').slice(0, BOT_GROUP_LIMITS.maxThreadTitleLength).trim()
+  return title.length > 0 ? title : NEW_GROUP_THREAD_TITLE
+}
+
+export function groupThreadIsUntitled(
+  thread: Pick<BotGroupThread, 'title' | 'isDefault'>
+): boolean {
+  return !thread.isDefault && thread.title === NEW_GROUP_THREAD_TITLE
+}
+
+/** The room with the newest line, for the sidebar row's preview. */
+export function groupLatestThread<
+  T extends Pick<BotGroupThread, 'latestAt' | 'isDefault'>
+>(group: { threads: readonly T[] }): T | null {
+  let latest: T | null = null
+  for (const thread of group.threads) {
+    if (thread.latestAt === null) continue
+    if (latest === null) {
+      latest = thread
+      continue
+    }
+    const latestAt = latest.latestAt ?? 0
+    if (thread.latestAt > latestAt) {
+      latest = thread
+    } else if (thread.latestAt === latestAt && thread.isDefault && !latest.isDefault) {
+      latest = thread
+    }
+  }
+  return latest
 }
 
 export const BOT_GROUP_MESSAGE_AUTHOR_KINDS = ['human', 'bot', 'system'] as const
