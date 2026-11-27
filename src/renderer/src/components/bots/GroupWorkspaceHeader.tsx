@@ -1,12 +1,21 @@
 import { useState } from 'react'
-import { ListTree, Loader2, MessageSquare, Plus, Settings, Users } from 'lucide-react'
+import {
+  ClipboardList,
+  ListTree,
+  Loader2,
+  MessageSquare,
+  MoreHorizontal,
+  Plus,
+  Settings,
+  Users
+} from 'lucide-react'
 import type {
   GroupSummaryPayload,
   GroupThreadPayload,
   GroupUpdateInput
 } from '../../../../shared/schemas/groups'
 import type { BotSummaryPayload } from '../../../../shared/schemas/bots'
-import { groupThreadLabel } from '../../../../shared/domain/group'
+import { groupThreadDisplayLabel } from '../../../../shared/domain/group'
 import AssistantAvatar from '../AssistantAvatar'
 import { useT } from '../../i18n/use-i18n'
 
@@ -16,6 +25,10 @@ export default function GroupWorkspaceHeader({
   members,
   activeThreadId,
   creatingThread,
+  itemsOpen,
+  roomMenuAvailable,
+  onToggleItems,
+  onOpenRoomMenu,
   onOpenThread,
   onNewThread,
   onUpdateGroup,
@@ -25,6 +38,10 @@ export default function GroupWorkspaceHeader({
   members: BotSummaryPayload[]
   activeThreadId: string | null
   creatingThread: boolean
+  itemsOpen: boolean
+  roomMenuAvailable: boolean
+  onToggleItems: () => void
+  onOpenRoomMenu: (opener: HTMLElement) => void
   onOpenThread: (thread: GroupThreadPayload) => void
   onNewThread: () => void
   onUpdateGroup: (input: GroupUpdateInput) => Promise<GroupSummaryPayload | null>
@@ -63,7 +80,7 @@ export default function GroupWorkspaceHeader({
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-2">
           <h1 className="truncate text-[13px] font-semibold">{group.name}</h1>
-          <span className="shrink-0 text-[10px] text-muted-foreground">
+          <span className="shrink-0 text-[11.5px] text-muted-foreground">
             {t('bots.room.members', { count: members.length })}
           </span>
         </div>
@@ -88,7 +105,7 @@ export default function GroupWorkspaceHeader({
             ))}
           </div>
           {members.length > 6 ? (
-            <span className="text-[9px] text-muted-foreground">+{members.length - 6}</span>
+            <span className="text-[10px] text-muted-foreground">+{members.length - 6}</span>
           ) : null}
         </div>
       </div>
@@ -97,7 +114,7 @@ export default function GroupWorkspaceHeader({
         <div className="relative">
           <button
             type="button"
-            className="inline-flex h-7 items-center gap-1 rounded border border-border px-2 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="inline-flex h-7 items-center gap-1 rounded border border-border px-2 text-[11.5px] text-muted-foreground hover:bg-muted hover:text-foreground"
             onClick={() => setThreadsOpen((current) => !current)}
             aria-haspopup="menu"
             aria-expanded={threadsOpen}
@@ -117,7 +134,7 @@ export default function GroupWorkspaceHeader({
                     key={thread.id}
                     type="button"
                     role="menuitem"
-                    className={`flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[11px] ${
+                    className={`flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[11.5px] ${
                       thread.id === activeThreadId ? 'bg-muted' : 'hover:bg-muted'
                     }`}
                     onClick={() => {
@@ -131,14 +148,15 @@ export default function GroupWorkspaceHeader({
                       className="shrink-0 text-muted-foreground"
                     />
                     <span className="min-w-0 flex-1 truncate">
-                      {groupThreadLabel(
+                      {groupThreadDisplayLabel(
                         group.name,
                         thread,
+                        group.threads,
                         t('bots.thread.untitled')
                       )}
                     </span>
                     {thread.unread > 0 ? (
-                      <span className="rounded-full bg-signal-weak px-1 text-[8px] text-signal">
+                      <span className="rounded-full bg-signal-weak px-1 text-[9px] text-signal">
                         {thread.unread > 9 ? '9+' : thread.unread}
                       </span>
                     ) : null}
@@ -148,7 +166,7 @@ export default function GroupWorkspaceHeader({
                 <button
                   type="button"
                   role="menuitem"
-                  className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[11px] hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
+                  className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[11.5px] hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
                   disabled={creatingThread}
                   onClick={() => {
                     setThreadsOpen(false)
@@ -164,7 +182,7 @@ export default function GroupWorkspaceHeader({
                   <span className="min-w-0 flex-1 truncate">
                     {t('bots.room.newThreadIn', { name: group.name })}
                   </span>
-                  <span className="text-[9px] font-normal text-muted-foreground">
+                  <span className="text-[10px] font-normal text-muted-foreground">
                     {t('bots.room.newThreadStartsFresh')}
                   </span>
                 </button>
@@ -173,12 +191,26 @@ export default function GroupWorkspaceHeader({
           ) : null}
         </div>
 
+        {roomMenuAvailable ? (
+          <button
+            type="button"
+            className="inline-flex h-7 w-7 items-center justify-center rounded border border-border text-muted-foreground hover:bg-muted hover:text-foreground"
+            onClick={(event) => onOpenRoomMenu(event.currentTarget)}
+            aria-label={t('session.actions')}
+            title={t('session.actions')}
+            aria-haspopup="menu"
+            data-testid="bots-room-menu-button"
+          >
+            <MoreHorizontal size={11} />
+          </button>
+        ) : null}
+
         <label className="sr-only" htmlFor="bots-reply-mode">
           {t('bots.reply.label')}
         </label>
         <select
           id="bots-reply-mode"
-          className="h-7 max-w-[180px] rounded border border-border bg-background px-1.5 text-[10.5px] text-foreground outline-none focus:border-line-strong"
+          className="h-7 max-w-[180px] rounded border border-border bg-background px-1.5 text-[11.5px] text-foreground outline-none focus:border-line-strong"
           value={replyModeValue}
           onChange={(event) => void changeReplyMode(event.target.value)}
           disabled={updatingMode || members.length === 0}
@@ -193,6 +225,22 @@ export default function GroupWorkspaceHeader({
           <option value="all">{t('bots.reply.all')}</option>
           <option value="mentions">{t('bots.reply.mentions')}</option>
         </select>
+
+        <button
+          type="button"
+          className={`hidden h-7 items-center gap-1 rounded border border-border px-2 text-[11.5px] xl:inline-flex ${
+            itemsOpen
+              ? 'bg-accent-weak text-accent'
+              : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+          }`}
+          onClick={onToggleItems}
+          aria-pressed={itemsOpen}
+          aria-label={t('items.title')}
+          title={t('items.title')}
+          data-testid="bots-items-toggle"
+        >
+          <ClipboardList size={10} /> {t('items.title')}
+        </button>
 
         <button
           type="button"

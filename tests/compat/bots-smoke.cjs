@@ -554,14 +554,14 @@ async function main() {
       'group room title'
     )
     await waitFor(
-      `Boolean(document.querySelector('[data-testid="room-tabs"]'))`,
-      'group room tabs'
+      `Boolean(document.querySelector('[data-testid="bots-composer"]'))`,
+      'group room composer'
     )
     assert(
       await cdp.evaluate(
-        `Array.from(document.querySelectorAll('[data-testid="room-tabs"] [role="tab"]')).some((tab) => tab.innerText.includes('Probe Group'))`
+        `document.querySelector('[data-testid="room-tabs"]') === null`
       ),
-      'The original room did not open as a room tab'
+      'A single room should not repeat the group name in a tab strip'
     )
     const compose = async (text) => {
       await cdp.evaluate(`(() => {
@@ -720,7 +720,7 @@ async function main() {
       tab?.parentElement?.querySelector('button[data-testid$="-close"]')?.click()
     })()`)
     await waitFor(
-      `document.querySelectorAll('[data-testid="room-tabs"] [role="tab"]').length === 1`,
+      `document.querySelectorAll('[data-testid="room-tabs"] [role="tab"]').length <= 1`,
       'closed room tab'
     )
     await cdp.evaluate(
