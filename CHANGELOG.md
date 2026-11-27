@@ -5,6 +5,38 @@ All notable changes to iCode are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.37.0] - 2026-11-27
+
+### Added
+
+- Project rows open a rich hover card with the full path, branch, session count
+  and needs. It clamps to the viewport, follows RTL, and opens from keyboard
+  focus as well as the pointer.
+- Project, worktree, tree-session and pinned-session menus can move rows up or
+  down, so ordering no longer requires a drag. Pinned sessions now follow pin
+  order and can be dragged too.
+- Large session groups render in 80-row windows with localized Show earlier and
+  Show later controls. The active session always shifts the window and scrolls
+  into view once its data and group are available.
+
+### Fixed
+
+- Project rows no longer reflow when the branch appears on hover; long branches
+  truncate and stay available in the row title.
+- Session and project counts cap at 999+ and 99+ while keeping the full value in
+  accessible names; needs badges cap at 9+.
+- Missing or empty branches fall back to an em dash, worktree rows use their
+  branch as the accessible name, and failed-preparation dots expose their reason.
+- 11px secondary text uses the full muted color, and the chevron toggles have
+  24x24 hit targets while keeping their 16px glyphs.
+
+### Changed
+
+- Project rows and the Projects section controls have press feedback,
+  focus-visible hover parity, and reduced-motion transitions.
+- Session rows use content-visibility with intrinsic sizes, and the new batch
+  controls are localized in all eight catalogs.
+
 ## [0.36.1] - 2026-11-27
 
 ### Added
