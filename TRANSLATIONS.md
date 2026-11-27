@@ -23,6 +23,9 @@ for native review.
 | Deutsch | [README.de.md](README.de.md) | Needs native review | AI-assisted overview |
 | Français | [README.fr.md](README.fr.md) | Needs native review | AI-assisted overview |
 
+All translations were last synced with the English README at commit
+`b34d94e` on 2026-11-27.
+
 ## Maintenance
 
 - Update translations at release boundaries, not on every English commit.

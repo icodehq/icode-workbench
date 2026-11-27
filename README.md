@@ -43,7 +43,7 @@
 </h3>
 
 <p align="center">
-  <img src=".github/assets/workbench-0916-shell.png" alt="The iCode Workbench with a project and task sidebar, app and session tabs, a live terminal, and a Source Control diff in the center workbench" width="960" />
+  <img src=".github/assets/workbench-1127-shell.png" alt="The iCode Workbench with Bots, projects and worktrees in the sidebar, a live terminal, an open diff tab, and the Source Control inspector listing the worktree's changes" width="960" />
 </p>
 
 <p align="center">
@@ -92,9 +92,11 @@ CI builds each release from its tagged commit.
 | **Linux x64** | AppImage, deb, rpm |
 | **macOS x64 / arm64** | dmg or zip |
 
-The installers are unsigned, so Windows SmartScreen and macOS Gatekeeper warn on
-first launch. On macOS, right-click the app and choose **Open** to allow it.
-iCode is pre-1.0; features and storage schemas may still change between releases.
+Release builds sign when the CI signing credentials are configured; unsigned
+builds still produce installers, and Windows SmartScreen or macOS Gatekeeper
+will warn on first launch. On macOS, right-click the app and choose **Open** to
+allow it. iCode is pre-1.0; features and storage schemas may still change
+between releases.
 
 <details>
 <summary><strong>Build from source</strong></summary>
@@ -158,20 +160,21 @@ made.
   hooks, and Claude Code, Codex, and OpenCode with native provider injection.
   Run them in parallel, each in its own Git worktree.
 - **Keep the judgment.** Task review is a human decision. Accepting a review
-  records the judgment; it does not merge, push, or delete anything. Merge is a
-  separate step in Source Control. Bots can propose, message, retry, and
+  records the judgment; it never commits, merges, pushes, or deletes anything.
+  **Accept & merge…** accepts first and then opens the merge picker, where the
+  merge is confirmed as a separate act. Bots can propose, message, retry, and
   archive; they cannot approve a review, merge, or push.
 - **WSL and Windows are first-class.** Managed WSL guest hosts, `wsl.exe` shell
   sessions, and target-aware harness detection that knows when a CLI exists on
   Windows but not inside the distro. Linux and macOS run natively too.
-- **Review in place.** Files, Search, and Source Control are navigators beside
-  the terminal, scoped to the checkout the agent is editing. Files and diffs open
-  as tabs in the center, next to the terminal, so the editor gets the full width.
-  Stage by file, folder, hunk, or line; send line notes back to the agent's
-  terminal.
-- **One sidebar, two surfaces.** Projects, direct sessions, pinned items, and
-  the cross-project task queue share one sidebar. Sessions and task workbenches
-  are the main surfaces; Bots, Settings, and Schedules are auxiliary tabs.
+- **Review in place.** Files, Search, and Source Control are navigators in the
+  persistent inspector, scoped to the checkout the agent is editing. Files and
+  diffs open as center tabs beside the terminal, so the editor gets the full
+  width. Stage by file, folder, hunk, or line; send line notes back to the
+  agent's terminal.
+- **One sidebar, two work surfaces.** Bots, pinned projects and sessions, and
+  the Projects tree share one sidebar. A project opens its Sessions workspace or
+  its task workbench; the needs-you bell is the cross-project queue.
 - **Terminals that outlive the app.** A detached host owns the PTYs, so closing
   the window or quitting iCode does not stop the agents.
 - **Local-first.** State lives in SQLite on your machine. No telemetry, no
@@ -180,33 +183,35 @@ made.
 
 ## Features
 
-### One sidebar, two surfaces
+### One sidebar, two work surfaces
 
-The sidebar is the only navigation and the portfolio view. **Pinned** projects,
-sessions, and tasks are shortcuts above the complete **Projects** tree. A
-project expands to an always-present **Default checkout** group plus one group
-per worktree branch, with agent activity on each session row. The **Tasks**
-section is the cross-project queue, grouped by project and ordered by attention,
-with **Needs** and **History** views. The sidebar footer keeps host status, task
-slots, live session count, harness count, and app version in view.
+**Bots** sit above **Projects** in the main sidebar. Pinned projects and sessions
+are shortcuts above the complete Projects tree. A project expands to an
+always-present **Project folder** (the repository's default checkout) plus one
+workspace per direct-session worktree. Agent sessions appear as rows with live
+activity; shell sessions stay as tabs in their workspace. The needs-you bell carries the
+cross-project queue. The footer keeps host status, task slots, live session
+count, harness count, and app version in view.
 
-The main column has two work surfaces: **Sessions** (one tab per direct session,
-a resizable nested split view, a persistent Files/Search/Source Control
-navigator, and a center tab strip for the terminal, files, and diffs) and the
-**Task workbench** (Overview, Terminal, Source Control, and
-Files for one task, selected from the sidebar rather than opened as a tab).
+The main column has two work surfaces: **Sessions** (each worktree is a workspace
+with its own tab strip in the title bar for terminals, files, and diffs, a
+resizable nested split, and the persistent Files/Search/Source Control
+inspector) and the **Task workbench** (Overview, Terminal, Source Control, and
+Files for one task, opened from the needs queue rather than as an app tab). Bots,
+Settings, and Schedules open as auxiliary tabs; bot homes and group rooms are
+dynamic app tabs.
 
-Every project, session, and task row has its own right-click menu. A session
-row carries its whole lifecycle — **Session details**, **Sleep** or **Wake**,
+Every project and agent session row has its own right-click menu. A session row
+carries its whole lifecycle — **Session details**, **Sleep** or **Wake**,
 **Resume**, **Restart**, **Pin**, and **Remove** — without switching to it
 first.
 
 <p align="center">
-  <a href=".github/assets/workbench-0916-session-menu.png"><img src=".github/assets/workbench-0916-session-menu.png" alt="A session row context menu with Session details, Sleep session, Restart session, Pin to top, and Remove session" width="100%" /></a>
+  <a href=".github/assets/workbench-1127-session-menu.png"><img src=".github/assets/workbench-1127-session-menu.png" alt="The session row context menu with Session details, Sleep session, Restart session, Pin to top, and Remove session" width="100%" /></a>
 </p>
 
-*Right-click any session row, including one you are not viewing, to reach its
-lifecycle actions.*
+*Right-click an agent session row, including one you are not viewing, to reach
+its lifecycle actions.*
 
 ### Meet your bots
 
@@ -233,46 +238,67 @@ blank. Yarcy, the cross-project Chief of Staff, is one of those templates.
 Bot identity, agent, access and memory are in bot settings; auto-dispatch and
 notifications are per bot. Bots, Settings and Schedules open as auxiliary tabs.
 
+<p align="center">
+  <a href=".github/assets/workbench-1127-bots.png"><img src=".github/assets/workbench-1127-bots.png" alt="The Atlas crew group room with an owner question, Yarcy's reply, the Items rail on the right, and the group composer" width="100%" /></a>
+</p>
+
+*A group room. Mention a bot, get a streaming reply, and keep the owner-facing
+work in the Items rail beside the conversation.*
+
 ### Items: what needs you
 
-The task queue is the worker layer behind the owner-facing Items view. Items
-have derived statuses, comments, questions and answers, snooze, status
-overrides, attachments, links and worker reports. Approvals and review
-decisions stay in Items and the task workbench — no chat surface sits between
-you and the queue.
+The needs-you bell opens **Notifications**, the cross-project queue: tasks
+waiting for approval, an answer, a retry, or a review decision, plus unread bot
+messages and recent agent activity. Selecting a task opens its project's task
+workbench.
+
+Inside a bot group, the **Items** rail carries the same owner-facing work with
+comments, questions and answers, snooze, derived statuses, status overrides,
+attachments, links and worker reports. Approvals and review decisions stay in
+the task workbench and Items — no chat surface sits between you and the queue.
+
+<p align="center">
+  <a href=".github/assets/workbench-1127-items.png"><img src=".github/assets/workbench-1127-items.png" alt="The Notifications drawer listing four tasks ready for review under Needs you, with the Atlas crew group above" width="100%" /></a>
+</p>
+
+*The needs-you queue spans projects. Each row opens the task workbench where the
+decision is made.*
 
 ### Isolated sessions by default
 
-Every direct session created from **New worktree** gets its own Git worktree and
-a new branch, starting from the current branch or one you choose, so two agents
-in the same repository never edit the same checkout. Open sessions appear as
-tabs above the workspace; drag them to reorder, right-click for Close, Split,
-Swap, or Zoom actions. Splits nest, so panes can combine side-by-side and
-stacked layouts, and every divider rebalances its own branch.
+Every direct session created from **New isolated workspace** gets its own Git
+worktree and a new branch, starting from the current branch or one you choose, so
+two agents in the same repository never edit the same checkout.
 
-Each project also has an always-present **Default checkout** group: the
-repository's own primary checkout, labelled with its live branch. Its **+**
-starts a terminal or agent there, and the New Session dialog's **Run in** list
-offers it for every project. Default-checkout sessions share the folder with the
-user, so an agent started there shows a persistent shared-checkout warning; task,
-supervisor, and CLI-created sessions always use isolated worktrees.
+Each worktree is a workspace with its own tab strip. The branch is the workspace
+label; the tabs are the sessions, files, and diffs opened there. Drag tabs to
+reorder; right-click for **Close**, **Close others**, **Close right**, **Split
+right**, **Split down**, and **Unsplit**; toolbar buttons toggle the split and
+zoom a pane. Splits nest, so a pane can show a live terminal next to a diff or a
+file, and every divider rebalances its own branch.
+
+Each project also has an always-present **Project folder** group: the
+repository's own primary checkout, shared with the user. Right-click it to start
+a terminal or agent there, and the New Session dialog's **Run in** list offers it
+for every project. An agent started there shows a persistent shared-checkout
+warning; task, supervisor, and CLI-created sessions always use isolated
+worktrees.
 
 <p align="center">
-  <a href=".github/assets/workbench-0916-session-split.png"><img src=".github/assets/workbench-0916-session-split.png" alt="Two direct sessions side by side in the iCode split view, each with its own terminal and branch" width="100%" /></a>
+  <a href=".github/assets/workbench-1127-session-split.png"><img src=".github/assets/workbench-1127-session-split.png" alt="A live terminal and a README diff side by side in the split view, with the Source Control list in the inspector" width="100%" /></a>
 </p>
 
-*Two direct sessions side by side. The divider is resizable and each pane keeps
-its own PTY.*
+*A split pane: the agent's terminal on one side, the diff under review on the
+other. Each pane keeps its own tab; the terminal pane keeps its PTY.*
 
-Session removal is guarded by live PTYs, host reachability, uncommitted changes,
-unmerged commits, and missing worktrees. If work is at risk, the final
-confirmation is a single consequence-specific warning: uncommitted changes list
-the affected files, unmerged commits name the retained branch, and one click
-completes the removal. By default the branch is kept even when the checkout is
-removed; **Delete branch** is an explicit opt-in.
+Session removal stops a live PTY, then checks the checkout. If work is at risk,
+the final confirmation is a single consequence-specific dialog: uncommitted
+changes list the affected files, unmerged commits name the commit count, and one
+click completes the removal. By default the branch is kept even when the
+checkout is removed; **Delete branch** is an explicit opt-in.
 
 <p align="center">
-  <a href=".github/assets/workbench-0916-session-removal.png"><img src=".github/assets/workbench-0916-session-removal.png" alt="The session removal dialog naming an uncommitted file with a single Delete changes and remove button" width="100%" /></a>
+  <a href=".github/assets/workbench-1127-session-removal.png"><img src=".github/assets/workbench-1127-session-removal.png" alt="The cleanup dialog naming two uncommitted files with Delete changes and remove and Keep worktree actions" width="100%" /></a>
 </p>
 
 *Work that would be lost is named once. The branch is retained, and there is no
@@ -280,17 +306,17 @@ branch name to copy or type.*
 
 ### Tasks, approvals, schedules, and chains
 
-Tasks are durable units of work, not terminal tabs. Selecting a task replaces
-the main surface with its workbench; the workbench is never an app tab, and a
-task-owned session never appears under a project or in the session tab strip.
+Tasks are durable units of work, not terminal tabs. Opening a task replaces the
+project surface with its workbench; the workbench is never an app tab, and a
+task-owned session never appears under a project or in a worktree's tab strip.
 
 Queue work under two limits: how many tasks run at once globally (1–4) and per
 project (1–4). Statuses move through `queued`, `dispatching`, `running`,
 `waiting`, `completed`, `failed`, and `cancelled`. A retry is a new attempt;
 resume continues a failed or cancelled attempt in its existing session and
 worktree; cancellation leaves the worktree for inspection. The workbench shows
-the instruction, live session, changes against the task baseline, and a review
-decision separate from process exit.
+the instruction, acceptance criteria, live session, changes against the task
+baseline, and a review decision separate from process exit.
 
 Approval depends on who asked. Your own tasks are approved when queued. A
 project supervisor always proposes for a person, and a bot-created task waits
@@ -304,14 +330,14 @@ Schedules create ordinary queued tasks on a cadence — once, daily, weekdays,
 weekly, or every few hours — with queue-or-skip overlap handling and run-now.
 
 <p align="center">
-  <a href=".github/assets/workbench-0916-tasks.png"><img src=".github/assets/workbench-0916-tasks.png" alt="The task workbench showing a finished task waiting for review, its changes against the baseline, and the review decision" width="100%" /></a>
+  <a href=".github/assets/workbench-1127-tasks.png"><img src=".github/assets/workbench-1127-tasks.png" alt="The task workbench for a finished rate-limit task with its instruction, acceptance criteria, changes, review decision, and session details" width="100%" /></a>
 </p>
 
-*Task workbench: the instruction, the session, changes against the task
+*Task workbench: the instruction, acceptance criteria, changes against the task
 baseline, and a review decision. Execution and review are separate.*
 
 <p align="center">
-  <a href=".github/assets/workbench-0916-schedules.png"><img src=".github/assets/workbench-0916-schedules.png" alt="The Schedules tab with an enabled nightly dependency audit and a paused six-hour provider refresh" width="100%" /></a>
+  <a href=".github/assets/workbench-1127-schedules.png"><img src=".github/assets/workbench-1127-schedules.png" alt="The Schedules tab with an enabled nightly dependency audit and a paused six-hour provider refresh" width="100%" /></a>
 </p>
 
 *Recurring tasks with queue-or-skip overlap handling.*
@@ -320,9 +346,9 @@ baseline, and a review decision. Execution and review are separate.*
 
 Source Control is scoped to the session's checkout and lives in the persistent
 inspector as a list, or in a task's full-width Source Control tab. Clicking a
-changed file opens its diff as a tab in the center, beside the terminal, while
-the list stays visible; a one-line dock keeps the staged/uncommitted counts and
-the primary action in sight; the commit composer expands above it on demand.
+changed file opens its diff as a tab in the center, while the list stays
+visible; a one-line dock keeps the staged/uncommitted counts and the primary
+action in sight, and the commit composer expands above it on demand.
 
 Diffs are area-scoped; stage or unstage by file, folder, hunk, or line; discard
 by file, folder, or hunk; and a three-way merge editor handles conflicts. Add
@@ -331,11 +357,11 @@ amend, commit & push, pull, push, sync, or publish the current branch, with
 paginated history and cherry-pick, revert, and reset actions.
 
 <p align="center">
-  <a href=".github/assets/workbench-0916-task-review.png"><img src=".github/assets/workbench-0916-task-review.png" alt="Source Control in the task workbench showing a committed rate-limit source file as a side-by-side diff" width="100%" /></a>
+  <a href=".github/assets/workbench-1127-task-review.png"><img src=".github/assets/workbench-1127-task-review.png" alt="The task's Source Control tab with a unified diff for src/routes/auth.ts and the staged and uncommitted dock" width="100%" /></a>
 </p>
 
 *Review and stage in the task's worktree. The full-width Source Control tab
-gives the diff both columns.*
+gives the diff the room.*
 
 ### Terminals that survive the app
 
@@ -347,7 +373,7 @@ serialized snapshot with scrollback and alternate-screen state, and flow control
 keeps a slow UI from blocking the agent's process.
 
 <p align="center">
-  <a href=".github/assets/workbench-0916-session-terminal.png"><img src=".github/assets/workbench-0916-session-terminal.png" alt="A direct session with its tab strip, branch header and a live shell showing recent commits" width="100%" /></a>
+  <a href=".github/assets/workbench-1127-session-terminal.png"><img src=".github/assets/workbench-1127-session-terminal.png" alt="A session in the docs/release-checklist worktree with a live terminal showing git status and the last four commits" width="100%" /></a>
 </p>
 
 *A real PTY in the session worktree; the detached host keeps it alive.*
@@ -374,10 +400,10 @@ center, external changes offer reload/keep, and unsaved buffers survive an
 ordinary restart through hot exit.
 
 <p align="center">
-  <a href=".github/assets/workbench-0916-files-editor.png"><img src=".github/assets/workbench-0916-files-editor.png" alt="The task Files tab with a worktree explorer and Monaco editor open on the new rate-limit source file" width="100%" /></a>
+  <a href=".github/assets/workbench-1127-files-editor.png"><img src=".github/assets/workbench-1127-files-editor.png" alt="The worktree Files tree beside a Monaco editor tab open on src/lib/command-palette.ts, with History and Blame actions" width="100%" /></a>
 </p>
 
-*Files and Monaco in the task's worktree.*
+*Files and Monaco in the worktree, with History and Blame beside the editor.*
 
 ### Run where your code lives
 
@@ -395,18 +421,18 @@ iCode does not call model APIs — your harness does — and the renderer is
 sandboxed behind a typed preload and validated IPC.
 
 <p align="center">
-  <a href=".github/assets/workbench-0916-settings.png"><img src=".github/assets/workbench-0916-settings.png" alt="The Settings tab with appearance, language, task execution, Source Control, Files, agent providers, harnesses, host/runtime and About sections" width="100%" /></a>
+  <a href=".github/assets/workbench-1127-settings.png"><img src=".github/assets/workbench-1127-settings.png" alt="Settings with Appearance, Language, Network, Host and runtime, Updates, and About" width="100%" /></a>
 </p>
 
-*Settings open as an auxiliary tab. Appearance, language, task execution,
-Source Control, Files, agent providers, harnesses, host/runtime, and About share
-one page.*
+*Settings open as an auxiliary tab. Appearance, language, network, host/runtime,
+updates, and About share one page.*
 
 ### Also in the box
 
-- **Session tabs and split view** with drag reordering and a nested split tree.
+- **Worktree tab strips** for sessions, files, and diffs, with drag reordering
+  and nested splits.
 - **Focus mode**: `F11` or `Ctrl/Cmd+J` leaves only the terminal.
-- **Pinned working set**: pin projects, sessions, and tasks as shortcuts.
+- **Pinned working set**: pin projects and sessions as shortcuts.
 - **Project onboarding**: open an existing checkout, clone from a URL, or
   initialize a folder's first commit.
 - **Repository settings**: add, edit, fetch, and remove Git remotes.
@@ -457,9 +483,7 @@ Rovo Dev, Hermes, Devin, OpenClaw, CodeBuddy, Jcode.
 
 </details>
 
-`Shell` is iCode's terminal entry, not an agent. One catalog entry,
-Claude Agent Teams, is a third-party CLI wrapper that cannot be launched from
-iCode.
+`Shell` is iCode's terminal entry, not an agent.
 
 Detection is tri-state and target-aware: available, unavailable after a real
 probe, or a retryable detection failure. A tool installed on Windows but missing
@@ -482,11 +506,12 @@ live text draft.
 3. **Approve or adjust.** Your own tasks are approved on creation. Supervisor
    proposals wait for a person, and bot tasks wait unless the auto-dispatch
    policy allows them. Blockers and chain branches decide when dependents start.
-4. **Work in the terminal.** Switch sessions with the tab strip, split when two
-   need to be visible, and open Source Control or Files in the inspector.
+4. **Work in the terminal.** Switch tabs in the worktree strip, split when two
+   views need to be visible, and open Source Control or Files in the inspector.
 5. **Review.** Stage by file, folder, hunk, or line; send line notes to the
-   agent; accept a task review when the result is right. Accept does not merge.
-   Merge from Source Control when the result should land.
+   agent; accept a task review when the result is right. Accept records the
+   verdict and never merges, commits, pushes, or deletes. **Accept & merge…**
+   accepts first and then opens the merge picker for a separate confirmation.
 6. **Finish safely.** Archive reviewed completions; older ones are archived
    automatically after seven days. Removing a session stops the PTY and, if work
    is at risk, names the files or commits before anything is deleted.
@@ -529,6 +554,7 @@ pnpm build
 |---|---|
 | `src/main` | Electron main: windows, gates, persistence, host supervisor/client |
 | `src/host` | Detached terminal host: PTYs, NDJSON protocol, token auth |
+| `src/watch` | Off-main filesystem watcher |
 | `src/preload` | Frozen typed bridge; context isolation on, Node off, sandbox on |
 | `src/renderer` | Terminal workspace and product UI |
 | `src/shared` | Domain model, Zod boundary contracts, host protocol |
@@ -561,8 +587,8 @@ captured as it arrives. Codex and OpenCode are resumed through their own
 session ids but report run stages and the final reply rather than a live draft.
 Low-risk auto-dispatch is a conservative policy over daily caps, protected
 keywords and protected paths; the default is three per project and ten globally.
-Notifications use a per-thread sequence watermark and a partial unique dedupe
-key, so restarts and repeated task events do not replay the same message.
+Notifications use a per-thread sequence and a partial unique dedupe index, so
+restarts and repeated task events do not replay the same message.
 
 ### Terminal host and continuity
 
@@ -582,11 +608,12 @@ If the parse backlog exceeds 1 MiB, the PTY is paused and resumed below 256 KiB.
 Per-client queues are capped at 1 MiB; excess data events become one `lagged`
 notice with a sequence range. Responses are never dropped.
 
-The socket prefers `$XDG_RUNTIME_DIR/icode/<profile-scope>/terminal-host.sock`,
-with `ICODE_HOST_SOCKET` and `ICODE_HOST_DIR` as overrides. Authentication uses a
-32-byte token in a `0600` file, a versioned hello, and constant-time comparison.
-The host verifies effective `0700/0600` permissions and refuses filesystems that
-cannot enforce them. A non-socket at the socket path is never deleted.
+The socket prefers `$XDG_RUNTIME_DIR/icode/<profile-scope>/terminal-host.sock`.
+`ICODE_HOST_SOCKET` overrides the endpoint, and `ICODE_HOST_DIR` moves the host's
+state directory. Authentication uses a 32-byte token in a `0600` file, a
+versioned hello, and constant-time comparison. The host verifies effective
+`0700/0600` permissions and refuses filesystems that cannot enforce them. A
+non-socket at the socket path is never deleted.
 
 ### Persistence and recovery
 
@@ -616,7 +643,7 @@ the moment of the action:
 
 | Situation | Result |
 |---|---|
-| Live or starting PTY | Blocked |
+| Live or starting PTY | Stopped first, then the checkout is checked |
 | Host unreachable | Blocked; everything preserved |
 | Uncommitted changes | One warning lists the files; confirming deletes them |
 | Unmerged commits | One warning shows the commit count; the branch is retained |
@@ -656,9 +683,12 @@ not the current turn is rejected. Duplicate deliveries are idempotent.
 `Notification` is intentionally not used because its interactive behavior was
 not verified.
 
-The hook script drains Claude's payload from stdin, forwards one bounded JSON
-object over a Unix socket, writes nothing to stdout, and exits `0` within 100 ms
-even when iCode is down. A broken iCode must never block the agent.
+The hook script reads Claude's payload from stdin for at most 100 ms and forwards
+one bounded JSON object over a Unix socket. Normal events exit `0` quickly even
+when iCode is down, so a broken iCode cannot block the agent. A
+`PermissionRequest` is the deliberate exception: it holds the connection for up
+to 126 seconds for the person's decision, then prints `{}` so Claude asks in the
+terminal as usual.
 
 ### Security model
 
