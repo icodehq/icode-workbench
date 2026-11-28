@@ -354,8 +354,8 @@ async function run() {
     await click('[data-testid="sidebar-new-menu"]')
     await waitForSelector('[data-testid="new-session-open"]', 10000)
     await click('[data-testid="new-session-open"]')
-    await waitForSelector('[data-testid="harness-option-shell"]', 20000)
-    await click('[data-testid="harness-option-shell"]')
+    await waitForSelector('[data-testid="new-session-agent"]', 20000)
+    await setValue('[data-testid="new-session-agent"]', 'shell')
     await setValue('[data-testid="session-title-input"]', 'SCM smoke session')
     await click('[data-testid="create-session-submit"]')
     await waitFor(

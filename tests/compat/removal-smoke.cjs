@@ -135,6 +135,17 @@ async function setInput(selector, value) {
   assert(applied, `Could not set ${selector}`)
 }
 
+async function setSelect(selector, value) {
+  const applied = await cdp.evaluate(`(() => {
+    const element = document.querySelector(${JSON.stringify(selector)});
+    if (!element || element.disabled) return false;
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(element, ${JSON.stringify(value)});
+    element.dispatchEvent(new Event('change', { bubbles: true }));
+    return element.value === ${JSON.stringify(value)};
+  })()`)
+  assert(applied, `Could not select ${value} in ${selector}`)
+}
+
 async function bodyText() {
   return cdp.evaluate('document.body.innerText')
 }
@@ -279,8 +290,8 @@ async function createShellSession(repoId, title) {
   await click('[data-testid="sidebar-new-menu"]')
   await waitForSelector('[data-testid="new-session-open"]', 10000)
   await click('[data-testid="new-session-open"]')
-  await waitForSelector('[data-testid="harness-list"]', 20000)
-  await click('[data-testid="harness-option-shell"]')
+  await waitForSelector('[data-testid="new-session-agent"]', 20000)
+  await setSelect('[data-testid="new-session-agent"]', 'shell')
   await setInput('[data-testid="session-title-input"]', title)
   await click('[data-testid="create-session-submit"]')
   await waitFor(

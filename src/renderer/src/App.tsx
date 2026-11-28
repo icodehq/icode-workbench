@@ -609,7 +609,13 @@ export default function App(): React.JSX.Element {
       setAddOpen(true)
       return
     }
-    setNewSessionInitialCheckout(initialCheckout)
+    // React can hand a click event to a handler typed as optional-argument;
+    // only the two explicit checkout descriptors count as a preselection.
+    setNewSessionInitialCheckout(
+      initialCheckout?.kind === 'default' || initialCheckout?.kind === 'worktree'
+        ? initialCheckout
+        : null
+    )
     setNewSessionOpen(true)
   }
 
@@ -992,7 +998,6 @@ export default function App(): React.JSX.Element {
               ? {
                   repos: state.repos,
                   activeRepoId: state.activeRepoId,
-                  sessions: sidebarSessions,
                   initialCheckout: newSessionInitialCheckout,
                   harnesses: state.harnesses,
                   harnessLoading: state.harnessLoading,

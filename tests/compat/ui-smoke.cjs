@@ -816,15 +816,15 @@ async function main() {
     await rightClick(`[data-testid="sidebar-default-checkout-select-${repoId}"]`)
     await waitForSelector('[data-testid="sidebar-default-checkout-menu"]', 5000)
     await click(`[data-testid="sidebar-default-checkout-${repoId}-new-session"]`)
-    await waitForSelector('[data-testid="new-session-worktree"]', 5000)
+    await waitForSelector('[data-testid="new-session-dialog"]', 5000)
     const choice = await cdp.evaluate(
-      `document.querySelector('[data-testid="new-session-worktree"]')?.value ?? null`
+      `document.querySelector('[data-testid="new-session-dialog"]')?.dataset.checkout ?? null`
     )
     assert(choice === 'default', 'Default checkout action did not preselect the shared checkout')
 
     // Run one shell session in the shared checkout, prove it owns no worktree,
     // then remove it so the remaining steps keep their two-session expectations.
-    await click('[data-testid="harness-option-shell"]')
+    await setSelect('[data-testid="new-session-agent"]', 'shell')
     await click('[data-testid="create-session-submit"]')
     let created = null
     const deadline = Date.now() + 30000
@@ -929,39 +929,42 @@ async function main() {
 
   await step('inspect real Harness detection and reject unavailable Harnesses', async () => {
     await click('[data-testid="empty-new-session"]')
-    await waitForSelector('[data-testid="harness-list"]')
-    // The dialog lists installed Harnesses; everything else sits behind
-    // "More agents", so expand it to inspect the whole detection.
+    await waitForSelector('[data-testid="new-session-agent"]')
     await waitFor(
-      `document.querySelectorAll('[data-harness-state]').length >= 1`,
+      `document.querySelectorAll('[data-testid="new-session-agent"] option[data-harness-state]').length >= 1`,
       'installed Harness detections',
       20000
     )
-    await cdp.evaluate(`(() => {
-      const button = document.querySelector('[data-testid="harness-more"]');
-      if (button) button.click();
-    })()`)
-    await waitFor(
-      `document.querySelectorAll('[data-harness-state]').length === 45`,
-      'all Harness detections',
-      20000
-    )
     const states = await cdp.evaluate(
-      `Array.from(document.querySelectorAll('[data-harness-state]')).map((element) => ({
-        harness: element.getAttribute('data-testid').replace('harness-option-', ''),
+      `Array.from(document.querySelectorAll('[data-testid="new-session-agent"] option[data-harness-state]')).map((element) => ({
+        harness: element.value,
         state: element.getAttribute('data-harness-state'),
-        selected: element.getAttribute('data-selected'),
+        selected: element.selected,
         disabled: element.disabled,
         text: element.innerText
       }))`
     )
+    const detections = await cdp.evaluate(`(async () => {
+      const result = await window.icode.harness.list({ repoId: ${JSON.stringify(repoId)} });
+      return result.ok
+        ? result.value.map((entry) => ({ harness: entry.harness, state: entry.state }))
+        : null;
+    })()`)
+    assert(detections && detections.length === 45, 'Harness detection is incomplete')
     const shell = states.find((entry) => entry.harness === 'shell')
     assert(shell && shell.state === 'available', 'Shell Harness is not available')
-    for (const entry of states.filter((item) => item.state !== 'available')) {
-      assert(entry.disabled, `Unavailable Harness ${entry.harness} is selectable`)
+    assert(
+      states.every((entry) => entry.state === 'available'),
+      'An unavailable Harness is selectable'
+    )
+    for (const entry of detections.filter((item) => item.state !== 'available')) {
+      assert(
+        !states.some((item) => item.harness === entry.harness),
+        `Unavailable Harness ${entry.harness} is selectable`
+      )
     }
     await screenshot('03-harness-detection')
-    return { states }
+    return { states, detections }
   })
 
   const firstTitle = 'Smoke shell one'
@@ -969,7 +972,7 @@ async function main() {
   let firstPid = null
 
   await step('create a Shell session and interact with the real PTY', async () => {
-    await click('[data-testid="harness-option-shell"]')
+    await setSelect('[data-testid="new-session-agent"]', 'shell')
     await setInput('[data-testid="session-title-input"]', firstTitle)
     await waitFor(
       `(() => {
@@ -1064,13 +1067,13 @@ async function main() {
 
   await step('open the New Session dialog directly from the worktree bar', async () => {
     await click('[data-testid="workspace-tab-new"]')
-    await waitForSelector('[data-testid="new-session-worktree"]', 5000)
+    await waitForSelector('[data-testid="new-session-dialog"]', 5000)
     assert(
       await cdp.evaluate(`!document.querySelector('[data-testid="workspace-tab-new-menu"]')`),
       'The worktree bar plus opened a menu instead of the New Session dialog'
     )
     const selected = await cdp.evaluate(
-      `document.querySelector('[data-testid="new-session-worktree"]')?.value ?? null`
+      `document.querySelector('[data-testid="new-session-dialog"]')?.dataset.worktreeId ?? null`
     )
     assert(
       selected === firstSession.worktree.id,
@@ -1078,7 +1081,7 @@ async function main() {
     )
     await click('[data-testid="new-session-cancel"]')
     await waitFor(
-      `!document.querySelector('[data-testid="new-session-worktree"]')`,
+      `!document.querySelector('[data-testid="new-session-dialog"]')`,
       'New Session dialog closed',
       5000
     )
@@ -1554,27 +1557,18 @@ async function main() {
   let secondSession = null
 
   await step('create a second session and keep both PTYs alive while switching', async () => {
-    await click('[data-testid="sidebar-new-menu"]')
-    await waitForSelector('[data-testid="new-session-open"]', 10000)
-    await click('[data-testid="new-session-open"]')
-    await waitForSelector('[data-testid="new-session-repo"]')
-    const listedFirst = await cdp.evaluate(
-      `window.icode.sessions.list({ repoId: ${JSON.stringify(repoId)} })`
+    await rightClick(`[data-testid="sidebar-worktree-select-${firstSession.worktree.id}"]`)
+    await waitForSelector('[data-testid="sidebar-worktree-menu"]', 10000)
+    await click(`[data-testid="sidebar-worktree-${firstSession.worktree.id}-new-session"]`)
+    await waitForSelector('[data-testid="new-session-dialog"]')
+    const secondTarget = await cdp.evaluate(
+      `document.querySelector('[data-testid="new-session-dialog"]')?.dataset.worktreeId ?? null`
     )
-    const firstSummary =
-      listedFirst && listedFirst.ok
-        ? listedFirst.value.sessions.find((entry) => entry.id === firstSession.id) ?? null
-        : null
-    const sharedWorktree = firstSummary && firstSummary.worktree ? firstSummary.worktree.id : null
-    assert(sharedWorktree, 'The first session did not own a worktree')
-    await cdp.evaluate(`(() => {
-      const select = document.querySelector('[data-testid="new-session-worktree"]');
-      if (!select) return false;
-      select.value = ${JSON.stringify(sharedWorktree)};
-      select.dispatchEvent(new Event('change', { bubbles: true }));
-      return select.value;
-    })()`)
-    await click('[data-testid="harness-option-shell"]')
+    assert(
+      secondTarget === firstSession.worktree.id,
+      `The worktree row did not preselect its worktree (${secondTarget})`
+    )
+    await setSelect('[data-testid="new-session-agent"]', 'shell')
     await setInput('[data-testid="session-title-input"]', secondTitle)
     await click('[data-testid="create-session-submit"]')
     await waitForSessionCount(2, 'two sessions')
@@ -1730,8 +1724,8 @@ async function main() {
     await click('[data-testid="sidebar-new-menu"]')
     await waitForSelector('[data-testid="new-session-open"]', 10000)
     await click('[data-testid="new-session-open"]')
-    await waitForSelector('[data-testid="new-session-repo"]')
-    await click('[data-testid="harness-option-shell"]')
+    await waitForSelector('[data-testid="new-session-dialog"]')
+    await setSelect('[data-testid="new-session-agent"]', 'shell')
     await setInput('[data-testid="session-title-input"]', 'Smoke worktree two')
     await click('[data-testid="create-session-submit"]')
     await waitForSessionCount(3, 'third session in a new worktree')
@@ -2093,30 +2087,27 @@ async function main() {
     await click('[data-testid="sidebar-new-menu"]')
     await waitForSelector('[data-testid="new-session-open"]', 10000)
     await click('[data-testid="new-session-open"]')
-    // Nothing is launchable, so every detection sits behind the disclosure.
-    await waitForSelector('[data-testid="harness-more"]', 20000)
-    await click('[data-testid="harness-more"]')
-    await waitFor(
-      `document.querySelectorAll('[data-harness-state]').length === 45`,
-      'all unavailable detections',
-      20000
-    )
-    const detections = await cdp.evaluate(
-      `Array.from(document.querySelectorAll('[data-harness-state]')).map((element) => ({
-        harness: element.getAttribute('data-testid').replace('harness-option-', ''),
-        state: element.getAttribute('data-harness-state'),
-        disabled: element.disabled
-      }))`
-    )
+    await waitForSelector('[data-testid="new-session-agent"]', 20000)
+    const detections = await cdp.evaluate(`(async () => {
+      const result = await window.icode.harness.list({});
+      return result.ok
+        ? result.value.map((entry) => ({ harness: entry.harness, state: entry.state }))
+        : null;
+    })()`)
+    assert(detections && detections.length === 45, 'Harness detection is incomplete')
     assert(
-      detections.every((entry) => entry.state === 'unavailable' && entry.disabled),
-      `Expected all Harnesses unavailable: ${JSON.stringify(detections)}`
+      detections.every((entry) => entry.state !== 'available'),
+      `Expected all Harnesses unavailable: ${JSON.stringify(detections.filter((entry) => entry.state === 'available'))}`
     )
+    const optionCount = await cdp.evaluate(
+      `document.querySelectorAll('[data-testid="new-session-agent"] option[data-harness-state]').length`
+    )
+    assert(optionCount === 0, 'Unavailable Harness options are selectable')
     const dialogText = await cdp.evaluate(
-      `document.querySelector('[role="dialog"]').innerText`
+      `document.querySelector('[data-testid="new-session-dialog"]').innerText`
     )
     assert(
-      dialogText.includes('0 of 45 Harnesses available'),
+      dialogText.includes('No Agent or terminal is available'),
       'No-available-Harness guidance is missing'
     )
     const createDisabled = await cdp.evaluate(
