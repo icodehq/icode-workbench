@@ -200,6 +200,17 @@ async function setInput(selector, value) {
   assert(applied, `Could not set ${selector}`)
 }
 
+async function setSelect(selector, value) {
+  const applied = await cdp.evaluate(`(() => {
+    const element = document.querySelector(${JSON.stringify(selector)});
+    if (!element || element.disabled) return false;
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(element, ${JSON.stringify(value)});
+    element.dispatchEvent(new Event('change', { bubbles: true }));
+    return element.value === ${JSON.stringify(value)};
+  })()`)
+  assert(applied, `Could not select ${value} in ${selector}`)
+}
+
 async function sessions() {
   return cdp.evaluate(`(async () => {
     const result = await window.icode.sessions.list({});
@@ -246,8 +257,8 @@ async function createSession(title) {
   await click('[data-testid="sidebar-new-menu"]')
   await waitForSelector('[data-testid="new-session-open"]', 10_000)
   await click('[data-testid="new-session-open"]')
-  await waitForSelector('[data-testid="new-session-repo"]', 15_000)
-  await click('[data-testid="harness-option-shell"]')
+  await waitForSelector('[data-testid="new-session-agent"]', 15_000)
+  await setSelect('[data-testid="new-session-agent"]', 'shell')
   await waitFor(
     `!document.querySelector('[data-testid="create-session-submit"]')?.disabled`,
     'an available Harness',
@@ -266,7 +277,7 @@ async function createSession(title) {
     25_000
   )
   await waitFor(
-    `!document.querySelector('[data-testid="new-session-repo"]')`,
+    `!document.querySelector('[data-testid="new-session-dialog"]')`,
     'the new-session dialog to close',
     15_000
   )

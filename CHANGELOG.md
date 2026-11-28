@@ -5,6 +5,17 @@ All notable changes to iCode are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.39.0] - 2026-11-28
+
+### Changed
+
+- **The new-session dialog is a single short form.** It asks only for the
+  Harness, the start ref and branch name for a fresh worktree, and an optional
+  session title. The repository and checkout come from the sidebar row the
+  dialog was opened from; the repository picker, checkout picker, Harness
+  search, availability count and per-Harness diagnostics are gone. Detection
+  guidance now appears only when detection fails or nothing is launchable.
+
 ## [0.38.0] - 2026-11-27
 
 ### Added

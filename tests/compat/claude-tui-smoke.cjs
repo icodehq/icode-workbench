@@ -262,6 +262,17 @@ async function setInput(selector, value) {
   assert(applied, `Could not set ${selector}`)
 }
 
+async function setSelect(selector, value) {
+  const applied = await cdp.evaluate(`(() => {
+    const element = document.querySelector(${JSON.stringify(selector)});
+    if (!element || element.disabled) return false;
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(element, ${JSON.stringify(value)});
+    element.dispatchEvent(new Event('change', { bubbles: true }));
+    return element.value === ${JSON.stringify(value)};
+  })()`)
+  assert(applied, `Could not select ${value} in ${selector}`)
+}
+
 async function bodyText() {
   return cdp.evaluate('document.body.innerText')
 }
@@ -734,8 +745,13 @@ async function createSessionFromUi(title, harness) {
   await click('[data-testid="sidebar-new-menu"]')
   await waitForSelector('[data-testid="new-session-open"]', 10000)
   await click('[data-testid="new-session-open"]')
-  await waitForSelector(`[data-testid="harness-option-${harness}"]`, 20000)
-  await click(`[data-testid="harness-option-${harness}"]`)
+  await waitForSelector('[data-testid="new-session-agent"]', 20000)
+  await waitFor(
+    `Boolean(document.querySelector('[data-testid="new-session-agent"] option[value="${harness}"]'))`,
+    `${harness} option`,
+    20000
+  )
+  await setSelect('[data-testid="new-session-agent"]', harness)
   await setInput('[data-testid="session-title-input"]', title)
   await click('[data-testid="create-session-submit"]')
   await waitFor(
@@ -852,33 +868,35 @@ async function main() {
 
   await step('detect the real Claude Code Harness', CRITERIA.harness, async () => {
     await click('[data-testid="empty-new-session"]')
-    // Only available Harnesses are listed up front, and how many a machine
-    // has is environment-dependent. Wait for the one this smoke needs.
+    await waitForSelector('[data-testid="new-session-agent"]', 30000)
     await waitFor(
-      `document.querySelector('[data-testid="harness-option-claude"]')?.getAttribute('data-harness-state') === 'available'`,
-      'Claude Harness detection',
+      `Boolean(document.querySelector('[data-testid="new-session-agent"] option[value="claude"]'))`,
+      'Claude Harness option',
       30000
     )
-    const states = await cdp.evaluate(
-      `Array.from(document.querySelectorAll('[data-harness-state]')).map((element) => ({
-        harness: element.getAttribute('data-testid').replace('harness-option-', ''),
-        state: element.getAttribute('data-harness-state'),
-        disabled: element.disabled,
-        text: element.innerText
-      }))`
-    )
-    const claudeState = states.find((entry) => entry.harness === 'claude')
+    const detections = await cdp.evaluate(`(async () => {
+      const result = await window.icode.harness.list({});
+      return result.ok
+        ? result.value.map((entry) => ({
+            harness: entry.harness,
+            state: entry.state,
+            version: entry.version ?? null
+          }))
+        : null;
+    })()`)
+    assert(detections, 'Harness detection could not be read')
+    const claudeState = detections.find((entry) => entry.harness === 'claude')
     assert(claudeState && claudeState.state === 'available', 'Claude Code is not available')
     assert(
-      /Available\s*·\s*2\.1\.\d+/.test(claudeState.text),
-      `Claude version was not detected: ${claudeState.text}`
+      claudeState.version && /^2\.1\./.test(claudeState.version),
+      `Claude version was not detected: ${claudeState.version}`
     )
     await screenshot('02-harness-detection')
-    return { states }
+    return { states: detections }
   })
 
   await step('start a real Claude Code TUI session and render its interface', CRITERIA.start, async () => {
-    await click('[data-testid="harness-option-claude"]')
+    await setSelect('[data-testid="new-session-agent"]', 'claude')
     await setInput('[data-testid="session-title-input"]', 'Claude TUI acceptance')
     await click('[data-testid="create-session-submit"]')
     await waitFor(
