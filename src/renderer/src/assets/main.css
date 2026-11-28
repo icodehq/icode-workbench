@@ -377,10 +377,12 @@ select option {
  * Chat reading column, shared by the transcript and composer.
  *
  * 48rem is the right measure on a laptop. iCode also runs full-screen on 2K
- * and larger displays, where a fixed 48rem column strands most of the pane,
- * so the measure steps up with the window. It stops at 72rem: prose still
- * reads as a column, while code, diffs and tool output get the width they
- * need. `width: 100%` keeps split panes and narrow windows capped by the pane.
+ * and larger displays, where any fixed measure strands a wide band of empty
+ * canvas beside the conversation. So the column widens with the window and,
+ * from 1920px up, fills the pane: the sidebar and the optional Items rail
+ * already bound the text, and the transcript is mostly code, diffs and tool
+ * output rather than long-form prose. `width: 100%` keeps split panes and
+ * narrow windows capped by the pane.
  */
 .icode-chat-measure {
   width: 100%;
@@ -395,13 +397,7 @@ select option {
 
 @media (min-width: 1920px) {
   .icode-chat-measure {
-    max-width: 64rem;
-  }
-}
-
-@media (min-width: 2560px) {
-  .icode-chat-measure {
-    max-width: 72rem;
+    max-width: none;
   }
 }
 

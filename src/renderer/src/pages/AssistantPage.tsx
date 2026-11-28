@@ -452,8 +452,12 @@ export default function AssistantPage({
                   />
                 ) : null}
                 <div
-                  className={`flex min-w-0 max-w-[86%] flex-col gap-1.5 ${
-                    boundary ? 'items-center' : user ? 'items-end' : 'w-full'
+                  className={`flex min-w-0 flex-col gap-1.5 ${
+                    boundary
+                      ? 'max-w-[86%] items-center'
+                      : user
+                        ? 'max-w-[86%] items-end'
+                        : 'w-full'
                   }`}
                 >
                   <div
@@ -493,7 +497,7 @@ export default function AssistantPage({
                 size="sm"
                 color={color}
               />
-              <div className="flex w-full min-w-0 max-w-[86%] flex-col gap-1.5">
+              <div className="flex w-full min-w-0 flex-col gap-1.5">
                 <div className="break-words rounded-lg border border-border bg-card px-3 py-2 text-[12px] leading-relaxed text-foreground">
                   <Markdown text={live.draft} streaming />
                   <span className="ml-0.5 inline-block h-3 w-1 animate-pulse bg-accent align-middle" />

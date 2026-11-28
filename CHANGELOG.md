@@ -11,10 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bot home and side-chat panes fill the workspace width. They no longer shrink
   to a narrow centered column and leave unused space beside the Items rail.
-- The chat reading column grows with large displays. It steps from 768px to
-  896px, 1024px, and 1152px at 1536px, 1920px, and 2560px windows, so 2K and
-  larger screens no longer strand most of the pane beside the transcript and
-  composer.
+- The chat reading column grows with large displays and fills the pane from
+  1920px up. Bot and group transcripts and the composer no longer leave a
+  fixed band of empty canvas on 2K and larger full-screen windows. Assistant
+  responses and bot messages use the full column width; user bubbles stay
+  bounded.
 
 ## [0.38.0] - 2026-11-27
 
