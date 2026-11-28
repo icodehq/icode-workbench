@@ -5,6 +5,18 @@ All notable changes to iCode are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.38.1] - 2026-11-27
+
+### Fixed
+
+- Bot home and side-chat panes fill the workspace width. They no longer shrink
+  to a narrow centered column and leave unused space beside the Items rail.
+- The chat reading column grows with large displays and fills the pane from
+  1920px up. Bot and group transcripts and the composer no longer leave a
+  fixed band of empty canvas on 2K and larger full-screen windows. Assistant
+  responses and bot messages use the full column width; user bubbles stay
+  bounded.
+
 ## [0.38.0] - 2026-11-27
 
 ### Added

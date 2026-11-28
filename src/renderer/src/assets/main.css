@@ -373,6 +373,34 @@ select option {
   outline-offset: 1px;
 }
 
+/*
+ * Chat reading column, shared by the transcript and composer.
+ *
+ * 48rem is the right measure on a laptop. iCode also runs full-screen on 2K
+ * and larger displays, where any fixed measure strands a wide band of empty
+ * canvas beside the conversation. So the column widens with the window and,
+ * from 1920px up, fills the pane: the sidebar and the optional Items rail
+ * already bound the text, and the transcript is mostly code, diffs and tool
+ * output rather than long-form prose. `width: 100%` keeps split panes and
+ * narrow windows capped by the pane.
+ */
+.icode-chat-measure {
+  width: 100%;
+  max-width: 48rem;
+}
+
+@media (min-width: 1536px) {
+  .icode-chat-measure {
+    max-width: 56rem;
+  }
+}
+
+@media (min-width: 1920px) {
+  .icode-chat-measure {
+    max-width: none;
+  }
+}
+
 /* Overlay continuity: drawers keep spatial orientation instead of snapping. */
 .icode-command-palette {
   animation: icode-palette-in 140ms ease-out;

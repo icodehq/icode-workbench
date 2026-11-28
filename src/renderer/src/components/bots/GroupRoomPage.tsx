@@ -279,7 +279,7 @@ export default function GroupRoomPage({
               <Loader2 size={11} className="animate-spin" /> {t('bots.room.loading')}
             </p>
           ) : (
-            <div className="mx-auto flex w-full max-w-3xl flex-col gap-3">
+            <div className="icode-chat-measure mx-auto flex flex-col gap-3">
               {room.hasEarlier ? (
                 <button
                   type="button"
@@ -328,7 +328,11 @@ export default function GroupRoomPage({
                       className={`flex flex-col gap-1.5 ${mine ? 'items-end' : 'items-start'}`}
                       data-testid={`bots-message-${message.id}`}
                     >
-                      <div className="flex min-w-0 max-w-[88%] items-start gap-2">
+                      <div
+                        className={`flex min-w-0 items-start gap-2 ${
+                          mine ? 'max-w-[88%]' : 'w-full'
+                        }`}
+                      >
                         {!mine ? (
                           <AssistantAvatar
                             name={message.authorName ?? bot?.name ?? '?'}
@@ -340,7 +344,7 @@ export default function GroupRoomPage({
                             outfit={bot?.avatarOutfit}
                           />
                         ) : null}
-                        <div className="min-w-0">
+                        <div className="min-w-0 flex-1">
                           <div className="mb-0.5 text-[10.5px] text-muted-foreground">
                             {mine ? t('bots.you') : (message.authorName ?? message.authorBotId)}
                           </div>

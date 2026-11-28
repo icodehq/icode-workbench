@@ -206,7 +206,7 @@ export default function ChatComposer({
       {menu !== undefined ? (
         <div className="absolute bottom-full left-3 z-20 mb-1">{menu}</div>
       ) : null}
-      <div className="mx-auto w-full max-w-3xl">
+      <div className="icode-chat-measure mx-auto">
         {queued !== undefined && queued > 0 && queuedLabel !== undefined ? (
           <div className="mb-1 px-1 text-[10px] text-muted-foreground">{queuedLabel}</div>
         ) : null}
